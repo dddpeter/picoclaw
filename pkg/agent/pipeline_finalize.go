@@ -55,6 +55,9 @@ func (p *Pipeline) Finalize(
 					})
 			}
 		}
+		// Commit the completed turn to shared memory (async, best effort):
+		// the tool-delivered answer is whatever text the model streamed.
+		al.commitTurnMemory(ts.sessionKey, ts.userMessage, content)
 		ts.setPhase(TurnPhaseCompleted)
 		return turnResult{
 			finalContent: finalContent,
@@ -114,6 +117,8 @@ func (p *Pipeline) Finalize(
 		markFinalOutbound(&msg)
 		_ = al.bus.PublishOutbound(turnCtx, msg)
 	}
+	// Commit the completed turn to shared memory (async, best effort).
+	al.commitTurnMemory(ts.sessionKey, ts.userMessage, finalContent)
 	if streamErr != nil && isConfiguredStreamingVisibleError(streamErr) {
 		ts.setPhase(TurnPhaseCompleted)
 		return turnResult{

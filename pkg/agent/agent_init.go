@@ -106,6 +106,7 @@ func NewAgentLoop(
 
 	// Shared-memory recall (OpenViking-style MCP memory backends)
 	registerMemoryRecallContributors(al, cfg, registry)
+	registerMemoryCommitter(al, cfg)
 
 	return al
 }

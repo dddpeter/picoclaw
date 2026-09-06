@@ -63,6 +63,10 @@ type MemoryConfig struct {
 	// server (e.g. OpenViking's `search` tool) and matches are injected
 	// into the system prompt's memory slot.
 	Recall MemoryRecallConfig `json:"recall,omitempty"`
+	// Commit enables session auto-commit: completed turns are pushed to an
+	// MCP memory server (e.g. OpenViking's `remember` tool), whose async
+	// extraction then distills long-term memories.
+	Commit MemoryCommitConfig `json:"commit,omitempty"`
 }
 
 type MemoryRecallConfig struct {
@@ -74,6 +78,16 @@ type MemoryRecallConfig struct {
 	// MaxChars caps injected recall text. Defaults to 2400.
 	MaxChars int `json:"max_chars,omitempty"`
 	// TimeoutMs bounds each recall call. Defaults to 3000.
+	TimeoutMs int `json:"timeout_ms,omitempty"`
+}
+
+type MemoryCommitConfig struct {
+	Enabled bool `json:"enabled"`
+	// Server names the MCP server (under tools.mcp.servers) used for commits.
+	Server string `json:"server"`
+	// Tool is the commit tool name on that server. Defaults to "remember".
+	Tool string `json:"tool,omitempty"`
+	// TimeoutMs bounds each commit call. Defaults to 5000.
 	TimeoutMs int `json:"timeout_ms,omitempty"`
 }
 

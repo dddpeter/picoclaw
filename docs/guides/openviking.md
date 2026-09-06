@@ -73,9 +73,39 @@ OpenViking 的 MCP 端点是标准 streamable HTTP，在配置中加入：
 - **有界**：注入内容截断到 `max_chars`，召回调用有独立超时；
 - **提示词定位**：注入内容带"approximate references only"声明，与本地 MEMORY.md 共存于 memory 槽位。
 
+## 阶段 2：会话自动提交
+
+开启后，每个**成功完成**的回合会异步提交给 OpenViking 的 `remember` 工具（用户消息 + 最终回答），OpenViking 的异步萃取机制据此提炼用户偏好和 agent 经验进长期记忆（官方基准显示这带来 tau2-bench +7~12pp 的提升）：
+
+```json
+{
+  "memory": {
+    "recall": { "enabled": true, "server": "openviking" },
+    "commit": {
+      "enabled": true,
+      "server": "openviking",
+      "tool": "remember",
+      "timeout_ms": 5000
+    }
+  }
+}
+```
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `server` | 必填 | `tools.mcp.servers` 里的 MCP 服务名 |
+| `tool` | `remember` | 提交工具名（接收 `messages: [{role, content}]`） |
+| `timeout_ms` | `5000` | 单次提交超时 |
+
+行为要点：
+
+- **异步即发即忘**：提交在独立 goroutine 上执行（分离上下文 + 独立超时），绝不延迟回合结束，失败仅记日志；
+- **只提交完成的回合**：中断/中止的回合不提交；
+- **工具自投递回合**（如 send_file 发图）也会提交（答案取已流出的文本）。
+
 ## 多实例共享
 
-两台机器上的 picoclaw 连同一个 OpenViking 服务、使用同一用户命名空间即可共享记忆。会话级写入目前由模型通过 `store` 工具完成；自动会话提交（turn 结束后推送摘要）规划中。
+两台机器上的 picoclaw 连同一个 OpenViking 服务、使用同一用户命名空间即可共享记忆：A 实例提交的会话被萃取成长期记忆后，B 实例的召回查询即可命中。
 
 ## 参考
 

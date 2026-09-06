@@ -47,21 +47,22 @@ type AgentLoop struct {
 	hooks              *HookManager
 
 	// Runtime state
-	running        atomic.Bool
-	startedAt      time.Time // process-loop start, for /status uptime
-	contextManager ContextManager
-	fallback       *providers.FallbackChain
-	channelManager interfaces.ChannelManager
-	mediaStore     media.MediaStore
-	transcriber    asr.Transcriber
-	cmdRegistry    *commands.Registry
-	mcp            mcpRuntime
-	evolution      *evolutionBridge
-	hookRuntime    hookRuntime
-	steering       *steeringQueue
-	pendingSkills  sync.Map
-	pendingStops   sync.Map
-	mu             sync.RWMutex
+	running         atomic.Bool
+	startedAt       time.Time // process-loop start, for /status uptime
+	contextManager  ContextManager
+	memoryCommitter *memoryCommitter
+	fallback        *providers.FallbackChain
+	channelManager  interfaces.ChannelManager
+	mediaStore      media.MediaStore
+	transcriber     asr.Transcriber
+	cmdRegistry     *commands.Registry
+	mcp             mcpRuntime
+	evolution       *evolutionBridge
+	hookRuntime     hookRuntime
+	steering        *steeringQueue
+	pendingSkills   sync.Map
+	pendingStops    sync.Map
+	mu              sync.RWMutex
 
 	// workerSem limits concurrent turn processing workers.
 	workerSem chan struct{}
