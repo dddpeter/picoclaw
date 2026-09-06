@@ -564,7 +564,7 @@ func truncateFeishuCodeResult(result string) string {
 	}
 	out := strings.Join(lines, "\n")
 	if len(out) > 600 {
-		out = out[:1200]
+		out = cutOnRuneBoundary(out, 600)
 	}
 	return out + "\n…"
 }
@@ -796,7 +796,7 @@ func feishuCardSummary(answer string) map[string]any {
 	}
 	summary = strings.ReplaceAll(summary, "```", "")
 	if len(summary) > 120 {
-		summary = summary[:120]
+		summary = cutOnRuneBoundary(summary, 120)
 	}
 	if summary == "" {
 		summary = "已完成"

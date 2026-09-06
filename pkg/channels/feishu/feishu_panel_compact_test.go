@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 )
@@ -98,6 +99,36 @@ func TestFeishuToolStepBlockKeptForLongResult(t *testing.T) {
 	}
 	if !strings.Contains(rendered, "line-5") {
 		t.Errorf("first 6 lines should survive trimming:\n%s", rendered)
+	}
+}
+
+func TestTruncateFeishuCodeResultLongSingleLine(t *testing.T) {
+	// A single long line (no newlines) longer than 600 bytes used to hit a
+	// slice-bounds panic: the guard checked >600 but sliced to [:1200].
+	long := strings.Repeat("a", 700)
+	got := truncateFeishuCodeResult(long)
+	if len(got) > 700 || !strings.HasSuffix(got, "\n…") {
+		t.Fatalf("unexpected truncation result: %q", got)
+	}
+
+	// Chinese content must stay valid UTF-8 after the byte cap.
+	chinese := strings.Repeat("字", 300) // 900 bytes
+	got = truncateFeishuCodeResult(chinese)
+	if !utf8.ValidString(got) {
+		t.Fatalf("truncated result is not valid UTF-8: %q", got)
+	}
+	if len(got) > 601+len("\n…") {
+		t.Fatalf("result not capped near 600 bytes: %d", len(got))
+	}
+}
+
+func TestFeishuCardSummaryRuneSafe(t *testing.T) {
+	// First line crossing the 120-byte boundary mid-rune used to produce
+	// invalid UTF-8 (rendered as U+FFFD on the card).
+	summary := feishuCardSummary(strings.Repeat("字", 50))
+	content, _ := summary["content"].(string)
+	if !utf8.ValidString(content) {
+		t.Fatalf("summary content is not valid UTF-8: %q", content)
 	}
 }
 
