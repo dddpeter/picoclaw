@@ -269,7 +269,7 @@ func (s *feishuCardStreamer) refreshPanelLocked(ctx context.Context) error {
 	}
 
 	card := buildFeishuCardWithinSize(func(panelBudget int) map[string]any {
-		return map[string]any{
+		card := map[string]any{
 			"schema": "2.0",
 			"body": map[string]any{
 				"elements": []any{
@@ -285,6 +285,10 @@ func (s *feishuCardStreamer) refreshPanelLocked(ctx context.Context) error {
 				},
 			},
 		}
+		// The 200-element cap applies mid-stream too: an oversized update is
+		// rejected by Feishu (300305), which would freeze the panel.
+		enforceFeishuElementLimit(card)
+		return card
 	})
 	s.panelSentAt = time.Now()
 	cardID, seq := s.cardID, s.nextSeqLocked()

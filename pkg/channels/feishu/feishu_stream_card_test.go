@@ -190,10 +190,32 @@ func buildFeishuPanelRaw(state *feishuStreamState) map[string]any {
 	}
 }
 
-func TestFeishuCodeBlockFenceEscaping(t *testing.T) {
-	block := feishuCodeBlock("```\ninner\n```", "text")
-	if strings.Count(block, "````") < 1 {
-		t.Errorf("fence should outgrow inner backticks: %q", block)
+func TestFeishuInlineCodeEscaping(t *testing.T) {
+	// A line containing backticks needs a longer delimiter run.
+	got := feishuInlineCodeLine("has `tick` inside")
+	if !strings.HasPrefix(got, "``has") || !strings.HasSuffix(got, "inside``") {
+		t.Errorf("inline code line = %q, want double-backtick delimiters", got)
+	}
+	// Lines starting/ending with the delimiter char are padded so the
+	// delimiter stays distinct from content.
+	got = feishuInlineCodeLine("`lead")
+	if !strings.HasPrefix(got, "`` `") || !strings.HasSuffix(got, "d ``") {
+		t.Errorf("padded line = %q", got)
+	}
+	// Multi-line output: every non-empty line wrapped, blanks preserved.
+	if block := feishuInlineCodeBlock("a\n\nb"); block != "`a`\n\n`b`" {
+		t.Errorf("inline code block = %q", block)
+	}
+}
+
+func TestToolStepOutputUsesInlineCodeNotFences(t *testing.T) {
+	elements := feishuToolStepElements(bus.ToolStep{Tool: "t", Result: "line1\nline2"})
+	data, _ := json.Marshal(elements)
+	if strings.Contains(string(data), "```") {
+		t.Errorf("tool output must not use fenced code blocks: %s", string(data))
+	}
+	if !strings.Contains(string(data), "`line1`") {
+		t.Errorf("tool output should wrap lines in inline code: %s", string(data))
 	}
 }
 

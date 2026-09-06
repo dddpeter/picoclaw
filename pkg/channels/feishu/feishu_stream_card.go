@@ -154,11 +154,6 @@ func buildFeishuStreamingCard() map[string]any {
 	return map[string]any{
 		"schema": "2.0",
 		"config": map[string]any{
-			"style": map[string]any{
-				"text_size": map[string]any{
-					"panel_small": map[string]any{"pc": "12px", "mobile": "12px", "default": "notation"},
-				},
-			},
 			"streaming_mode": true,
 			"streaming_config": map[string]any{
 				"print_frequency_ms": map[string]any{"default": 70},
@@ -371,7 +366,7 @@ func feishuToolStepElements(step bus.ToolStep) []any {
 			"tag":    "div",
 			"margin": "0px 0px 0px 22px",
 			"text": map[string]any{
-				"tag": "plain_text", "content": detail, "text_color": "grey", "text_size": "panel_small",
+				"tag": "plain_text", "content": detail, "text_color": "grey", "text_size": "notation",
 			},
 		})
 	}
@@ -380,18 +375,50 @@ func feishuToolStepElements(step bus.ToolStep) []any {
 		if step.IsError {
 			label = "错误"
 		}
-		// CardKit 2.0 rejects the code_block component (error 10002), and code
-		// fences inside a div/lark_md ignore text_size — a standalone markdown
-		// element with the custom panel_small size (12px) renders code small.
-		content := "**" + label + "**\n" + feishuCodeBlock(truncateFeishuCodeResult(result), "text")
+		// No fenced code blocks here: Feishu renders fences at a fixed large
+		// font and ignores text_size on them (built-in or custom). Per-line
+		// inline code is character-level styling, so it follows notation size.
+		content := "**" + label + "**\n" + feishuInlineCodeBlock(truncateFeishuCodeResult(result))
 		elements = append(elements, map[string]any{
-			"tag":       "markdown",
-			"content":   content,
-			"margin":    "0px 0px 0px 22px",
-			"text_size": "panel_small",
+			"tag":    "div",
+			"margin": "0px 0px 0px 22px",
+			"text": map[string]any{
+				"tag": "lark_md", "content": content, "text_size": "notation",
+			},
 		})
 	}
 	return elements
+}
+
+// feishuInlineCodeBlock renders multi-line tool output as per-line inline
+// code so every line inherits the element's small text size.
+func feishuInlineCodeBlock(result string) string {
+	lines := strings.Split(strings.ReplaceAll(result, "\r\n", "\n"), "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			out = append(out, "")
+			continue
+		}
+		out = append(out, feishuInlineCodeLine(line))
+	}
+	return strings.Join(out, "\n")
+}
+
+// feishuInlineCodeLine wraps one line in inline code, using a backtick run
+// longer than any run inside the line (markdown inline-code rule).
+func feishuInlineCodeLine(line string) string {
+	longest := 0
+	for _, m := range feishuBacktickRunRe.FindAllString(line, -1) {
+		if len(m) > longest {
+			longest = len(m)
+		}
+	}
+	fence := strings.Repeat("`", longest+1)
+	if strings.HasPrefix(line, "`") || strings.HasSuffix(line, "`") {
+		line = " " + line + " "
+	}
+	return fence + line + fence
 }
 
 // truncateFeishuCodeResult keeps tool results readable inside the panel: cap
@@ -502,11 +529,6 @@ func buildFeishuFinalCardBudget(state *feishuStreamState, answer string, aborted
 	card := map[string]any{
 		"schema": "2.0",
 		"config": map[string]any{
-			"style": map[string]any{
-				"text_size": map[string]any{
-					"panel_small": map[string]any{"pc": "12px", "mobile": "12px", "default": "notation"},
-				},
-			},
 			"streaming_mode": false,
 			"locales":        []string{"zh_cn", "en_us"},
 			"summary":        feishuCardSummary(answer),
@@ -729,18 +751,6 @@ func formatFeishuElapsed(d time.Duration) string {
 }
 
 var feishuBacktickRunRe = regexp.MustCompile("`+")
-
-func feishuCodeBlock(content, language string) string {
-	normalized := strings.ReplaceAll(strings.TrimSpace(content), "\r\n", "\n")
-	longest := 0
-	for _, m := range feishuBacktickRunRe.FindAllString(normalized, -1) {
-		if len(m) > longest {
-			longest = len(m)
-		}
-	}
-	fence := strings.Repeat("`", max(3, longest+1))
-	return fmt.Sprintf("%s%s\n%s\n%s", fence, language, normalized, fence)
-}
 
 var feishuMDSpecialRe = regexp.MustCompile("([`*_{}\\[\\]<>])")
 
