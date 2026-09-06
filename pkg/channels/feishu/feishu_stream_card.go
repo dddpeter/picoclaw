@@ -47,7 +47,8 @@ func sanitizeFeishuMarkdownImages(content string) string {
 }
 
 // Display caps that keep the process panel comfortably under the element
-// limit (each reasoning round costs ~4 elements, each tool step ~7).
+// limit (each nested reasoning round costs ~3 elements, each tool step ~5
+// compact / ~7 with a result block).
 const (
 	feishuMaxReasoningRounds    = 20
 	feishuMaxToolSteps          = 20
@@ -366,10 +367,7 @@ func buildFeishuPanelBudget(state *feishuStreamState, expanded bool, textBudget 
 		children = append(children, feishuToolStepTitle(step))
 	}
 	for i, r := range rounds {
-		children = append(children, feishuReasoningTitle(i+1, r.Duration, true))
-		if strings.TrimSpace(r.Text) != "" {
-			children = append(children, feishuIndentedLarkMD(truncateFeishuReasoning(r.Text)))
-		}
+		children = append(children, feishuReasoningRoundPanel(i+1, r))
 	}
 	if cur := strings.TrimSpace(state.CurReasoning); cur != "" {
 		children = append(children, feishuReasoningTitle(len(rounds)+1, 0, false))
@@ -421,7 +419,26 @@ func feishuReasoningTitle(index int, elapsed time.Duration, finalized bool) map[
 }
 
 func feishuToolStepElements(step bus.ToolStep) []any {
-	elements := []any{feishuToolStepTitle(step)}
+	title := feishuToolStepTitle(step)
+	result := strings.TrimSpace(step.Result)
+
+	// Compact form: short single-line results merge with the args preview
+	// into one indented line — no labeled block. Long or multi-line results
+	// keep the block form below.
+	if result != "" && !strings.Contains(result, "\n") && len([]rune(result)) <= feishuCompactResultRunes {
+		if line := feishuCompactToolLine(step.Args, result); line != "" {
+			return []any{title, map[string]any{
+				"tag":    "div",
+				"margin": "0px 0px 0px 22px",
+				"text": map[string]any{
+					"tag": "plain_text", "content": line, "text_color": "grey", "text_size": "notation",
+				},
+			}}
+		}
+		return []any{title}
+	}
+
+	elements := []any{title}
 	if detail := strings.TrimSpace(step.Args); detail != "" {
 		elements = append(elements, map[string]any{
 			"tag":    "div",
@@ -431,7 +448,7 @@ func feishuToolStepElements(step bus.ToolStep) []any {
 			},
 		})
 	}
-	if result := strings.TrimSpace(step.Result); result != "" {
+	if result != "" {
 		label := "结果"
 		if step.IsError {
 			label = "错误"
@@ -449,6 +466,23 @@ func feishuToolStepElements(step bus.ToolStep) []any {
 		})
 	}
 	return elements
+}
+
+// feishuCompactResultRunes bounds the compact one-line form; longer results
+// fall back to the labeled block.
+const feishuCompactResultRunes = 120
+
+// feishuCompactToolLine joins the args preview and a short result into one
+// grey notation line: `{"q":"x"} → 3 results`.
+func feishuCompactToolLine(args, result string) string {
+	args = strings.TrimSpace(args)
+	if args == "" {
+		return result
+	}
+	if runes := []rune(args); len(runes) > 60 {
+		args = string(runes[:60]) + "…"
+	}
+	return args + " → " + result
 }
 
 // feishuInlineCodeBlock renders multi-line tool output as per-line inline
@@ -483,18 +517,18 @@ func feishuInlineCodeLine(line string) string {
 }
 
 // truncateFeishuCodeResult keeps tool results readable inside the panel: cap
-// at ~15 lines and 1200 chars, appending an ellipsis marker when trimmed.
+// at ~6 lines and 600 chars, appending an ellipsis marker when trimmed.
 func truncateFeishuCodeResult(result string) string {
 	normalized := strings.ReplaceAll(strings.TrimSpace(result), "\r\n", "\n")
-	if len(normalized) <= 1200 && strings.Count(normalized, "\n") < 15 {
+	if len(normalized) <= 600 && strings.Count(normalized, "\n") < 6 {
 		return normalized
 	}
 	lines := strings.Split(normalized, "\n")
-	if len(lines) > 15 {
-		lines = lines[:15]
+	if len(lines) > 6 {
+		lines = lines[:6]
 	}
 	out := strings.Join(lines, "\n")
-	if len(out) > 1200 {
+	if len(out) > 600 {
 		out = out[:1200]
 	}
 	return out + "\n…"
@@ -537,6 +571,37 @@ func feishuToolStepTitle(step bus.ToolStep) map[string]any {
 		"text": map[string]any{
 			"tag": "lark_md", "content": content, "text_size": "notation",
 		},
+	}
+}
+
+// feishuReasoningRoundPanel nests a finalized reasoning round in its own
+// collapsed panel: the panel list stays scannable (one header line per round)
+// and the full text is one click away. Only the live in-progress round stays
+// expanded inline.
+func feishuReasoningRoundPanel(index int, r feishuReasoningRound) map[string]any {
+	text := fmt.Sprintf("第 %d 轮推理", index)
+	if r.Duration > 0 {
+		text += " · " + formatFeishuElapsed(r.Duration)
+	}
+	elements := []any{}
+	if t := strings.TrimSpace(r.Text); t != "" {
+		elements = append(elements, map[string]any{
+			"tag": "markdown", "content": truncateFeishuReasoning(t), "text_size": "notation",
+		})
+	}
+	if len(elements) == 0 {
+		elements = []any{map[string]any{"tag": "markdown", "content": " "}}
+	}
+	return map[string]any{
+		"tag":      "collapsible_panel",
+		"expanded": false,
+		"header": map[string]any{"title": map[string]any{
+			"tag": "plain_text", "content": "✓ " + text, "text_color": "green", "text_size": "notation",
+		}},
+		"border":           map[string]any{"color": "grey", "corner_radius": "8px"},
+		"vertical_spacing": "2px",
+		"padding":          "8px 8px 4px 8px",
+		"elements":         elements,
 	}
 }
 
