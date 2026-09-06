@@ -231,16 +231,16 @@ func TestShellTool_OutputTruncation(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	// Generate long output (>10000 chars)
+	// Generate long output (> DefaultMaxBytes = 50KB)
 	args := map[string]any{
 		"action":  "run",
-		"command": "python3 -c \"print('x' * 20000)\" || echo " + strings.Repeat("x", 20000),
+		"command": "python3 -c \"print('x' * 20000)\" || echo " + strings.Repeat("x", 60000),
 	}
 
 	result := tool.Execute(ctx, args)
 
 	// Should have truncation message or be truncated
-	if len(result.ForLLM) > 15000 {
+	if len(result.ForLLM) > 52*1024 {
 		t.Errorf("Expected output to be truncated, got length: %d", len(result.ForLLM))
 	}
 }
