@@ -485,9 +485,14 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult
 	}
 
 	// Keep the tail: command output usually matters at the end (errors,
-	// final results). Line+byte caps with an explicit notice for the model.
+	// final results). Line+byte caps with an explicit notice for the model;
+	// the untruncated output is preserved to a file the model can read back.
 	if truncation := TruncateTail(output, TruncationOptions{}); truncation.Truncated {
+		fullPath := t.persistFullOutput(output)
 		output = truncation.Content + "\n\n" + truncation.Notice()
+		if fullPath != "" {
+			output += fmt.Sprintf(" Full output: %s", fullPath)
+		}
 	}
 
 	if err != nil {
@@ -503,6 +508,45 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult
 		ForUser: output,
 		IsError: false,
 	}
+}
+
+// persistFullOutput saves the untruncated command output to a file inside the
+// workspace (so read_file can access it even under workspace sandboxing).
+// Returns the file path, or "" when persistence failed.
+func (t *ExecTool) persistFullOutput(output string) string {
+	base := strings.TrimSpace(t.workingDir)
+	if base == "" {
+		base = os.TempDir()
+	}
+	dir := filepath.Join(base, "tmp")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		logger.WarnCF("tool", "Failed to create dir for truncated command output",
+			map[string]any{"dir": dir, "error": err.Error()})
+		return ""
+	}
+
+	tmpFile, err := os.CreateTemp(dir, "shell-output-*.log")
+	if err != nil {
+		logger.WarnCF("tool", "Failed to create file for truncated command output",
+			map[string]any{"dir": dir, "error": err.Error()})
+		return ""
+	}
+	path := tmpFile.Name()
+	if _, err := tmpFile.WriteString(output); err != nil {
+		_ = tmpFile.Close()
+		_ = os.Remove(path)
+		logger.WarnCF("tool", "Failed to write truncated command output",
+			map[string]any{"path": path, "error": err.Error()})
+		return ""
+	}
+	if err := tmpFile.Close(); err != nil {
+		_ = os.Remove(path)
+		return ""
+	}
+
+	logger.InfoCF("tool", "Preserved full command output after truncation",
+		map[string]any{"path": path, "bytes": len(output)})
+	return path
 }
 
 func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEnabled bool) *ToolResult {

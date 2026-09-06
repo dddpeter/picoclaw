@@ -103,6 +103,16 @@ func inferSkillNamesFromToolCall(ts *turnState, toolName string, toolArgs map[st
 	return names
 }
 
+// toolStepKind labels a tool execution for streaming panels. MCP tools are
+// registered with an "mcp_<server>_<tool>" name, so the prefix reliably
+// identifies calls routed to MCP servers.
+func toolStepKind(toolName string) string {
+	if strings.HasPrefix(toolName, "mcp_") {
+		return bus.ToolStepKindMCP
+	}
+	return bus.ToolStepKindTool
+}
+
 // ExecuteTools executes the tool loop, handling BeforeTool/ApproveTool/AfterTool hooks,
 // tool execution with async callbacks, media delivery, and steering injection.
 // Returns ToolControl indicating what the coordinator should do next:
@@ -122,6 +132,12 @@ func (p *Pipeline) ExecuteTools(
 	messages := exec.messages
 	handledAttachments := make([]providers.Attachment, 0)
 
+	// A "length" finish means the model output was cut off by the token
+	// limit. Streamed tool-call arguments can then parse as valid JSON while
+	// silently missing content, so executing them is unsafe — fail every
+	// call from this batch and let the model re-issue them.
+	truncatedByTokenLimit := ts.GetLastFinishReason() == "length"
+
 toolLoop:
 	for i, tc := range normalizedToolCalls {
 		if ts.hardAbortRequested() {
@@ -131,6 +147,34 @@ toolLoop:
 
 		toolName := tc.Name
 		toolArgs := cloneStringAnyMap(tc.Arguments)
+
+		if truncatedByTokenLimit {
+			exec.allResponsesHandled = false
+			denyContent := fmt.Sprintf(
+				"Tool call %q was not executed: the model response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments.",
+				toolName,
+			)
+			al.emitEvent(
+				runtimeevents.KindAgentToolExecSkipped,
+				ts.eventMeta("runTurn", "turn.tool.skipped"),
+				ToolExecSkippedPayload{
+					Tool:   toolName,
+					Reason: denyContent,
+				},
+			)
+			deniedMsg := providers.Message{
+				Role:       "tool",
+				Content:    denyContent,
+				ToolCallID: tc.ID,
+			}
+			messages = append(messages, deniedMsg)
+			if !ts.opts.NoHistory {
+				ts.agent.Sessions.AddFullMessage(ts.sessionKey, deniedMsg)
+				ts.recordPersistedMessage(deniedMsg)
+			}
+			continue
+		}
+
 		denyByTurnProfile := func() bool {
 			if turnProfileToolAllowed(ts.profile, toolName) {
 				return false
@@ -702,6 +746,7 @@ toolLoop:
 				Result:   utils.Truncate(contentForLLM, 400),
 				IsError:  toolResult.IsError,
 				Duration: toolDuration,
+				Kind:     toolStepKind(toolName),
 			})
 		}
 

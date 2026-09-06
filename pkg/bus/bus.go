@@ -110,6 +110,18 @@ type ReasoningStreamer interface {
 	FinalizeReasoning(ctx context.Context, content string) error
 }
 
+// ToolStep kinds label what kind of invocation a panel step represents, so
+// channels can render peripheral calls (MCP, skills) distinctly from regular
+// tool executions.
+const (
+	// ToolStepKindTool is the zero value: a regular agent tool execution.
+	ToolStepKindTool = ""
+	// ToolStepKindMCP marks a call routed to an MCP server tool.
+	ToolStepKindMCP = "mcp"
+	// ToolStepKindSkill marks skill context activated for the turn.
+	ToolStepKindSkill = "skill"
+)
+
 // ToolStep describes a single tool execution for streaming panels that render
 // the agent's tool-call timeline. Args and Result are display previews.
 type ToolStep struct {
@@ -118,6 +130,9 @@ type ToolStep struct {
 	Result   string
 	IsError  bool
 	Duration time.Duration
+	// Kind labels the invocation type (ToolStepKind*); empty means a regular
+	// tool execution.
+	Kind string
 }
 
 // ToolStepStreamer can render tool execution steps as they happen, letting a

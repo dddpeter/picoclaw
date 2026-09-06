@@ -148,6 +148,10 @@ type turnExecution struct {
 	gracefulTerminal    bool
 	useNativeSearch     bool
 	ownedProviders      []providers.LLMProvider
+	// skillPanelSeeded records that the turn's active skills were already
+	// surfaced on the streaming panel, so per-iteration publisher creation
+	// does not duplicate the entry.
+	skillPanelSeeded bool
 
 	// Phase tracking
 	phase LLMPhase

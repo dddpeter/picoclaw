@@ -5,10 +5,10 @@ package feishu
 import (
 	"encoding/json"
 	"fmt"
-	"unicode/utf8"
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 )
@@ -114,7 +114,7 @@ type feishuStreamState struct {
 	// the panel so the user sees their mid-turn message was heard.
 	SteeringCount int
 	SteeringLast  string
-	LLMCalls     int // LLM API calls made this turn (one per iteration)
+	LLMCalls      int // LLM API calls made this turn (one per iteration)
 
 	// Context usage snapshot at finalize, for the footer.
 	ContextUsed   int
@@ -277,6 +277,19 @@ func buildFeishuPanelBudget(state *feishuStreamState, expanded bool, textBudget 
 	}
 	rounds, tools = applyPanelTextBudget(rounds, tools, textBudget)
 
+	// Skill activation entries are context preparation, not tool executions:
+	// render them before the reasoning rounds and keep them out of the
+	// header's tool count.
+	skillSteps := make([]bus.ToolStep, 0, len(tools))
+	execSteps := make([]bus.ToolStep, 0, len(tools))
+	for _, step := range tools {
+		if step.Kind == bus.ToolStepKindSkill {
+			skillSteps = append(skillSteps, step)
+		} else {
+			execSteps = append(execSteps, step)
+		}
+	}
+
 	children := []any{}
 	if state.SteeringCount > 0 {
 		notice := fmt.Sprintf("📥 收到 %d 条追加指令", state.SteeringCount)
@@ -304,6 +317,9 @@ func buildFeishuPanelBudget(state *feishuStreamState, expanded bool, textBudget 
 		})
 	}
 
+	for _, step := range skillSteps {
+		children = append(children, feishuToolStepTitle(step))
+	}
 	for i, r := range rounds {
 		children = append(children, feishuReasoningTitle(i+1, r.Duration, true))
 		if strings.TrimSpace(r.Text) != "" {
@@ -314,14 +330,14 @@ func buildFeishuPanelBudget(state *feishuStreamState, expanded bool, textBudget 
 		children = append(children, feishuReasoningTitle(len(rounds)+1, 0, false))
 		children = append(children, feishuIndentedLarkMD(truncateFeishuReasoning(cur)))
 	}
-	for _, step := range tools {
+	for _, step := range execSteps {
 		children = append(children, feishuToolStepElements(step)...)
 	}
 	if len(children) == 0 {
 		children = append(children, map[string]any{"tag": "markdown", "content": " "})
 	}
 
-	header := feishuPanelHeader(len(rounds), strings.TrimSpace(state.CurReasoning) != "", len(tools),
+	header := feishuPanelHeader(len(rounds), strings.TrimSpace(state.CurReasoning) != "", len(execSteps),
 		int64((state.reasoningTotal()).Milliseconds()))
 	return map[string]any{
 		"tag":              "collapsible_panel",
@@ -444,7 +460,20 @@ func feishuToolStepTitle(step bus.ToolStep) map[string]any {
 	if step.IsError {
 		color, symbol = "red", "✕"
 	}
-	title := fmt.Sprintf("%s（%s）", step.Tool, formatFeishuElapsed(step.Duration))
+	var title string
+	switch step.Kind {
+	case bus.ToolStepKindSkill:
+		// Context activation, not an execution: show the skill names without
+		// an elapsed suffix.
+		title = "📚 已加载技能：" + step.Tool
+	case bus.ToolStepKindMCP:
+		// MCP names carry an "mcp_<server>_<tool>" prefix; strip it and tag
+		// the step so peripheral calls stand out from built-in tools.
+		title = fmt.Sprintf("🔌 MCP %s（%s）",
+			strings.TrimPrefix(step.Tool, "mcp_"), formatFeishuElapsed(step.Duration))
+	default:
+		title = fmt.Sprintf("%s（%s）", step.Tool, formatFeishuElapsed(step.Duration))
+	}
 	content := fmt.Sprintf("<font color='%s'>**%s %s**</font>", color, symbol, escapeFeishuMD(title))
 	return map[string]any{
 		"tag": "div",

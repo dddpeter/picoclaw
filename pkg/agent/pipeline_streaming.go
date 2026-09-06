@@ -58,6 +58,7 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 		modelName: exec.activeModel,
 		ts:        ts,
 	}
+	seedSkillPanelStep(ctx, publisher, ts, exec)
 
 	logger.DebugCF("agent", "configured streaming enabled", map[string]any{
 		"agent_id": ts.agent.ID,
@@ -514,6 +515,30 @@ func (p *streamingChunkPublisher) AppendToolStep(ctx context.Context, step bus.T
 			"error":   err.Error(),
 		})
 	}
+}
+
+// seedSkillPanelStep surfaces the skills activated for this turn on the
+// streaming process panel once, before the first answer chunk arrives. The
+// tryConfiguredStreamingLLM path runs per LLM iteration, so seeding is gated
+// on the turn-scoped skillPanelSeeded flag to avoid duplicates.
+func seedSkillPanelStep(
+	ctx context.Context,
+	publisher *streamingChunkPublisher,
+	ts *turnState,
+	exec *turnExecution,
+) {
+	if publisher == nil || ts == nil || exec == nil || exec.skillPanelSeeded {
+		return
+	}
+	exec.skillPanelSeeded = true
+	skills := ts.latestSkillContextSnapshot()
+	if len(skills) == 0 {
+		return
+	}
+	publisher.AppendToolStep(ctx, bus.ToolStep{
+		Tool: strings.Join(skills, ", "),
+		Kind: bus.ToolStepKindSkill,
+	})
 }
 
 func (p *streamingChunkPublisher) ClearFinalizedStreamMarker() {
