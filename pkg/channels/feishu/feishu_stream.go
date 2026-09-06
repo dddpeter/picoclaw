@@ -26,6 +26,12 @@ const (
 	feishuPanelFlushInterval  = 800 * time.Millisecond
 )
 
+// feishuCallTimeout bounds every CardKit call made from the streamer: these
+// run while the card mutex is held or from the agent's inbound loop, so a
+// hung request must never block either indefinitely (the lark client's
+// default HTTP client has no timeout of its own).
+const feishuCallTimeout = 10 * time.Second
+
 // feishuCardStreamer implements bus.Streamer on top of a CardKit v2 streaming
 // card: one card per turn, showing a process panel (reasoning rounds + tool
 // steps) above the streamed answer.
@@ -144,6 +150,10 @@ func (c *FeishuChannel) BeginStream(ctx context.Context, chatID string) (channel
 // NotifySteeringInChat implements channels.SteeringNotifyCapable: records a
 // steering acknowledgement on the chat's active streaming card so the user
 // sees their mid-turn message was heard. Returns false when no card is active.
+//
+// The panel refresh runs asynchronously: this method is called from the
+// agent's inbound loop, which must never wait on a card API call — a hung
+// request there would freeze all message processing (including /stop).
 func (c *FeishuChannel) NotifySteeringInChat(ctx context.Context, chatID, preview string) bool {
 	v, ok := c.streams.Load(chatID)
 	if !ok {
@@ -162,9 +172,17 @@ func (c *FeishuChannel) NotifySteeringInChat(ctx context.Context, chatID, previe
 	s.panelDirty = true
 	s.state.SteeringCount++
 	s.state.SteeringLast = preview
-	err := s.refreshPanelLocked(ctx)
 	s.mu.Unlock()
-	s.logPanelErr("steering notice", err)
+
+	go func() {
+		// Best-effort UI notice: a detached context with the standard call
+		// timeout, so a stalled request can neither block the turn's
+		// streaming callbacks on the card mutex for long, nor outlive it.
+		s.mu.Lock()
+		err := s.refreshPanelLocked(context.Background())
+		s.mu.Unlock()
+		s.logPanelErr("steering notice", err)
+	}()
 	return true
 }
 
@@ -435,6 +453,9 @@ func (s *feishuCardStreamer) SetTurnUsage(inputTokens, outputTokens int) {
 // monotonic sequence (Feishu requires increasing sequence numbers while the
 // card is in streaming mode).
 func (c *FeishuChannel) cardkitStreamContent(ctx context.Context, cardID, elementID, content string, sequence int) error {
+	ctx, cancel := context.WithTimeout(ctx, feishuCallTimeout)
+	defer cancel()
+
 	req := larkcardkit.NewContentCardElementReqBuilder().
 		CardId(cardID).
 		ElementId(elementID).
@@ -464,6 +485,9 @@ func (c *FeishuChannel) cardkitStreamContent(ctx context.Context, cardID, elemen
 // and the final seal). Feishu caps the card JSON at 30KB — reject locally with
 // a clear error so callers can degrade instead of hitting an opaque API error.
 func (c *FeishuChannel) cardkitUpdateCard(ctx context.Context, cardID string, card map[string]any, sequence int) error {
+	ctx, cancel := context.WithTimeout(ctx, feishuCallTimeout)
+	defer cancel()
+
 	cardJSON, err := json.Marshal(card)
 	if err != nil {
 		return fmt.Errorf("feishu cardkit update: marshal card: %w", err)
@@ -494,6 +518,9 @@ func (c *FeishuChannel) cardkitUpdateCard(ctx context.Context, cardID string, ca
 
 // cardkitCloseStreaming turns streaming mode off and sets the card summary.
 func (c *FeishuChannel) cardkitCloseStreaming(ctx context.Context, cardID string, summary map[string]any, sequence int) error {
+	ctx, cancel := context.WithTimeout(ctx, feishuCallTimeout)
+	defer cancel()
+
 	settings := map[string]any{
 		"config": map[string]any{
 			"streaming_mode": false,
