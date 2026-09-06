@@ -8,6 +8,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
+	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
 )
 
@@ -31,18 +32,29 @@ func (p *Pipeline) Finalize(
 		if ts.hardAbortRequested() {
 			return al.abortTurn(ts)
 		}
-		// A streaming card may still be live with content streamed from the
-		// same response that carried the tool call. The normal finalize below
-		// is skipped on this path, so seal the card here — otherwise the
-		// coordinator's last-resort cleanup mislabels it as interrupted
-		// (turn_aborted) even though the turn completed and was delivered.
+		// A streaming card may still be live even when the model never
+		// streamed text (image-generation turns whose output was delivered
+		// by a tool). The normal finalize below is skipped on this path, so
+		// force-seal the card here — otherwise the coordinator's
+		// last-resort cleanup mislabels it as interrupted (turn_aborted), or
+		// worse, with no content at all the card stays in streaming mode
+		// showing its loading status forever.
 		content := finalContent
 		if strings.TrimSpace(content) == "" && exec.response != nil {
 			content = exec.response.Content
 		}
-		// Seal failures must not fail the turn: the response was already
-		// delivered by the tool; finalizeConfiguredStreamingLLM logs details.
-		_ = finalizeConfiguredStreamingLLM(turnCtx, ts, exec, content, computeContextUsage(ts.agent, ts.sessionKey))
+		if publisher := exec.streamingPublisher; publisher != nil {
+			exec.streamingPublisher = nil
+			// Seal failures must not fail the turn: the response was already
+			// delivered by the tool; details are logged here.
+			if err := publisher.Seal(turnCtx, content, computeContextUsage(ts.agent, ts.sessionKey)); err != nil {
+				logger.WarnCF("agent", "Failed to seal streaming card after tool-delivered response",
+					map[string]any{
+						"session_key": ts.sessionKey,
+						"error":       err.Error(),
+					})
+			}
+		}
 		ts.setPhase(TurnPhaseCompleted)
 		return turnResult{
 			finalContent: finalContent,

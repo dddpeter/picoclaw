@@ -461,12 +461,29 @@ func (p *streamingChunkPublisher) Finalize(ctx context.Context, content string, 
 	if strings.TrimSpace(content) == "" && !p.published {
 		return nil
 	}
+	return p.seal(ctx, content, contextUsage)
+}
+
+// Seal finalizes the stream unconditionally, bypassing the empty-content
+// guard in Finalize. Turns whose response was delivered out-of-band by a
+// tool may never have streamed text; their live card must still be sealed,
+// or it keeps showing its streaming status forever.
+func (p *streamingChunkPublisher) Seal(ctx context.Context, content string, contextUsage *bus.ContextUsage) error {
+	if p == nil || p.streamer == nil {
+		return nil
+	}
+	return p.seal(ctx, content, contextUsage)
+}
+
+func (p *streamingChunkPublisher) seal(ctx context.Context, content string, contextUsage *bus.ContextUsage) error {
 	if setter, ok := p.streamer.(interface{ SetModelName(modelName string) }); ok {
 		setter.SetModelName(p.modelName)
 	}
-	if usage := p.ts.GetLastUsage(); usage != nil {
-		if setter, ok := p.streamer.(interface{ SetTurnUsage(in, out int) }); ok {
-			setter.SetTurnUsage(usage.PromptTokens, usage.CompletionTokens)
+	if p.ts != nil {
+		if usage := p.ts.GetLastUsage(); usage != nil {
+			if setter, ok := p.streamer.(interface{ SetTurnUsage(in, out int) }); ok {
+				setter.SetTurnUsage(usage.PromptTokens, usage.CompletionTokens)
+			}
 		}
 	}
 	var err error

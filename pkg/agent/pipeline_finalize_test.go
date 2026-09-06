@@ -59,3 +59,51 @@ func TestFinalize_SealsStreamingCardWhenToolHandledDelivery(t *testing.T) {
 		t.Fatal("expected streamingPublisher to be cleared after finalize")
 	}
 }
+
+// TestFinalize_ForcesSealWithoutStreamedContent covers image-generation
+// turns: the tool delivers the output and the model never streams any text.
+// The card must still be force-sealed — the empty-content guard in the
+// publisher's Finalize would otherwise leave it in streaming mode, showing
+// its loading status ("正在思考") forever.
+func TestFinalize_ForcesSealWithoutStreamedContent(t *testing.T) {
+	al := newLegacyTestAgentLoop(t, &summarizingRecordingProvider{response: "unused"})
+	agent := al.registry.GetDefaultAgent()
+	if agent == nil {
+		t.Fatal("expected default agent")
+	}
+
+	ts := newTurnState(agent, processOptions{SessionKey: "session-nocontent"},
+		al.newTurnEventScope(agent.ID, "session-nocontent", nil))
+
+	recorder := &toolStepRecordingStreamer{}
+	exec := &turnExecution{
+		allResponsesHandled: true,
+		// Tool-call-only response: no text content ever streamed.
+		response:           &providers.LLMResponse{Content: ""},
+		streamingPublisher: &streamingChunkPublisher{streamer: recorder, ts: ts},
+		llmModelName:       "test-model",
+	}
+
+	pipeline := NewPipeline(al)
+	result, err := pipeline.Finalize(
+		context.Background(),
+		context.Background(),
+		ts,
+		exec,
+		TurnEndStatusCompleted,
+		"",
+	)
+	if err != nil {
+		t.Fatalf("Finalize failed: %v", err)
+	}
+	if result.status != TurnEndStatusCompleted {
+		t.Fatalf("expected completed status, got %q", result.status)
+	}
+
+	if len(recorder.finalized) != 1 {
+		t.Fatalf("expected the card to be force-sealed, got %d finalize calls", len(recorder.finalized))
+	}
+	if exec.streamingPublisher != nil {
+		t.Fatal("expected streamingPublisher to be cleared after finalize")
+	}
+}
