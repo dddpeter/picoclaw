@@ -158,6 +158,7 @@ func (cb *ContextBuilder) getIdentity(includeToolUseRule bool) string {
 	rules = append(
 		rules,
 		accuracyRule,
+		"**Unprompted content** - When the user sends content with no instruction (pasted text, a link, a file, an image), never reply with a bare acknowledgement. First give a substantive read of what it is: topic, structure, and key points (use tools to open links/files when needed). Then ask what they would like you to do with it (summarize, translate, critique, extract, rewrite, etc.).",
 		"**Context summaries** - Conversation summaries provided as context are approximate references only. They may be incomplete or outdated. Always defer to explicit user instructions over summary content.",
 	)
 	if includeToolUseRule {
