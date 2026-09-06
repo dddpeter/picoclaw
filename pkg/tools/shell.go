@@ -484,9 +484,10 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult
 		output = "(no output)"
 	}
 
-	maxLen := 10000
-	if len(output) > maxLen {
-		output = output[:maxLen] + fmt.Sprintf("\n... (truncated, %d more chars)", len(output)-maxLen)
+	// Keep the tail: command output usually matters at the end (errors,
+	// final results). Line+byte caps with an explicit notice for the model.
+	if truncation := TruncateTail(output, TruncationOptions{}); truncation.Truncated {
+		output = truncation.Content + "\n\n" + truncation.Notice()
 	}
 
 	if err != nil {
