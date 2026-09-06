@@ -1,10 +1,16 @@
 package feishu
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 )
+
+// feishuLoadingTextAnswer mirrors feishuLoadingText(feishuPhaseAnswer) for
+// assertions without exporting the tuple.
+const feishuLoadingTextAnswer = "✍ 正在生成回答…"
 
 func TestFeishuLoadingText(t *testing.T) {
 	cases := map[string]struct{ zh, en string }{
@@ -43,6 +49,38 @@ func TestFeishuPanelExpanded(t *testing.T) {
 	}
 	if feishuPanelExpanded("partial answer") {
 		t.Error("panel should collapse once answer text exists")
+	}
+}
+
+// TestFeishuRefreshCardKeepsStreamingConfig locks in the fix for the
+// "content replaced instead of fully displayed" regression: a mid-stream
+// full-card refresh must carry streaming_mode (dropping it kills the answer
+// element's typewriter), collapse the panel once the answer exists, and
+// render the phase status line.
+func TestFeishuRefreshCardKeepsStreamingConfig(t *testing.T) {
+	state := &feishuStreamState{
+		Rounds: []feishuReasoningRound{{Text: "thinking"}},
+		Tools:  []bus.ToolStep{{Tool: "shell", Result: "ok"}},
+	}
+	card := buildFeishuRefreshCard(state, "partial answer", feishuPhaseAnswer, feishuPanelTextBudget)
+
+	cfg, ok := card["config"].(map[string]any)
+	if !ok || cfg["streaming_mode"] != true {
+		t.Fatalf("refresh card must keep streaming_mode=true, got %#v", card["config"])
+	}
+	data, _ := json.Marshal(card)
+	rendered := string(data)
+	if !strings.Contains(rendered, "partial answer") {
+		t.Errorf("refresh card should carry the current answer snapshot:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, feishuLoadingTextAnswer) {
+		t.Errorf("refresh card should render the answer-phase status line:\n%s", rendered)
+	}
+	// Panel collapsed because the answer started.
+	elements := card["body"].(map[string]any)["elements"].([]any)
+	panel := elements[0].(map[string]any)
+	if panel["expanded"] != false {
+		t.Errorf("panel should be collapsed once answer exists, got %v", panel["expanded"])
 	}
 }
 

@@ -174,7 +174,10 @@ func (s *feishuCardStreamer) nextSeqLocked() int {
 }
 
 // Update streams accumulated answer text into the card's answer element,
-// throttled to feishuAnswerFlushInterval.
+// throttled to feishuAnswerFlushInterval. The answer element is owned by the
+// native typewriter: this method must never trigger a full-card refresh
+// (that would replace the element mid-print and drop its streaming state) —
+// the phase flip only updates the status line element-scoped, best effort.
 func (s *feishuCardStreamer) Update(ctx context.Context, content string) error {
 	s.mu.Lock()
 	if s.done {
@@ -183,20 +186,37 @@ func (s *feishuCardStreamer) Update(ctx context.Context, content string) error {
 	}
 	s.answer = content
 	s.lastAt = time.Now()
-	s.setPhaseLocked(feishuPhaseAnswer)
-	// A phase flip (e.g. tool → answer) should reach the card promptly:
-	// refresh the status line and collapse the panel in the same update.
-	s.refreshPanelLocked(ctx)
-	if time.Since(s.answerSentAt) < feishuAnswerFlushInterval {
-		s.mu.Unlock()
-		return nil
+	statusText := ""
+	if s.phase != feishuPhaseAnswer {
+		s.setPhaseLocked(feishuPhaseAnswer)
+		s.renderedPhase = feishuPhaseAnswer
+		statusText, _ = feishuLoadingText(feishuPhaseAnswer)
 	}
-	s.answerSentAt = time.Now()
-	content = sanitizeFeishuMarkdownImages(s.answer)
-	cardID, seq := s.cardID, s.nextSeqLocked()
+	cardID := s.cardID
+	statusSeq := 0
+	if statusText != "" {
+		statusSeq = s.nextSeqLocked()
+	}
+	throttled := time.Since(s.answerSentAt) < feishuAnswerFlushInterval
+	if !throttled {
+		s.answerSentAt = time.Now()
+	}
+	streamContent := sanitizeFeishuMarkdownImages(s.answer)
+	seq := 0
+	if !throttled {
+		seq = s.nextSeqLocked()
+	}
 	s.mu.Unlock()
 
-	return s.ch.cardkitStreamContent(ctx, cardID, feishuAnswerElementID, content, seq)
+	if statusText != "" {
+		if err := s.ch.cardkitStreamContent(ctx, cardID, feishuLoadingElementID, statusText, statusSeq); err != nil {
+			s.logPanelErr("status line", err)
+		}
+	}
+	if throttled {
+		return nil
+	}
+	return s.ch.cardkitStreamContent(ctx, cardID, feishuAnswerElementID, streamContent, seq)
 }
 
 // UpdateReasoning accumulates the in-progress reasoning round and refreshes
@@ -301,26 +321,7 @@ func (s *feishuCardStreamer) refreshPanelLocked(ctx context.Context) error {
 	}
 
 	card := buildFeishuCardWithinSize(func(panelBudget int) map[string]any {
-		card := map[string]any{
-			"schema": "2.0",
-			"body": map[string]any{
-				"elements": []any{
-					buildFeishuPanelBudget(&s.state, feishuPanelExpanded(s.answer), panelBudget),
-					map[string]any{
-						"tag":        "markdown",
-						"content":    sanitizeFeishuMarkdownImages(s.answer),
-						"text_align": "left",
-						"text_size":  "normal_v2",
-						"element_id": feishuAnswerElementID,
-					},
-					buildFeishuLoadingElement(s.phase),
-				},
-			},
-		}
-		// The 200-element cap applies mid-stream too: an oversized update is
-		// rejected by Feishu (300305), which would freeze the panel.
-		enforceFeishuElementLimit(card)
-		return card
+		return buildFeishuRefreshCard(&s.state, s.answer, s.phase, panelBudget)
 	})
 	s.panelSentAt = time.Now()
 	s.panelDirty = false

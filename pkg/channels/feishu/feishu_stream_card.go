@@ -172,24 +172,59 @@ func buildFeishuStreamingCard() map[string]any {
 	}
 	return map[string]any{
 		"schema": "2.0",
-		"config": map[string]any{
-			"streaming_mode": true,
-			"streaming_config": map[string]any{
-				"print_frequency_ms": map[string]any{"default": 70},
-				"print_step":         map[string]any{"default": 4},
-				"print_strategy":     "delay",
-			},
-			"locales": []string{"zh_cn", "en_us"},
-			"summary": map[string]any{
-				"content": "正在思考…",
-				"i18n_content": map[string]any{
-					"zh_cn": "正在思考…",
-					"en_us": "Processing…",
-				},
+		"config": feishuStreamingCardConfig(),
+		"body":   map[string]any{"elements": elements},
+	}
+}
+
+// feishuStreamingCardConfig is the card config every mid-stream card update
+// must carry: dropping it (e.g. a panel refresh without config) silently
+// turns streaming_mode off and kills the typewriter on the answer element.
+func feishuStreamingCardConfig() map[string]any {
+	return map[string]any{
+		"streaming_mode": true,
+		"streaming_config": map[string]any{
+			"print_frequency_ms": map[string]any{"default": 70},
+			"print_step":         map[string]any{"default": 4},
+			"print_strategy":     "delay",
+		},
+		"locales": []string{"zh_cn", "en_us"},
+		"summary": map[string]any{
+			"content": "正在思考…",
+			"i18n_content": map[string]any{
+				"zh_cn": "正在思考…",
+				"en_us": "Processing…",
 			},
 		},
-		"body": map[string]any{"elements": elements},
 	}
+}
+
+// buildFeishuRefreshCard builds the mid-stream full-card update: process
+// panel, current answer snapshot and the dynamic status line, while keeping
+// the streaming config so the answer element's typewriter survives the
+// replacement.
+func buildFeishuRefreshCard(state *feishuStreamState, answer, phase string, panelBudget int) map[string]any {
+	card := map[string]any{
+		"schema": "2.0",
+		"config": feishuStreamingCardConfig(),
+		"body": map[string]any{
+			"elements": []any{
+				buildFeishuPanelBudget(state, feishuPanelExpanded(answer), panelBudget),
+				map[string]any{
+					"tag":        "markdown",
+					"content":    sanitizeFeishuMarkdownImages(answer),
+					"text_align": "left",
+					"text_size":  "normal_v2",
+					"element_id": feishuAnswerElementID,
+				},
+				buildFeishuLoadingElement(phase),
+			},
+		},
+	}
+	// The 200-element cap applies mid-stream too: an oversized update is
+	// rejected by Feishu (300305), which would freeze the panel.
+	enforceFeishuElementLimit(card)
+	return card
 }
 
 func buildFeishuPanelPlaceholder() map[string]any {
