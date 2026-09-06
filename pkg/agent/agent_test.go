@@ -3375,11 +3375,11 @@ func TestProcessMessage_CommandOutcomes(t *testing.T) {
 		},
 		Content: "/new",
 	})
-	if newResp != "LLM reply" {
+	if !strings.Contains(newResp, "New conversation started") {
 		t.Fatalf("unexpected /new reply: %q", newResp)
 	}
-	if provider.calls != 2 {
-		t.Fatalf("LLM should be called for passthrough /new command, calls=%d", provider.calls)
+	if provider.calls != 1 {
+		t.Fatalf("/new is now a builtin command and must not hit the LLM, calls=%d", provider.calls)
 	}
 }
 
