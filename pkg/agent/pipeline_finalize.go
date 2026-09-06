@@ -4,6 +4,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
@@ -30,6 +31,18 @@ func (p *Pipeline) Finalize(
 		if ts.hardAbortRequested() {
 			return al.abortTurn(ts)
 		}
+		// A streaming card may still be live with content streamed from the
+		// same response that carried the tool call. The normal finalize below
+		// is skipped on this path, so seal the card here — otherwise the
+		// coordinator's last-resort cleanup mislabels it as interrupted
+		// (turn_aborted) even though the turn completed and was delivered.
+		content := finalContent
+		if strings.TrimSpace(content) == "" && exec.response != nil {
+			content = exec.response.Content
+		}
+		// Seal failures must not fail the turn: the response was already
+		// delivered by the tool; finalizeConfiguredStreamingLLM logs details.
+		_ = finalizeConfiguredStreamingLLM(turnCtx, ts, exec, content, computeContextUsage(ts.agent, ts.sessionKey))
 		ts.setPhase(TurnPhaseCompleted)
 		return turnResult{
 			finalContent: finalContent,
