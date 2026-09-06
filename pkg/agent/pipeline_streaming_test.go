@@ -583,6 +583,8 @@ func TestConfiguredStreamingFinalFlushFailureAfterVisibleOutputReturnsErrorWitho
 		t.Fatalf("unexpected fallback outbound after visible final flush failure: %#v", outbound)
 	default:
 	}
+	// Finalize consumed the publisher attempting the seal, so the turn-end
+	// cleanup has nothing left to cancel.
 	if streamer.canceled != 0 {
 		t.Fatalf("streamer canceled = %d, want 0 for already-visible final flush failure", streamer.canceled)
 	}
@@ -750,8 +752,10 @@ func TestConfiguredStreamingLaterUpdateFailureThenStreamSuccessReturnsVisibleErr
 	if provider.streamCalls != 1 || provider.chatCalls != 0 {
 		t.Fatalf("calls = stream:%d chat:%d, want stream:1 chat:0", provider.streamCalls, provider.chatCalls)
 	}
-	if streamer.canceled != 0 {
-		t.Fatalf("streamer canceled = %d, want 0", streamer.canceled)
+	// The turn ends in error with the publisher retained, so the turn-end
+	// cleanup seals the live card (one cancel) instead of stranding it.
+	if streamer.canceled != 1 {
+		t.Fatalf("streamer canceled = %d, want 1 (turn-end seal)", streamer.canceled)
 	}
 	if len(streamer.finalized) != 0 {
 		t.Fatalf("stream finalized = %v, want none", streamer.finalized)
@@ -871,8 +875,10 @@ func TestConfiguredStreamingPostChunkFailureDoesNotFallBackToChat(t *testing.T) 
 	if len(streamer.updates) != 1 || streamer.updates[0] != "partial" {
 		t.Fatalf("stream updates = %v, want [partial]", streamer.updates)
 	}
-	if streamer.canceled != 0 {
-		t.Fatalf("streamer canceled = %d, want 0 for already-visible stream failure", streamer.canceled)
+	// The turn ends in error, so the turn-end cleanup seals the live card
+	// (one cancel) instead of stranding it in streaming mode.
+	if streamer.canceled != 1 {
+		t.Fatalf("streamer canceled = %d, want 1 (turn-end seal) for already-visible stream failure", streamer.canceled)
 	}
 }
 
@@ -904,8 +910,10 @@ func TestConfiguredStreamingPostChunkEOFDoesNotRetryOrCancelVisibleOutput(t *tes
 	if len(streamer.updates) != 1 || streamer.updates[0] != "partial" {
 		t.Fatalf("stream updates = %v, want [partial]", streamer.updates)
 	}
-	if streamer.canceled != 0 {
-		t.Fatalf("streamer canceled = %d, want 0 for already-visible stream EOF", streamer.canceled)
+	// The turn ends in error, so the turn-end cleanup seals the live card
+	// (one cancel) instead of stranding it in streaming mode.
+	if streamer.canceled != 1 {
+		t.Fatalf("streamer canceled = %d, want 1 (turn-end seal) for already-visible stream EOF", streamer.canceled)
 	}
 }
 

@@ -14,6 +14,11 @@ import (
 	"github.com/sipeed/picoclaw/pkg/providers"
 )
 
+// streamingSealTimeout bounds detached-context sealing calls (fallback
+// cancels, abort cleanups): the turn context is often already canceled at
+// that point, so seals must run on their own bounded context.
+const streamingSealTimeout = 10 * time.Second
+
 func (p *Pipeline) tryConfiguredStreamingLLM(
 	ctx context.Context,
 	ts *turnState,
@@ -21,7 +26,10 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 	messagesForCall []providers.Message,
 	toolDefsForCall []providers.ToolDefinition,
 ) (*providers.LLMResponse, bool, error) {
-	exec.streamingPublisher = nil
+	// Note: a previous iteration's publisher is intentionally kept until a
+	// new one takes over — the live card must stay reachable for the
+	// coordinator's abort/cleanup paths even when this iteration turns out
+	// ineligible for streaming.
 	exec.streamingFallback = false
 	if !p.configuredStreamingEligible(ts, exec) {
 		return nil, false, nil
@@ -58,6 +66,10 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 		modelName: exec.activeModel,
 		ts:        ts,
 	}
+	// Take ownership before the LLM call: an abort or stream failure during
+	// the call must still reach the live card through the deferred cleanup —
+	// otherwise the card stays in streaming mode ("正在思考") forever.
+	exec.streamingPublisher = publisher
 	seedSkillPanelStep(ctx, publisher, ts, exec)
 
 	logger.DebugCF("agent", "configured streaming enabled", map[string]any{
@@ -124,7 +136,13 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 				return nil, true, configuredStreamingVisibleError{err: updateErr}
 			}
 			logger.WarnCF("agent", "ChatStream update failed before visible output; retrying with Chat", logFields)
-			publisher.Cancel(ctx)
+			// Seal with a detached context: the turn context may already be
+			// canceled (e.g. /stop mid-call), which would silently turn this
+			// Cancel into a no-op and strand the live card.
+			sealCtx, sealCancel := context.WithTimeout(context.Background(), streamingSealTimeout)
+			publisher.Cancel(sealCtx)
+			sealCancel()
+			exec.streamingPublisher = nil // sealed above; answer goes legacy
 			fallbackResponse, err := exec.activeProvider.Chat(
 				ctx,
 				messagesForCall,
@@ -146,7 +164,13 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 				"model":    exec.llmModel,
 				"error":    streamErr.Error(),
 			})
-			publisher.Cancel(ctx)
+			// Seal with a detached context: the turn context may already be
+			// canceled (e.g. /stop mid-call), which would silently turn this
+			// Cancel into a no-op and strand the live card.
+			sealCtx, sealCancel := context.WithTimeout(context.Background(), streamingSealTimeout)
+			publisher.Cancel(sealCtx)
+			sealCancel()
+			exec.streamingPublisher = nil // sealed above; answer goes legacy
 			fallbackResponse, err := exec.activeProvider.Chat(
 				ctx,
 				messagesForCall,
@@ -160,10 +184,6 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 			return fallbackResponse, true, err
 		}
 		return nil, true, configuredStreamingVisibleError{err: streamErr}
-	}
-
-	if response != nil {
-		exec.streamingPublisher = publisher
 	}
 
 	return response, true, nil
