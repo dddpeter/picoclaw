@@ -479,6 +479,27 @@ func (p *streamingChunkPublisher) FinalizeReasoning(ctx context.Context, content
 	return nil
 }
 
+// AppendToolStep forwards a completed tool execution to a streamer that can
+// render tool-call timelines. Failures are logged but non-fatal: the panel is
+// auxiliary and must never break the turn.
+func (p *streamingChunkPublisher) AppendToolStep(ctx context.Context, step bus.ToolStep) {
+	if p == nil || p.streamer == nil || strings.TrimSpace(step.Tool) == "" {
+		return
+	}
+	toolStepStreamer, ok := p.streamer.(bus.ToolStepStreamer)
+	if !ok {
+		return
+	}
+	if err := toolStepStreamer.AppendToolStep(ctx, step); err != nil {
+		logger.WarnCF("agent", "stream tool step update failed", map[string]any{
+			"channel": p.channel,
+			"chat_id": p.chatID,
+			"tool":    step.Tool,
+			"error":   err.Error(),
+		})
+	}
+}
+
 func (p *streamingChunkPublisher) ClearFinalizedStreamMarker() {
 	if p == nil || p.streamer == nil {
 		return

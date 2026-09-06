@@ -92,6 +92,22 @@ type ReasoningStreamer interface {
 	FinalizeReasoning(ctx context.Context, content string) error
 }
 
+// ToolStep describes a single tool execution for streaming panels that render
+// the agent's tool-call timeline. Args and Result are display previews.
+type ToolStep struct {
+	Tool     string
+	Args     string
+	Result   string
+	IsError  bool
+	Duration time.Duration
+}
+
+// ToolStepStreamer can render tool execution steps as they happen, letting a
+// channel show a chronological process panel alongside the answer stream.
+type ToolStepStreamer interface {
+	AppendToolStep(ctx context.Context, step ToolStep) error
+}
+
 type MessageBus struct {
 	inbound       chan InboundMessage
 	outbound      chan OutboundMessage

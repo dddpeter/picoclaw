@@ -51,6 +51,7 @@ type FeishuChannel struct {
 	cancel context.CancelFunc
 
 	progress        *channels.ToolFeedbackAnimator
+	streams         sync.Map // chatID -> *feishuCardStreamer (in-flight streaming cards)
 	deleteMessageFn func(context.Context, string, string) error
 	sendMediaPartFn func(context.Context, string, bus.MediaPart, media.MediaStore) error
 	sendTextFn      func(context.Context, string, string) (string, error)
