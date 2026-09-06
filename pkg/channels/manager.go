@@ -659,6 +659,14 @@ func (m *Manager) GetStreamer(ctx context.Context, channelName, chatID, sessionK
 				}
 			}
 		}
+		// An empty finalContent means this hook runs for Cancel, not Finalize:
+		// cleanup above is wanted, but marking the stream active would suppress
+		// the normal outbound that delivers a fallback (non-streamed) response.
+		// Streamer.Finalize is never invoked with empty content (the agent-side
+		// publisher skips empty finals), so the discrimination is safe.
+		if finalContent == "" {
+			return
+		}
 		m.streamActive.Store(streamKey, true)
 		m.streamAuxiliaryTombstones.Store(streamKey, time.Now())
 	}

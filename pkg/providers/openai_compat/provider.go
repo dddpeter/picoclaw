@@ -499,7 +499,37 @@ func (p *Provider) Chat(
 		return nil, common.HandleErrorResponse(resp, p.apiBase)
 	}
 
-	return common.ReadAndParseResponse(resp, p.apiBase)
+	response, err := common.ReadAndParseResponse(resp, p.apiBase)
+	if err != nil {
+		return nil, err
+	}
+	splitInlineThink(response)
+	return response, nil
+}
+
+// splitInlineThink moves reasoning that a gateway embedded in the message
+// content as <think>...</think> into ReasoningContent, so non-stream callers
+// see the same split as the streaming path. Existing reasoning content is
+// preserved.
+func splitInlineThink(response *LLMResponse) {
+	if response == nil || response.Content == "" ||
+		(!strings.Contains(response.Content, thinkOpenTag) && !strings.Contains(response.Content, thinkCloseTag)) {
+		return
+	}
+	splitter := newThinkSplitter()
+	rText, aText := splitter.Feed(response.Content)
+	rRemain, aRemain := splitter.Close()
+	reasoning := rText + rRemain
+	answer := aText + aRemain
+	if reasoning == "" {
+		return
+	}
+	if response.ReasoningContent != "" {
+		response.ReasoningContent = response.ReasoningContent + "\n" + reasoning
+	} else {
+		response.ReasoningContent = reasoning
+	}
+	response.Content = answer
 }
 
 // ChatStream implements streaming via OpenAI-compatible SSE (stream: true).
@@ -808,6 +838,23 @@ func parseStreamResponse(
 			Name:      acc.name,
 			Arguments: args,
 		})
+	}
+
+	// Flush any partial-tag bytes the splitter held back across the last
+	// chunk boundary so they land in the right bucket of the final response.
+	if rRemain, aRemain := thinkSplitter.Close(); rRemain != "" || aRemain != "" {
+		if rRemain != "" {
+			reasoningContent.WriteString(rRemain)
+			if onChunk != nil {
+				onChunk(StreamChunk{ReasoningContent: reasoningContent.String()})
+			}
+		}
+		if aRemain != "" {
+			textContent.WriteString(aRemain)
+			if onChunk != nil {
+				onChunk(StreamChunk{Content: textContent.String()})
+			}
+		}
 	}
 
 	if finishReason == "" {
