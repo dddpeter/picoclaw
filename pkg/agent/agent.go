@@ -331,6 +331,10 @@ func (al *AgentLoop) Stop() {
 
 // Close releases resources held by agent session stores. Call after Stop.
 func (al *AgentLoop) Close() {
+	// Drain in-flight memory commits first: they call into the MCP manager
+	// closed just below, and losing them on shutdown was silent.
+	al.memoryCommitter.Drain(memoryCommitDrainTimeout)
+
 	mcpManager := al.mcp.takeManager()
 
 	if mcpManager != nil {

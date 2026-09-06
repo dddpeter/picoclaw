@@ -99,6 +99,11 @@ type EvolutionConfig struct {
 	MinSuccessRatio float64  `json:"min_success_ratio,omitempty"`
 	ColdPathTrigger string   `json:"cold_path_trigger,omitempty"`
 	ColdPathTimes   []string `json:"cold_path_times,omitempty"`
+	// Lifecycle idle-day thresholds for skill status transitions. Zero or
+	// negative values fall back to the defaults (90/180/365).
+	ColdAfterDays    int `json:"cold_after_days,omitempty"`
+	ArchiveAfterDays int `json:"archive_after_days,omitempty"`
+	DeleteAfterDays  int `json:"delete_after_days,omitempty"`
 	// Deprecated: use MinTaskCount.
 	MinCaseCount int `json:"min_case_count,omitempty"`
 	// Deprecated: use MinSuccessRatio.

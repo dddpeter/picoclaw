@@ -1135,7 +1135,19 @@ func (rt *Runtime) runLifecycleMaintenance(workspace string, store *Store, runID
 		"run_id":    runID,
 	})
 
-	summary, err := RunLifecycleOnce(store, paths, workspace, rt.now())
+	coldDays := rt.cfg.ColdAfterDays
+	if coldDays <= 0 {
+		coldDays = DefaultLifecycleColdAfterDays
+	}
+	archiveDays := rt.cfg.ArchiveAfterDays
+	if archiveDays <= 0 {
+		archiveDays = DefaultLifecycleArchiveAfterDays
+	}
+	deleteDays := rt.cfg.DeleteAfterDays
+	if deleteDays <= 0 {
+		deleteDays = DefaultLifecycleDeleteAfterDays
+	}
+	summary, err := RunLifecycleOnceWithThresholds(store, paths, workspace, rt.now(), coldDays, archiveDays, deleteDays)
 	if err != nil {
 		logger.WarnCF("evolution", "Lifecycle maintenance failed", map[string]any{
 			"workspace": workspace,

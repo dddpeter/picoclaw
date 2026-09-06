@@ -16,7 +16,21 @@ type LifecycleRunSummary struct {
 	DeletedSkills        int
 }
 
+// Default lifecycle idle-day thresholds; overridable via EvolutionConfig.
+const (
+	DefaultLifecycleColdAfterDays    = 90
+	DefaultLifecycleArchiveAfterDays = 180
+	DefaultLifecycleDeleteAfterDays  = 365
+)
+
 func NextLifecycleState(profile SkillProfile, now time.Time) SkillStatus {
+	return NextLifecycleStateWithThresholds(profile, now,
+		DefaultLifecycleColdAfterDays, DefaultLifecycleArchiveAfterDays, DefaultLifecycleDeleteAfterDays)
+}
+
+// NextLifecycleStateWithThresholds is NextLifecycleState with configurable
+// idle-day thresholds (non-positive values keep the transition unreachable).
+func NextLifecycleStateWithThresholds(profile SkillProfile, now time.Time, coldDays, archiveDays, deleteDays int) SkillStatus {
 	if profile.Origin == "manual" || profile.LastUsedAt.IsZero() {
 		return profile.Status
 	}
@@ -24,15 +38,15 @@ func NextLifecycleState(profile SkillProfile, now time.Time) SkillStatus {
 	idle := now.Sub(profile.LastUsedAt)
 	switch profile.Status {
 	case SkillStatusActive:
-		if idle > 90*24*time.Hour && profile.RetentionScore < 0.3 {
+		if coldDays > 0 && idle > time.Duration(coldDays)*24*time.Hour && profile.RetentionScore < 0.3 {
 			return SkillStatusCold
 		}
 	case SkillStatusCold:
-		if idle > 180*24*time.Hour && profile.RetentionScore < 0.2 {
+		if archiveDays > 0 && idle > time.Duration(archiveDays)*24*time.Hour && profile.RetentionScore < 0.2 {
 			return SkillStatusArchived
 		}
 	case SkillStatusArchived:
-		if idle > 365*24*time.Hour && profile.RetentionScore < 0.1 {
+		if deleteDays > 0 && idle > time.Duration(deleteDays)*24*time.Hour && profile.RetentionScore < 0.1 {
 			return SkillStatusDeleted
 		}
 	}
@@ -65,6 +79,11 @@ func ApplyLifecycleState(paths Paths, profile SkillProfile, next SkillStatus) er
 }
 
 func RunLifecycleOnce(store *Store, paths Paths, workspace string, now time.Time) (LifecycleRunSummary, error) {
+	return RunLifecycleOnceWithThresholds(store, paths, workspace, now,
+		DefaultLifecycleColdAfterDays, DefaultLifecycleArchiveAfterDays, DefaultLifecycleDeleteAfterDays)
+}
+
+func RunLifecycleOnceWithThresholds(store *Store, paths Paths, workspace string, now time.Time, coldDays, archiveDays, deleteDays int) (LifecycleRunSummary, error) {
 	if store == nil {
 		return LifecycleRunSummary{}, nil
 	}
@@ -81,7 +100,7 @@ func RunLifecycleOnce(store *Store, paths Paths, workspace string, now time.Time
 		}
 
 		summary.EvaluatedProfiles++
-		next := NextLifecycleState(profile, now)
+		next := NextLifecycleStateWithThresholds(profile, now, coldDays, archiveDays, deleteDays)
 		if next == profile.Status {
 			continue
 		}

@@ -26,7 +26,7 @@ func NewStore(paths Paths) *Store {
 	return &Store{paths: paths}
 }
 
-var storeFileLocks sync.Map
+var storeFileLocks = &storeFileLockRegistry{locks: make(map[string]*storeFileLockEntry)}
 
 func (s *Store) AppendLearningRecord(ctx context.Context, record LearningRecord) error {
 	switch record.Kind {
@@ -557,21 +557,44 @@ func isInvalidJSON(err error) bool {
 	return errors.As(err, &syntaxErr)
 }
 
-func lockStoreFile(path string) func() {
-	for {
-		actual, _ := storeFileLocks.LoadOrStore(path, &sync.Mutex{})
-		mu, ok := actual.(*sync.Mutex)
-		if !ok || mu == nil {
-			// Corrupted entry (wrong type or nil *sync.Mutex).
-			// Atomically swap in a fresh mutex via CompareAndSwap.
-			// If CAS fails, another goroutine already replaced it —
-			// just retry the loop to pick up the valid entry.
-			storeFileLocks.CompareAndSwap(path, actual, &sync.Mutex{})
-			continue
-		}
-		mu.Lock()
-		return mu.Unlock
+// storeFileLockRegistry hands out a per-path mutex with reference counting:
+// entries are removed once the last holder releases, so paths from deleted
+// or one-off workspaces do not accumulate for the process lifetime (the
+// previous sync.Map-based registry never reclaimed keys).
+type storeFileLockRegistry struct {
+	mu    sync.Mutex
+	locks map[string]*storeFileLockEntry
+}
+
+type storeFileLockEntry struct {
+	mu   sync.Mutex
+	refs int
+}
+
+func (r *storeFileLockRegistry) lock(path string) func() {
+	r.mu.Lock()
+	entry, ok := r.locks[path]
+	if !ok {
+		entry = &storeFileLockEntry{}
+		r.locks[path] = entry
 	}
+	entry.refs++
+	r.mu.Unlock()
+
+	entry.mu.Lock()
+	return func() {
+		entry.mu.Unlock()
+		r.mu.Lock()
+		entry.refs--
+		if entry.refs == 0 {
+			delete(r.locks, path)
+		}
+		r.mu.Unlock()
+	}
+}
+
+func lockStoreFile(path string) func() {
+	return storeFileLocks.lock(path)
 }
 
 func (s *Store) profilePath(workspaceID, skillName string) (string, error) {

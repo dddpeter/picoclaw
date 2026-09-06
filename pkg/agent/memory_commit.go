@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/config"
@@ -20,6 +21,9 @@ import (
 const (
 	defaultMemoryCommitTool      = "remember"
 	defaultMemoryCommitTimeoutMs = 5000
+	// memoryCommitDrainTimeout bounds shutdown draining: a commit already
+	// exceeding it has also exceeded its own call timeout.
+	memoryCommitDrainTimeout = 8 * time.Second
 )
 
 func normalizeMemoryCommitConfig(cfg config.MemoryCommitConfig) config.MemoryCommitConfig {
@@ -34,11 +38,33 @@ func normalizeMemoryCommitConfig(cfg config.MemoryCommitConfig) config.MemoryCom
 
 // memoryCommitter pushes completed turns to a shared-memory backend (e.g.
 // OpenViking's `remember` tool: messages in, async extraction out). Commits
-// are fire-and-forget: they run on a detached goroutine with their own
-// timeout and can never delay or fail a turn.
+// are fire-and-forget: they run on a background goroutine with their own
+// timeout and can never delay or fail a turn. The WaitGroup lets shutdown
+// drain in-flight commits instead of losing them to a hard process exit.
 type memoryCommitter struct {
 	cfg    config.MemoryCommitConfig
+	wg     sync.WaitGroup
 	commit func(ctx context.Context, messages []map[string]string) error
+}
+
+// Drain waits for in-flight commits, bounded by timeout; anything still
+// running past it is abandoned (best effort, same as before). Call before
+// tearing down the MCP manager the commits depend on.
+func (m *memoryCommitter) Drain(timeout time.Duration) {
+	if m == nil {
+		return
+	}
+	done := make(chan struct{})
+	go func() {
+		m.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		logger.WarnCF("agent", "Memory commit drain timed out; abandoning in-flight commits",
+			map[string]any{"timeout": timeout.String()})
+	}
 }
 
 // commitTurnMemory enqueues an async commit of one completed turn. Empty
@@ -62,7 +88,9 @@ func (al *AgentLoop) commitTurnMemory(sessionKey, userMessage, assistantMessage 
 		messages = append(messages, map[string]string{"role": "assistant", "content": assistantMessage})
 	}
 
+	committer.wg.Add(1)
 	go func() {
+		defer committer.wg.Done()
 		// Detached context: the turn's contexts are typically canceled by
 		// the time finalize returns, and a commit must outlive the turn.
 		ctx, cancel := context.WithTimeout(context.Background(),

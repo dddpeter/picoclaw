@@ -185,3 +185,72 @@ func waitForCondition(t *testing.T, timeout time.Duration, cond func() bool) {
 	}
 	t.Fatal("condition not met before timeout")
 }
+
+// TestMemoryCommitterDrainWaitsForInFlightCommit pins the shutdown fix:
+// Drain must wait for a running commit instead of losing it to a hard
+// process exit, and give up after its bound when a commit is stuck.
+func TestMemoryCommitterDrainWaitsForInFlightCommit(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	committer := &memoryCommitter{
+		cfg: normalizeMemoryCommitConfig(config.MemoryCommitConfig{Enabled: true, Server: "openviking"}),
+		commit: func(_ context.Context, _ []map[string]string) error {
+			close(started)
+			<-release
+			return nil
+		},
+	}
+	al := newLegacyTestAgentLoop(t, &summarizingRecordingProvider{response: "unused"})
+	al.memoryCommitter = committer
+
+	al.commitTurnMemory("session-drain", "q", "a")
+	<-started
+
+	drained := make(chan struct{})
+	go func() {
+		committer.Drain(2 * time.Second)
+		close(drained)
+	}()
+
+	select {
+	case <-drained:
+		t.Fatal("Drain returned while a commit was still in flight")
+	case <-time.After(100 * time.Millisecond):
+		// Still waiting, as intended.
+	}
+
+	close(release)
+	select {
+	case <-drained:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Drain did not return after the commit finished")
+	}
+}
+
+func TestMemoryCommitterDrainTimesOutOnStuckCommit(t *testing.T) {
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	committer := &memoryCommitter{
+		cfg: normalizeMemoryCommitConfig(config.MemoryCommitConfig{Enabled: true, Server: "openviking"}),
+		commit: func(_ context.Context, _ []map[string]string) error {
+			<-release
+			return nil
+		},
+	}
+
+	committer.wg.Add(1)
+	go func() {
+		defer committer.wg.Done()
+		_ = committer.commit(context.Background(), nil)
+	}()
+
+	start := time.Now()
+	committer.Drain(50 * time.Millisecond)
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("Drain blocked for %v despite the bound", elapsed)
+	}
+
+	// Nil committer is a no-op (commit disabled).
+	var nilCommitter *memoryCommitter
+	nilCommitter.Drain(time.Second)
+}

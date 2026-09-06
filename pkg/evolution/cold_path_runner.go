@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 )
 
 type coldPathRuntime interface {
@@ -105,6 +106,12 @@ func (r *ColdPathRunner) runWorkspace(workspace string) {
 	}
 }
 
+// coldPathCloseTimeout bounds Close: in-flight cold-path work does not
+// fully honor context cancellation (per-rule LLM steps run without ctx),
+// so an unbounded wg.Wait could stall shutdown for a whole rule iteration.
+// Package-level var so tests can shorten it.
+var coldPathCloseTimeout = 30 * time.Second
+
 func (r *ColdPathRunner) Close() error {
 	if r == nil {
 		return nil
@@ -116,6 +123,16 @@ func (r *ColdPathRunner) Close() error {
 		r.mu.Unlock()
 		r.cancel()
 	})
-	r.wg.Wait()
+	done := make(chan struct{})
+	go func() {
+		r.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(coldPathCloseTimeout):
+		// The worker keeps running detached; it exits at the next context
+		// check. Shutdown must not block on it.
+	}
 	return nil
 }

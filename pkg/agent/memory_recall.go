@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -43,10 +44,14 @@ func normalizeMemoryRecallConfig(cfg config.MemoryRecallConfig) config.MemoryRec
 // semantic `search`) into the system prompt's memory slot at turn start,
 // using the user's message as the query. Recall is strictly best effort:
 // any failure (server down, timeout, empty result) skips injection so a
-// memory backend outage can never break a turn.
+// memory backend outage can never break a turn. The first failure is
+// logged at warn level so a silently broken backend is discoverable;
+// repeats stay at debug to avoid log spam.
 type memoryRecallContributor struct {
-	cfg    config.MemoryRecallConfig
-	recall func(ctx context.Context, query string) (string, error)
+	cfg     config.MemoryRecallConfig
+	recall  func(ctx context.Context, query string) (string, error)
+	warned  atomic.Bool
+	failing atomic.Bool
 }
 
 func (c *memoryRecallContributor) PromptSource() PromptSourceDescriptor {
@@ -69,11 +74,23 @@ func (c *memoryRecallContributor) ContributePrompt(ctx context.Context, req Prom
 
 	text, err := c.recall(ctx, query)
 	if err != nil {
-		logger.DebugCF("agent", "Memory recall skipped", map[string]any{
-			"server": c.cfg.Server,
-			"error":  err.Error(),
-		})
+		if !c.failing.Swap(true) {
+			logger.WarnCF("agent", "Memory recall failing; injection skipped until it recovers", map[string]any{
+				"server": c.cfg.Server,
+				"error":  err.Error(),
+			})
+		} else {
+			logger.DebugCF("agent", "Memory recall skipped", map[string]any{
+				"server": c.cfg.Server,
+				"error":  err.Error(),
+			})
+		}
 		return nil, nil
+	}
+	if c.failing.Swap(false) && c.warned.CompareAndSwap(false, true) {
+		logger.InfoCF("agent", "Memory recall recovered", map[string]any{
+			"server": c.cfg.Server,
+		})
 	}
 	text = strings.TrimSpace(text)
 	if text == "" {
