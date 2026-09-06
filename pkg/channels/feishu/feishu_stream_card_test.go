@@ -73,7 +73,7 @@ func TestBuildFeishuFinalCardPanelAndFooter(t *testing.T) {
 		InputTokens:  100,
 		OutputTokens: 42,
 	}
-	card := buildFeishuFinalCard(state, "final answer", false, 12*time.Second)
+	card := buildFeishuFinalCard(state, "final answer", false, 12*time.Second, "")
 
 	elements := card["body"].(map[string]any)["elements"].([]any)
 	if len(elements) != 4 { // panel + answer + hr + footer markdown
@@ -114,7 +114,7 @@ func TestBuildFeishuFinalCardPanelAndFooter(t *testing.T) {
 
 func TestBuildFeishuFinalCardEmpty(t *testing.T) {
 	state := &feishuStreamState{}
-	card := buildFeishuFinalCard(state, "", false, time.Second)
+	card := buildFeishuFinalCard(state, "", false, time.Second, "")
 	elements := card["body"].(map[string]any)["elements"].([]any)
 	if len(elements) == 0 {
 		t.Fatal("empty final card should still render something")
@@ -270,12 +270,50 @@ func TestFinalCardStaysUnderSizeLimit(t *testing.T) {
 	for i := 0; i < feishuMaxToolSteps; i++ {
 		state.Tools = append(state.Tools, bus.ToolStep{Tool: "tool", Args: strings.Repeat("参", 200), Result: strings.Repeat("果", 400)})
 	}
-	card := buildFeishuFinalCard(state, strings.Repeat("答", 4000), false, time.Second)
+	card := buildFeishuFinalCard(state, strings.Repeat("答", 4000), false, time.Second, "")
 	data, err := json.Marshal(card)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(data) > 30000 {
 		t.Errorf("worst-case final card is %d bytes, exceeds Feishu 30KB limit", len(data))
+	}
+}
+
+func TestFinalCardShowsCancelReason(t *testing.T) {
+	state := &feishuStreamState{}
+	card := buildFeishuFinalCard(state, "", true, time.Second, "stop_command")
+	data, _ := json.Marshal(card)
+	if !strings.Contains(string(data), "用户停止") {
+		t.Errorf("sealed card should show stop reason, got: %.200s", string(data))
+	}
+
+	card = buildFeishuFinalCard(state, "", true, time.Second, "custom_code_xyz")
+	data, _ = json.Marshal(card)
+	if !strings.Contains(string(data), "custom_code_xyz") {
+		t.Error("unknown reason codes should render verbatim")
+	}
+}
+
+func TestPanelShowsSteeringNotice(t *testing.T) {
+	state := &feishuStreamState{
+		SteeringCount: 2,
+		SteeringLast:  "顺便也查一下价格",
+	}
+	if !state.hasPanelContent() {
+		t.Fatal("steering notices alone should count as panel content")
+	}
+	panel := buildFeishuPanel(state, true)
+	data, _ := json.Marshal(panel["elements"])
+	if !strings.Contains(string(data), "收到 2 条追加指令") || !strings.Contains(string(data), "顺便也查一下价格") {
+		t.Errorf("panel missing steering notice: %.300s", string(data))
+	}
+
+	// Long previews are truncated.
+	state.SteeringLast = strings.Repeat("长", 100)
+	panel = buildFeishuPanel(state, true)
+	data, _ = json.Marshal(panel["elements"])
+	if !strings.Contains(string(data), "…") {
+		t.Error("long steering preview should be truncated")
 	}
 }

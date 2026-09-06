@@ -29,6 +29,7 @@ func NewAgentLoop(
 	opts ...AgentLoopOption,
 ) *AgentLoop {
 	registry := NewAgentRegistry(cfg, provider)
+	startedAt := time.Now()
 
 	// Set up shared fallback chain with rate limiting.
 	cooldown := providers.NewCooldownTracker()
@@ -64,6 +65,7 @@ func NewAgentLoop(
 	}
 
 	al := &AgentLoop{
+		startedAt:         startedAt,
 		bus:               msgBus,
 		cfg:               cfg,
 		registry:          registry,

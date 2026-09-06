@@ -38,10 +38,11 @@ type feishuCardStreamer struct {
 	seq     int
 	startAt time.Time
 
-	state    feishuStreamState
-	answer   string
-	aborted  bool
-	done     bool
+	state       feishuStreamState
+	answer      string
+	aborted     bool
+	done        bool
+	cancelReasn string
 	reasonAt time.Time // start of the current reasoning round
 	lastAt   time.Time // last activity; guards stale reuse in BeginStream
 
@@ -124,6 +125,32 @@ func (c *FeishuChannel) BeginStream(ctx context.Context, chatID string) (channel
 		"card_id": cardID,
 	})
 	return s, nil
+}
+
+// NotifySteeringInChat implements channels.SteeringNotifyCapable: records a
+// steering acknowledgement on the chat's active streaming card so the user
+// sees their mid-turn message was heard. Returns false when no card is active.
+func (c *FeishuChannel) NotifySteeringInChat(ctx context.Context, chatID, preview string) bool {
+	v, ok := c.streams.Load(chatID)
+	if !ok {
+		return false
+	}
+	s, ok := v.(*feishuCardStreamer)
+	if !ok {
+		return false
+	}
+	s.mu.Lock()
+	if s.done {
+		s.mu.Unlock()
+		return false
+	}
+	s.lastAt = time.Now()
+	s.state.SteeringCount++
+	s.state.SteeringLast = preview
+	err := s.refreshPanelLocked(ctx)
+	s.mu.Unlock()
+	s.logPanelErr("steering notice", err)
+	return true
 }
 
 func (s *feishuCardStreamer) nextSeqLocked() int {
@@ -299,7 +326,7 @@ func (s *feishuCardStreamer) FinalizeWithContext(ctx context.Context, content st
 	s.mu.Unlock()
 	defer s.ch.streams.Delete(s.chatID)
 
-	card := buildFeishuFinalCard(&state, answer, false, elapsed)
+	card := buildFeishuFinalCard(&state, answer, false, elapsed, "")
 	if err := s.ch.cardkitUpdateCard(ctx, cardID, card, seq); err != nil {
 		return err
 	}
@@ -308,6 +335,12 @@ func (s *feishuCardStreamer) FinalizeWithContext(ctx context.Context, content st
 
 // Cancel seals the card in an interrupted state (best effort).
 func (s *feishuCardStreamer) Cancel(ctx context.Context) {
+	s.CancelWithReason(ctx, "")
+}
+
+// CancelWithReason implements bus.CancelReasonStreamer: the cause is shown on
+// the sealed card's status line so users know why the reply stopped.
+func (s *feishuCardStreamer) CancelWithReason(ctx context.Context, reason string) {
 	s.mu.Lock()
 	if s.done {
 		s.mu.Unlock()
@@ -324,12 +357,16 @@ func (s *feishuCardStreamer) Cancel(ctx context.Context) {
 	cardID := s.cardID
 	seq := s.nextSeqLocked()
 	seqClose := s.nextSeqLocked()
+	if reason != "" {
+		s.cancelReasn = reason
+	}
+	reason = s.cancelReasn
 	s.aborted = true
 	s.done = true
 	s.mu.Unlock()
 	defer s.ch.streams.Delete(s.chatID)
 
-	card := buildFeishuFinalCard(&state, answer, true, elapsed)
+	card := buildFeishuFinalCard(&state, answer, true, elapsed, reason)
 	if err := s.ch.cardkitUpdateCard(ctx, cardID, card, seq); err != nil {
 		logger.WarnCF("feishu", "streaming card cancel seal failed", map[string]any{
 			"chat_id": s.chatID,

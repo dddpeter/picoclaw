@@ -16,7 +16,9 @@ func BuiltinDefinitions() []Definition {
 		switchCommand(),
 		checkCommand(),
 		clearCommand(),
+		newCommand(),
 		contextCommand(),
+		statusCommand(),
 		subagentsCommand(),
 		reloadCommand(),
 	}

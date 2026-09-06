@@ -48,6 +48,7 @@ type AgentLoop struct {
 
 	// Runtime state
 	running        atomic.Bool
+	startedAt      time.Time // process-loop start, for /status uptime
 	contextManager ContextManager
 	fallback       *providers.FallbackChain
 	channelManager interfaces.ChannelManager
@@ -208,6 +209,11 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 							"chat_id":     msg.ChatID,
 							"session_key": sessionKey,
 						})
+				} else if al.bus.NotifySteering(ctx, msg.Channel, msg.ChatID, sessionKey, msg.Content) {
+					logger.DebugCF("agent", "Steering notice shown on streaming surface", map[string]any{
+						"channel": msg.Channel,
+						"chat_id": msg.ChatID,
+					})
 				}
 				continue
 			}

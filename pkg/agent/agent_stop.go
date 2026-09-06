@@ -77,6 +77,7 @@ func (al *AgentLoop) stopActiveTurnForSession(sessionKey string) (commands.StopR
 		return result, nil
 	}
 
+	ts.setAbortReason(streamCancelReasonStopCommand)
 	if err := al.HardAbort(sessionKey); err != nil {
 		if al.getActiveTurnState(sessionKey) == nil {
 			result.Stopped = cleared > 0

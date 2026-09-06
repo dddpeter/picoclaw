@@ -108,11 +108,11 @@ func (p *Pipeline) CallLLM(
 				}
 			}
 		case HookActionAbortTurn:
-			cancelConfiguredStreamingLLM(turnCtx, exec)
+			cancelConfiguredStreamingLLMWithReason(turnCtx, exec, streamCancelReasonHookAbort)
 			exec.abortedByHook = true
 			return ControlBreak, nil
 		case HookActionHardAbort:
-			cancelConfiguredStreamingLLM(turnCtx, exec)
+			cancelConfiguredStreamingLLMWithReason(turnCtx, exec, streamCancelReasonHardAbort)
 			_ = ts.requestHardAbort()
 			exec.abortedByHardAbort = true
 			return ControlBreak, nil
@@ -521,11 +521,11 @@ func (p *Pipeline) CallLLM(
 				exec.response = llmResp.Response
 			}
 		case HookActionAbortTurn:
-			cancelConfiguredStreamingLLM(turnCtx, exec)
+			cancelConfiguredStreamingLLMWithReason(turnCtx, exec, streamCancelReasonHookAbort)
 			exec.abortedByHook = true
 			return ControlBreak, nil
 		case HookActionHardAbort:
-			cancelConfiguredStreamingLLM(turnCtx, exec)
+			cancelConfiguredStreamingLLMWithReason(turnCtx, exec, streamCancelReasonHardAbort)
 			_ = ts.requestHardAbort()
 			exec.abortedByHardAbort = true
 			return ControlBreak, nil

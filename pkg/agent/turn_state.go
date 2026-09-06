@@ -221,6 +221,7 @@ type turnState struct {
 
 	gracefulInterrupt     bool
 	gracefulInterruptHint string
+	abortReason           string // stable cause code set alongside hard aborts
 	gracefulTerminalUsed  bool
 	hardAbort             bool
 	providerCancel        context.CancelFunc
@@ -636,6 +637,20 @@ func (ts *turnState) hardAbortRequested() bool {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 	return ts.hardAbort
+}
+
+// setAbortReason records why the turn is being aborted (stable code, e.g.
+// "stop_command") so streaming surfaces can show the cause when sealing.
+func (ts *turnState) setAbortReason(reason string) {
+	ts.mu.Lock()
+	ts.abortReason = reason
+	ts.mu.Unlock()
+}
+
+func (ts *turnState) abortReasonCode() string {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	return ts.abortReason
 }
 
 func (ts *turnState) eventMeta(source, tracePath string) HookMeta {

@@ -94,9 +94,13 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 	// finalize/cancel, which already nils the publisher. Uses a detached
 	// context because turnCtx is typically already canceled on abort paths.
 	defer func() {
+		reason := ts.abortReasonCode()
+		if reason == "" {
+			reason = streamCancelReasonTurnAborted
+		}
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		cancelConfiguredStreamingLLM(cleanupCtx, exec)
+		cancelConfiguredStreamingLLMWithReason(cleanupCtx, exec, reason)
 	}()
 
 	// Convenience references to exec fields used throughout the turn loop.

@@ -4,6 +4,7 @@ package agent
 
 import (
 	"context"
+	"time"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -397,6 +398,45 @@ func (al *AgentLoop) buildCommandsRuntime(
 			return al.askSideQuestion(ctx, agent, opts, question)
 		}
 
+		rt.GetStatusOverview = func() *commands.StatusOverview {
+			overview := &commands.StatusOverview{
+				Version: config.FormatVersion(),
+			}
+			if agent != nil {
+				modelMu := agent.modelStateMutex()
+				modelMu.RLock()
+				overview.Model = agent.Model
+				modelMu.RUnlock()
+				overview.Provider = resolvedCandidateProvider(agent.Candidates, cfg.Agents.Defaults.Provider)
+			}
+			if al.channelManager != nil {
+				overview.Channels = al.channelManager.GetEnabledChannels()
+			}
+			if !al.startedAt.IsZero() {
+				overview.Uptime = time.Since(al.startedAt)
+			}
+			al.activeTurnStates.Range(func(key, value any) bool {
+				ts, ok := value.(*turnState)
+				if !ok || ts == nil {
+					return true
+				}
+				snap := ts.snapshot()
+				if strings.HasPrefix(snap.TurnID, pendingTurnPrefix) {
+					return true
+				}
+				overview.ActiveTurns = append(overview.ActiveTurns, commands.ActiveTurnStatus{
+					SessionKey: snap.SessionKey,
+					AgentID:    snap.AgentID,
+					Channel:    snap.Channel,
+					Task:       snap.UserMessage,
+					Phase:      string(snap.Phase),
+					Iteration:  snap.Iteration,
+					RunningFor: time.Since(snap.StartedAt),
+				})
+				return true
+			})
+			return overview
+		}
 		rt.GetContextStats = func() *commands.ContextStats {
 			if opts == nil || agent.Sessions == nil {
 				return nil
