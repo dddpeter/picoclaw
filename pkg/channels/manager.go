@@ -769,6 +769,16 @@ func (s *splitMarkerStreamer) FinalizeReasoning(ctx context.Context, content str
 	return s.reasoning.FinalizeReasoning(ctx, content)
 }
 
+func (s *splitMarkerStreamer) AppendToolStep(ctx context.Context, step bus.ToolStep) error {
+	s.mu.Lock()
+	current := s.current
+	s.mu.Unlock()
+	if streamer, ok := current.(bus.ToolStepStreamer); ok {
+		return streamer.AppendToolStep(ctx, step)
+	}
+	return nil
+}
+
 func (s *splitMarkerStreamer) SetModelName(modelName string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -945,6 +955,13 @@ func (s *finalizeHookStreamer) UpdateReasoning(ctx context.Context, content stri
 func (s *finalizeHookStreamer) FinalizeReasoning(ctx context.Context, content string) error {
 	if streamer, ok := s.Streamer.(bus.ReasoningStreamer); ok {
 		return streamer.FinalizeReasoning(ctx, content)
+	}
+	return nil
+}
+
+func (s *finalizeHookStreamer) AppendToolStep(ctx context.Context, step bus.ToolStep) error {
+	if streamer, ok := s.Streamer.(bus.ToolStepStreamer); ok {
+		return streamer.AppendToolStep(ctx, step)
 	}
 	return nil
 }
@@ -2128,3 +2145,10 @@ func (m *Manager) SendToChannel(ctx context.Context, channelName, chatID, conten
 	_, err := channel.Send(ctx, msg)
 	return err
 }
+
+// Compile-time assurance that the manager's streamer wrappers preserve the
+// optional capability interfaces the agent pushes tool steps through.
+var (
+	_ bus.ToolStepStreamer = (*finalizeHookStreamer)(nil)
+	_ bus.ToolStepStreamer = (*splitMarkerStreamer)(nil)
+)

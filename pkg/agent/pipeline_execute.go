@@ -690,6 +690,17 @@ toolLoop:
 			contentForLLM = al.cfg.FilterSensitiveData(contentForLLM)
 		}
 
+		if exec.streamingPublisher != nil {
+			argsJSON, _ := json.Marshal(toolArgs)
+			exec.streamingPublisher.AppendToolStep(ctx, bus.ToolStep{
+				Tool:     toolName,
+				Args:     utils.Truncate(string(argsJSON), 200),
+				Result:   utils.Truncate(contentForLLM, 400),
+				IsError:  toolResult.IsError,
+				Duration: toolDuration,
+			})
+		}
+
 		var toolResultMedia []string
 		if len(toolResult.Media) > 0 && !toolResult.ResponseHandled {
 			toolResultMedia = append(toolResultMedia, toolResult.Media...)

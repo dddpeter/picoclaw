@@ -1,0 +1,417 @@
+//go:build amd64 || arm64 || riscv64 || mips64 || ppc64
+
+// PicoClaw - Ultra-lightweight AI agent
+
+package feishu
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"sync"
+	"time"
+
+	larkcardkit "github.com/larksuite/oapi-sdk-go/v3/service/cardkit/v1"
+
+	"github.com/sipeed/picoclaw/pkg/bus"
+	"github.com/sipeed/picoclaw/pkg/channels"
+	"github.com/sipeed/picoclaw/pkg/logger"
+)
+
+// Streaming throttles. The answer element uses Feishu's native typewriter
+// (print_frequency_ms), so we only rate-limit our own API calls; the process
+// panel rebuild is a full card update and needs a longer interval.
+const (
+	feishuAnswerFlushInterval = 200 * time.Millisecond
+	feishuPanelFlushInterval  = 800 * time.Millisecond
+)
+
+// feishuCardStreamer implements bus.Streamer on top of a CardKit v2 streaming
+// card: one card per turn, showing a process panel (reasoning rounds + tool
+// steps) above the streamed answer.
+type feishuCardStreamer struct {
+	ch     *FeishuChannel
+	chatID string
+	cardID string
+
+	mu      sync.Mutex
+	seq     int
+	startAt time.Time
+
+	state    feishuStreamState
+	answer   string
+	aborted  bool
+	done     bool
+	reasonAt time.Time // start of the current reasoning round
+
+	answerSentAt time.Time
+	panelSentAt  time.Time
+}
+
+// BeginStream implements channels.StreamingCapable. The manager may call this
+// once per LLM iteration within a turn; we reuse the in-flight card for the
+// same chat so the whole turn stays on one card and is sealed on Finalize.
+func (c *FeishuChannel) BeginStream(ctx context.Context, chatID string) (channels.Streamer, error) {
+	if v, ok := c.streams.Load(chatID); ok {
+		if s, ok := v.(*feishuCardStreamer); ok {
+			s.mu.Lock()
+			reusable := !s.done
+			s.mu.Unlock()
+			if reusable {
+				return s, nil
+			}
+		}
+	}
+
+	cardJSON, err := json.Marshal(buildFeishuStreamingCard())
+	if err != nil {
+		return nil, fmt.Errorf("feishu stream: build card: %w", err)
+	}
+	createReq := larkcardkit.NewCreateCardReqBuilder().
+		Body(larkcardkit.NewCreateCardReqBodyBuilder().
+			Type("card_json").
+			Data(string(cardJSON)).
+			Build()).
+		Build()
+	createResp, err := c.client.Cardkit.V1.Card.Create(ctx, createReq)
+	if err != nil || !createResp.Success() {
+		code, msg := 0, ""
+		if createResp != nil {
+			code, msg = createResp.Code, createResp.Msg
+		}
+		return nil, fmt.Errorf("feishu stream: cardkit create failed (code=%d msg=%s err=%v)", code, msg, err)
+	}
+	if createResp.Data == nil || createResp.Data.CardId == nil {
+		return nil, fmt.Errorf("feishu stream: cardkit create returned no card_id")
+	}
+	cardID := *createResp.Data.CardId
+
+	// Deliver the card to the chat as a message referencing the card entity.
+	msgContent, _ := json.Marshal(map[string]any{
+		"type": "card",
+		"data": map[string]any{"card_id": cardID},
+	})
+	if _, err := c.sendCard(ctx, chatID, string(msgContent)); err != nil {
+		return nil, fmt.Errorf("feishu stream: send streaming card: %w", err)
+	}
+
+	s := &feishuCardStreamer{
+		ch:      c,
+		chatID:  chatID,
+		cardID:  cardID,
+		startAt: time.Now(),
+		seq:     int(time.Now().UnixMilli()),
+	}
+	c.streams.Store(chatID, s)
+	logger.DebugCF("feishu", "streaming card created", map[string]any{
+		"chat_id": chatID,
+		"card_id": cardID,
+	})
+	return s, nil
+}
+
+func (s *feishuCardStreamer) nextSeqLocked() int {
+	s.seq++
+	return s.seq
+}
+
+// Update streams accumulated answer text into the card's answer element,
+// throttled to feishuAnswerFlushInterval.
+func (s *feishuCardStreamer) Update(ctx context.Context, content string) error {
+	s.mu.Lock()
+	if s.done {
+		s.mu.Unlock()
+		return nil
+	}
+	s.answer = content
+	if time.Since(s.answerSentAt) < feishuAnswerFlushInterval {
+		s.mu.Unlock()
+		return nil
+	}
+	s.answerSentAt = time.Now()
+	content = s.answer
+	cardID, seq := s.cardID, s.nextSeqLocked()
+	s.mu.Unlock()
+
+	return s.ch.cardkitStreamContent(ctx, cardID, feishuAnswerElementID, content, seq)
+}
+
+// UpdateReasoning accumulates the in-progress reasoning round and refreshes
+// the process panel (throttled).
+func (s *feishuCardStreamer) UpdateReasoning(ctx context.Context, content string) error {
+	s.mu.Lock()
+	if s.done {
+		s.mu.Unlock()
+		return nil
+	}
+	if s.state.CurReasoning == "" {
+		s.reasonAt = time.Now()
+	}
+	s.state.CurReasoning = content
+	err := s.refreshPanelLocked(ctx)
+	s.mu.Unlock()
+	s.logPanelErr("reasoning update", err)
+	return nil
+}
+
+// FinalizeReasoning closes the current reasoning round into the panel history.
+func (s *feishuCardStreamer) FinalizeReasoning(ctx context.Context, content string) error {
+	s.mu.Lock()
+	if s.done {
+		s.mu.Unlock()
+		return nil
+	}
+	if text := content; text != "" {
+		s.state.CurReasoning = text
+	}
+	if s.state.CurReasoning != "" {
+		duration := time.Duration(0)
+		if !s.reasonAt.IsZero() {
+			duration = time.Since(s.reasonAt)
+		}
+		s.state.Rounds = append(s.state.Rounds, feishuReasoningRound{
+			Text:     s.state.CurReasoning,
+			Duration: duration,
+		})
+		s.state.CurReasoning = ""
+		s.reasonAt = time.Time{}
+	}
+	err := s.refreshPanelLocked(ctx)
+	s.mu.Unlock()
+	s.logPanelErr("reasoning finalize", err)
+	return nil
+}
+
+// AppendToolStep implements bus.ToolStepStreamer.
+func (s *feishuCardStreamer) AppendToolStep(ctx context.Context, step bus.ToolStep) error {
+	s.mu.Lock()
+	if s.done {
+		s.mu.Unlock()
+		return nil
+	}
+	s.state.Tools = append(s.state.Tools, step)
+	err := s.refreshPanelLocked(ctx)
+	s.mu.Unlock()
+	s.logPanelErr("tool step", err)
+	return nil
+}
+
+// logPanelErr keeps panel refresh failures non-fatal: the panel is auxiliary
+// and must never take the answer stream down with it — a returned error here
+// would make the agent abort the whole streaming turn.
+func (s *feishuCardStreamer) logPanelErr(op string, err error) {
+	if err != nil {
+		logger.WarnCF("feishu", "streaming panel refresh failed (answer stream continues)", map[string]any{
+			"chat_id": s.chatID,
+			"op":      op,
+			"error":   err.Error(),
+		})
+	}
+}
+
+// refreshPanelLocked rebuilds the process panel in the card via a full card
+// update, throttled to feishuPanelFlushInterval. Caller holds s.mu; the API
+// call is made while holding the lock — streamer methods never call each
+// other, so this only serializes updates, it cannot deadlock.
+func (s *feishuCardStreamer) refreshPanelLocked(ctx context.Context) error {
+	if !s.state.hasPanelContent() {
+		return nil
+	}
+	if time.Since(s.panelSentAt) < feishuPanelFlushInterval {
+		return nil
+	}
+
+	card := buildFeishuCardWithinSize(func(panelBudget int) map[string]any {
+		return map[string]any{
+			"schema": "2.0",
+			"body": map[string]any{
+				"elements": []any{
+					buildFeishuPanelBudget(&s.state, true, panelBudget),
+					map[string]any{
+						"tag":        "markdown",
+						"content":    s.answer,
+						"text_align": "left",
+						"text_size":  "normal_v2",
+						"element_id": feishuAnswerElementID,
+					},
+					buildFeishuLoadingElement(),
+				},
+			},
+		}
+	})
+	s.panelSentAt = time.Now()
+	cardID, seq := s.cardID, s.nextSeqLocked()
+	return s.ch.cardkitUpdateCard(ctx, cardID, card, seq)
+}
+
+// Finalize seals the card: full answer, collapsed panel, footer statistics,
+// streaming mode off.
+func (s *feishuCardStreamer) Finalize(ctx context.Context, content string) error {
+	return s.FinalizeWithContext(ctx, content, nil)
+}
+
+func (s *feishuCardStreamer) FinalizeWithContext(ctx context.Context, content string, usage *bus.ContextUsage) error {
+	s.mu.Lock()
+	if s.done {
+		s.mu.Unlock()
+		return nil
+	}
+	if content != "" {
+		s.answer = content
+	}
+	// Fold any in-progress reasoning round so the sealed panel is complete.
+	if s.state.CurReasoning != "" {
+		s.state.Rounds = append(s.state.Rounds, feishuReasoningRound{Text: s.state.CurReasoning})
+		s.state.CurReasoning = ""
+	}
+	state := s.state
+	answer := s.answer
+	elapsed := time.Since(s.startAt)
+	cardID := s.cardID
+	seq := s.nextSeqLocked()
+	seqClose := s.nextSeqLocked()
+	s.done = true
+	s.mu.Unlock()
+	defer s.ch.streams.Delete(s.chatID)
+
+	card := buildFeishuFinalCard(&state, answer, false, elapsed)
+	if err := s.ch.cardkitUpdateCard(ctx, cardID, card, seq); err != nil {
+		return err
+	}
+	return s.ch.cardkitCloseStreaming(ctx, cardID, feishuCardSummary(answer), seqClose)
+}
+
+// Cancel seals the card in an interrupted state (best effort).
+func (s *feishuCardStreamer) Cancel(ctx context.Context) {
+	s.mu.Lock()
+	if s.done {
+		s.mu.Unlock()
+		return
+	}
+	// Fold the in-progress reasoning round so the panel stays consistent.
+	if s.state.CurReasoning != "" {
+		s.state.Rounds = append(s.state.Rounds, feishuReasoningRound{Text: s.state.CurReasoning})
+		s.state.CurReasoning = ""
+	}
+	state := s.state
+	answer := s.answer
+	elapsed := time.Since(s.startAt)
+	cardID := s.cardID
+	seq := s.nextSeqLocked()
+	seqClose := s.nextSeqLocked()
+	s.aborted = true
+	s.done = true
+	s.mu.Unlock()
+	defer s.ch.streams.Delete(s.chatID)
+
+	card := buildFeishuFinalCard(&state, answer, true, elapsed)
+	if err := s.ch.cardkitUpdateCard(ctx, cardID, card, seq); err != nil {
+		logger.WarnCF("feishu", "streaming card cancel seal failed", map[string]any{
+			"chat_id": s.chatID,
+			"error":   err.Error(),
+		})
+		return
+	}
+	_ = s.ch.cardkitCloseStreaming(ctx, cardID, feishuCardSummary(answer), seqClose)
+}
+
+func (s *feishuCardStreamer) SetModelName(modelName string) {
+	s.mu.Lock()
+	s.state.ModelName = modelName
+	s.mu.Unlock()
+}
+
+func (s *feishuCardStreamer) SetTurnUsage(inputTokens, outputTokens int) {
+	s.mu.Lock()
+	s.state.InputTokens = inputTokens
+	s.state.OutputTokens = outputTokens
+	s.mu.Unlock()
+}
+
+
+// --- CardKit API wrappers ---
+
+// cardkitStreamContent pushes accumulated text into one card element with a
+// monotonic sequence (Feishu requires increasing sequence numbers while the
+// card is in streaming mode).
+func (c *FeishuChannel) cardkitStreamContent(ctx context.Context, cardID, elementID, content string, sequence int) error {
+	req := larkcardkit.NewContentCardElementReqBuilder().
+		CardId(cardID).
+		ElementId(elementID).
+		Body(larkcardkit.NewContentCardElementReqBodyBuilder().
+			Content(content).
+			Sequence(sequence).
+			Build()).
+		Build()
+	resp, err := c.client.Cardkit.V1.CardElement.Content(ctx, req)
+	if err != nil {
+		return fmt.Errorf("feishu stream content: %w", channels.ErrTemporary)
+	}
+	if !resp.Success() {
+		c.invalidateTokenOnAuthError(resp.Code)
+		return fmt.Errorf("feishu stream content api error (code=%d msg=%s): %w", resp.Code, resp.Msg, channels.ErrTemporary)
+	}
+	return nil
+}
+
+// cardkitUpdateCard replaces the whole card content (used for panel refreshes
+// and the final seal). Feishu caps the card JSON at 30KB — reject locally with
+// a clear error so callers can degrade instead of hitting an opaque API error.
+func (c *FeishuChannel) cardkitUpdateCard(ctx context.Context, cardID string, card map[string]any, sequence int) error {
+	cardJSON, err := json.Marshal(card)
+	if err != nil {
+		return fmt.Errorf("feishu cardkit update: marshal card: %w", err)
+	}
+	if len(cardJSON) > 30000 {
+		return fmt.Errorf("feishu cardkit update: card json %d bytes exceeds Feishu 30KB limit", len(cardJSON))
+	}
+	req := larkcardkit.NewUpdateCardReqBuilder().
+		CardId(cardID).
+		Body(larkcardkit.NewUpdateCardReqBodyBuilder().
+			Card(larkcardkit.NewCardBuilder().
+				Type("card_json").
+				Data(string(cardJSON)).
+				Build()).
+			Sequence(sequence).
+			Build()).
+		Build()
+	resp, err := c.client.Cardkit.V1.Card.Update(ctx, req)
+	if err != nil {
+		return fmt.Errorf("feishu cardkit update: %w", channels.ErrTemporary)
+	}
+	if !resp.Success() {
+		c.invalidateTokenOnAuthError(resp.Code)
+		return fmt.Errorf("feishu cardkit update api error (code=%d msg=%s): %w", resp.Code, resp.Msg, channels.ErrTemporary)
+	}
+	return nil
+}
+
+// cardkitCloseStreaming turns streaming mode off and sets the card summary.
+func (c *FeishuChannel) cardkitCloseStreaming(ctx context.Context, cardID string, summary map[string]any, sequence int) error {
+	settings := map[string]any{
+		"config": map[string]any{
+			"streaming_mode": false,
+			"summary":        summary,
+		},
+	}
+	settingsJSON, err := json.Marshal(settings)
+	if err != nil {
+		return fmt.Errorf("feishu cardkit settings: marshal: %w", err)
+	}
+	req := larkcardkit.NewSettingsCardReqBuilder().
+		CardId(cardID).
+		Body(larkcardkit.NewSettingsCardReqBodyBuilder().
+			Settings(string(settingsJSON)).
+			Sequence(sequence).
+			Build()).
+		Build()
+	resp, err := c.client.Cardkit.V1.Card.Settings(ctx, req)
+	if err != nil {
+		return fmt.Errorf("feishu cardkit settings: %w", channels.ErrTemporary)
+	}
+	if !resp.Success() {
+		c.invalidateTokenOnAuthError(resp.Code)
+		return fmt.Errorf("feishu cardkit settings api error (code=%d msg=%s): %w", resp.Code, resp.Msg, channels.ErrTemporary)
+	}
+	return nil
+}

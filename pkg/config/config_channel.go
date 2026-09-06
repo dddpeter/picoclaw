@@ -797,6 +797,8 @@ func validateChannelStreamingConfig(channelName string, target any) error {
 		streaming = settings.Streaming
 	case *WeComSettings:
 		streaming = settings.Streaming
+	case *FeishuSettings:
+		streaming = settings.Streaming
 	default:
 		return nil
 	}
