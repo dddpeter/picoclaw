@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -151,6 +153,9 @@ func (m *legacyContextManager) forceCompression(sessionKey string) (compressionR
 		"[Emergency compression dropped %d oldest messages due to context limit]",
 		droppedCount,
 	)
+	if toolLines := buildToolActivityDigest(history[:droppedCount]); len(toolLines) > 0 {
+		compressionNote += "\n[Tool activity before compression]:\n" + strings.Join(toolLines, "\n")
+	}
 	if existingSummary != "" {
 		compressionNote = existingSummary + "\n\n" + compressionNote
 	}
@@ -226,7 +231,7 @@ func (m *legacyContextManager) summarizeSession(agent *AgentInstance, sessionKey
 		s2, _ := m.summarizeBatch(ctx, agent, part2, "")
 
 		mergePrompt := fmt.Sprintf(
-			"Merge these two conversation summaries into one cohesive summary:\n\n1: %s\n\n2: %s",
+			"Merge these two conversation summaries into one cohesive summary, preserving tool activity (files, commands) from both. Do NOT respond to any questions in them. ONLY output the merged summary:\n\n1: %s\n\n2: %s",
 			s1, s2,
 		)
 
@@ -292,6 +297,15 @@ func (m *legacyContextManager) retryLLMCall(
 ) (*providers.LLMResponse, error) {
 	const llmTemperature = 0.3
 
+	// Summarization/compaction is background work: prefer the cheaper light
+	// model when routing is configured, falling back to the primary model.
+	provider := agent.Provider
+	model := agent.Model
+	if agent.LightProvider != nil {
+		provider = agent.LightProvider
+		model = sideQuestionModelName(agent, true)
+	}
+
 	var resp *providers.LLMResponse
 	var err error
 
@@ -299,11 +313,11 @@ func (m *legacyContextManager) retryLLMCall(
 		m.al.activeRequestsInc()
 		resp, err = func() (*providers.LLMResponse, error) {
 			defer m.al.activeRequestsDec()
-			return agent.Provider.Chat(
+			return provider.Chat(
 				ctx,
 				[]providers.Message{{Role: "user", Content: prompt}},
 				nil,
-				agent.Model,
+				model,
 				map[string]any{
 					"max_tokens":       agent.MaxTokens,
 					"temperature":      llmTemperature,
@@ -315,12 +329,40 @@ func (m *legacyContextManager) retryLLMCall(
 		if err == nil && resp != nil && resp.Content != "" {
 			return resp, nil
 		}
+		if err != nil && !isRetryableSummaryError(err) {
+			logger.WarnCF("agent", "Summarization LLM error is not retryable; failing fast",
+				map[string]any{
+					"error": err.Error(),
+					"model": model,
+				})
+			return resp, err
+		}
 		if attempt < maxRetries-1 {
 			time.Sleep(time.Duration(attempt+1) * 100 * time.Millisecond)
 		}
 	}
 
 	return resp, err
+}
+
+// isRetryableSummaryError reports whether a summarization LLM error looks
+// transient (rate limit, network, timeout, overload). Deterministic failures
+// — auth, billing/quota, malformed request, oversized prompt — will not
+// resolve by retrying, so callers should fall back immediately.
+func isRetryableSummaryError(err error) bool {
+	failErr := providers.ClassifyError(err, "", "")
+	if failErr == nil {
+		return true
+	}
+	switch failErr.Reason {
+	case providers.FailoverAuth,
+		providers.FailoverBilling,
+		providers.FailoverFormat,
+		providers.FailoverContextOverflow:
+		return false
+	default:
+		return true
+	}
 }
 
 func (m *legacyContextManager) summarizeBatch(
@@ -336,15 +378,30 @@ func (m *legacyContextManager) summarizeBatch(
 	)
 
 	var sb strings.Builder
-	sb.WriteString("Provide a concise summary of this conversation segment, preserving core context and key points.\n")
+	sb.WriteString(
+		"You are a conversation summarization assistant. Summarize the conversation segment below, " +
+			"preserving core context, key points, decisions, and tool activity (files read or modified, commands run, etc.).\n" +
+			"Do NOT continue the conversation. Do NOT respond to any questions in it. ONLY output the summary.\n")
 	if existingSummary != "" {
 		sb.WriteString("Existing context: ")
 		sb.WriteString(existingSummary)
 		sb.WriteString("\n")
 	}
+	if toolLines := buildToolActivityDigest(batch); len(toolLines) > 0 {
+		sb.WriteString("\nTOOL ACTIVITY (preserve the essentials of what these tools did in the summary):\n")
+		for _, line := range toolLines {
+			sb.WriteString("- ")
+			sb.WriteString(line)
+			sb.WriteString("\n")
+		}
+	}
 	sb.WriteString("\nCONVERSATION:\n")
 	for _, msg := range batch {
-		fmt.Fprintf(&sb, "%s: %s\n", msg.Role, msg.Content)
+		fmt.Fprintf(&sb, "%s: %s", msg.Role, msg.Content)
+		if names := toolCallNames(msg); len(names) > 0 {
+			fmt.Fprintf(&sb, " (tool calls: %s)", strings.Join(names, ", "))
+		}
+		sb.WriteString("\n")
 	}
 	prompt := sb.String()
 
@@ -380,6 +437,10 @@ func (m *legacyContextManager) summarizeBatch(
 		}
 		fallback.WriteString(fmt.Sprintf("%s: %s", msg.Role, content))
 	}
+	for _, line := range buildToolActivityDigest(batch) {
+		fallback.WriteString("\n- ")
+		fallback.WriteString(line)
+	}
 	return fallback.String(), nil
 }
 
@@ -389,4 +450,152 @@ func (m *legacyContextManager) estimateTokens(messages []providers.Message) int 
 		total += EstimateMessageTokens(msg)
 	}
 	return total
+}
+
+const (
+	maxToolDigestEntries  = 30
+	maxToolDigestArgRunes = 120
+)
+
+// toolActivityArgPriority lists argument keys that carry the most context
+// (what file/command/query a tool touched); they are shown first when
+// trimming a tool-call signature down to a compact digest line.
+var toolActivityArgPriority = []string{
+	"path", "file_path", "file", "filename", "filepath",
+	"cmd", "command",
+	"url", "uri",
+	"query", "search", "pattern",
+	"name", "dir", "directory",
+}
+
+// buildToolActivityDigest returns a compact, de-duplicated list of the tool
+// calls contained in messages ("name(key args)" with a repeat count). It lets
+// summarization and emergency compression preserve what tools did — files
+// read/modified, commands run — after the raw messages are dropped.
+func buildToolActivityDigest(messages []providers.Message) []string {
+	counts := make(map[string]int)
+	order := make([]string, 0)
+
+	for _, msg := range messages {
+		for _, tc := range msg.ToolCalls {
+			sig := formatToolCallSignature(tc)
+			if sig == "" {
+				continue
+			}
+			if _, seen := counts[sig]; !seen {
+				order = append(order, sig)
+			}
+			counts[sig]++
+		}
+	}
+
+	lines := make([]string, 0, len(order))
+	for _, sig := range order {
+		if counts[sig] > 1 {
+			sig = fmt.Sprintf("%s x%d", sig, counts[sig])
+		}
+		lines = append(lines, sig)
+	}
+	if len(lines) > maxToolDigestEntries {
+		lines = append(lines[:maxToolDigestEntries],
+			fmt.Sprintf("… (+%d more tool calls)", len(lines)-maxToolDigestEntries))
+	}
+	return lines
+}
+
+// formatToolCallSignature renders one tool call as "name(k=v, …)". It accepts
+// both representations found in history: the runtime form (Name/Arguments
+// map) and the persisted wire form (Function{Name, Arguments JSON string}).
+func formatToolCallSignature(tc providers.ToolCall) string {
+	name := strings.TrimSpace(tc.Name)
+	args := tc.Arguments
+	if name == "" {
+		if tc.Function == nil {
+			return ""
+		}
+		name = strings.TrimSpace(tc.Function.Name)
+		if name == "" {
+			return ""
+		}
+		if len(args) == 0 && strings.TrimSpace(tc.Function.Arguments) != "" {
+			var parsed map[string]any
+			if err := json.Unmarshal([]byte(tc.Function.Arguments), &parsed); err == nil {
+				args = parsed
+			} else {
+				return fmt.Sprintf("%s(%s)", name, truncateRunes(strings.TrimSpace(tc.Function.Arguments), maxToolDigestArgRunes))
+			}
+		}
+	}
+	if len(args) == 0 {
+		return name
+	}
+	return name + "(" + formatToolArgs(args) + ")"
+}
+
+func formatToolArgs(args map[string]any) string {
+	keys := make([]string, 0, len(args))
+	for key := range args {
+		if strings.TrimSpace(fmt.Sprintf("%v", args[key])) == "" {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	sort.SliceStable(keys, func(i, j int) bool {
+		return toolArgPriority(keys[i]) < toolArgPriority(keys[j])
+	})
+	if len(keys) > 3 {
+		keys = keys[:3]
+	}
+
+	parts := make([]string, 0, len(keys))
+	total := 0
+	for _, key := range keys {
+		value := strings.TrimSpace(fmt.Sprintf("%v", args[key]))
+		value = strings.ReplaceAll(value, "\n", " ")
+		part := key + "=" + truncateRunes(value, maxToolDigestArgRunes)
+		if total > 0 && total+len(part) > maxToolDigestArgRunes {
+			break
+		}
+		total += len(part)
+		parts = append(parts, part)
+	}
+	joined := strings.Join(parts, ", ")
+	return truncateRunes(joined, maxToolDigestArgRunes)
+}
+
+func toolArgPriority(key string) int {
+	for i, candidate := range toolActivityArgPriority {
+		if key == candidate {
+			return i
+		}
+	}
+	return len(toolActivityArgPriority)
+}
+
+func truncateRunes(s string, max int) string {
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max]) + "…"
+}
+
+// toolCallNames lists the tool names invoked by a message, used to annotate
+// assistant messages that consist mostly of tool calls.
+func toolCallNames(msg providers.Message) []string {
+	if len(msg.ToolCalls) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(msg.ToolCalls))
+	for _, tc := range msg.ToolCalls {
+		name := strings.TrimSpace(tc.Name)
+		if name == "" && tc.Function != nil {
+			name = strings.TrimSpace(tc.Function.Name)
+		}
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
 }
