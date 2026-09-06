@@ -46,8 +46,22 @@ type feishuCardStreamer struct {
 	reasonAt    time.Time // start of the current reasoning round
 	lastAt      time.Time // last activity; guards stale reuse in BeginStream
 
+	// phase tracks what the turn is doing right now (see feishuPhase*
+	// constants) so the status line stays truthful; renderedPhase is the
+	// phase already sent in the last card refresh — a change forces one
+	// immediate refresh even inside the throttle window. panelDirty marks
+	// panel-affecting changes (reasoning, tools, steering) awaiting a flush.
+	phase         string
+	renderedPhase string
+	panelDirty    bool
+
 	answerSentAt time.Time
 	panelSentAt  time.Time
+}
+
+// setPhaseLocked records the current turn phase for the status line.
+func (s *feishuCardStreamer) setPhaseLocked(phase string) {
+	s.phase = phase
 }
 
 // feishuStreamReuseTTL bounds how long an unfinished card may be picked up
@@ -145,6 +159,7 @@ func (c *FeishuChannel) NotifySteeringInChat(ctx context.Context, chatID, previe
 		return false
 	}
 	s.lastAt = time.Now()
+	s.panelDirty = true
 	s.state.SteeringCount++
 	s.state.SteeringLast = preview
 	err := s.refreshPanelLocked(ctx)
@@ -168,6 +183,10 @@ func (s *feishuCardStreamer) Update(ctx context.Context, content string) error {
 	}
 	s.answer = content
 	s.lastAt = time.Now()
+	s.setPhaseLocked(feishuPhaseAnswer)
+	// A phase flip (e.g. tool → answer) should reach the card promptly:
+	// refresh the status line and collapse the panel in the same update.
+	s.refreshPanelLocked(ctx)
 	if time.Since(s.answerSentAt) < feishuAnswerFlushInterval {
 		s.mu.Unlock()
 		return nil
@@ -189,6 +208,8 @@ func (s *feishuCardStreamer) UpdateReasoning(ctx context.Context, content string
 		return nil
 	}
 	s.lastAt = time.Now()
+	s.setPhaseLocked(feishuPhaseThinking)
+	s.panelDirty = true
 	if s.state.CurReasoning == "" {
 		s.reasonAt = time.Now()
 	}
@@ -210,6 +231,7 @@ func (s *feishuCardStreamer) FinalizeReasoning(ctx context.Context, content stri
 	if text := content; text != "" {
 		s.state.CurReasoning = text
 	}
+	s.panelDirty = true
 	if s.state.CurReasoning != "" {
 		duration := time.Duration(0)
 		if !s.reasonAt.IsZero() {
@@ -236,6 +258,8 @@ func (s *feishuCardStreamer) AppendToolStep(ctx context.Context, step bus.ToolSt
 		return nil
 	}
 	s.lastAt = time.Now()
+	s.setPhaseLocked(feishuPhaseThinking)
+	s.panelDirty = true
 	s.state.Tools = append(s.state.Tools, step)
 	err := s.refreshPanelLocked(ctx)
 	s.mu.Unlock()
@@ -257,14 +281,22 @@ func (s *feishuCardStreamer) logPanelErr(op string, err error) {
 }
 
 // refreshPanelLocked rebuilds the process panel in the card via a full card
-// update, throttled to feishuPanelFlushInterval. Caller holds s.mu; the API
-// call is made while holding the lock — streamer methods never call each
-// other, so this only serializes updates, it cannot deadlock.
+// update, throttled to feishuPanelFlushInterval. A phase change (e.g. tools
+// → answer) bypasses the throttle once so the status line and panel collapse
+// reach the card promptly. Caller holds s.mu; the API call is made while
+// holding the lock — streamer methods never call each other, so this only
+// serializes updates, it cannot deadlock.
 func (s *feishuCardStreamer) refreshPanelLocked(ctx context.Context) error {
-	if !s.state.hasPanelContent() {
+	phaseChanged := s.phase != s.renderedPhase
+	if !s.panelDirty && !phaseChanged {
 		return nil
 	}
-	if time.Since(s.panelSentAt) < feishuPanelFlushInterval {
+	if !phaseChanged && time.Since(s.panelSentAt) < feishuPanelFlushInterval {
+		return nil
+	}
+	// Without panel content a full-card refresh is only worth it to flip the
+	// status line; there is nothing else to redraw yet.
+	if !s.state.hasPanelContent() && !phaseChanged {
 		return nil
 	}
 
@@ -273,7 +305,7 @@ func (s *feishuCardStreamer) refreshPanelLocked(ctx context.Context) error {
 			"schema": "2.0",
 			"body": map[string]any{
 				"elements": []any{
-					buildFeishuPanelBudget(&s.state, true, panelBudget),
+					buildFeishuPanelBudget(&s.state, feishuPanelExpanded(s.answer), panelBudget),
 					map[string]any{
 						"tag":        "markdown",
 						"content":    sanitizeFeishuMarkdownImages(s.answer),
@@ -281,7 +313,7 @@ func (s *feishuCardStreamer) refreshPanelLocked(ctx context.Context) error {
 						"text_size":  "normal_v2",
 						"element_id": feishuAnswerElementID,
 					},
-					buildFeishuLoadingElement(),
+					buildFeishuLoadingElement(s.phase),
 				},
 			},
 		}
@@ -291,6 +323,8 @@ func (s *feishuCardStreamer) refreshPanelLocked(ctx context.Context) error {
 		return card
 	})
 	s.panelSentAt = time.Now()
+	s.panelDirty = false
+	s.renderedPhase = s.phase
 	cardID, seq := s.cardID, s.nextSeqLocked()
 	return s.ch.cardkitUpdateCard(ctx, cardID, card, seq)
 }

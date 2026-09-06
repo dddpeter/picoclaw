@@ -167,7 +167,7 @@ func buildFeishuStreamingCard() map[string]any {
 			"margin":     "0px 0px 0px 0px",
 			"element_id": feishuAnswerElementID,
 		},
-		buildFeishuLoadingElement(),
+		buildFeishuLoadingElement(feishuPhaseLoading),
 	}
 	return map[string]any{
 		"schema": "2.0",
@@ -204,7 +204,28 @@ func buildFeishuPanelPlaceholder() map[string]any {
 	}
 }
 
-func buildFeishuLoadingElement() map[string]any {
+// feishuStreamPhase values driving the streaming status line.
+const (
+	feishuPhaseLoading  = "" // before any activity in the turn
+	feishuPhaseThinking = "thinking"
+	feishuPhaseAnswer   = "answer"
+)
+
+// feishuLoadingText maps a stream phase to the status line shown next to the
+// loading icon while the card is streaming.
+func feishuLoadingText(phase string) (zh, en string) {
+	switch phase {
+	case feishuPhaseThinking:
+		return "🧠 正在思考…", "Thinking…"
+	case feishuPhaseAnswer:
+		return "✍ 正在生成回答…", "Generating answer…"
+	default:
+		return "正在加载上下文…", "Loading context…"
+	}
+}
+
+func buildFeishuLoadingElement(phase string) map[string]any {
+	zh, en := feishuLoadingText(phase)
 	return map[string]any{
 		"tag": "div",
 		"icon": map[string]any{
@@ -214,14 +235,20 @@ func buildFeishuLoadingElement() map[string]any {
 		},
 		"text": map[string]any{
 			"tag":     "plain_text",
-			"content": "正在加载上下文…",
+			"content": zh,
 			"i18n_content": map[string]any{
-				"zh_cn": "正在加载上下文…",
-				"en_us": "Loading context…",
+				"zh_cn": zh,
+				"en_us": en,
 			},
 		},
 		"element_id": feishuLoadingElementID,
 	}
+}
+
+// feishuPanelExpanded keeps the process panel expanded until the answer
+// starts flowing — then the panel folds so the growing answer stays in view.
+func feishuPanelExpanded(answer string) bool {
+	return strings.TrimSpace(answer) == ""
 }
 
 func feishuPanelHeader(rounds int, hasCur bool, tools int, elapsedMs int64) map[string]any {
@@ -493,12 +520,19 @@ func feishuToolStepTitle(step bus.ToolStep) map[string]any {
 		title = fmt.Sprintf("%s（%s）", step.Tool, formatFeishuElapsed(step.Duration))
 	}
 	content := fmt.Sprintf("<font color='%s'>**%s %s**</font>", color, symbol, escapeFeishuMD(title))
+	iconColor := "grey"
+	switch step.Kind {
+	case bus.ToolStepKindMCP:
+		iconColor = "blue"
+	case bus.ToolStepKindSkill:
+		iconColor = "violet"
+	}
 	return map[string]any{
 		"tag": "div",
 		"icon": map[string]any{
 			"tag":   "standard_icon",
 			"token": "tool_02",
-			"color": "grey",
+			"color": iconColor,
 		},
 		"text": map[string]any{
 			"tag": "lark_md", "content": content, "text_size": "notation",
