@@ -60,7 +60,7 @@ func (p *Pipeline) Finalize(
 					Message: err.Error(),
 				},
 			)
-			cancelConfiguredStreamingLLM(turnCtx, exec)
+			cancelConfiguredStreamingLLMWithReason(turnCtx, exec, streamCancelReasonSessionSaveError)
 			return turnResult{status: TurnEndStatusError}, err
 		}
 	}

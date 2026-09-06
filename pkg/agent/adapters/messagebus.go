@@ -35,6 +35,10 @@ func (a *messageBusAdapter) GetStreamer(ctx context.Context, channel, chatID, se
 	return a.inner.GetStreamer(ctx, channel, chatID, sessionKey)
 }
 
+func (a *messageBusAdapter) NotifySteering(ctx context.Context, channel, chatID, sessionKey, preview string) bool {
+	return a.inner.NotifySteering(ctx, channel, chatID, sessionKey, preview)
+}
+
 func (a *messageBusAdapter) InboundChan() <-chan bus.InboundMessage {
 	return a.inner.InboundChan()
 }

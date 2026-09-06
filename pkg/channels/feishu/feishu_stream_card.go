@@ -109,6 +109,11 @@ type feishuStreamState struct {
 	ModelName    string
 	InputTokens  int
 	OutputTokens int
+
+	// Steering notices: user messages queued for the active turn, surfaced on
+	// the panel so the user sees their mid-turn message was heard.
+	SteeringCount int
+	SteeringLast  string
 	LLMCalls     int // LLM API calls made this turn (one per iteration)
 
 	// Context usage snapshot at finalize, for the footer.
@@ -118,7 +123,8 @@ type feishuStreamState struct {
 }
 
 func (s *feishuStreamState) hasPanelContent() bool {
-	return len(s.Rounds) > 0 || strings.TrimSpace(s.CurReasoning) != "" || len(s.Tools) > 0
+	return len(s.Rounds) > 0 || strings.TrimSpace(s.CurReasoning) != "" ||
+		len(s.Tools) > 0 || s.SteeringCount > 0
 }
 
 func (s *feishuStreamState) reasoningTotal() time.Duration {
@@ -277,6 +283,18 @@ func buildFeishuPanelBudget(state *feishuStreamState, expanded bool, textBudget 
 	rounds, tools = applyPanelTextBudget(rounds, tools, textBudget)
 
 	children := []any{}
+	if state.SteeringCount > 0 {
+		notice := fmt.Sprintf("📥 收到 %d 条追加指令", state.SteeringCount)
+		if last := strings.TrimSpace(state.SteeringLast); last != "" {
+			if len(last) > 60 {
+				last = cutOnRuneBoundary(last, 60) + "…"
+			}
+			notice += " · 最新：" + last
+		}
+		children = append(children, map[string]any{
+			"tag": "markdown", "content": notice, "text_size": "notation",
+		})
+	}
 	if trimmedRounds > 0 || trimmedTools > 0 {
 		var hintParts []string
 		if trimmedRounds > 0 {
@@ -426,13 +444,37 @@ func feishuIndentedLarkMD(content string) map[string]any {
 
 // buildFeishuFinalCard builds the sealed card: collapsed process panel, the
 // full answer, and a footer with turn statistics. The loading element is gone.
-func buildFeishuFinalCard(state *feishuStreamState, answer string, aborted bool, elapsed time.Duration) map[string]any {
+func buildFeishuFinalCard(state *feishuStreamState, answer string, aborted bool, elapsed time.Duration, cancelReason string) map[string]any {
 	return buildFeishuCardWithinSize(func(panelBudget int) map[string]any {
-		return buildFeishuFinalCardBudget(state, answer, aborted, elapsed, panelBudget)
+		return buildFeishuFinalCardBudget(state, answer, aborted, elapsed, cancelReason, panelBudget)
 	})
 }
 
-func buildFeishuFinalCardBudget(state *feishuStreamState, answer string, aborted bool, elapsed time.Duration, panelBudget int) map[string]any {
+// feishuCancelReasonText maps stable cancellation codes to display text.
+// Unknown non-empty codes render verbatim so new reasons never degrade to a
+// generic "interrupted".
+func feishuCancelReasonText(reason string) string {
+	switch reason {
+	case "stop_command":
+		return "用户停止"
+	case "stream_error":
+		return "流式更新失败"
+	case "session_save_failed":
+		return "会话保存失败"
+	case "hook_abort":
+		return "钩子中止"
+	case "hard_abort":
+		return "硬中断"
+	case "turn_aborted":
+		return "回合中止"
+	case "":
+		return ""
+	default:
+		return reason
+	}
+}
+
+func buildFeishuFinalCardBudget(state *feishuStreamState, answer string, aborted bool, elapsed time.Duration, cancelReason string, panelBudget int) map[string]any {
 	elements := []any{}
 	if state.hasPanelContent() {
 		elements = append(elements, buildFeishuPanelBudget(state, false, panelBudget))
@@ -449,10 +491,13 @@ func buildFeishuFinalCardBudget(state *feishuStreamState, answer string, aborted
 		content := "已完成"
 		if aborted {
 			content = "已中断"
+			if text := feishuCancelReasonText(cancelReason); text != "" {
+				content += " · " + text
+			}
 		}
 		elements = append(elements, map[string]any{"tag": "markdown", "content": content})
 	}
-	elements = append(elements, buildFeishuFooter(state, aborted, elapsed)...)
+	elements = append(elements, buildFeishuFooter(state, aborted, elapsed, cancelReason)...)
 
 	card := map[string]any{
 		"schema": "2.0",
@@ -472,10 +517,13 @@ func buildFeishuFinalCardBudget(state *feishuStreamState, answer string, aborted
 	return card
 }
 
-func buildFeishuFooter(state *feishuStreamState, aborted bool, elapsed time.Duration) []any {
+func buildFeishuFooter(state *feishuStreamState, aborted bool, elapsed time.Duration, cancelReason string) []any {
 	status := "✓ 已完成"
 	if aborted {
 		status = "⚠ 已中断"
+		if text := feishuCancelReasonText(cancelReason); text != "" {
+			status += " · " + text
+		}
 	}
 	line1 := []string{status}
 	if elapsed > 0 {

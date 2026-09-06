@@ -70,12 +70,30 @@ type StreamDelegate interface {
 	GetStreamer(ctx context.Context, channel, chatID, sessionKey string) (Streamer, bool)
 }
 
+// SteeringNotifyDelegate is an optional StreamDelegate extension: when a user
+// message is queued as steering for an active turn, the delegate can surface a
+// visual acknowledgement on the turn's streaming surface (e.g. the process
+// panel of a streaming card). Best-effort; returns false when no active
+// surface accepted the notice.
+type SteeringNotifyDelegate interface {
+	NotifySteering(ctx context.Context, channel, chatID, sessionKey, preview string) bool
+}
+
 // Streamer pushes incremental content to a streaming-capable channel.
 // Defined here so the agent loop can use it without importing pkg/channels.
 type Streamer interface {
 	Update(ctx context.Context, content string) error
 	Finalize(ctx context.Context, content string) error
 	Cancel(ctx context.Context)
+}
+
+// CancelReasonStreamer can receive the cause of a cancellation (stable codes
+// like "stop_command" or "stream_error") so the channel can show why a
+// response was interrupted. Channels that don't implement it are cancelled
+// through plain Cancel.
+type CancelReasonStreamer interface {
+	Streamer
+	CancelWithReason(ctx context.Context, reason string)
 }
 
 // ContextUsageStreamer can attach final context-window usage metadata when a
@@ -346,6 +364,16 @@ func (mb *MessageBus) GetStreamer(ctx context.Context, channel, chatID, sessionK
 		return d.GetStreamer(ctx, channel, chatID, sessionKey)
 	}
 	return nil, false
+}
+
+// NotifySteering forwards a steering acknowledgement request to the delegate
+// (if it supports it) so an active streaming surface can show the user that
+// their mid-turn message was heard.
+func (mb *MessageBus) NotifySteering(ctx context.Context, channel, chatID, sessionKey, preview string) bool {
+	if d, ok := mb.streamDelegate.Load().(SteeringNotifyDelegate); ok && d != nil {
+		return d.NotifySteering(ctx, channel, chatID, sessionKey, preview)
+	}
+	return false
 }
 
 func (mb *MessageBus) Stats() MessageBusStats {

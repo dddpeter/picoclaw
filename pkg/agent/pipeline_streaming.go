@@ -251,12 +251,26 @@ func finalizeConfiguredStreamingLLM(
 }
 
 func cancelConfiguredStreamingLLM(ctx context.Context, exec *turnExecution) {
+	cancelConfiguredStreamingLLMWithReason(ctx, exec, "")
+}
+
+// Stable cancellation reason codes surfaced on streaming surfaces.
+const (
+	streamCancelReasonStreamError      = "stream_error"
+	streamCancelReasonSessionSaveError = "session_save_failed"
+	streamCancelReasonStopCommand      = "stop_command"
+	streamCancelReasonHookAbort        = "hook_abort"
+	streamCancelReasonHardAbort        = "hard_abort"
+	streamCancelReasonTurnAborted      = "turn_aborted"
+)
+
+func cancelConfiguredStreamingLLMWithReason(ctx context.Context, exec *turnExecution, reason string) {
 	if exec == nil || exec.streamingPublisher == nil {
 		return
 	}
 	publisher := exec.streamingPublisher
 	exec.streamingPublisher = nil
-	publisher.Cancel(ctx)
+	publisher.CancelWithReason(ctx, reason)
 }
 
 func (p *Pipeline) configuredStreamingEligible(ts *turnState, exec *turnExecution) bool {
@@ -512,7 +526,17 @@ func (p *streamingChunkPublisher) ClearFinalizedStreamMarker() {
 }
 
 func (p *streamingChunkPublisher) Cancel(ctx context.Context) {
+	p.CancelWithReason(ctx, "")
+}
+
+// CancelWithReason passes a stable cancellation cause (e.g. "stop_command")
+// to streamers that can display why the response was interrupted.
+func (p *streamingChunkPublisher) CancelWithReason(ctx context.Context, reason string) {
 	if p == nil || p.streamer == nil {
+		return
+	}
+	if cr, ok := p.streamer.(bus.CancelReasonStreamer); ok && reason != "" {
+		cr.CancelWithReason(ctx, reason)
 		return
 	}
 	p.streamer.Cancel(ctx)

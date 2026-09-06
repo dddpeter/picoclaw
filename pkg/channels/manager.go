@@ -597,6 +597,22 @@ func (m *Manager) SetMediaStore(store media.MediaStore) {
 	}
 }
 
+// NotifySteering implements bus.SteeringNotifyDelegate: forwards a steering
+// acknowledgement to the channel's active streaming surface, if any.
+func (m *Manager) NotifySteering(ctx context.Context, channelName, chatID, sessionKey, preview string) bool {
+	m.mu.RLock()
+	ch, exists := m.channels[channelName]
+	m.mu.RUnlock()
+	if !exists {
+		return false
+	}
+	notifier, ok := ch.(SteeringNotifyCapable)
+	if !ok {
+		return false
+	}
+	return notifier.NotifySteeringInChat(ctx, chatID, preview)
+}
+
 // GetStreamer implements bus.StreamDelegate.
 // It checks if the named channel supports streaming and returns a Streamer.
 func (m *Manager) GetStreamer(ctx context.Context, channelName, chatID, sessionKey string) (bus.Streamer, bool) {
@@ -804,12 +820,26 @@ func (s *splitMarkerStreamer) SetTurnUsage(inputTokens, outputTokens int) {
 }
 
 func (s *splitMarkerStreamer) Cancel(ctx context.Context) {
+	s.CancelWithReason(ctx, "")
+}
+
+func (s *splitMarkerStreamer) CancelWithReason(ctx context.Context, reason string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.current != nil {
-		s.current.Cancel(ctx)
+		cancelStreamerWithReason(s.current, ctx, reason)
 	}
 	s.runFinalizeHook(ctx, "")
+}
+
+// cancelStreamerWithReason forwards a cancellation cause to streamers that
+// understand it and falls back to a plain Cancel otherwise.
+func cancelStreamerWithReason(streamer bus.Streamer, ctx context.Context, reason string) {
+	if cr, ok := streamer.(bus.CancelReasonStreamer); ok && reason != "" {
+		cr.CancelWithReason(ctx, reason)
+		return
+	}
+	streamer.Cancel(ctx)
 }
 
 func (s *splitMarkerStreamer) ClearFinalizedStreamMarker() {
@@ -986,7 +1016,11 @@ func (s *finalizeHookStreamer) SetTurnUsage(inputTokens, outputTokens int) {
 // Cancel seals the card and still runs the cleanup hook so interrupted turns
 // dismiss leftover tool_feedback messages instead of leaking them in chat.
 func (s *finalizeHookStreamer) Cancel(ctx context.Context) {
-	s.Streamer.Cancel(ctx)
+	s.CancelWithReason(ctx, "")
+}
+
+func (s *finalizeHookStreamer) CancelWithReason(ctx context.Context, reason string) {
+	cancelStreamerWithReason(s.Streamer, ctx, reason)
 	s.runFinalizeHook(ctx, "")
 }
 
@@ -2165,6 +2199,8 @@ func (m *Manager) SendToChannel(ctx context.Context, channelName, chatID, conten
 // Compile-time assurance that the manager's streamer wrappers preserve the
 // optional capability interfaces the agent pushes tool steps through.
 var (
-	_ bus.ToolStepStreamer = (*finalizeHookStreamer)(nil)
-	_ bus.ToolStepStreamer = (*splitMarkerStreamer)(nil)
+	_ bus.ToolStepStreamer      = (*finalizeHookStreamer)(nil)
+	_ bus.ToolStepStreamer      = (*splitMarkerStreamer)(nil)
+	_ bus.CancelReasonStreamer  = (*finalizeHookStreamer)(nil)
+	_ bus.CancelReasonStreamer  = (*splitMarkerStreamer)(nil)
 )

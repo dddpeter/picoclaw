@@ -60,6 +60,14 @@ type StreamingCapable interface {
 	BeginStream(ctx context.Context, chatID string) (Streamer, error)
 }
 
+// SteeringNotifyCapable — streaming channels that can acknowledge a steering
+// message (a user message queued for the active turn) on the turn's streaming
+// surface. NotifySteeringInChat returns false when there is no active
+// streaming surface for the chat.
+type SteeringNotifyCapable interface {
+	NotifySteeringInChat(ctx context.Context, chatID, preview string) bool
+}
+
 // Streamer is defined in pkg/bus to avoid circular imports.
 // This alias keeps channel implementations using channels.Streamer unchanged.
 type Streamer = bus.Streamer

@@ -24,6 +24,10 @@ type MessageBus interface {
 	// GetStreamer returns a channel streamer when the active channel supports streaming.
 	GetStreamer(ctx context.Context, channel, chatID, sessionKey string) (bus.Streamer, bool)
 
+	// NotifySteering acknowledges a steering message on the active turn's
+	// streaming surface, when one exists. Best-effort.
+	NotifySteering(ctx context.Context, channel, chatID, sessionKey, preview string) bool
+
 	// InboundChan returns the channel for receiving inbound messages.
 	InboundChan() <-chan bus.InboundMessage
 }
