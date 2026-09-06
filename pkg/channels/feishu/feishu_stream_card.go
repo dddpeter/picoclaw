@@ -5,6 +5,7 @@ package feishu
 import (
 	"encoding/json"
 	"fmt"
+	"unicode/utf8"
 	"regexp"
 	"strings"
 	"time"
@@ -113,7 +114,7 @@ type feishuStreamState struct {
 	// Context usage snapshot at finalize, for the footer.
 	ContextUsed   int
 	ContextTotal  int
-	ContextOffset int // history tokens consumed before this turn
+	ContextOffset int // history tokens in the session at finalize
 }
 
 func (s *feishuStreamState) hasPanelContent() bool {
@@ -361,9 +362,9 @@ func feishuToolStepElements(step bus.ToolStep) []any {
 		if step.IsError {
 			label = "错误"
 		}
-		// ponytail: CardKit 2.0 rejects code_block (10002) and code fences
-		// inside div/lark_md ignore text_size — the standalone markdown element
-		// with the custom panel_small size (12px) renders fenced code small.
+		// CardKit 2.0 rejects the code_block component (error 10002), and code
+		// fences inside a div/lark_md ignore text_size — a standalone markdown
+		// element with the custom panel_small size (12px) renders code small.
 		content := "**" + label + "**\n" + feishuCodeBlock(truncateFeishuCodeResult(result), "text")
 		elements = append(elements, map[string]any{
 			"tag":       "markdown",
@@ -705,5 +706,20 @@ func truncateFeishuReasoning(text string) string {
 		return text
 	}
 	suffix := fmt.Sprintf("…（已截断，共 %d 字）", len(text))
-	return text[:feishuReasoningDisplayLimit-len(suffix)] + suffix
+	return cutOnRuneBoundary(text, feishuReasoningDisplayLimit-len(suffix)) + suffix
+}
+
+// cutOnRuneBoundary trims up to 3 trailing bytes so the cut does not split a
+// multi-byte UTF-8 rune (which would surface as U+FFFD in Feishu).
+func cutOnRuneBoundary(s string, max int) string {
+	if max >= len(s) {
+		return s
+	}
+	for n := 0; n < 3 && max > 0; n++ {
+		if utf8.RuneStart(s[max]) {
+			break
+		}
+		max--
+	}
+	return s[:max]
 }

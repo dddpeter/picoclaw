@@ -88,6 +88,16 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 		return turnResult{}, err
 	}
 	defer exec.closeOwnedProviders()
+	// Last-resort stream cleanup: abort/error returns below bypass
+	// pipeline_finalize, which would otherwise leave a streaming card
+	// (and its reusable cache entry) alive forever. No-op after a normal
+	// finalize/cancel, which already nils the publisher. Uses a detached
+	// context because turnCtx is typically already canceled on abort paths.
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		cancelConfiguredStreamingLLM(cleanupCtx, exec)
+	}()
 
 	// Convenience references to exec fields used throughout the turn loop.
 	messages := exec.messages

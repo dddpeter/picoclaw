@@ -43,10 +43,17 @@ type feishuCardStreamer struct {
 	aborted  bool
 	done     bool
 	reasonAt time.Time // start of the current reasoning round
+	lastAt   time.Time // last activity; guards stale reuse in BeginStream
 
 	answerSentAt time.Time
 	panelSentAt  time.Time
 }
+
+// feishuStreamReuseTTL bounds how long an unfinished card may be picked up
+// again by a later BeginStream. Aborted turns normally cancel their streamer,
+// but if that cleanup ever fails (process restart aside), a stale card must
+// not swallow the next turn.
+const feishuStreamReuseTTL = 2 * time.Minute
 
 // BeginStream implements channels.StreamingCapable. The manager may call this
 // once per LLM iteration within a turn; we reuse the in-flight card for the
@@ -55,7 +62,12 @@ func (c *FeishuChannel) BeginStream(ctx context.Context, chatID string) (channel
 	if v, ok := c.streams.Load(chatID); ok {
 		if s, ok := v.(*feishuCardStreamer); ok {
 			s.mu.Lock()
-			reusable := !s.done
+			reusable := !s.done && time.Since(s.lastAt) < feishuStreamReuseTTL
+			if reusable {
+				// One BeginStream per LLM call: reuse means another iteration.
+				s.state.LLMCalls++
+				s.lastAt = time.Now()
+			}
 			s.mu.Unlock()
 			if reusable {
 				return s, nil
@@ -100,10 +112,12 @@ func (c *FeishuChannel) BeginStream(ctx context.Context, chatID string) (channel
 		chatID:  chatID,
 		cardID:  cardID,
 		startAt: time.Now(),
-		// ponytail: CardKit sequence must be a small incrementing positive int;
-		// UnixMilli overflows the API's accepted range (code 9499).
+		lastAt:  time.Now(),
+		// CardKit sequence must be a small incrementing positive int32;
+		// seeding with UnixMilli overflows the API's accepted range (code 9499).
 		seq: 0,
 	}
+	s.state.LLMCalls = 1
 	c.streams.Store(chatID, s)
 	logger.DebugCF("feishu", "streaming card created", map[string]any{
 		"chat_id": chatID,
@@ -126,6 +140,7 @@ func (s *feishuCardStreamer) Update(ctx context.Context, content string) error {
 		return nil
 	}
 	s.answer = content
+	s.lastAt = time.Now()
 	if time.Since(s.answerSentAt) < feishuAnswerFlushInterval {
 		s.mu.Unlock()
 		return nil
@@ -146,6 +161,7 @@ func (s *feishuCardStreamer) UpdateReasoning(ctx context.Context, content string
 		s.mu.Unlock()
 		return nil
 	}
+	s.lastAt = time.Now()
 	if s.state.CurReasoning == "" {
 		s.reasonAt = time.Now()
 	}
@@ -163,7 +179,7 @@ func (s *feishuCardStreamer) FinalizeReasoning(ctx context.Context, content stri
 		s.mu.Unlock()
 		return nil
 	}
-	s.state.LLMCalls++ // one completed reasoning round == one LLM API call
+	s.lastAt = time.Now()
 	if text := content; text != "" {
 		s.state.CurReasoning = text
 	}
@@ -192,6 +208,7 @@ func (s *feishuCardStreamer) AppendToolStep(ctx context.Context, step bus.ToolSt
 		s.mu.Unlock()
 		return nil
 	}
+	s.lastAt = time.Now()
 	s.state.Tools = append(s.state.Tools, step)
 	err := s.refreshPanelLocked(ctx)
 	s.mu.Unlock()
