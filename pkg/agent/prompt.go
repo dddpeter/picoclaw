@@ -51,6 +51,7 @@ const (
 	PromptSourceRuntime        PromptSourceID = "runtime.context"
 	PromptSourceSummary        PromptSourceID = "context.summary"
 	PromptSourceMemory         PromptSourceID = "memory:workspace"
+	PromptSourceMemoryRecall   PromptSourceID = "memory:recall"
 	PromptSourceSkillCatalog   PromptSourceID = "skill:index"
 	PromptSourceActiveSkills   PromptSourceID = "skill:active"
 	PromptSourceAgentDiscovery PromptSourceID = "agent:discovery"

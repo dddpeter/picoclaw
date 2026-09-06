@@ -104,6 +104,9 @@ func NewAgentLoop(
 	// Register shared tools to all agents (now that al is created)
 	registerSharedTools(al, cfg, msgBus, registry, provider)
 
+	// Shared-memory recall (OpenViking-style MCP memory backends)
+	registerMemoryRecallContributors(al, cfg, registry)
+
 	return al
 }
 
