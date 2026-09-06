@@ -43,8 +43,8 @@ type feishuCardStreamer struct {
 	aborted     bool
 	done        bool
 	cancelReasn string
-	reasonAt time.Time // start of the current reasoning round
-	lastAt   time.Time // last activity; guards stale reuse in BeginStream
+	reasonAt    time.Time // start of the current reasoning round
+	lastAt      time.Time // last activity; guards stale reuse in BeginStream
 
 	answerSentAt time.Time
 	panelSentAt  time.Time
@@ -173,7 +173,7 @@ func (s *feishuCardStreamer) Update(ctx context.Context, content string) error {
 		return nil
 	}
 	s.answerSentAt = time.Now()
-	content = s.answer
+	content = sanitizeFeishuMarkdownImages(s.answer)
 	cardID, seq := s.cardID, s.nextSeqLocked()
 	s.mu.Unlock()
 
@@ -276,7 +276,7 @@ func (s *feishuCardStreamer) refreshPanelLocked(ctx context.Context) error {
 					buildFeishuPanelBudget(&s.state, true, panelBudget),
 					map[string]any{
 						"tag":        "markdown",
-						"content":    s.answer,
+						"content":    sanitizeFeishuMarkdownImages(s.answer),
 						"text_align": "left",
 						"text_size":  "normal_v2",
 						"element_id": feishuAnswerElementID,
@@ -321,7 +321,7 @@ func (s *feishuCardStreamer) FinalizeWithContext(ctx context.Context, content st
 		s.state.CurReasoning = ""
 	}
 	state := s.state
-	answer := s.answer
+	answer := sanitizeFeishuMarkdownImages(s.answer)
 	elapsed := time.Since(s.startAt)
 	cardID := s.cardID
 	seq := s.nextSeqLocked()
@@ -356,7 +356,7 @@ func (s *feishuCardStreamer) CancelWithReason(ctx context.Context, reason string
 		s.state.CurReasoning = ""
 	}
 	state := s.state
-	answer := s.answer
+	answer := sanitizeFeishuMarkdownImages(s.answer)
 	elapsed := time.Since(s.startAt)
 	cardID := s.cardID
 	seq := s.nextSeqLocked()

@@ -28,6 +28,24 @@ const (
 	feishuElementLimitMargin = 5
 )
 
+// feishuInvalidImageKeyRe matches markdown image refs whose key is not a valid
+// Feishu image_key (must be img_v2_/img_v3_... uploaded via the image API).
+// CardKit rejects the whole card with 200570 otherwise.
+var feishuImageRefRe = regexp.MustCompile(`!\[[^\]]*\]\(([^)]+)\)`)
+
+// sanitizeFeishuMarkdownImages rewrites image refs that use local filenames or
+// URLs instead of real Feishu image_keys into plain-text file references so
+// the card never fails validation (code=200570).
+func sanitizeFeishuMarkdownImages(content string) string {
+	return feishuImageRefRe.ReplaceAllStringFunc(content, func(m string) string {
+		key := feishuImageRefRe.FindStringSubmatch(m)[1]
+		if strings.HasPrefix(key, "img_v2_") || strings.HasPrefix(key, "img_v3_") {
+			return m // real Feishu image_key, keep as image
+		}
+		return m[1:] // ![alt](key) -> [alt](key): degrade to link text
+	})
+}
+
 // Display caps that keep the process panel comfortably under the element
 // limit (each reasoning round costs ~4 elements, each tool step ~7).
 const (
