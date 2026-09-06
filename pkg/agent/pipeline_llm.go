@@ -611,7 +611,14 @@ func (p *Pipeline) CallLLM(
 			responseContent = exec.response.ReasoningContent
 		}
 		if steerMsgs := al.dequeueSteeringMessagesForScope(ts.sessionKey); len(steerMsgs) > 0 {
-			cancelConfiguredStreamingLLM(turnCtx, exec)
+			// Keep the streaming card alive across steering continuations — the
+			// next iteration reuses it via BeginStream, so the whole turn stays
+			// on one card. Only fold the finished reasoning round into the panel.
+			if exec.streamingPublisher != nil {
+				if rc := responseReasoningContent(exec.response); strings.TrimSpace(rc) != "" {
+					_ = exec.streamingPublisher.FinalizeReasoning(turnCtx, rc)
+				}
+			}
 			logger.InfoCF("agent", "Steering arrived after direct LLM response; continuing turn",
 				map[string]any{
 					"agent_id":       ts.agent.ID,
@@ -631,7 +638,16 @@ func (p *Pipeline) CallLLM(
 			})
 		return ControlBreak, nil
 	}
-	cancelConfiguredStreamingLLM(turnCtx, exec)
+	// Tool-call path: fold this iteration's reasoning round into the process
+	// panel but keep the streaming card alive — BeginStream reuses it for the
+	// next iteration, so one turn renders as one card instead of one card per
+	// LLM call. tryConfiguredStreamingLLM replaces the publisher on the next
+	// call (same underlying streamer), so tool steps keep flowing to the panel.
+	if exec.streamingPublisher != nil {
+		if rc := responseReasoningContent(exec.response); strings.TrimSpace(rc) != "" {
+			_ = exec.streamingPublisher.FinalizeReasoning(turnCtx, rc)
+		}
+	}
 
 	// Tool-call path: normalize and prepare for tool execution
 	exec.normalizedToolCalls = make([]providers.ToolCall, 0, len(exec.response.ToolCalls))

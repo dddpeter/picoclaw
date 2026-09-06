@@ -30,8 +30,8 @@ const (
 // Display caps that keep the process panel comfortably under the element
 // limit (each reasoning round costs ~4 elements, each tool step ~7).
 const (
-	feishuMaxReasoningRounds = 20
-	feishuMaxToolSteps       = 20
+	feishuMaxReasoningRounds    = 20
+	feishuMaxToolSteps          = 20
 	feishuReasoningDisplayLimit = 2000
 )
 
@@ -108,6 +108,12 @@ type feishuStreamState struct {
 	ModelName    string
 	InputTokens  int
 	OutputTokens int
+	LLMCalls     int // LLM API calls made this turn (one per iteration)
+
+	// Context usage snapshot at finalize, for the footer.
+	ContextUsed   int
+	ContextTotal  int
+	ContextOffset int // history tokens consumed before this turn
 }
 
 func (s *feishuStreamState) hasPanelContent() bool {
@@ -141,6 +147,11 @@ func buildFeishuStreamingCard() map[string]any {
 	return map[string]any{
 		"schema": "2.0",
 		"config": map[string]any{
+			"style": map[string]any{
+				"text_size": map[string]any{
+					"panel_small": map[string]any{"pc": "12px", "mobile": "12px", "default": "notation"},
+				},
+			},
 			"streaming_mode": true,
 			"streaming_config": map[string]any{
 				"print_frequency_ms": map[string]any{"default": 70},
@@ -162,10 +173,10 @@ func buildFeishuStreamingCard() map[string]any {
 
 func buildFeishuPanelPlaceholder() map[string]any {
 	return map[string]any{
-		"tag":      "collapsible_panel",
-		"expanded": true,
-		"header":   feishuPanelHeader(0, false, 0, 0),
-		"border":   map[string]any{"color": "grey", "corner_radius": "10px"},
+		"tag":              "collapsible_panel",
+		"expanded":         true,
+		"header":           feishuPanelHeader(0, false, 0, 0),
+		"border":           map[string]any{"color": "grey", "corner_radius": "10px"},
 		"vertical_spacing": "4px",
 		"padding":          "12px 12px 8px 12px",
 		"elements":         []any{map[string]any{"tag": "markdown", "content": " "}},
@@ -177,9 +188,9 @@ func buildFeishuLoadingElement() map[string]any {
 	return map[string]any{
 		"tag": "div",
 		"icon": map[string]any{
-			"tag":     "standard_icon",
-			"token":   "time_outlined",
-			"size":    "16px 16px",
+			"tag":   "standard_icon",
+			"token": "time_outlined",
+			"size":  "16px 16px",
 		},
 		"text": map[string]any{
 			"tag":     "plain_text",
@@ -211,15 +222,15 @@ func feishuPanelHeader(rounds int, hasCur bool, tools int, elapsedMs int64) map[
 	title := "🧠 " + strings.Join(parts, " · ")
 	return map[string]any{
 		"title": map[string]any{
-			"tag":        "plain_text",
-			"content":    title,
+			"tag":          "plain_text",
+			"content":      title,
 			"i18n_content": map[string]any{"zh_cn": title, "en_us": title},
-			"text_color": "grey",
-			"text_size":  "notation",
+			"text_color":   "grey",
+			"text_size":    "notation",
 		},
-		"vertical_align":     "center",
-		"icon":               map[string]any{"tag": "standard_icon", "token": "down-small-ccm_outlined", "size": "16px 16px", "color": "grey"},
-		"icon_position":      "right",
+		"vertical_align":      "center",
+		"icon":                map[string]any{"tag": "standard_icon", "token": "down-small-ccm_outlined", "size": "16px 16px", "color": "grey"},
+		"icon_position":       "right",
 		"icon_expanded_angle": -180,
 	}
 }
@@ -299,14 +310,14 @@ func buildFeishuPanelBudget(state *feishuStreamState, expanded bool, textBudget 
 	header := feishuPanelHeader(len(rounds), strings.TrimSpace(state.CurReasoning) != "", len(tools),
 		int64((state.reasoningTotal()).Milliseconds()))
 	return map[string]any{
-		"tag":               "collapsible_panel",
-		"expanded":          expanded,
-		"header":            header,
-		"border":            map[string]any{"color": "grey", "corner_radius": "10px"},
-		"vertical_spacing":  "4px",
-		"padding":           "12px 12px 8px 12px",
-		"elements":          children,
-		"element_id":        feishuPanelElementID,
+		"tag":              "collapsible_panel",
+		"expanded":         expanded,
+		"header":           header,
+		"border":           map[string]any{"color": "grey", "corner_radius": "10px"},
+		"vertical_spacing": "4px",
+		"padding":          "12px 12px 8px 12px",
+		"elements":         children,
+		"element_id":       feishuPanelElementID,
 	}
 }
 
@@ -341,7 +352,7 @@ func feishuToolStepElements(step bus.ToolStep) []any {
 			"tag":    "div",
 			"margin": "0px 0px 0px 22px",
 			"text": map[string]any{
-				"tag": "plain_text", "content": detail, "text_color": "grey", "text_size": "notation",
+				"tag": "plain_text", "content": detail, "text_color": "grey", "text_size": "panel_small",
 			},
 		})
 	}
@@ -350,16 +361,36 @@ func feishuToolStepElements(step bus.ToolStep) []any {
 		if step.IsError {
 			label = "错误"
 		}
-		content := "**" + label + "**\n" + feishuCodeBlock(result, "text")
+		// ponytail: CardKit 2.0 rejects code_block (10002) and code fences
+		// inside div/lark_md ignore text_size — the standalone markdown element
+		// with the custom panel_small size (12px) renders fenced code small.
+		content := "**" + label + "**\n" + feishuCodeBlock(truncateFeishuCodeResult(result), "text")
 		elements = append(elements, map[string]any{
-			"tag":    "div",
-			"margin": "0px 0px 0px 22px",
-			"text": map[string]any{
-				"tag": "lark_md", "content": content, "text_size": "notation",
-			},
+			"tag":       "markdown",
+			"content":   content,
+			"margin":    "0px 0px 0px 22px",
+			"text_size": "panel_small",
 		})
 	}
 	return elements
+}
+
+// truncateFeishuCodeResult keeps tool results readable inside the panel: cap
+// at ~15 lines and 1200 chars, appending an ellipsis marker when trimmed.
+func truncateFeishuCodeResult(result string) string {
+	normalized := strings.ReplaceAll(strings.TrimSpace(result), "\r\n", "\n")
+	if len(normalized) <= 1200 && strings.Count(normalized, "\n") < 15 {
+		return normalized
+	}
+	lines := strings.Split(normalized, "\n")
+	if len(lines) > 15 {
+		lines = lines[:15]
+	}
+	out := strings.Join(lines, "\n")
+	if len(out) > 1200 {
+		out = out[:1200]
+	}
+	return out + "\n…"
 }
 
 func feishuToolStepTitle(step bus.ToolStep) map[string]any {
@@ -425,6 +456,11 @@ func buildFeishuFinalCardBudget(state *feishuStreamState, answer string, aborted
 	card := map[string]any{
 		"schema": "2.0",
 		"config": map[string]any{
+			"style": map[string]any{
+				"text_size": map[string]any{
+					"panel_small": map[string]any{"pc": "12px", "mobile": "12px", "default": "notation"},
+				},
+			},
 			"streaming_mode": false,
 			"locales":        []string{"zh_cn", "en_us"},
 			"summary":        feishuCardSummary(answer),
@@ -436,32 +472,68 @@ func buildFeishuFinalCardBudget(state *feishuStreamState, answer string, aborted
 }
 
 func buildFeishuFooter(state *feishuStreamState, aborted bool, elapsed time.Duration) []any {
-	parts := []string{}
 	status := "✓ 已完成"
 	if aborted {
 		status = "⚠ 已中断"
 	}
-	parts = append(parts, status)
+	line1 := []string{status}
 	if elapsed > 0 {
-		parts = append(parts, formatFeishuElapsed(elapsed))
+		line1 = append(line1, "⏱ "+formatFeishuElapsed(elapsed))
 	}
 	if state.ModelName != "" {
-		parts = append(parts, state.ModelName)
+		line1 = append(line1, state.ModelName)
 	}
+	if state.LLMCalls > 1 {
+		line1 = append(line1, fmt.Sprintf("API %d", state.LLMCalls))
+	}
+	line2 := []string{}
 	if state.InputTokens > 0 || state.OutputTokens > 0 {
-		parts = append(parts, fmt.Sprintf("↑%d ↓%d", state.InputTokens, state.OutputTokens))
+		line2 = append(line2, fmt.Sprintf("↑ %s ↓ %s", formatFeishuTokens(state.InputTokens), formatFeishuTokens(state.OutputTokens)))
 	}
-	if len(parts) <= 1 {
+	if state.ContextTotal > 0 && state.ContextUsed > 0 {
+		pct := state.ContextUsed * 100 / state.ContextTotal
+		ctxVal := fmt.Sprintf("%s/%s (%d%%)",
+			formatFeishuTokens(state.ContextUsed), formatFeishuTokens(state.ContextTotal), pct)
+		// Warn colors near the window limit, same scheme as hermes-lark-streaming.
+		switch {
+		case pct > 95:
+			ctxVal = fmt.Sprintf("<font color='red'>%s</font>", ctxVal)
+		case pct > 80:
+			ctxVal = fmt.Sprintf("<font color='orange-300'>%s</font>", ctxVal)
+		}
+		ctxPart := "📦 " + ctxVal
+		if state.ContextOffset > 0 {
+			ctxPart += fmt.Sprintf(" · ↪ %d", state.ContextOffset)
+		}
+		line2 = append(line2, ctxPart)
+	}
+	parts := append(append([]string{}, line1...), line2...)
+	if len(parts) == 0 {
 		return nil
 	}
 	color := "grey"
 	if aborted {
 		color = "orange"
 	}
-	content := fmt.Sprintf("<font color='%s'>%s</font>", color, strings.Join(parts, " · "))
+	content := fmt.Sprintf("<font color='%s'>%s</font>", color, strings.Join(line1, " · "))
+	if len(line2) > 0 {
+		content += fmt.Sprintf("\n<font color='%s'>%s</font>", color, strings.Join(line2, " · "))
+	}
 	return []any{
 		map[string]any{"tag": "hr"},
 		map[string]any{"tag": "markdown", "content": content, "text_size": "notation"},
+	}
+}
+
+// formatFeishuTokens renders token counts compactly: 8.1K / 40.4K / 1.2M.
+func formatFeishuTokens(n int) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fK", float64(n)/1_000)
+	default:
+		return fmt.Sprintf("%d", n)
 	}
 }
 

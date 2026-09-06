@@ -100,7 +100,9 @@ func (c *FeishuChannel) BeginStream(ctx context.Context, chatID string) (channel
 		chatID:  chatID,
 		cardID:  cardID,
 		startAt: time.Now(),
-		seq:     int(time.Now().UnixMilli()),
+		// ponytail: CardKit sequence must be a small incrementing positive int;
+		// UnixMilli overflows the API's accepted range (code 9499).
+		seq: 0,
 	}
 	c.streams.Store(chatID, s)
 	logger.DebugCF("feishu", "streaming card created", map[string]any{
@@ -161,6 +163,7 @@ func (s *feishuCardStreamer) FinalizeReasoning(ctx context.Context, content stri
 		s.mu.Unlock()
 		return nil
 	}
+	s.state.LLMCalls++ // one completed reasoning round == one LLM API call
 	if text := content; text != "" {
 		s.state.CurReasoning = text
 	}
@@ -259,6 +262,11 @@ func (s *feishuCardStreamer) FinalizeWithContext(ctx context.Context, content st
 	if content != "" {
 		s.answer = content
 	}
+	if usage != nil {
+		s.state.ContextUsed = usage.UsedTokens
+		s.state.ContextTotal = usage.TotalTokens
+		s.state.ContextOffset = usage.HistoryTokens
+	}
 	// Fold any in-progress reasoning round so the sealed panel is complete.
 	if s.state.CurReasoning != "" {
 		s.state.Rounds = append(s.state.Rounds, feishuReasoningRound{Text: s.state.CurReasoning})
@@ -328,7 +336,6 @@ func (s *feishuCardStreamer) SetTurnUsage(inputTokens, outputTokens int) {
 	s.mu.Unlock()
 }
 
-
 // --- CardKit API wrappers ---
 
 // cardkitStreamContent pushes accumulated text into one card element with a
@@ -349,6 +356,12 @@ func (c *FeishuChannel) cardkitStreamContent(ctx context.Context, cardID, elemen
 	}
 	if !resp.Success() {
 		c.invalidateTokenOnAuthError(resp.Code)
+		if resp.Code == 300309 {
+			// Card already sealed (Finalize/Cancel raced this in-flight update).
+			// The sealed card carries the full answer, so this late update is
+			// redundant — swallow instead of failing the whole LLM call.
+			return nil
+		}
 		return fmt.Errorf("feishu stream content api error (code=%d msg=%s): %w", resp.Code, resp.Msg, channels.ErrTemporary)
 	}
 	return nil

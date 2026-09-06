@@ -801,6 +801,7 @@ func (s *splitMarkerStreamer) Cancel(ctx context.Context) {
 	if s.current != nil {
 		s.current.Cancel(ctx)
 	}
+	s.runFinalizeHook(ctx, "")
 }
 
 func (s *splitMarkerStreamer) ClearFinalizedStreamMarker() {
@@ -972,6 +973,13 @@ func (s *finalizeHookStreamer) SetModelName(modelName string) {
 
 func (s *finalizeHookStreamer) SetTurnUsage(inputTokens, outputTokens int) {
 	setStreamerTurnUsage(s.Streamer, inputTokens, outputTokens)
+}
+
+// Cancel seals the card and still runs the cleanup hook so interrupted turns
+// dismiss leftover tool_feedback messages instead of leaking them in chat.
+func (s *finalizeHookStreamer) Cancel(ctx context.Context) {
+	s.Streamer.Cancel(ctx)
+	s.runFinalizeHook(ctx, "")
 }
 
 func (s *finalizeHookStreamer) runFinalizeHook(ctx context.Context, content string) {

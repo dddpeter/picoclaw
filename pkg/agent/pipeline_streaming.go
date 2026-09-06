@@ -50,10 +50,12 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 	}
 
 	publisher := &streamingChunkPublisher{
-		streamer:  streamer,
-		channel:   ts.channel,
-		chatID:    ts.chatID,
-		modelName: exec.llmModelName,
+		streamer: streamer,
+		channel:  ts.channel,
+		chatID:   ts.chatID,
+		// Full upstream model id (e.g. hqins/minimax-token-plan/MiniMax-M3),
+		// not the config alias — footer shows provider path like hermes.
+		modelName: exec.activeModel,
 		ts:        ts,
 	}
 

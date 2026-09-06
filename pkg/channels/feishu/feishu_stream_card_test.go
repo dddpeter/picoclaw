@@ -43,7 +43,7 @@ func TestCountFeishuTagObjects(t *testing.T) {
 		"body": map[string]any{
 			"elements": []any{
 				map[string]any{
-					"tag": "div",
+					"tag":  "div",
 					"icon": map[string]any{"tag": "standard_icon"},
 					"text": map[string]any{"tag": "lark_md", "content": "hi"},
 				},
@@ -69,8 +69,8 @@ func TestBuildFeishuFinalCardPanelAndFooter(t *testing.T) {
 			{Tool: "web_search", Args: `{"q":"picoclaw"}`, Result: "found 3 results", Duration: time.Second},
 			{Tool: "shell", Args: `{"cmd":"ls"}`, Result: "boom", IsError: true, Duration: 2 * time.Second},
 		},
-		ModelName:   "glm-4.7",
-		InputTokens: 100,
+		ModelName:    "glm-4.7",
+		InputTokens:  100,
 		OutputTokens: 42,
 	}
 	card := buildFeishuFinalCard(state, "final answer", false, 12*time.Second)
@@ -102,7 +102,7 @@ func TestBuildFeishuFinalCardPanelAndFooter(t *testing.T) {
 			}
 		}
 	}
-	if !strings.Contains(footer.String(), "↑100 ↓42") || !strings.Contains(footer.String(), "已完成") {
+	if !strings.Contains(footer.String(), "↑ 100 ↓ 42") || !strings.Contains(footer.String(), "已完成") {
 		t.Errorf("footer %q missing model/tokens/status", footer.String())
 	}
 
@@ -182,11 +182,11 @@ func buildFeishuPanelRaw(state *feishuStreamState) map[string]any {
 		children = append(children, feishuToolStepElements(step)...)
 	}
 	return map[string]any{
-		"tag":         "collapsible_panel",
-		"expanded":    false,
-		"header":      feishuPanelHeader(0, false, len(state.Tools), 0),
-		"elements":    children,
-		"element_id":  feishuPanelElementID,
+		"tag":        "collapsible_panel",
+		"expanded":   false,
+		"header":     feishuPanelHeader(0, false, len(state.Tools), 0),
+		"elements":   children,
+		"element_id": feishuPanelElementID,
 	}
 }
 
@@ -220,9 +220,9 @@ func TestFeishuCardSummary(t *testing.T) {
 
 func TestFormatFeishuElapsed(t *testing.T) {
 	cases := map[time.Duration]string{
-		500 * time.Millisecond: "500ms",
+		500 * time.Millisecond:  "500ms",
 		2500 * time.Millisecond: "2.5s",
-		90 * time.Second:       "1m30s",
+		90 * time.Second:        "1m30s",
 	}
 	for d, want := range cases {
 		if got := formatFeishuElapsed(d); got != want {

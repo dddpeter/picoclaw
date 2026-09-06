@@ -1043,8 +1043,8 @@ func TestConfiguredStreamingToolCallsUseCompleteStreamResponse(t *testing.T) {
 	if provider.chatCalls != 0 {
 		t.Fatalf("Chat calls = %d, want 0", provider.chatCalls)
 	}
-	if streamer.canceled != 1 {
-		t.Fatalf("streamer canceled = %d, want 1 for non-final tool-call response", streamer.canceled)
+	if streamer.canceled != 0 {
+		t.Fatalf("streamer canceled = %d, want 0: the card stays alive across tool iterations", streamer.canceled)
 	}
 	if len(streamer.finalized) != 1 || streamer.finalized[0] != "tool call handled" {
 		t.Fatalf("stream finalized = %v, want [tool call handled]", streamer.finalized)

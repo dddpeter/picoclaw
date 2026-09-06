@@ -197,7 +197,9 @@ toolLoop:
 						},
 					)
 
-					if shouldPublishToolFeedback(al.cfg, ts) && ts.channel != "pico" {
+					// Streaming card: tool steps render in the card's process panel
+					// (AppendToolStep), so skip the separate tool-feedback message.
+					if shouldPublishToolFeedback(al.cfg, ts) && ts.channel != "pico" && exec.streamingPublisher == nil {
 						toolFeedbackMaxLen := al.cfg.Agents.Defaults.GetToolFeedbackMaxArgsLength()
 						toolFeedbackExplanation := toolFeedbackExplanationForToolCall(
 							exec.response,
@@ -489,7 +491,9 @@ toolLoop:
 			},
 		)
 
-		if shouldPublishToolFeedback(al.cfg, ts) && ts.channel != "pico" {
+		// Streaming card: tool steps render in the card's process panel
+		// (AppendToolStep), so skip the separate tool-feedback message.
+		if shouldPublishToolFeedback(al.cfg, ts) && ts.channel != "pico" && exec.streamingPublisher == nil {
 			toolFeedbackMaxLen := al.cfg.Agents.Defaults.GetToolFeedbackMaxArgsLength()
 			toolFeedbackExplanation := toolFeedbackExplanationForToolCall(
 				exec.response,

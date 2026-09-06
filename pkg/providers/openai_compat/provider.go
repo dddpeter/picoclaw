@@ -623,6 +623,10 @@ func parseStreamResponse(
 	var reasoningDetails []ReasoningDetail
 	var finishReason string
 	var usage *UsageInfo
+	// Inline <think> splitter: some gateways (e.g. MiniMax via token-plan proxies)
+	// embed reasoning inside delta.content wrapped in <think>...</think>. Split it
+	// so reasoning renders in the process panel and the answer stays clean.
+	thinkSplitter := newThinkSplitter()
 
 	// Tool call assembly: OpenAI streams tool calls as incremental deltas
 	type toolAccum struct {
@@ -693,9 +697,18 @@ func parseStreamResponse(
 		// Accumulate text content after reasoning so UIs can show thought first
 		// when a provider sends both fields in the same event.
 		if choice.Delta.Content != "" {
-			textContent.WriteString(choice.Delta.Content)
-			if onChunk != nil {
-				onChunk(StreamChunk{Content: textContent.String()})
+			rText, aText := thinkSplitter.Feed(choice.Delta.Content)
+			if rText != "" {
+				reasoningContent.WriteString(rText)
+				if onChunk != nil {
+					onChunk(StreamChunk{ReasoningContent: reasoningContent.String()})
+				}
+			}
+			if aText != "" {
+				textContent.WriteString(aText)
+				if onChunk != nil {
+					onChunk(StreamChunk{Content: textContent.String()})
+				}
 			}
 		}
 
