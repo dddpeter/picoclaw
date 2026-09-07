@@ -267,10 +267,16 @@ func setupOAuthTestEnv(t *testing.T) (string, func()) {
 
 	tmp := t.TempDir()
 	oldHome := os.Getenv("HOME")
+	oldUserProfile := os.Getenv("USERPROFILE")
 	oldPicoHome := os.Getenv("PICOCLAW_HOME")
 
+	// os.UserHomeDir reads USERPROFILE on Windows; both must point at tmp or
+	// the skill loader's ~/.agents/skills root leaks the developer's skills.
 	if err := os.Setenv("HOME", tmp); err != nil {
 		t.Fatalf("set HOME: %v", err)
+	}
+	if err := os.Setenv("USERPROFILE", tmp); err != nil {
+		t.Fatalf("set USERPROFILE: %v", err)
 	}
 	if err := os.Setenv("PICOCLAW_HOME", filepath.Join(tmp, ".picoclaw")); err != nil {
 		t.Fatalf("set PICOCLAW_HOME: %v", err)
@@ -291,6 +297,7 @@ func setupOAuthTestEnv(t *testing.T) (string, func()) {
 
 	cleanup := func() {
 		_ = os.Setenv("HOME", oldHome)
+		_ = os.Setenv("USERPROFILE", oldUserProfile)
 		if oldPicoHome == "" {
 			_ = os.Unsetenv("PICOCLAW_HOME")
 		} else {

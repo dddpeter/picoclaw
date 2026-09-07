@@ -3,7 +3,9 @@ package skills
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -332,15 +334,123 @@ func TestSkillRootsTrimsWhitespaceAndDedups(t *testing.T) {
 	workspace := filepath.Join(tmp, "workspace")
 	global := filepath.Join(tmp, "global")
 	builtin := filepath.Join(tmp, "builtin")
+	home := filepath.Join(tmp, "home")
 
-	sl := NewSkillsLoader(workspace, "  "+global+"  ", "\t"+builtin+"\n")
-	roots := sl.SkillRoots()
+	roots := ResolveSkillRoots(workspace, "  "+global+"  ", "\t"+builtin+"\n", home)
 
+	assert.Equal(t, []SkillRoot{
+		{Dir: filepath.Join(workspace, "skills"), Source: SourceWorkspace},
+		{Dir: filepath.Join(workspace, ".skills"), Source: SourceProject},
+		{Dir: global, Source: SourceGlobal},
+		{Dir: filepath.Join(home, ".agents", "skills"), Source: SourceGlobal},
+		{Dir: builtin, Source: SourceBuiltin},
+	}, roots)
+
+	// Duplicate directories collapse to their first (highest priority) entry;
+	// an unknown home drops only the ~/.agents root.
+	dup := ResolveSkillRoots(workspace, filepath.Join(workspace, "skills"), builtin, "")
+	assert.Equal(t, []SkillRoot{
+		{Dir: filepath.Join(workspace, "skills"), Source: SourceWorkspace},
+		{Dir: filepath.Join(workspace, ".skills"), Source: SourceProject},
+		{Dir: builtin, Source: SourceBuiltin},
+	}, dup)
+
+	sl := NewSkillsLoaderFromRoots(workspace, roots)
 	assert.Equal(t, []string{
 		filepath.Join(workspace, "skills"),
+		filepath.Join(workspace, ".skills"),
 		global,
+		filepath.Join(home, ".agents", "skills"),
 		builtin,
-	}, roots)
+	}, sl.SkillRoots())
+}
+
+func TestListSkillsProjectDotSkillsDir(t *testing.T) {
+	tmp := t.TempDir()
+	ws := filepath.Join(tmp, "workspace")
+	global := filepath.Join(tmp, "global")
+
+	createSkillDir(t, filepath.Join(ws, ".skills"), "project-only", "project-only", "from .skills")
+	createSkillDir(t, filepath.Join(ws, ".skills"), "shared", "shared", ".skills version")
+	createSkillDir(t, filepath.Join(ws, "skills"), "shared", "shared", "skills version")
+	createSkillDir(t, global, "shared", "shared", "global version")
+
+	sl := NewSkillsLoader(ws, global, "")
+	skills := sl.ListSkills()
+	require.Len(t, skills, 2)
+
+	byName := map[string]SkillInfo{}
+	for _, s := range skills {
+		byName[s.Name] = s
+	}
+	assert.Equal(t, SourceProject, byName["project-only"].Source)
+	assert.Equal(t, "from .skills", byName["project-only"].Description)
+	// <workspace>/skills outranks <workspace>/.skills, which outranks global.
+	assert.Equal(t, SourceWorkspace, byName["shared"].Source)
+	assert.Equal(t, "skills version", byName["shared"].Description)
+
+	content, ok := sl.LoadSkill("project-only")
+	require.True(t, ok)
+	assert.Contains(t, content, "# project-only")
+}
+
+func TestListSkillsHomeDotAgentsDir(t *testing.T) {
+	tmp := t.TempDir()
+	ws := filepath.Join(tmp, "workspace")
+	home := filepath.Join(tmp, "home")
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	createSkillDir(t, filepath.Join(home, ".agents", "skills"), "cross-tool", "cross-tool", "shared with other agents")
+
+	sl := NewSkillsLoader(ws, filepath.Join(tmp, "global"), "")
+	skills := sl.ListSkills()
+	require.Len(t, skills, 1)
+	assert.Equal(t, "cross-tool", skills[0].Name)
+	assert.Equal(t, SourceGlobal, skills[0].Source)
+	assert.Equal(t, filepath.Join(home, ".agents", "skills", "cross-tool", "SKILL.md"), skills[0].Path)
+}
+
+func TestListSkillsClampsLongDescription(t *testing.T) {
+	tmp := t.TempDir()
+	ws := filepath.Join(tmp, "workspace")
+	long := strings.Repeat("描述", MaxDescriptionLength) // far over the byte cap
+
+	createSkillDir(t, filepath.Join(ws, "skills"), "wordy", "wordy", long)
+
+	sl := NewSkillsLoader(ws, "", "")
+	skills := sl.ListSkills()
+	require.Len(t, skills, 1, "an over-long description must clamp, not drop the skill")
+	desc := skills[0].Description
+	assert.LessOrEqual(t, len(desc), MaxDescriptionLength)
+	assert.True(t, utf8.ValidString(desc), "clamp must not split a rune")
+	assert.True(t, strings.HasSuffix(desc, "…"))
+}
+
+func TestDisableModelInvocationHidesFromCatalog(t *testing.T) {
+	tmp := t.TempDir()
+	ws := filepath.Join(tmp, "workspace")
+
+	plain := filepath.Join(ws, "skills", "plain-skill")
+	require.NoError(t, os.MkdirAll(plain, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(plain, "SKILL.md"), []byte(
+		"---\nname: plain-skill\ndescription: visible in catalog\n---\n\n# plain"), 0o644))
+
+	hidden := filepath.Join(ws, "skills", "manual-only")
+	require.NoError(t, os.MkdirAll(hidden, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(hidden, "SKILL.md"), []byte(
+		"---\nname: manual-only\ndescription: explicit invocation only\ndisable-model-invocation: true\n---\n\n# manual"), 0o644))
+
+	sl := NewSkillsLoader(ws, "", "")
+	skills := sl.ListSkills()
+	require.Len(t, skills, 2, "the flagged skill must still load (explicit /use keeps working)")
+	for _, s := range skills {
+		assert.Equal(t, s.Name == "manual-only", s.DisableModelInvocation, "flag must parse for %s", s.Name)
+	}
+
+	summary := sl.BuildSkillsSummary()
+	assert.Contains(t, summary, "plain-skill")
+	assert.NotContains(t, summary, "manual-only", "disable-model-invocation must hide the skill from the model catalog")
 }
 
 func TestGetSkillMetadata_UsesMarkdownParagraphWhenNoFrontmatter(t *testing.T) {

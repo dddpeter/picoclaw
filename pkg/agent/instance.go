@@ -112,8 +112,10 @@ func NewAgentInstance(
 	restrict := defaults.RestrictToWorkspace
 	readRestrict := restrict && !defaults.AllowReadOutsideWorkspace
 
-	// Compile path whitelist patterns from config.
-	allowReadPaths := buildAllowReadPatterns(cfg)
+	// Compile path whitelist patterns from config, plus the skill roots that
+	// live outside the workspace so the model can actually open the SKILL.md
+	// paths the catalog hands it.
+	allowReadPaths := appendSkillRootReadPatterns(buildAllowReadPatterns(cfg), workspace)
 	allowWritePaths := compilePatterns(cfg.Tools.AllowWritePaths)
 	agentToolAllowlist := resolveAgentToolAllowlist(definition)
 	agentMCPServerAllowlist := resolveAgentMCPServerAllowlist(definition)
@@ -172,7 +174,8 @@ func NewAgentInstance(
 			mcpDiscoveryActive && cfg.Tools.MCP.Discovery.UseBM25,
 			mcpDiscoveryActive && cfg.Tools.MCP.Discovery.UseRegex,
 		).
-		WithSplitOnMarker(cfg.Agents.Defaults.SplitOnMarker)
+		WithSplitOnMarker(cfg.Agents.Defaults.SplitOnMarker).
+		WithProjectDocs(cfg.Agents.Defaults.ProjectDocs)
 
 	agentID := routing.DefaultAgentID
 	agentName := ""
@@ -681,9 +684,30 @@ func buildAllowReadPatterns(cfg *config.Config) []*regexp.Regexp {
 	return append(compiled, mediaDirPattern)
 }
 
+// appendSkillRootReadPatterns allows read access to skill roots outside the
+// workspace (~/.picoclaw/skills, ~/.agents/skills, the builtin dir). The
+// skill catalog hands the model those SKILL.md paths and tells it to
+// read_file them; under restrict_to_workspace they would otherwise be
+// refused. Roots inside the workspace need no entry.
+func appendSkillRootReadPatterns(patterns []*regexp.Regexp, workspace string) []*regexp.Regexp {
+	workspace = filepath.Clean(workspace)
+	for _, root := range newDefaultSkillsLoader(workspace).SkillRoots() {
+		if root == workspace || strings.HasPrefix(root, workspace+string(os.PathSeparator)) {
+			continue
+		}
+		patterns = append(patterns, regexp.MustCompile(dirPrefixPattern(root)))
+	}
+	return patterns
+}
+
 func mediaTempDirPattern() string {
+	return dirPrefixPattern(media.TempDir())
+}
+
+// dirPrefixPattern anchors a path regexp to dir itself or anything beneath it.
+func dirPrefixPattern(dir string) string {
 	sep := regexp.QuoteMeta(string(os.PathSeparator))
-	return "^" + regexp.QuoteMeta(filepath.Clean(media.TempDir())) + "(?:" + sep + "|$)"
+	return "^" + regexp.QuoteMeta(filepath.Clean(dir)) + "(?:" + sep + "|$)"
 }
 
 // Close releases resources held by the agent's providers and session store.

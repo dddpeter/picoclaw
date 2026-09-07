@@ -27,6 +27,7 @@ const (
 	PromptSlotIdentity     PromptSlot = "identity"
 	PromptSlotHierarchy    PromptSlot = "hierarchy"
 	PromptSlotWorkspace    PromptSlot = "workspace"
+	PromptSlotProjectDocs  PromptSlot = "project_docs"
 	PromptSlotTooling      PromptSlot = "tooling"
 	PromptSlotMCP          PromptSlot = "mcp"
 	PromptSlotSkillCatalog PromptSlot = "skill_catalog"
@@ -48,6 +49,7 @@ const (
 	PromptSourceKernel         PromptSourceID = "runtime.kernel"
 	PromptSourceHierarchy      PromptSourceID = "runtime.hierarchy"
 	PromptSourceWorkspace      PromptSourceID = "workspace.definition"
+	PromptSourceProjectDocs    PromptSourceID = "workspace.project_docs"
 	PromptSourceRuntime        PromptSourceID = "runtime.context"
 	PromptSourceSummary        PromptSourceID = "context.summary"
 	PromptSourceMemory         PromptSourceID = "memory:workspace"
@@ -176,6 +178,13 @@ func builtinPromptSources() []PromptSourceDescriptor {
 			Owner:           "workspace",
 			Description:     "Workspace and agent definition files",
 			Allowed:         []PromptPlacement{{Layer: PromptLayerInstruction, Slot: PromptSlotWorkspace}},
+			StableByDefault: true,
+		},
+		{
+			ID:              PromptSourceProjectDocs,
+			Owner:           "workspace",
+			Description:     "Workspace-root project docs (AGENTS.md, README.md, ...)",
+			Allowed:         []PromptPlacement{{Layer: PromptLayerInstruction, Slot: PromptSlotProjectDocs}},
 			StableByDefault: true,
 		},
 		{
@@ -484,6 +493,8 @@ func slotPriority(slot PromptSlot) int {
 		return 990
 	case PromptSlotWorkspace:
 		return 900
+	case PromptSlotProjectDocs:
+		return 890
 	case PromptSlotTooling:
 		return 800
 	case PromptSlotMCP:

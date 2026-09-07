@@ -17,6 +17,7 @@
 | 卡片停止按钮（CardKit 回调） | `fc18f452` | `pkg/channels/feishu/` | 本文 §7 |
 | Web launcher 主题 | `5d3ad431` | `web/frontend/src/index.css` | 本文 §8 |
 | 运维禁令 | `23b1275d` | `AGENTS.md` | 本文 §9 |
+| 技能目录扩展与项目文档注入 | `<本次>` | `pkg/skills/loader.go`、`pkg/agent/project_docs.go` | 本文 §10 |
 
 ## 1. 飞书 CardKit v2 流式卡片
 
@@ -96,6 +97,17 @@
 - **禁止给 `picoclaw.service` 加任何 sandbox 指令**（RestrictAddressFamilies / ReadWritePaths / ProtectSystem 等）——user 服务里 systemd 会以受限上下文应用它们，setuid 提权被永久禁用，agent 的所有 `sudo` 会报 `sudo must be owned by uid 0 and have the setuid bit set`。unit 的 sandbox 段已全部移除，不要「加固」回去。
 - **`picoclaw cron add/remove`（CLI）只写 jobs.json，运行中的网关不感知**（启动时才读）——改完必须重启服务；另外 cron 表达式必须 5 字段，残缺表达式（如 `45 16`）会被静默接受但永不匹配。
 
+## 10. 技能目录扩展与项目文档注入
+
+面向"把 workspace 当项目根"的个人部署形态，三项自动上下文增强（2026-09-07）：
+
+- **技能根目录扩到五级**（`pkg/skills/loader.go`）：`<ws>/skills`（source=workspace）> `<ws>/.skills`（source=project，手工维护）> `~/.picoclaw/skills`（global）> `~/.agents/skills`（global，**跨工具约定目录**，跟随 `os.UserHomeDir` 而非 `PICOCLAW_HOME`）> 内置。`NewSkillsLoader` 签名不变（6 处调用方零改动），根目录派生收敛到 `skills.ResolveSkillRoots`；同名首见者胜。description 超 1024 字节截断而非丢弃技能（跨工具技能描述普遍很长）。identity 提示与提示缓存失效（`SkillRoots`）自动跟随。
+- **技能根目录只读放行**（`pkg/agent/instance.go` `appendSkillRootReadPatterns`）：restrict 模式下工作区外的技能根自动加入 allow-read 前缀模式（复用 media 临时目录的写法），模型能 `read_file` 目录给出的 `SKILL.md` 路径；只放开读。
+- **对齐 Agent Skills 规范/pi 的两点**（参考 earendil-works/pi `packages/coding-agent/src/core/skills.ts`）：① frontmatter `disable-model-invocation: true` 的技能照常加载（`/use` 显式调用可用）但不进模型可见目录（`BuildSkillsSummary` 与 allow-list 两条路径都过滤）；② 技能提示加一句"技能内相对路径按技能目录（SKILL.md 的父目录）解析为绝对路径"，解决 `references/` 子文件读不到的问题。
+- **项目文档注入**（`pkg/agent/project_docs.go`）：`agents.defaults.project_docs`（默认 `AGENTS.md/README.md/CLAUDE.md`，空数组关闭）列出的工作区根目录文档注入系统提示词——新槽位 `project_docs`（优先级 890，紧跟 workspace 900）、来源 `workspace.project_docs`。单文件 6000B / 整段 12000B 截断；只认裸文件名，bootstrap 文件（AGENT/SOUL/USER/IDENTITY.md）排除；**AGENT.md 缺失时 AGENTS.md 已是旧版 agent 定义，跳过防重复注入**；路径进 `sourcePaths()` 走 mtime 热失效。经 `NewContextBuilder(...).WithProjectDocs(...)` 接线。
+- 测试锚点：`TestListSkillsProjectDotSkillsDir`、`TestListSkillsHomeDotAgentsDir`、`TestListSkillsClampsLongDescription`、`TestSkillRootsTrimsWhitespaceAndDedups`（更新）、`TestProjectDocs*`、`TestAppendSkillRootReadPatternsAllowsOutsideRoots`；`pkg/skills` 与 `web/backend/api` 测试用 `TestMain`/setup helper 隔离 HOME+USERPROFILE，防止开发者真实的 `~/.agents/skills` 泄入断言。
+- 配置文档：`docs/guides/configuration.zh.md` 的"技能来源"与"项目文档注入"两节。
+
 
 
 | 场景 | 上游 | 本 fork |
@@ -110,11 +122,13 @@
 | exec deny（`enable_deny_patterns=false`） | `custom_deny_patterns` 一并失效 | 新增 `enable_custom_deny_patterns`，可只加载自定义规则 |
 | 卡片交互 | 仅消息文本 | 流式卡「停止」按钮（card.action.trigger 回调，1/3 行宽） |
 | 长无写入期间流式卡超时（200850） | 元素写入持续报错 | 自动重开，失败降级全卡更新，turn 不中断 |
+| 技能来源 | 3 级（workspace/global/builtin） | 5 级（+`<ws>/.skills`、`~/.agents/skills`），restrict 下技能根只读放行 |
+| 项目文档 | 无（README/CLAUDE.md 完全忽略） | `project_docs` 自动注入（AGENTS.md/README.md/CLAUDE.md，截断保护） |
 | Web launcher 外观 | 上游默认主题 | 深空紫青主题（仅改 index.css，升级时留意该文件冲突） |
 | systemd 部署 | 官方 unit | 禁 sandbox 指令（见 §9），unit 变更时不得带回 |
 
 ## 同步上游注意事项
 
-- 主要冲突面：`pkg/commands/`、`pkg/agent/pipeline_execute.go`、`pkg/tools/shell.go`、`pkg/channels/feishu/`、`pkg/config/config.go`（AgentDefaults）、`web/frontend/src/index.css`（§8 主题）。
+- 主要冲突面：`pkg/commands/`、`pkg/agent/pipeline_execute.go`、`pkg/tools/shell.go`、`pkg/channels/feishu/`、`pkg/config/config.go`（AgentDefaults）、`pkg/skills/loader.go`（§10 五级根目录）、`web/frontend/src/index.css`（§8 主题）。
 - `pkg/providers/openai_compat/provider.go` 的流式超时如与上游改动冲突，保留 `streamRoundTripper` 语义优先。
 - 合并后跑 `go test ./pkg/agent/ ./pkg/tools/ ./pkg/providers/... ./pkg/commands/` 验证 fork 测试（文件名含 `_test.go` 且测试名带 `NewResets`/`NeverBlocks`/`ResponseHeaderTimeout`/`CleanCommandOutput` 的均为 fork 独有）；前端改动需另跑 `pnpm build` 验证。

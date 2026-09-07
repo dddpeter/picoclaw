@@ -26,6 +26,7 @@ type ContextBuilder struct {
 	skillsLoader   *skills.SkillsLoader
 	memory         *MemoryStore
 	splitOnMarker  bool
+	projectDocs    []string // workspace-root docs to inject, see project_docs.go
 	agentDiscovery func(agentID string) []AgentDescriptor
 	promptRegistry *PromptRegistry
 
@@ -71,6 +72,14 @@ func (cb *ContextBuilder) WithSplitOnMarker(enabled bool) *ContextBuilder {
 	return cb
 }
 
+// WithProjectDocs sets the workspace-root markdown files auto-injected into
+// the system prompt (agents.defaults.project_docs). Nil or empty disables the
+// section.
+func (cb *ContextBuilder) WithProjectDocs(names []string) *ContextBuilder {
+	cb.projectDocs = names
+	return cb
+}
+
 func (cb *ContextBuilder) WithAgentDiscovery(
 	agentID string,
 	discover func(agentID string) []AgentDescriptor,
@@ -98,8 +107,19 @@ func getGlobalConfigDir() string {
 }
 
 func NewContextBuilder(workspace string) *ContextBuilder {
-	// builtin skills: skills directory in current project
-	// Use the skills/ directory under the current working directory
+	return &ContextBuilder{
+		workspace:      workspace,
+		skillsLoader:   newDefaultSkillsLoader(workspace),
+		memory:         NewMemoryStore(workspace),
+		promptRegistry: NewPromptRegistry(),
+	}
+}
+
+// newDefaultSkillsLoader builds the agent's skill loader over the standard
+// roots: the workspace's skills/ and .skills/, ~/.picoclaw/skills, the
+// cross-tool ~/.agents/skills, and the builtin dir (PICOCLAW_BUILTIN_SKILLS,
+// else skills/ under the process cwd).
+func newDefaultSkillsLoader(workspace string) *skills.SkillsLoader {
 	builtinSkillsDir := strings.TrimSpace(os.Getenv(config.EnvBuiltinSkills))
 	if builtinSkillsDir == "" {
 		wd, err := os.Getwd()
@@ -112,13 +132,7 @@ func NewContextBuilder(workspace string) *ContextBuilder {
 		builtinSkillsDir = filepath.Join(wd, "skills")
 	}
 	globalSkillsDir := filepath.Join(getGlobalConfigDir(), "skills")
-
-	return &ContextBuilder{
-		workspace:      workspace,
-		skillsLoader:   skills.NewSkillsLoader(workspace, globalSkillsDir, builtinSkillsDir),
-		memory:         NewMemoryStore(workspace),
-		promptRegistry: NewPromptRegistry(),
-	}
+	return skills.NewSkillsLoader(workspace, globalSkillsDir, builtinSkillsDir)
 }
 
 func (cb *ContextBuilder) RegisterPromptSource(desc PromptSourceDescriptor) error {
@@ -183,13 +197,14 @@ You are picoclaw, a helpful AI assistant.
 Your workspace is at: %s
 - Memory: %s/memory/MEMORY.md
 - Daily Notes: %s/memory/YYYYMM/YYYYMMDD.md
-- Skills: %s/skills/{skill-name}/SKILL.md
+- Skills: %s/skills/{skill-name}/SKILL.md (project-level: %s/.skills/{skill-name}/SKILL.md)
 
 ## Important Rules
 
 %s
 `,
 		version,
+		workspacePath,
 		workspacePath,
 		workspacePath,
 		workspacePath,
@@ -276,6 +291,20 @@ func (cb *ContextBuilder) buildSystemPromptParts(opts systemPromptBuildOptions) 
 		})
 	}
 
+	// Project docs (AGENTS.md, README.md, ...) from the workspace root
+	if projectDocs := cb.loadProjectDocs(); projectDocs != "" {
+		add(PromptPart{
+			ID:      "instruction.project_docs",
+			Layer:   PromptLayerInstruction,
+			Slot:    PromptSlotProjectDocs,
+			Source:  PromptSource{ID: PromptSourceProjectDocs, Name: "project_docs"},
+			Title:   "project docs",
+			Content: projectDocs,
+			Stable:  true,
+			Cache:   PromptCacheEphemeral,
+		})
+	}
+
 	// Skills - show summary, AI can read full content with read_file tool
 	skillsSummary := ""
 	if opts.IncludeSkillCatalog {
@@ -288,7 +317,8 @@ func (cb *ContextBuilder) buildSystemPromptParts(opts systemPromptBuildOptions) 
 			"read_file",
 		)
 		if opts.IncludeToolUseRule && readFileAllowed {
-			skillIntro += " To use a skill, read its SKILL.md file using the read_file tool."
+			skillIntro += " To use a skill, read its SKILL.md file using the read_file tool." +
+				" When a skill references a relative path (e.g. references/…), resolve it against the skill's own directory (the parent of SKILL.md) and use that absolute path."
 		}
 		add(PromptPart{
 			ID:     "capability.skill_catalog",
@@ -444,6 +474,9 @@ func (cb *ContextBuilder) buildSkillsSummary(allowed []string) string {
 		if _, ok := allowedSet[strings.ToLower(strings.TrimSpace(s.Name))]; !ok {
 			continue
 		}
+		if s.DisableModelInvocation {
+			continue
+		}
 		lines = append(lines, "  <skill>")
 		lines = append(lines, fmt.Sprintf("    <name>%s</name>", xmlEscapeForPrompt(s.Name)))
 		lines = append(
@@ -540,6 +573,7 @@ func (cb *ContextBuilder) sourcePaths() []string {
 	agentDefinition := cb.LoadAgentDefinition()
 	paths := agentDefinition.trackedPaths(cb.workspace)
 	paths = append(paths, filepath.Join(cb.workspace, "memory", "MEMORY.md"))
+	paths = append(paths, cb.projectDocPaths()...)
 	return uniquePaths(paths)
 }
 

@@ -489,6 +489,10 @@ type AgentDefaults struct {
 	MaxLLMRetries             int                `json:"max_llm_retries,omitempty"        env:"PICOCLAW_AGENTS_DEFAULTS_MAX_LLM_RETRIES"`
 	LLMRetryBackoffSecs       int                `json:"llm_retry_backoff_secs,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_LLM_RETRY_BACKOFF_SECS"`
 	LoopDetection             LoopDetectionConfig `json:"loop_detection,omitempty"`
+	// ProjectDocs lists workspace-root markdown files auto-injected into the
+	// system prompt (AGENTS.md, README.md, ...). Absent from the config file
+	// means the default list; an explicit empty list disables the section.
+	ProjectDocs []string `json:"project_docs"`
 }
 
 // LoopDetectionConfig controls the low-progress loop detector (borrowed from

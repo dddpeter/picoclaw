@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/gomarkdown/markdown"
 	"github.com/gomarkdown/markdown/ast"
@@ -28,6 +29,10 @@ const (
 type SkillMetadata struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	// DisableModelInvocation mirrors the Agent Skills spec frontmatter flag
+	// (agentskills.io): such skills stay out of the model-facing catalog and
+	// are only invocable explicitly (e.g. /use).
+	DisableModelInvocation bool `json:"disable_model_invocation"`
 }
 
 type SkillInfo struct {
@@ -35,6 +40,9 @@ type SkillInfo struct {
 	Path        string `json:"path"`
 	Source      string `json:"source"`
 	Description string `json:"description"`
+	// DisableModelInvocation hides the skill from the prompt catalog; explicit
+	// invocation (/use, agents[].skills, turn profiles) keeps working.
+	DisableModelInvocation bool `json:"disable_model_invocation"`
 }
 
 func (info SkillInfo) validate() error {
@@ -55,22 +63,47 @@ func (info SkillInfo) validate() error {
 	return errs
 }
 
-type SkillsLoader struct {
-	workspace       string
-	workspaceSkills string // workspace skills (project-level)
-	globalSkills    string // global skills (~/.picoclaw/skills)
-	builtinSkills   string // builtin skills
+// Skill provenance labels, surfaced in the prompt catalog and the web/CLI
+// listings.
+const (
+	SourceWorkspace = "workspace" // <workspace>/skills (installer target)
+	SourceProject   = "project"   // <workspace>/.skills (hand-managed, project-level)
+	SourceGlobal    = "global"    // ~/.picoclaw/skills and ~/.agents/skills
+	SourceBuiltin   = "builtin"
+)
+
+// SkillRoot is one skill directory together with its provenance label.
+type SkillRoot struct {
+	Dir    string
+	Source string
 }
 
-// SkillRoots returns all unique skill root directories used by this loader.
-// The order follows resolution priority: workspace > global > builtin.
-func (sl *SkillsLoader) SkillRoots() []string {
-	roots := []string{sl.workspaceSkills, sl.globalSkills, sl.builtinSkills}
-	seen := make(map[string]struct{}, len(roots))
-	out := make([]string, 0, len(roots))
+type SkillsLoader struct {
+	workspace string
+	roots     []SkillRoot // resolution priority order, no empties or duplicates
+}
 
-	for _, root := range roots {
-		trimmed := strings.TrimSpace(root)
+// ResolveSkillRoots lists the skill directories in resolution priority order:
+// <workspace>/skills > <workspace>/.skills > globalSkills > <home>/.agents/skills
+// > builtinSkills. Empty and duplicate directories are dropped. home is the
+// user's home directory, not PICOCLAW_HOME: ~/.agents/skills is the
+// cross-tool skills convention shared with other coding agents, so it must not
+// move with picoclaw's own config root.
+func ResolveSkillRoots(workspace, globalSkills, builtinSkills, home string) []SkillRoot {
+	candidates := []SkillRoot{
+		{Dir: filepath.Join(workspace, "skills"), Source: SourceWorkspace},
+		{Dir: filepath.Join(workspace, ".skills"), Source: SourceProject},
+		{Dir: globalSkills, Source: SourceGlobal},
+	}
+	if home = strings.TrimSpace(home); home != "" {
+		candidates = append(candidates, SkillRoot{Dir: filepath.Join(home, ".agents", "skills"), Source: SourceGlobal})
+	}
+	candidates = append(candidates, SkillRoot{Dir: builtinSkills, Source: SourceBuiltin})
+
+	seen := make(map[string]struct{}, len(candidates))
+	roots := make([]SkillRoot, 0, len(candidates))
+	for _, root := range candidates {
+		trimmed := strings.TrimSpace(root.Dir)
 		if trimmed == "" {
 			continue
 		}
@@ -79,18 +112,35 @@ func (sl *SkillsLoader) SkillRoots() []string {
 			continue
 		}
 		seen[clean] = struct{}{}
-		out = append(out, clean)
+		roots = append(roots, SkillRoot{Dir: clean, Source: root.Source})
 	}
+	return roots
+}
 
+// SkillRoots returns all unique skill root directories used by this loader,
+// in resolution priority order.
+func (sl *SkillsLoader) SkillRoots() []string {
+	out := make([]string, 0, len(sl.roots))
+	for _, root := range sl.roots {
+		out = append(out, root.Dir)
+	}
 	return out
 }
 
+// NewSkillsLoader builds a loader over the standard root set (see
+// ResolveSkillRoots), deriving the cross-tool ~/.agents/skills root from the
+// user's home directory.
 func NewSkillsLoader(workspace string, globalSkills string, builtinSkills string) *SkillsLoader {
+	home, _ := os.UserHomeDir()
+	return NewSkillsLoaderFromRoots(workspace, ResolveSkillRoots(workspace, globalSkills, builtinSkills, home))
+}
+
+// NewSkillsLoaderFromRoots builds a loader over an explicit root list (tests,
+// or callers with a non-standard layout). Roots are searched in order.
+func NewSkillsLoaderFromRoots(workspace string, roots []SkillRoot) *SkillsLoader {
 	return &SkillsLoader{
-		workspace:       workspace,
-		workspaceSkills: filepath.Join(workspace, "skills"),
-		globalSkills:    globalSkills, // ~/.picoclaw/skills
-		builtinSkills:   builtinSkills,
+		workspace: workspace,
+		roots:     roots,
 	}
 }
 
@@ -98,34 +148,32 @@ func (sl *SkillsLoader) ListSkills() []SkillInfo {
 	skills := make([]SkillInfo, 0)
 	seen := make(map[string]bool)
 
-	addSkills := func(dir, source string) {
-		if dir == "" {
-			return
-		}
-		dirs, err := os.ReadDir(dir)
+	for _, root := range sl.roots {
+		dirs, err := os.ReadDir(root.Dir)
 		if err != nil {
-			return
+			continue
 		}
 		for _, d := range dirs {
 			if !d.IsDir() {
 				continue
 			}
-			skillFile := filepath.Join(dir, d.Name(), "SKILL.md")
+			skillFile := filepath.Join(root.Dir, d.Name(), "SKILL.md")
 			if _, err := os.Stat(skillFile); err != nil {
 				continue
 			}
 			info := SkillInfo{
 				Name:   d.Name(),
 				Path:   skillFile,
-				Source: source,
+				Source: root.Source,
 			}
 			metadata := sl.getSkillMetadata(skillFile)
 			if metadata != nil {
-				info.Description = metadata.Description
+				info.Description = clampDescription(metadata.Description)
 				info.Name = metadata.Name
+				info.DisableModelInvocation = metadata.DisableModelInvocation
 			}
 			if err := info.validate(); err != nil {
-				slog.Warn("invalid skill from "+source, "name", info.Name, "error", err)
+				slog.Warn("invalid skill from "+root.Source, "name", info.Name, "error", err)
 				continue
 			}
 			if seen[info.Name] {
@@ -136,11 +184,6 @@ func (sl *SkillsLoader) ListSkills() []SkillInfo {
 		}
 	}
 
-	// Priority: workspace > global > builtin
-	addSkills(sl.workspaceSkills, "workspace")
-	addSkills(sl.globalSkills, "global")
-	addSkills(sl.builtinSkills, "builtin")
-
 	return skills
 }
 
@@ -149,25 +192,8 @@ func (sl *SkillsLoader) LoadSkill(name string) (string, bool) {
 		return "", false
 	}
 
-	// 1. load from workspace skills first (project-level)
-	if sl.workspaceSkills != "" {
-		skillFile := filepath.Join(sl.workspaceSkills, name, "SKILL.md")
-		if content, err := os.ReadFile(skillFile); err == nil {
-			return sl.stripFrontmatter(string(content)), true
-		}
-	}
-
-	// 2. then load from global skills (~/.picoclaw/skills)
-	if sl.globalSkills != "" {
-		skillFile := filepath.Join(sl.globalSkills, name, "SKILL.md")
-		if content, err := os.ReadFile(skillFile); err == nil {
-			return sl.stripFrontmatter(string(content)), true
-		}
-	}
-
-	// 3. finally load from builtin skills
-	if sl.builtinSkills != "" {
-		skillFile := filepath.Join(sl.builtinSkills, name, "SKILL.md")
+	for _, root := range sl.roots {
+		skillFile := filepath.Join(root.Dir, name, "SKILL.md")
 		if content, err := os.ReadFile(skillFile); err == nil {
 			return sl.stripFrontmatter(string(content)), true
 		}
@@ -201,6 +227,11 @@ func (sl *SkillsLoader) BuildSkillsSummary() string {
 	var lines []string
 	lines = append(lines, "<skills>")
 	for _, s := range allSkills {
+		// Skills flagged disable-model-invocation stay out of the model-facing
+		// catalog; only explicit invocation (e.g. /use) can load them.
+		if s.DisableModelInvocation {
+			continue
+		}
 		escapedName := escapeXML(s.Name)
 		escapedDesc := escapeXML(s.Description)
 		escapedPath := escapeXML(s.Path)
@@ -215,6 +246,22 @@ func (sl *SkillsLoader) BuildSkillsSummary() string {
 	lines = append(lines, "</skills>")
 
 	return strings.Join(lines, "\n")
+}
+
+// clampDescription cuts an over-long description to MaxDescriptionLength bytes
+// on a rune boundary, ending in an ellipsis. Cross-tool skills (~/.agents/skills)
+// routinely carry paragraph-length descriptions; dropping the whole skill for
+// that would silently hide it from the catalog.
+func clampDescription(description string) string {
+	if len(description) <= MaxDescriptionLength {
+		return description
+	}
+	const ellipsis = "…"
+	cut := MaxDescriptionLength - len(ellipsis)
+	for cut > 0 && !utf8.RuneStart(description[cut]) {
+		cut--
+	}
+	return strings.TrimSpace(description[:cut]) + ellipsis
 }
 
 func (sl *SkillsLoader) getSkillMetadata(skillPath string) *SkillMetadata {
@@ -246,8 +293,9 @@ func (sl *SkillsLoader) getSkillMetadata(skillPath string) *SkillMetadata {
 
 	// Try JSON first (for backward compatibility)
 	var jsonMeta struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		Name                   string `json:"name"`
+		Description            string `json:"description"`
+		DisableModelInvocation bool   `json:"disable-model-invocation"`
 	}
 	if err := json.Unmarshal([]byte(frontmatter), &jsonMeta); err == nil {
 		if jsonMeta.Name != "" {
@@ -256,6 +304,7 @@ func (sl *SkillsLoader) getSkillMetadata(skillPath string) *SkillMetadata {
 		if jsonMeta.Description != "" {
 			metadata.Description = jsonMeta.Description
 		}
+		metadata.DisableModelInvocation = jsonMeta.DisableModelInvocation
 		return metadata
 	}
 
@@ -266,6 +315,9 @@ func (sl *SkillsLoader) getSkillMetadata(skillPath string) *SkillMetadata {
 	}
 	if description := yamlMeta["description"]; description != "" {
 		metadata.Description = description
+	}
+	if yamlMeta["disable-model-invocation"] == "true" {
+		metadata.DisableModelInvocation = true
 	}
 	return metadata
 }
@@ -329,8 +381,9 @@ func (sl *SkillsLoader) parseSimpleYAML(content string) map[string]string {
 	result := make(map[string]string)
 
 	var meta struct {
-		Name        string `yaml:"name"`
-		Description string `yaml:"description"`
+		Name                   string `yaml:"name"`
+		Description            string `yaml:"description"`
+		DisableModelInvocation bool   `yaml:"disable-model-invocation"`
 	}
 	if err := yaml.Unmarshal([]byte(content), &meta); err != nil {
 		return result
@@ -340,6 +393,9 @@ func (sl *SkillsLoader) parseSimpleYAML(content string) map[string]string {
 	}
 	if meta.Description != "" {
 		result["description"] = meta.Description
+	}
+	if meta.DisableModelInvocation {
+		result["disable-model-invocation"] = "true"
 	}
 
 	return result

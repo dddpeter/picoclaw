@@ -57,15 +57,19 @@ PicoClaw 将数据存储在您配置的工作区中（默认：`~/.picoclaw/work
 ├── memory/           # 长期记忆 (MEMORY.md)
 ├── state/            # 持久化状态 (最后一次频道等)
 ├── cron/             # 定时任务数据库
-├── skills/           # 自定义技能
+├── skills/           # 自定义技能（安装器目标目录）
+├── .skills/          # 项目级技能（手工维护，本 fork 新增来源）
 ├── AGENT.md          # Agent 行为指南
 ├── HEARTBEAT.md      # 周期性任务提示词 (每 30 分钟检查一次)
 ├── IDENTITY.md       # Agent 身份设定
 ├── SOUL.md           # Agent 灵魂/性格
-└── USER.md           # 用户偏好
+├── USER.md           # 用户偏好
+├── AGENTS.md         # 项目文档（自动注入，见"项目文档注入"）
+├── README.md         # 项目文档（自动注入，见"项目文档注入"）
+└── CLAUDE.md         # 项目文档（自动注入，见"项目文档注入"）
 ```
 
-> **提示：** 对 `AGENT.md`、`SOUL.md`、`USER.md` 和 `memory/MEMORY.md` 的修改会通过文件修改时间（mtime）在运行时自动检测。**无需重启 gateway**，Agent 将在下一次请求时自动加载最新内容。
+> **提示：** 对 `AGENT.md`、`SOUL.md`、`USER.md`、`memory/MEMORY.md` 和项目文档（`AGENTS.md`/`README.md`/`CLAUDE.md`）的修改会通过文件修改时间（mtime）在运行时自动检测。**无需重启 gateway**，Agent 将在下一次请求时自动加载最新内容。
 
 ### Agent 自进化
 
@@ -156,17 +160,50 @@ PicoClaw 将数据存储在您配置的工作区中（默认：`~/.picoclaw/work
 
 ### 技能来源 (Skill Sources)
 
-默认情况下，技能会按以下顺序加载：
+默认情况下，技能会按以下顺序加载（同名技能以先加载者为准）：
 
-1. `~/.picoclaw/workspace/skills`（工作区）
-2. `~/.picoclaw/skills`（全局）
-3. `<构建时嵌入路径>/skills`（内置）
+1. `<工作区>/skills`（工作区，安装器 `install_skill` 的目标目录）
+2. `<工作区>/.skills`（项目级，手工维护；本 fork 新增）
+3. `~/.picoclaw/skills`（全局）
+4. `~/.agents/skills`（跨工具共享，与其他 coding agent 约定一致；本 fork 新增）
+5. `<构建时嵌入路径>/skills`（内置）
+
+说明：
+
+- 两个新增目录**自动生效**，目录不存在时直接跳过，无需配置。
+- `~/.agents/skills` 跟随系统用户主目录（`os.UserHomeDir`），**不**跟随 `PICOCLAW_HOME`——它是跨工具共享位置，不应随 picoclaw 数据根迁移。
+- 技能目录里的 `description` 超过 1024 字节时截断显示，不再整条丢弃（跨工具技能的描述普遍较长）。
+- 遵循 [Agent Skills 规范](https://agentskills.io/specification) 的 frontmatter 字段 `disable-model-invocation: true`：该技能不出现在模型可见的技能目录里，但 `/use <skill>` 显式调用仍然可用。
+- `restrict_to_workspace: true` 时，工作区外的技能根目录（全局/跨工具/内置）会自动加入只读放行列表，模型可以用 `read_file` 打开技能目录给出的 `SKILL.md` 路径；这只放开**读**，不放开写。技能里引用的相对路径（如 `references/…`）提示词会指示模型按技能所在目录解析。
 
 在高级/测试场景下，可通过以下环境变量覆盖内置技能目录：
 
 ```bash
 export PICOCLAW_BUILTIN_SKILLS=/path/to/skills
 ```
+
+### 项目文档注入 (project_docs)
+
+工作区根目录下的常见 Markdown 文档会自动注入系统提示词（排在工作区指令之后、技能目录之前），Agent 无需手动读取就能遵循项目自身的约定：
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "project_docs": ["AGENTS.md", "README.md", "CLAUDE.md"]
+    }
+  }
+}
+```
+
+| 说明项 | 行为 |
+|--------|------|
+| 默认清单 | `AGENTS.md`、`README.md`、`CLAUDE.md`（配置里不写 `project_docs` 即用默认） |
+| 关闭 | 显式写 `"project_docs": []`（空数组） |
+| 大小上限 | 单文件 6000 字节、整段合计 12000 字节，超出截断并标注提示（完整内容仍可用 `read_file` 读取） |
+| 与 AGENT.md 的关系 | `AGENT.md` 存在时，`AGENTS.md` 按普通项目文档注入；`AGENT.md` 不存在时 `AGENTS.md` 作为旧版 agent 定义已进提示词，不会重复注入 |
+| 只认根目录文件名 | 清单里只接受工作区根目录的裸文件名（如 `CONTRIBUTING.md`），子目录路径会被忽略 |
+| 热重载 | 文档增删改通过 mtime 自动检测，下一次请求即生效，无需重启 |
 
 ### 在聊天频道中使用技能
 

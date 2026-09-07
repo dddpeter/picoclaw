@@ -12,6 +12,12 @@ import (
 	"github.com/sipeed/picoclaw/pkg"
 )
 
+// DefaultProjectDocs returns the workspace-root markdown files auto-injected
+// into the system prompt when agents.defaults.project_docs is not set.
+func DefaultProjectDocs() []string {
+	return []string{"AGENTS.md", "README.md", "CLAUDE.md"}
+}
+
 // DefaultConfig returns the default configuration for PicoClaw.
 func DefaultConfig() *Config {
 	workspacePath := filepath.Join(GetHome(), pkg.WorkspaceName)
@@ -42,6 +48,7 @@ func DefaultConfig() *Config {
 				SplitOnMarker:       false,
 				MaxLLMRetries:       2,
 				LLMRetryBackoffSecs: 2,
+				ProjectDocs:         DefaultProjectDocs(),
 			},
 		},
 		Session: SessionConfig{

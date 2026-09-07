@@ -449,7 +449,10 @@ Updated content.`
 // (~/.picoclaw/skills) invalidates the cached system prompt.
 func TestGlobalSkillFileContentChange(t *testing.T) {
 	tmpHome := t.TempDir()
+	// os.UserHomeDir reads USERPROFILE on Windows; setting only HOME lets the
+	// loader resolve the global skills dir against the real home there.
 	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome)
 
 	tmpDir := setupWorkspace(t, nil)
 	defer os.RemoveAll(tmpDir)
