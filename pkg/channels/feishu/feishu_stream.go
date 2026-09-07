@@ -128,6 +128,22 @@ func (s *feishuCardStreamer) setPhaseLocked(phase string) {
 	s.phase = phase
 }
 
+// pinNarrationLocked runs at an iteration boundary (the pipeline archived
+// this round's prose as a KindText step because tool calls follow): the text
+// joins the grey narration trail above the answer slot and the live slot
+// resets, so the next round's stream appends below the trail instead of
+// replacing it. The pin changes the element's intended content, so the answer
+// throttle is reset and the next Update writes through immediately rather
+// than leaving the pre-pin text on screen for another throttle window.
+func (s *feishuCardStreamer) pinNarrationLocked(text string) {
+	if line := feishuNarrationLine(sanitizeFeishuMarkdownImages(text)); line != "" {
+		s.state.Narration = append(s.state.Narration, line)
+		s.state.Narration = s.state.Narration[max(0, len(s.state.Narration)-feishuNarrationMaxLines):]
+	}
+	s.answer = ""
+	s.answerSentAt = time.Time{}
+}
+
 // feishuStreamReuseTTL bounds how long an unfinished card may be picked up
 // again by a later BeginStream. Aborted turns normally cancel their streamer,
 // but if that cleanup ever fails (process restart aside), a stale card must
@@ -332,10 +348,12 @@ func (c *FeishuChannel) chatHasActiveStreamer(chatID string) bool {
 	return active
 }
 
-// Update streams accumulated answer text into the card's answer element,
-// throttled to feishuAnswerFlushInterval. The answer element is owned by the
-// native typewriter: this method must never trigger a full-card refresh
-// (that would replace the element mid-print and drop its streaming state).
+// Update streams the current iteration's accumulated answer text into the
+// card's answer element (below the pinned narration trail, see
+// composeFeishuAnswer), throttled to feishuAnswerFlushInterval. The answer
+// element is owned by the native typewriter: this method must never trigger
+// a full-card refresh (that would replace the element mid-print and drop its
+// streaming state).
 //
 // If Feishu closed the card's streaming mode while the turn was blocked (a
 // human approval wait, a long tool run), element writes fail with 200850:
@@ -370,7 +388,7 @@ func (s *feishuCardStreamer) Update(ctx context.Context, content string) error {
 	if !throttled {
 		s.answerSentAt = time.Now()
 	}
-	answerContent := sanitizeFeishuMarkdownImages(s.answer)
+	answerContent := sanitizeFeishuMarkdownImages(composeFeishuAnswer(s.state.Narration, s.answer))
 	seq := 0
 	if !throttled {
 		seq = s.nextSeqLocked()
@@ -482,7 +500,9 @@ func (s *feishuCardStreamer) FinalizeReasoning(ctx context.Context, content stri
 
 // AppendToolStep implements bus.ToolStepStreamer. A Running step replaces the
 // live in-flight entry (rendered at the end of the panel timeline); a
-// completed step clears it and joins the interleaved timeline.
+// completed step clears it and joins the interleaved timeline. A completed
+// KindText step marks an iteration boundary: besides its panel archive, the
+// text is pinned to the narration trail above the answer slot.
 func (s *feishuCardStreamer) AppendToolStep(ctx context.Context, step bus.ToolStep) error {
 	s.mu.Lock()
 	if s.done {
@@ -492,6 +512,9 @@ func (s *feishuCardStreamer) AppendToolStep(ctx context.Context, step bus.ToolSt
 	s.lastAt = time.Now()
 	s.setPhaseLocked(feishuPhaseThinking)
 	s.panelDirty = true
+	if step.Kind == bus.ToolStepKindText && !step.Running {
+		s.pinNarrationLocked(step.Result)
+	}
 	if step.Running {
 		running := step
 		s.state.RunningTool = &running
@@ -522,8 +545,8 @@ func (s *feishuCardStreamer) logPanelErr(op string, err error) {
 
 // refreshPanelLocked rebuilds the process panel in the card via a full card
 // update, throttled to feishuPanelFlushInterval. A phase change (e.g. tools
-// → answer) bypasses the throttle once so the status line and panel collapse
-// reach the card promptly. Caller holds s.mu; the API call is made while
+// → answer) bypasses the throttle once so the status line reaches the card
+// promptly. Caller holds s.mu; the API call is made while
 // holding the lock — streamer methods never call each other, so this only
 // serializes updates, it cannot deadlock.
 func (s *feishuCardStreamer) refreshPanelLocked(ctx context.Context) error {

@@ -18,13 +18,15 @@ type degradeAPIFake struct {
 	reopenCalls        int
 	closeCalls         int
 
-	streamErrs []error // per-call errors for streamContent; nil = success
-	reopenErr  error
-	lastCard   map[string]any
+	streamErrs  []error // per-call errors for streamContent; nil = success
+	reopenErr   error
+	lastCard    map[string]any
+	lastContent string // last element content written through streamContent
 }
 
-func (f *degradeAPIFake) streamContent(_ context.Context, _, _, _ string, _ int) error {
+func (f *degradeAPIFake) streamContent(_ context.Context, _, _, content string, _ int) error {
 	f.streamContentCalls++
+	f.lastContent = content
 	if f.streamContentCalls <= len(f.streamErrs) {
 		return f.streamErrs[f.streamContentCalls-1]
 	}

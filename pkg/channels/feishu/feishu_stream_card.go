@@ -55,6 +55,51 @@ const (
 	feishuReasoningDisplayLimit = 2000
 )
 
+// Narration trail caps: archived mid-turn texts pinned above the live answer
+// stay glanceable — one line each, oldest dropped beyond the count cap.
+const (
+	feishuNarrationMaxLines  = 5
+	feishuNarrationLineRunes = 200
+)
+
+// feishuNarrationLine normalizes one archived mid-turn text into a single
+// glanceable line: collapse all whitespace runs (multi-paragraph prose would
+// break the one-line-per-round trail), then cap the length.
+func feishuNarrationLine(text string) string {
+	line := strings.Join(strings.Fields(text), " ")
+	if runes := []rune(line); len(runes) > feishuNarrationLineRunes {
+		line = string(runes[:feishuNarrationLineRunes]) + "…"
+	}
+	return line
+}
+
+// feishuNarrationBlock renders the pinned narration trail as grey markdown
+// lines shown above the live answer slot.
+func feishuNarrationBlock(lines []string) string {
+	var buf []byte
+	for i, line := range lines {
+		if i > 0 {
+			buf = append(buf, "\n\n"...)
+		}
+		buf = fmt.Appendf(buf, "<font color='grey'>%s</font>", line)
+	}
+	return string(buf)
+}
+
+// composeFeishuAnswer is the answer element's full content: the grey
+// narration trail (if any) above the live answer slot.
+func composeFeishuAnswer(narration []string, live string) string {
+	block := feishuNarrationBlock(narration)
+	switch {
+	case block == "":
+		return live
+	case strings.TrimSpace(live) == "":
+		return block
+	default:
+		return block + "\n\n" + live
+	}
+}
+
 // Feishu caps the whole card JSON at 30KB. Panel refreshes send the full
 // card, so the panel body itself must stay well under that (the answer text
 // and card scaffolding share the same budget). Oldest reasoning texts are
@@ -134,6 +179,13 @@ type feishuStreamState struct {
 	// information": tools then render after all rounds (the legacy order).
 	ToolSeqs    []int
 	RunningTool *bus.ToolStep
+
+	// Narration is the trail of archived mid-turn texts (one line per LLM
+	// iteration that went on to call tools), rendered in grey above the live
+	// answer slot. Without it each iteration's stream overwrites the previous
+	// round's prose in the answer element; with it the next round typewrites
+	// below the trail, and the sealed card keeps trail + final answer.
+	Narration []string
 
 	ModelName    string
 	InputTokens  int
@@ -263,21 +315,23 @@ func degradeFeishuCardConfig(card map[string]any) {
 	card["config"] = map[string]any{"update_multi": true}
 }
 
-// buildFeishuRefreshCard builds the mid-stream full-card update: process
-// panel, current answer snapshot and the dynamic status line, while keeping
-// the streaming config so the answer element's typewriter survives the
-// replacement. spinnerKey, when non-empty, swaps the status line icon for
-// the animated amber spinner.
+// buildFeishuRefreshCard builds the mid-stream full-card update: the process
+// panel (always collapsed — a full-card update re-applies the declared
+// expanded value, so a user's mid-turn manual expansion would be re-folded by
+// the next refresh anyway), current answer snapshot and the dynamic status
+// line, while keeping the streaming config so the answer element's typewriter
+// survives the replacement. spinnerKey, when non-empty, swaps the status line
+// icon for the animated amber spinner.
 func buildFeishuRefreshCard(state *feishuStreamState, answer, phase string, panelBudget int, spinnerKey, chatID string) map[string]any {
 	card := map[string]any{
 		"schema": "2.0",
 		"config": feishuStreamingCardConfig(),
 		"body": map[string]any{
 			"elements": []any{
-				buildFeishuPanelBudget(state, feishuPanelExpanded(answer), panelBudget),
+				buildFeishuPanelBudget(state, false, panelBudget),
 				map[string]any{
 					"tag":        "markdown",
-					"content":    sanitizeFeishuMarkdownImages(answer),
+					"content":    sanitizeFeishuMarkdownImages(composeFeishuAnswer(state.Narration, answer)),
 					"text_align": "left",
 					"text_size":  "normal_v2",
 					"element_id": feishuAnswerElementID,
@@ -296,7 +350,7 @@ func buildFeishuRefreshCard(state *feishuStreamState, answer, phase string, pane
 func buildFeishuPanelPlaceholder() map[string]any {
 	return map[string]any{
 		"tag":              "collapsible_panel",
-		"expanded":         true,
+		"expanded":         false,
 		"header":           feishuPanelHeader(0, false, 0, 0),
 		"border":           map[string]any{"color": "grey", "corner_radius": "10px"},
 		"vertical_spacing": "4px",
@@ -365,12 +419,6 @@ func buildFeishuLoadingElement(phase string, spinnerKey string) map[string]any {
 		"text":       text,
 		"element_id": feishuLoadingElementID,
 	}
-}
-
-// feishuPanelExpanded keeps the process panel expanded until the answer
-// starts flowing — then the panel folds so the growing answer stays in view.
-func feishuPanelExpanded(answer string) bool {
-	return strings.TrimSpace(answer) == ""
 }
 
 func feishuPanelHeader(rounds int, hasCur bool, tools int, elapsedMs int64) map[string]any {
@@ -865,10 +913,12 @@ func buildFeishuFinalCardBudget(state *feishuStreamState, answer string, aborted
 	if state.hasPanelContent() {
 		elements = append(elements, buildFeishuPanelBudget(state, false, panelBudget))
 	}
-	if strings.TrimSpace(answer) != "" {
+	// The answer element carries the narration trail above the final answer;
+	// the card summary below previews the final answer alone.
+	if composed := composeFeishuAnswer(state.Narration, answer); strings.TrimSpace(composed) != "" {
 		elements = append(elements, map[string]any{
 			"tag":        "markdown",
-			"content":    answer,
+			"content":    composed,
 			"text_align": "left",
 			"text_size":  "normal_v2",
 			"element_id": feishuAnswerElementID,
