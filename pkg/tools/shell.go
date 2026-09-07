@@ -175,6 +175,22 @@ func NewExecToolWithConfig(
 					denyPatterns = append(denyPatterns, re)
 				}
 			}
+		} else if execConfig.EnableCustomDenyPatterns {
+			// Custom-only mode: enforce custom_deny_patterns without the default
+			// set, so targeted dangers can be blocked without catching everyday
+			// commands like sudo/git push/kill that defaultDenyPatterns match.
+			if len(execConfig.CustomDenyPatterns) > 0 {
+				logger.InfoCF("tools", "using custom deny patterns only (default deny patterns disabled)", map[string]any{
+					"patterns": execConfig.CustomDenyPatterns,
+				})
+				for _, pattern := range execConfig.CustomDenyPatterns {
+					re, err := regexp.Compile(pattern)
+					if err != nil {
+						return nil, fmt.Errorf("invalid custom deny pattern %q: %w", pattern, err)
+					}
+					denyPatterns = append(denyPatterns, re)
+				}
+			}
 		} else {
 			// If deny patterns are disabled, we won't add any patterns, allowing all commands.
 			logger.WarnCF("tools", "deny patterns are disabled, all commands will be allowed", nil)

@@ -1987,3 +1987,60 @@ func TestShellTool_CustomAllowDoesNotBecomeStrictAllowlist(t *testing.T) {
 		t.Fatalf("custom allow patterns should not become a strict allowlist, got: %q", got)
 	}
 }
+
+func TestShellTool_CustomDenyOnlyModeEnforcesCustomWithoutDefaults(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Tools.Exec.EnableDenyPatterns = false
+	cfg.Tools.Exec.EnableCustomDenyPatterns = true
+	cfg.Tools.Exec.CustomDenyPatterns = []string{`\bdangercmd\b`}
+
+	tool, err := NewExecToolWithConfig(t.TempDir(), false, cfg)
+	if err != nil {
+		t.Fatalf("NewExecToolWithConfig() error: %v", err)
+	}
+
+	if got := tool.guardCommand("dangercmd run", t.TempDir()); !strings.Contains(got, "dangerous pattern detected") {
+		t.Fatalf("custom deny pattern should be enforced in custom-only mode, got: %q", got)
+	}
+	// Commands matched only by defaultDenyPatterns must stay allowed:
+	// custom-only mode exists to avoid blocking everyday commands.
+	for _, cmd := range []string{"sudo ls", "rm -rf build", "git push origin main"} {
+		if got := tool.guardCommand(cmd, t.TempDir()); got != "" {
+			t.Fatalf("default deny pattern should not be loaded in custom-only mode (%s), got: %q", cmd, got)
+		}
+	}
+}
+
+func TestShellTool_CustomDenyInactiveWhenBothSwitchesOff(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Tools.Exec.EnableDenyPatterns = false
+	cfg.Tools.Exec.CustomDenyPatterns = []string{`\bdangercmd\b`}
+
+	tool, err := NewExecToolWithConfig(t.TempDir(), false, cfg)
+	if err != nil {
+		t.Fatalf("NewExecToolWithConfig() error: %v", err)
+	}
+
+	if got := tool.guardCommand("dangercmd run", t.TempDir()); got != "" {
+		t.Fatalf("custom deny patterns must stay inactive when both switches are off, got: %q", got)
+	}
+}
+
+func TestShellTool_CustomDenyOnlyFlagDoesNotWeakenFullDenyMode(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Tools.Exec.EnableDenyPatterns = true
+	cfg.Tools.Exec.EnableCustomDenyPatterns = true
+	cfg.Tools.Exec.CustomDenyPatterns = []string{`\bdangercmd\b`}
+
+	tool, err := NewExecToolWithConfig(t.TempDir(), false, cfg)
+	if err != nil {
+		t.Fatalf("NewExecToolWithConfig() error: %v", err)
+	}
+
+	if got := tool.guardCommand("sudo ls", t.TempDir()); !strings.Contains(got, "dangerous pattern detected") {
+		t.Fatalf("default deny patterns should still be loaded in full deny mode, got: %q", got)
+	}
+	if got := tool.guardCommand("dangercmd run", t.TempDir()); !strings.Contains(got, "dangerous pattern detected") {
+		t.Fatalf("custom deny patterns should still be loaded in full deny mode, got: %q", got)
+	}
+}
