@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/config"
@@ -141,5 +142,102 @@ func TestProcessMessage_NewPicksUpDiskConfigDefaultModel(t *testing.T) {
 
 	if provider.calls != 0 {
 		t.Fatalf("LLM should not be called for /new and /show, calls=%d", provider.calls)
+	}
+}
+
+// A hung or in-flight turn holds the model state read lock for its whole
+// lifetime (runTurn). /new must never block behind that lock: when the model
+// already matches the default it is a no-op, and when a switch would be
+// needed but the lock is held it must degrade to a skip warning.
+func TestProcessMessage_NewNeverBlocksBehindTurnReadLock(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Default is "deepseek"; switch to "local" so /new would need the write lock.
+	cfg := newResetTestConfig(tmpDir, "deepseek")
+	msgBus := bus.NewMessageBus()
+	provider := &countingMockProvider{response: "LLM reply"}
+	al := NewAgentLoop(cfg, msgBus, provider)
+	helper := testHelper{al: al}
+
+	switchResp := helper.executeAndGetResponse(t, context.Background(), bus.InboundMessage{
+		Channel:  "telegram",
+		SenderID: "user1",
+		ChatID:   "chat1",
+		Content:  "/switch model to local",
+	})
+	if !strings.Contains(switchResp, "Switched model from deepseek to local") {
+		t.Fatalf("unexpected /switch reply: %q", switchResp)
+	}
+
+	agent := al.GetRegistry().GetDefaultAgent()
+	if agent == nil {
+		t.Fatal("default agent not found")
+	}
+	modelMu := agent.modelStateMutex()
+	modelMu.RLock()
+	defer modelMu.RUnlock()
+
+	done := make(chan string, 1)
+	go func() {
+		done <- helper.executeAndGetResponse(t, context.Background(), bus.InboundMessage{
+			Channel:  "telegram",
+			SenderID: "user1",
+			ChatID:   "chat1",
+			Content:  "/new",
+		})
+	}()
+
+	select {
+	case reply := <-done:
+		if !strings.Contains(reply, "New conversation started") {
+			t.Fatalf("/new reply = %q, want conversation reset to still be reported", reply)
+		}
+		if !strings.Contains(reply, "model reset skipped") {
+			t.Fatalf("/new reply = %q, want skip warning while a turn holds model state", reply)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("/new deadlocked behind the turn read lock")
+	}
+}
+
+// When the current model already equals the configured default, /new stays a
+// pure no-op on the model path — no write lock attempt, no warning.
+func TestProcessMessage_NewNoopWhileTurnHoldsReadLock(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cfg := newResetTestConfig(tmpDir, "local")
+	msgBus := bus.NewMessageBus()
+	provider := &countingMockProvider{response: "LLM reply"}
+	al := NewAgentLoop(cfg, msgBus, provider)
+	helper := testHelper{al: al}
+
+	agent := al.GetRegistry().GetDefaultAgent()
+	if agent == nil {
+		t.Fatal("default agent not found")
+	}
+	modelMu := agent.modelStateMutex()
+	modelMu.RLock()
+	defer modelMu.RUnlock()
+
+	done := make(chan string, 1)
+	go func() {
+		done <- helper.executeAndGetResponse(t, context.Background(), bus.InboundMessage{
+			Channel:  "telegram",
+			SenderID: "user1",
+			ChatID:   "chat1",
+			Content:  "/new",
+		})
+	}()
+
+	select {
+	case reply := <-done:
+		if !strings.Contains(reply, "New conversation started") || !strings.Contains(reply, "Model: local") {
+			t.Fatalf("/new reply = %q, want clean no-op reset reporting the default model", reply)
+		}
+		if strings.Contains(reply, "skipped") || strings.Contains(reply, "reset failed") {
+			t.Fatalf("/new reply = %q, no-op path should not warn", reply)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("/new deadlocked on the no-op path")
 	}
 }

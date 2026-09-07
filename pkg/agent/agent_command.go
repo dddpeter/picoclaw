@@ -323,13 +323,17 @@ func (al *AgentLoop) buildCommandsRuntime(
 		// re-reads the config file first so a default model edited after
 		// gateway startup applies on /new even when hot reload never ran
 		// (disabled, or enabled only after the process started).
+		//
+		// runTurn holds the model state read lock for the whole turn —
+		// including the LLM HTTP call — so taking the write lock here
+		// unconditionally would deadlock /new behind any in-flight (or hung)
+		// turn. Resolve and compare outside the lock, and only attempt the
+		// write lock when a switch is actually needed; if an active turn
+		// holds the lock, skip the reset instead of blocking the command.
 		rt.ResetModel = func() (string, error) {
 			if cfg == nil {
 				return agent.Model, nil
 			}
-			modelMu := agent.modelStateMutex()
-			modelMu.Lock()
-			defer modelMu.Unlock()
 
 			resolvedCfg := cfg
 			if path := al.getConfigPath(); path != "" {
@@ -348,8 +352,19 @@ func (al *AgentLoop) buildCommandsRuntime(
 			}
 
 			defaultModel := resolveAgentDefaultModel(resolvedCfg, agent)
-			if defaultModel == "" || defaultModel == agent.Model {
-				return agent.Model, nil
+			modelMu := agent.modelStateMutex()
+			modelMu.RLock()
+			current := agent.Model
+			modelMu.RUnlock()
+			if defaultModel == "" || defaultModel == current {
+				return current, nil
+			}
+			if !modelMu.TryLock() {
+				return current, fmt.Errorf("model reset skipped: a task is currently holding model state")
+			}
+			defer modelMu.Unlock()
+			if agent.Model == defaultModel {
+				return defaultModel, nil
 			}
 			if _, err := al.swapAgentModelLocked(resolvedCfg, agent, defaultModel); err != nil {
 				return agent.Model, err
