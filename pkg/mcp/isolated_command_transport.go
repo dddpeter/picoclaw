@@ -3,8 +3,10 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"sync"
 	"syscall"
@@ -38,15 +40,30 @@ func (t *isolatedCommandTransport) Connect(ctx context.Context) (sdkmcp.Connecti
 	if err := isolation.Start(t.Command); err != nil {
 		return nil, err
 	}
+	// Reap the child the moment it exits, independently of Close(): a stdio
+	// server that dies on its own and is never called again would otherwise
+	// linger as a zombie until a later tool call triggers a reconnect (the
+	// only other path that closes the transport) or the manager shuts down.
+	waitResult := make(chan error, 1)
+	go func() {
+		waitResult <- t.Command.Wait()
+	}()
 	td := t.TerminateDuration
 	if td <= 0 {
 		td = isolatedCommandTerminateDuration
 	}
-	return newIsolatedIOConn(&isolatedPipeRWC{cmd: t.Command, stdout: stdout, stdin: stdin, terminateDuration: td}), nil
+	return newIsolatedIOConn(&isolatedPipeRWC{
+		cmd:               t.Command,
+		waitResult:        waitResult,
+		stdout:            stdout,
+		stdin:             stdin,
+		terminateDuration: td,
+	}), nil
 }
 
 type isolatedPipeRWC struct {
 	cmd               *exec.Cmd
+	waitResult        <-chan error
 	stdout            io.ReadCloser
 	stdin             io.WriteCloser
 	terminateDuration time.Duration
@@ -61,16 +78,14 @@ func (s *isolatedPipeRWC) Write(p []byte) (n int, err error) {
 }
 
 func (s *isolatedPipeRWC) Close() error {
-	if err := s.stdin.Close(); err != nil {
+	// Once Wait() has reaped the child it also tears the parent-side pipes
+	// down, so a Close racing an already-exited child sees os.ErrClosed here.
+	if err := s.stdin.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
 		return fmt.Errorf("closing stdin: %w", err)
 	}
-	resChan := make(chan error, 1)
-	go func() {
-		resChan <- s.cmd.Wait()
-	}()
 	wait := func() (error, bool) {
 		select {
-		case err := <-resChan:
+		case err := <-s.waitResult:
 			return err, true
 		case <-time.After(s.terminateDuration):
 		}
