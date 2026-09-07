@@ -313,8 +313,13 @@ func (al *AgentLoop) buildCommandsRuntime(
 			if !modelFound {
 				return "", fmt.Errorf("model %q not found in model_list or providers", value)
 			}
+			// runTurn holds the model state read lock for the whole turn, so
+			// blocking here would hang /switch behind any in-flight (or hung)
+			// turn. Degrade to an explicit "busy" error instead of waiting.
 			modelMu := agent.modelStateMutex()
-			modelMu.Lock()
+			if !modelMu.TryLock() {
+				return "", fmt.Errorf("model switch skipped: a task is currently running, try again after it finishes")
+			}
 			defer modelMu.Unlock()
 			return al.swapAgentModelLocked(cfg, agent, value)
 		}

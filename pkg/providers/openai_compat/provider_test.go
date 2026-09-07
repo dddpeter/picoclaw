@@ -2,6 +2,7 @@ package openai_compat
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -2194,5 +2195,93 @@ func TestSerializeMessages_StripsSystemParts(t *testing.T) {
 	raw := string(data)
 	if strings.Contains(raw, "system_parts") {
 		t.Fatal("system_parts should not appear in serialized output")
+	}
+}
+
+// A gateway that accepts the connection but never returns response headers
+// used to hang a streaming turn forever: the streaming client deliberately
+// has no http.Client.Timeout and the read-idle timeout only starts once the
+// body begins. The transport-level ResponseHeaderTimeout must fail the call.
+func TestProviderChatStream_ResponseHeaderTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Simulate a hung gateway: hold the connection open without writing
+		// status or headers. The bounded wait only keeps httptest's cleanup
+		// (server.Close waits for handlers) from hanging if the client-side
+		// teardown never reaches the server handler context.
+		select {
+		case <-r.Context().Done():
+		case <-time.After(2 * time.Second):
+		}
+	}))
+	defer server.Close()
+
+	p := NewProvider(
+		"key",
+		server.URL,
+		"",
+		WithStreamResponseHeaderTimeout(200*time.Millisecond),
+	)
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := p.ChatStream(
+			context.Background(),
+			[]Message{{Role: "user", Content: "hi"}},
+			nil,
+			"gpt-4o",
+			nil,
+			nil,
+		)
+		errCh <- err
+	}()
+
+	// Without the timeout this call blocks indefinitely; give it a hard
+	// bound well above the configured header timeout.
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("ChatStream() succeeded against a hung gateway, want timeout error")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("ChatStream() hung waiting for response headers")
+	}
+}
+
+// The header timeout must not clip streams that are slow in the body but
+// prompt with headers.
+func TestProviderChatStream_HeaderTimeoutAllowsSlowBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		// Body chunks arrive slower than the header timeout configured below.
+		time.Sleep(300 * time.Millisecond)
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"slow\"},\"finish_reason\":\"stop\"}]}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	p := NewProvider(
+		"key",
+		server.URL,
+		"",
+		WithStreamResponseHeaderTimeout(150*time.Millisecond),
+	)
+
+	out, err := p.ChatStream(
+		t.Context(),
+		[]Message{{Role: "user", Content: "hi"}},
+		nil,
+		"gpt-4o",
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("ChatStream() error = %v, want slow body to survive the header timeout", err)
+	}
+	if out.Content != "slow" {
+		t.Fatalf("Content = %q, want %q", out.Content, "slow")
 	}
 }

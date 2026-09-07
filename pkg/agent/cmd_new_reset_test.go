@@ -241,3 +241,53 @@ func TestProcessMessage_NewNoopWhileTurnHoldsReadLock(t *testing.T) {
 		t.Fatal("/new deadlocked on the no-op path")
 	}
 }
+
+// /switch must not block behind an active turn's model state read lock —
+// same class of deadlock /new had. It should fail fast with a busy hint.
+func TestProcessMessage_SwitchModelSkipsWhileTurnHoldsReadLock(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cfg := newResetTestConfig(tmpDir, "local")
+	msgBus := bus.NewMessageBus()
+	provider := &countingMockProvider{response: "LLM reply"}
+	al := NewAgentLoop(cfg, msgBus, provider)
+	helper := testHelper{al: al}
+
+	agent := al.GetRegistry().GetDefaultAgent()
+	if agent == nil {
+		t.Fatal("default agent not found")
+	}
+	modelMu := agent.modelStateMutex()
+	modelMu.RLock()
+
+	done := make(chan string, 1)
+	go func() {
+		done <- helper.executeAndGetResponse(t, context.Background(), bus.InboundMessage{
+			Channel:  "telegram",
+			SenderID: "user1",
+			ChatID:   "chat1",
+			Content:  "/switch model to deepseek",
+		})
+	}()
+
+	select {
+	case reply := <-done:
+		if !strings.Contains(reply, "model switch skipped") {
+			modelMu.RUnlock()
+			t.Fatalf("/switch reply = %q, want busy skip message while a turn holds model state", reply)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("/switch deadlocked behind the turn read lock")
+	}
+
+	modelMu.RUnlock()
+	switchResp := helper.executeAndGetResponse(t, context.Background(), bus.InboundMessage{
+		Channel:  "telegram",
+		SenderID: "user1",
+		ChatID:   "chat1",
+		Content:  "/switch model to deepseek",
+	})
+	if !strings.Contains(switchResp, "Switched model from local to deepseek") {
+		t.Fatalf("unexpected /switch reply after lock release: %q", switchResp)
+	}
+}

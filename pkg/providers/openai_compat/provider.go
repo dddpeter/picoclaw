@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/logger"
@@ -42,13 +43,20 @@ type Provider struct {
 	extraBody      map[string]any // Additional fields to inject into request body
 	customHeaders  map[string]string
 	userAgent      string
+
+	streamTransportOnce sync.Once
+	streamTransport     http.RoundTripper
+	streamHeaderTimeout time.Duration
 }
 
 type Option func(*Provider)
 
 const (
-	defaultRequestTimeout           = common.DefaultRequestTimeout
-	defaultStreamingReadIdleTimeout = 5 * time.Minute
+	defaultRequestTimeout = common.DefaultRequestTimeout
+	// A healthy SSE endpoint returns response headers immediately and then
+	// streams the body; headers that never arrive mean a hung gateway.
+	defaultStreamResponseHeaderTimeout = 90 * time.Second
+	defaultStreamingReadIdleTimeout    = 5 * time.Minute
 )
 
 var stripModelPrefixProviders = map[string]struct{}{
@@ -89,6 +97,49 @@ func WithRequestTimeout(timeout time.Duration) Option {
 			p.httpClient.Timeout = timeout
 		}
 	}
+}
+
+// WithStreamResponseHeaderTimeout bounds how long a streaming request may
+// wait for response headers. Zero keeps the default.
+func WithStreamResponseHeaderTimeout(timeout time.Duration) Option {
+	return func(p *Provider) {
+		if timeout > 0 {
+			p.streamHeaderTimeout = timeout
+		}
+	}
+}
+
+// streamRoundTripper returns a transport dedicated to streaming requests.
+// The shared client's Timeout must not apply (it covers the whole request
+// lifecycle and would kill long streams), but without any bound a gateway
+// that accepts the connection and never returns headers hangs the turn
+// forever — context cancellation is the only way out and not every caller
+// context gets cancelled. Cloning the transport with
+// ResponseHeaderTimeout covers exactly the vulnerable window: it stops at
+// the first response byte and leaves the (potentially long) body reads to
+// the streaming idle timeout.
+func (p *Provider) streamRoundTripper() http.RoundTripper {
+	p.streamTransportOnce.Do(func() {
+		base := p.httpClient.Transport
+		if base == nil {
+			base = http.DefaultTransport
+		}
+		tr, ok := base.(*http.Transport)
+		if !ok {
+			// A custom round tripper cannot be cloned safely; keep the
+			// previous behavior (no header timeout) for it.
+			p.streamTransport = base
+			return
+		}
+		cloned := tr.Clone()
+		timeout := p.streamHeaderTimeout
+		if timeout <= 0 {
+			timeout = defaultStreamResponseHeaderTimeout
+		}
+		cloned.ResponseHeaderTimeout = timeout
+		p.streamTransport = cloned
+	})
+	return p.streamTransport
 }
 
 func WithExtraBody(extraBody map[string]any) Option {
@@ -593,8 +644,10 @@ func (p *Provider) ChatStreamEvents(
 
 	// Use a client without Timeout for streaming — the http.Client.Timeout covers
 	// the entire request lifecycle including body reads, which would kill long streams.
-	// Context cancellation still provides the safety net.
-	streamClient := &http.Client{Transport: p.httpClient.Transport}
+	// Its transport enforces a response-header timeout (see streamRoundTripper) so a
+	// hung gateway fails fast instead of blocking the turn until context cancellation;
+	// body reads stay guarded by the streaming idle timeout below.
+	streamClient := &http.Client{Transport: p.streamRoundTripper()}
 	resp, err := streamClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
