@@ -82,6 +82,10 @@ type AgentLoop struct {
 
 	reloadFunc func() error
 
+	// configPath is where the active cfg was loaded from (guarded by mu); it
+	// lets command handlers re-read the file to pick up post-startup edits.
+	configPath string
+
 	providerFactory func(*config.ModelConfig) (providers.LLMProvider, string, error)
 }
 

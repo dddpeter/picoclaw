@@ -202,6 +202,7 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 
 	msgBus := bus.NewMessageBus()
 	agentLoop := agent.NewAgentLoop(cfg, msgBus, provider)
+	agentLoop.SetConfigPath(configPath)
 	msgBus.SetEventPublisher(agentLoop.RuntimeEventBus())
 	publishGatewayEvent(agentLoop, runtimeevents.KindGatewayStart, startedAt, nil)
 

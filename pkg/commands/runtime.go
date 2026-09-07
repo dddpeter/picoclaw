@@ -61,6 +61,7 @@ type Runtime struct {
 	GetContextStats    func() *ContextStats
 	GetStatusOverview  func() *StatusOverview
 	SwitchModel        func(value string) (oldModel string, err error)
+	ResetModel         func() (model string, err error)
 	SwitchChannel      func(value string) error
 	ClearHistory       func() error
 	ReloadConfig       func() error

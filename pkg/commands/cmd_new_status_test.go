@@ -32,6 +32,56 @@ func TestNewCommand_ClearsHistory(t *testing.T) {
 	}
 }
 
+func TestNewCommand_ReportsResetModel(t *testing.T) {
+	def := findDefinitionByName(t, BuiltinDefinitions(), "new")
+	cleared := false
+	reset := false
+	rt := &Runtime{
+		ClearHistory: func() error {
+			cleared = true
+			return nil
+		},
+		ResetModel: func() (string, error) {
+			reset = true
+			return "glm-4.7", nil
+		},
+	}
+	var reply string
+	if err := def.Handler(context.Background(), Request{Text: "/new", Reply: func(s string) error {
+		reply = s
+		return nil
+	}}, rt); err != nil {
+		t.Fatalf("/new handler error: %v", err)
+	}
+	if !cleared || !reset {
+		t.Fatalf("/new should call ClearHistory (cleared=%v) and ResetModel (reset=%v)", cleared, reset)
+	}
+	if !strings.Contains(reply, "New conversation started") || !strings.Contains(reply, "Model: glm-4.7") {
+		t.Fatalf("/new reply = %q, want history-cleared notice plus active model", reply)
+	}
+}
+
+func TestNewCommand_ModelResetFailureStillClearsHistory(t *testing.T) {
+	def := findDefinitionByName(t, BuiltinDefinitions(), "new")
+	rt := &Runtime{
+		ClearHistory: func() error { return nil },
+		ResetModel:   func() (string, error) { return "", errors.New("model gone") },
+	}
+	var reply string
+	if err := def.Handler(context.Background(), Request{Text: "/new", Reply: func(s string) error {
+		reply = s
+		return nil
+	}}, rt); err != nil {
+		t.Fatalf("/new handler error: %v", err)
+	}
+	if !strings.Contains(reply, "New conversation started") {
+		t.Fatalf("/new reply should still confirm the reset: %q", reply)
+	}
+	if !strings.Contains(reply, "model gone") {
+		t.Fatalf("/new reply should surface the model reset failure: %q", reply)
+	}
+}
+
 func TestNewCommand_ClearFailureReported(t *testing.T) {
 	def := findDefinitionByName(t, BuiltinDefinitions(), "new")
 	rt := &Runtime{

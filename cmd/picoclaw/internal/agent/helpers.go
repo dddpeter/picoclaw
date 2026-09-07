@@ -52,6 +52,11 @@ func agentCmd(message, sessionKey, model string, debug bool) error {
 	msgBus := bus.NewMessageBus()
 	defer msgBus.Close()
 	agentLoop := agent.NewAgentLoop(cfg, msgBus, provider)
+	if model == "" {
+		// Let /new reset to the on-disk default. With an explicit --model
+		// flag the in-memory default is the flag value and must win.
+		agentLoop.SetConfigPath(internal.GetConfigPath())
+	}
 	defer agentLoop.Close()
 
 	// Print agent startup info (only for interactive mode)

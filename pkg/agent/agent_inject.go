@@ -60,6 +60,20 @@ func (al *AgentLoop) SetReloadFunc(fn func() error) {
 	al.reloadFunc = fn
 }
 
+// SetConfigPath records where the active config was loaded from so commands
+// like /new can re-read the file to pick up edits made after startup.
+func (al *AgentLoop) SetConfigPath(path string) {
+	al.mu.Lock()
+	defer al.mu.Unlock()
+	al.configPath = path
+}
+
+func (al *AgentLoop) getConfigPath() string {
+	al.mu.RLock()
+	defer al.mu.RUnlock()
+	return al.configPath
+}
+
 func (al *AgentLoop) RecordLastChannel(channel string) error {
 	if al.state == nil {
 		return nil

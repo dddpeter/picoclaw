@@ -7,6 +7,7 @@ import (
 	"time"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -302,9 +303,6 @@ func (al *AgentLoop) buildCommandsRuntime(
 		}
 		rt.SwitchModel = func(value string) (string, error) {
 			value = strings.TrimSpace(value)
-			modelMu := agent.modelStateMutex()
-			modelMu.Lock()
-			defer modelMu.Unlock()
 			modelFound := false
 			for _, modelCfg := range cfg.ModelList {
 				if modelCfg != nil && modelCfg.ModelName == value {
@@ -315,67 +313,48 @@ func (al *AgentLoop) buildCommandsRuntime(
 			if !modelFound {
 				return "", fmt.Errorf("model %q not found in model_list or providers", value)
 			}
+			modelMu := agent.modelStateMutex()
+			modelMu.Lock()
+			defer modelMu.Unlock()
+			return al.swapAgentModelLocked(cfg, agent, value)
+		}
 
-			nextCandidates := resolveModelCandidates(cfg, cfg.Agents.Defaults.Provider, value, agent.Fallbacks)
-			if len(nextCandidates) == 0 {
-				return "", fmt.Errorf("model %q did not resolve to any provider candidates", value)
+		// ResetModel restores the configured default model for the agent. It
+		// re-reads the config file first so a default model edited after
+		// gateway startup applies on /new even when hot reload never ran
+		// (disabled, or enabled only after the process started).
+		rt.ResetModel = func() (string, error) {
+			if cfg == nil {
+				return agent.Model, nil
 			}
-			modelCfg, err := resolvedCandidateModelConfig(cfg, nextCandidates[0], agent.Workspace)
-			if err != nil {
-				return "", err
-			}
-			nextProvider, _, err := providers.CreateProviderFromConfig(modelCfg)
-			if err != nil {
-				return "", fmt.Errorf("failed to initialize model %q: %w", value, err)
-			}
-			nextCandidateProviders := make(map[string]providers.LLMProvider)
-			copyInitializedCandidateProviders(
-				agent.CandidateProviders,
-				nextCandidateProviders,
-				agent.ImageCandidates,
-			)
-			copyInitializedCandidateProviders(
-				agent.CandidateProviders,
-				nextCandidateProviders,
-				agent.LightCandidates,
-			)
-			inheritPrimaryProviderForCandidates(
-				cfg,
-				agent.Workspace,
-				nextCandidates[0],
-				nextCandidates[1:],
-				nextProvider,
-				nextCandidateProviders,
-			)
-			populateCandidateProvidersFromCandidates(
-				cfg,
-				agent.Workspace,
-				nextCandidates[1:],
-				nextCandidateProviders,
-			)
+			modelMu := agent.modelStateMutex()
+			modelMu.Lock()
+			defer modelMu.Unlock()
 
-			oldModel := agent.Model
-			oldProvider := agent.Provider
-			oldCandidateProviders := agent.CandidateProviders
-			previousProviders := make(map[string]providers.LLMProvider, len(oldCandidateProviders)+1)
-			for key, provider := range oldCandidateProviders {
-				previousProviders[key] = provider
+			resolvedCfg := cfg
+			if path := al.getConfigPath(); path != "" {
+				if _, statErr := os.Stat(path); statErr != nil {
+					logger.WarnCF("agent", "Config file unavailable for model reset; using in-memory defaults",
+						map[string]any{"config_path": path, "error": statErr.Error()})
+				} else if diskCfg, err := config.LoadConfig(path); err != nil {
+					logger.WarnCF("agent", "Failed to re-read config for model reset; using in-memory defaults",
+						map[string]any{"config_path": path, "error": err.Error()})
+				} else if err := diskCfg.ValidateModelList(); err != nil {
+					logger.WarnCF("agent", "Config on disk failed validation for model reset; using in-memory defaults",
+						map[string]any{"config_path": path, "error": err.Error()})
+				} else {
+					resolvedCfg = diskCfg
+				}
 			}
-			previousProviders["previous-primary"] = oldProvider
-			agent.Model = value
-			agent.Provider = nextProvider
-			agent.Candidates = nextCandidates
-			agent.CandidateProviders = nextCandidateProviders
-			agent.ThinkingLevel = parseThinkingLevel(modelCfg.ThinkingLevel)
-			agent.ThinkingLevelConfigured = isConfiguredThinkingLevel(modelCfg.ThinkingLevel)
 
-			closeUnreferencedStatefulProviders(
-				previousProviders,
-				nextCandidateProviders,
-				nextProvider,
-				agent.LightProvider,
-			)
-			return oldModel, nil
+			defaultModel := resolveAgentDefaultModel(resolvedCfg, agent)
+			if defaultModel == "" || defaultModel == agent.Model {
+				return agent.Model, nil
+			}
+			if _, err := al.swapAgentModelLocked(resolvedCfg, agent, defaultModel); err != nil {
+				return agent.Model, err
+			}
+			return defaultModel, nil
 		}
 
 		rt.ClearHistory = func() error {
@@ -458,6 +437,99 @@ func (al *AgentLoop) buildCommandsRuntime(
 		}
 	}
 	return rt
+}
+
+// swapAgentModelLocked rebuilds the provider and candidate chains so the
+// agent's primary model becomes value. It returns the previous model name.
+// Callers must hold the agent's model state mutex.
+func (al *AgentLoop) swapAgentModelLocked(
+	cfg *config.Config,
+	agent *AgentInstance,
+	value string,
+) (string, error) {
+	nextCandidates := resolveModelCandidates(cfg, cfg.Agents.Defaults.Provider, value, agent.Fallbacks)
+	if len(nextCandidates) == 0 {
+		return "", fmt.Errorf("model %q did not resolve to any provider candidates", value)
+	}
+	modelCfg, err := resolvedCandidateModelConfig(cfg, nextCandidates[0], agent.Workspace)
+	if err != nil {
+		return "", err
+	}
+	nextProvider, _, err := providers.CreateProviderFromConfig(modelCfg)
+	if err != nil {
+		return "", fmt.Errorf("failed to initialize model %q: %w", value, err)
+	}
+	nextCandidateProviders := make(map[string]providers.LLMProvider)
+	copyInitializedCandidateProviders(
+		agent.CandidateProviders,
+		nextCandidateProviders,
+		agent.ImageCandidates,
+	)
+	copyInitializedCandidateProviders(
+		agent.CandidateProviders,
+		nextCandidateProviders,
+		agent.LightCandidates,
+	)
+	inheritPrimaryProviderForCandidates(
+		cfg,
+		agent.Workspace,
+		nextCandidates[0],
+		nextCandidates[1:],
+		nextProvider,
+		nextCandidateProviders,
+	)
+	populateCandidateProvidersFromCandidates(
+		cfg,
+		agent.Workspace,
+		nextCandidates[1:],
+		nextCandidateProviders,
+	)
+
+	oldModel := agent.Model
+	oldProvider := agent.Provider
+	oldCandidateProviders := agent.CandidateProviders
+	previousProviders := make(map[string]providers.LLMProvider, len(oldCandidateProviders)+1)
+	for key, provider := range oldCandidateProviders {
+		previousProviders[key] = provider
+	}
+	previousProviders["previous-primary"] = oldProvider
+	agent.Model = value
+	agent.Provider = nextProvider
+	agent.Candidates = nextCandidates
+	agent.CandidateProviders = nextCandidateProviders
+	agent.ThinkingLevel = parseThinkingLevel(modelCfg.ThinkingLevel)
+	agent.ThinkingLevelConfigured = isConfiguredThinkingLevel(modelCfg.ThinkingLevel)
+
+	closeUnreferencedStatefulProviders(
+		previousProviders,
+		nextCandidateProviders,
+		nextProvider,
+		agent.LightProvider,
+	)
+	return oldModel, nil
+}
+
+// resolveAgentDefaultModel mirrors the precedence used when the agent was
+// created (AGENT.md frontmatter > agents.list entry > defaults), but against
+// the config passed in — which may be a freshly re-read disk config.
+func resolveAgentDefaultModel(cfg *config.Config, agent *AgentInstance) string {
+	if agent == nil {
+		return ""
+	}
+	if agent.Definition.Agent != nil && strings.TrimSpace(agent.Definition.Agent.Frontmatter.Model) != "" {
+		return strings.TrimSpace(agent.Definition.Agent.Frontmatter.Model)
+	}
+	if cfg != nil {
+		for i := range cfg.Agents.List {
+			entry := &cfg.Agents.List[i]
+			if entry.Model != nil && strings.TrimSpace(entry.Model.Primary) != "" &&
+				strings.EqualFold(entry.ID, agent.ID) {
+				return strings.TrimSpace(entry.Model.Primary)
+			}
+		}
+		return cfg.Agents.Defaults.GetModelName()
+	}
+	return ""
 }
 
 func summarizeMCPToolParameters(schema any) []commands.MCPToolParameterInfo {
