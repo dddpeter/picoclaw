@@ -16,6 +16,7 @@ import {
   setLauncherConfig as updateLauncherConfig,
 } from "@/api/system"
 import { ConfigChangeNotice } from "@/components/config-change-notice"
+import { UnknownFieldsNotice } from "@/components/config/unknown-fields-notice"
 import {
   AgentDefaultsSection,
   CronSection,
@@ -159,7 +160,10 @@ export function ConfigPage() {
   })
 
   useEffect(() => {
-    if (!cleanConfig) return
+    // Guard on data, not cleanConfig: cleanConfig is always a truthy object
+    // ({} when data is undefined) and is re-created each render when warnings
+    // exist — data is the stable dependency.
+    if (!data) return
     const parsed = buildFormFromConfig(cleanConfig)
     setForm(parsed)
     setBaseline(parsed)
@@ -815,16 +819,7 @@ export function ConfigPage() {
             </div>
           ) : (
             <div className="space-y-6">
-              {configWarnings.length > 0 && (
-                <ConfigChangeNotice
-                  kind="warning"
-                  title={t("pages.config.unknown_fields_title")}
-                  description={t("pages.config.unknown_fields_desc", {
-                    fields: configWarnings.join(", "),
-                  })}
-                  className="shrink-0"
-                />
-              )}
+              <UnknownFieldsNotice warnings={configWarnings} />
               <LauncherSection
                 launcherForm={launcherForm}
                 onFieldChange={updateLauncherField}

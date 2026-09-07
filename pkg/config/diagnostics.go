@@ -51,6 +51,18 @@ func decodeJSONLenient(data []byte, target any, label string) ([]string, error) 
 	return warnings, nil
 }
 
+// decodeJSONTyped performs only the typed decode (json.Unmarshal into target)
+// with the same error diagnostics as the other decoders. Callers that already
+// collected unknown-field warnings from an earlier lenient pass on the same
+// data/target type use this to avoid re-parsing raw JSON and re-walking
+// reflection types.
+func decodeJSONTyped(data []byte, target any) error {
+	if err := json.Unmarshal(data, target); err != nil {
+		return wrapJSONError(data, err, "config.json")
+	}
+	return nil
+}
+
 func DiagnosticSummary(err error) string {
 	if err == nil {
 		return ""

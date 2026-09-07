@@ -8,6 +8,7 @@ import { toast } from "sonner"
 import { extractConfigWarnings } from "@/api/channels"
 import { launcherFetch, parseResponseError } from "@/api/http"
 import { ConfigChangeNotice } from "@/components/config-change-notice"
+import { UnknownFieldsNotice } from "@/components/config/unknown-fields-notice"
 import { PageHeader } from "@/components/page-header"
 import {
   AlertDialog,
@@ -153,16 +154,7 @@ export function RawConfigPage() {
             </div>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col gap-3">
-              {configWarnings.length > 0 && (
-                <ConfigChangeNotice
-                  kind="warning"
-                  title={t("pages.config.unknown_fields_title")}
-                  description={t("pages.config.unknown_fields_desc", {
-                    fields: configWarnings.join(", "),
-                  })}
-                  className="shrink-0"
-                />
-              )}
+              <UnknownFieldsNotice warnings={configWarnings} />
               {isDirty && (
                 <ConfigChangeNotice
                   kind="save"

@@ -111,12 +111,3 @@ func TestDecodeJSONLenient_SyntaxAndTypeErrorsStillFail(t *testing.T) {
 		t.Fatal("type error on known field should fail")
 	}
 }
-
-func TestMergeFieldWarnings_DeduplicatesPreservingOrder(t *testing.T) {
-	merged := mergeFieldWarnings(
-		[]string{"a", "b"},
-		[]string{"b", "c"},
-	)
-	assert.Equal(t, []string{"a", "b", "c"}, merged)
-	assert.Empty(t, mergeFieldWarnings(nil, nil))
-}

@@ -116,9 +116,10 @@ func loadConfigLenient(data []byte, lenient bool) (*Config, []string, error) {
 	}
 
 	if lenient {
-		var w2 []string
-		w2, err = decodeJSONLenient(data, cfg, "config.json")
-		warnings = mergeFieldWarnings(warnings, w2)
+		// Both decode passes target *Config, so the unknown-field set is
+		// identical; reuse the first pass's warnings and only do the typed
+		// decode here (halves raw-parse + reflection work).
+		err = decodeJSONTyped(data, cfg)
 	} else {
 		err = decodeJSONWithDiagnostics(data, cfg, "config.json")
 	}
@@ -129,29 +130,6 @@ func loadConfigLenient(data []byte, lenient bool) (*Config, []string, error) {
 		cfg.Evolution.Mode = ""
 	}
 	return cfg, warnings, nil
-}
-
-// mergeFieldWarnings merges two unknown-field warning lists, deduplicating
-// (both decode passes report the same fields) while keeping order stable.
-func mergeFieldWarnings(a, b []string) []string {
-	if len(a) == 0 {
-		return b
-	}
-	if len(b) == 0 {
-		return a
-	}
-	seen := make(map[string]struct{}, len(a)+len(b))
-	merged := make([]string, 0, len(a)+len(b))
-	for _, list := range [][]string{a, b} {
-		for _, f := range list {
-			if _, ok := seen[f]; ok {
-				continue
-			}
-			seen[f] = struct{}{}
-			merged = append(merged, f)
-		}
-	}
-	return merged
 }
 
 func configObjectHasTopLevelField(data []byte, field string) bool {
