@@ -488,6 +488,42 @@ type AgentDefaults struct {
 	TurnProfile               TurnProfileConfig  `json:"turn_profile,omitempty"`
 	MaxLLMRetries             int                `json:"max_llm_retries,omitempty"        env:"PICOCLAW_AGENTS_DEFAULTS_MAX_LLM_RETRIES"`
 	LLMRetryBackoffSecs       int                `json:"llm_retry_backoff_secs,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_LLM_RETRY_BACKOFF_SECS"`
+	LoopDetection             LoopDetectionConfig `json:"loop_detection,omitempty"`
+}
+
+// LoopDetectionConfig controls the low-progress loop detector (borrowed from
+// MiMoCode's Try-Best, see docs/design/mimo-code-borrowing-analysis.zh.md).
+// On a hit the turn is not killed; a warning is injected into the tool result
+// so the model can replan on its own.
+type LoopDetectionConfig struct {
+	// Enabled is nil when unset, which means enabled — existing configs
+	// without the loop_detection block must not silently turn it off.
+	Enabled             *bool `json:"enabled,omitempty"    env:"PICOCLAW_AGENTS_DEFAULTS_LOOP_DETECTION_ENABLED"`
+	BashRetryThreshold  int  `json:"bash_retry_threshold"  env:"PICOCLAW_AGENTS_DEFAULTS_LOOP_DETECTION_BASH_RETRY_THRESHOLD"`  // consecutive identical failed commands
+	EditStreakThreshold int  `json:"edit_streak_threshold" env:"PICOCLAW_AGENTS_DEFAULTS_LOOP_DETECTION_EDIT_STREAK_THRESHOLD"` // consecutive edit-class calls
+}
+
+// EffectiveLoopDetection returns thresholds with defaults filled in and a
+// resolved Enabled flag (nil counts as enabled).
+func (d *AgentDefaults) EffectiveLoopDetection() LoopDetectionConfig {
+	lc := d.LoopDetection
+	if lc.Enabled == nil {
+		enabled := true
+		lc.Enabled = &enabled
+	}
+	if lc.BashRetryThreshold <= 0 {
+		lc.BashRetryThreshold = 3
+	}
+	if lc.EditStreakThreshold <= 0 {
+		lc.EditStreakThreshold = 4
+	}
+	return lc
+}
+
+// IsLoopDetectionEnabled reports whether loop detection should run for an
+// agent (nil-safe: zero value means enabled with default thresholds).
+func (c LoopDetectionConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
 }
 
 const DefaultMaxMediaSize = 20 * 1024 * 1024 // 20 MB

@@ -738,6 +738,20 @@ toolLoop:
 			contentForLLM = al.cfg.FilterSensitiveData(contentForLLM)
 		}
 
+		// Low-progress loop detection (Try-Best, minimal): prefix the tool
+		// result with a replan warning when the execution shape says the
+		// turn is spinning. The turn itself is never killed here.
+		if hint := ts.noteToolHealth(toolName, toolArgs, toolErrorSummary(toolResult), toolResult.IsError); hint != "" {
+			contentForLLM = hint + "\n\n" + contentForLLM
+			logger.WarnCF("agent", "Low-progress loop signal fired",
+				map[string]any{
+					"agent_id":  ts.agent.ID,
+					"turn_id":   ts.turnID,
+					"tool":      toolName,
+					"iteration": ts.currentIteration(),
+				})
+		}
+
 		if exec.streamingPublisher != nil {
 			argsJSON, _ := json.Marshal(toolArgs)
 			exec.streamingPublisher.AppendToolStep(ctx, bus.ToolStep{

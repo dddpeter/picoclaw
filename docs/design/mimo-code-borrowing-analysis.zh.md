@@ -97,3 +97,19 @@ picoclaw 已有 `pkg/providers/error_classifier.go`（错误分类）+ `pkg/prov
 1. **第一项**：Try-Best 检测器（新文件，如 `pkg/agent/turn_health.go`），检测命中后通过 channel 发送止损通知。
 2. **第二项**：shell 输出清理管线（改造 `pkg/tools/shell.go` 的 inline 路径，redact 层可独立复用），保持落盘原始输出不变。
 3. **第三、四项**：作为 `agent_inject.go` 与 provider retry 现有改造的设计校准，随相关迭代顺带落地。
+
+## 评审结论与实施范围（2026-09-07，Peter 确认）
+
+对照 picoclaw 现状复核后，本文档两处对照需修正：
+
+1. **redact 收益与现有机制重叠**：picoclaw 已有全局敏感数据过滤 `Config.FilterSensitiveData`（`pkg/config/config.go`，默认开启，覆盖所有送模型内容）。为 shell inline 再做一层 redact 与之重复，且当前部署已主动关闭全局过滤（误伤敏感），此子层不实施。
+2. **`pkg/agent/context_cache` 不存在**：第三项的现状描述有误，picoclaw 无此目录。
+
+采纳决定：
+
+| 项 | 决定 | 实施范围 |
+|---|---|---|
+| 一 Try-Best | **采纳（最小版）** | 先做 `bash_retry`（命令归一化 + 连续 3 次失败且输出无变化）与 `edit_streak`（连续 4 次编辑类调用）两个信号；命中后在工具结果中注入警示让模型自行重规划，不直接终止 turn；`edit_repeat`（shingle/Jaccard）与止损通知留二期观察 |
+| 二 输出清理 | **采纳（精简版）** | progress（折叠 `\r`）/ ansi（剥转义）/ longline（超长行压缩）三层 + never-worse 守门 + 命令级 passthrough；不做 redact 子层与形状剪裁 |
+| 三 指令下沉 | 不立项 | 设计原则，随注入类功能迭代参考，不单独改造 |
+| 四 Retry 补强 | 不立项 | replaySafe 场景在 picoclaw 架构下不成立（重试发生于工具执行前）；长等待重试对 IM bot 是负优化，快速失败更合适 |

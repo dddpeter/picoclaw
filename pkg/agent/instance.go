@@ -47,6 +47,7 @@ type AgentInstance struct {
 	MCPServerAllowlist        map[string]struct{}
 	Candidates                []providers.FallbackCandidate
 	ImageCandidates           []providers.FallbackCandidate
+	LoopDetection             config.LoopDetectionConfig
 
 	// Router is non-nil when model routing is configured and the light model
 	// was successfully resolved. It scores each incoming message and decides
@@ -320,6 +321,11 @@ func NewAgentInstance(
 		}
 	}
 
+	loopDetection := (&config.AgentDefaults{}).EffectiveLoopDetection()
+	if defaults != nil {
+		loopDetection = defaults.EffectiveLoopDetection()
+	}
+
 	return &AgentInstance{
 		modelMu:                   &sync.RWMutex{},
 		ID:                        agentID,
@@ -345,6 +351,7 @@ func NewAgentInstance(
 		MCPServerAllowlist:        agentMCPServerAllowlist,
 		Candidates:                candidates,
 		ImageCandidates:           imageCandidates,
+		LoopDetection:             loopDetection,
 		Router:                    router,
 		LightCandidates:           lightCandidates,
 		LightProvider:             lightProvider,

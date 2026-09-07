@@ -209,6 +209,7 @@ type turnState struct {
 	toolKinds         []string
 	toolExecutions    []ToolExecutionRecord
 	turnCtx           *TurnContext
+	health            *turnHealth
 
 	channel     string
 	chatID      string
@@ -285,6 +286,7 @@ func newTurnState(agent *AgentInstance, opts processOptions, scope turnEventScop
 		media:        append([]string(nil), opts.Dispatch.Media...),
 		phase:        TurnPhaseSetup,
 		startedAt:    time.Now(),
+		health:       newTurnHealth(agent.LoopDetection),
 	}
 
 	// Bind session store and capture initial history length for rollback logic

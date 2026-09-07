@@ -484,11 +484,18 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult
 		output = "(no output)"
 	}
 
+	// Clean the inline path only (progress redraws, ANSI escapes, oversized
+	// lines burn context tokens without carrying information). The raw
+	// output stays untouched for persistence below; never-worse guarded, so
+	// commands whose output is already clean see no change at all.
+	rawOutput := output
+	output = CleanCommandOutput(command, output)
+
 	// Keep the tail: command output usually matters at the end (errors,
 	// final results). Line+byte caps with an explicit notice for the model;
 	// the untruncated output is preserved to a file the model can read back.
 	if truncation := TruncateTail(output, TruncationOptions{}); truncation.Truncated {
-		fullPath := t.persistFullOutput(output)
+		fullPath := t.persistFullOutput(rawOutput)
 		output = truncation.Content + "\n\n" + truncation.Notice()
 		if fullPath != "" {
 			output += fmt.Sprintf(" Full output: %s", fullPath)
