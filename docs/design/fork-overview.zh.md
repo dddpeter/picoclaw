@@ -2,7 +2,7 @@
 
 > 本仓库 fork 自 [sipeed/picoclaw](https://github.com/sipeed/picoclaw)，在保留上游全部能力的基础上做了面向个人部署（飞书 IM + 中台网关模型 + systemd 用户服务）的定向增强。上游通过 `upstream` remote 跟踪，合并上游时本文档列出的文件是主要冲突面。
 >
-> 维护日期：2026-09-07（对应提交 `9cc5a3b1` 附近的 fork 状态，落后上游 33 个自有提交）
+> 维护日期：2026-09-07（对应提交 `24ee54f8` 的 fork 状态；fork 领先上游 51 个自有提交、落后 0，上游 main 已停滞——合并方向为单往上 fork 里 merge 上游）
 
 ## 功能块总览
 
@@ -15,6 +15,8 @@
 | 可靠性加固 | `9bab2b25`…`3fce044b` | `pkg/agent/turn_health.go` 等 | 本文 §5 |
 | exec 安全加固 | `9cc5a3b1` | `pkg/tools/shell.go`、`pkg/config/config.go` | 本文 §6、`docs/security-exec-hardening.md` |
 | 卡片停止按钮（CardKit 回调） | `fc18f452` | `pkg/channels/feishu/` | 本文 §7 |
+| Web launcher 主题 | `5d3ad431` | `web/frontend/src/index.css` | 本文 §8 |
+| 运维禁令 | `23b1275d` | `AGENTS.md` | 本文 §9 |
 
 ## 1. 飞书 CardKit v2 流式卡片
 
@@ -72,10 +74,27 @@
 - **回调链路**：ws 长连接可收 `card.action.trigger`（spike 实测三次点击均到达，SDK v3.9.4 走 `message_type=event` 路径）；**schema 2.0 不支持旧 `action` 标签（错误码 200861），按钮必须是独立 `button` 元素 + `behaviors` 回调**——这是硬约束，上游同步或改造时不要改回 action 写法。
 - **上下文嵌入**：回调事件不含 chat 上下文，按钮渲染时把 `chat_id` 嵌进 callback value；handler 校验 allowlist + 该 chat 存在未封口流式卡后，合成 `/stop` 入站消息走既有命令管道（确认回复、卡片「⚠ 已中断 · 用户停止」封口全部复用）。
 - 测试锚点：`TestStreamingCardsCarryStopButtonWithChatContext`、`TestHandleCardActionStop*`。
-- 停止按钮经 1:2 分栏收窄到约 1/3 行宽（schema 2.0 按钮是块级元素，裸按钮满行宽易误点）。
+- 停止按钮经 1:2 分栏收窄到约 1/3 行宽（`46ffec17`；schema 2.0 按钮是块级元素，裸按钮满行宽易误点）。
 - 后续候选：报告翻页。（危险命令「批准/拒绝」审批门禁曾于 `cf9731fc` 实现后按用户决定整体移除，含配置项 `tools.exec.approval_patterns`；如需恢复查该提交。）
 
-## 与上游的行为差异速查
+## 8. Web launcher 主题（深空紫青科技风）
+
+`5d3ad431`..`24ee54f8`（2026-09-07）。按「全局改一处」原则，**只重写 `web/frontend/src/index.css` 的主题变量与全局特效层，不触碰任何组件**：
+
+- 配色：AI 紫 `#7C3AED`（oklch 0.541/0.606）主色贯穿明暗两态，边框、焦点环、选中态统一带紫；图表 5 色换成紫→青→品红→蓝→teal 渐变族。
+- 氛围背景：body 固定三层极光径向光晕（暗态 40%/32%/28% 透明度）+ 44px 网格线，纯 CSS 零开销。
+- 玻璃拟态：卡片磨砂 + 悬浮上浮 + 紫色辉光 hover；侧栏与顶栏半透明 + backdrop-blur。
+- 对比度三连修（`9ad61051`→`24ee54f8`）：卡片不透明度提到 88%、再提亮至 96% 不透明 + 紫色描边，最终侧栏/顶栏/弹窗/输入框/toast 全部收敛进统一的「面板体系」，避免背景极光吃掉前景内容。
+- 附带 `a42971e8`：修复 pnpm-lock.yaml 重复键。
+
+## 9. 运维禁令（AGENTS.md）
+
+`23b1275d` 增补两条 2026-09-07 实测得出的禁令，agent 与维护者都需遵守：
+
+- **禁止给 `picoclaw.service` 加任何 sandbox 指令**（RestrictAddressFamilies / ReadWritePaths / ProtectSystem 等）——user 服务里 systemd 会以受限上下文应用它们，setuid 提权被永久禁用，agent 的所有 `sudo` 会报 `sudo must be owned by uid 0 and have the setuid bit set`。unit 的 sandbox 段已全部移除，不要「加固」回去。
+- **`picoclaw cron add/remove`（CLI）只写 jobs.json，运行中的网关不感知**（启动时才读）——改完必须重启服务；另外 cron 表达式必须 5 字段，残缺表达式（如 `45 16`）会被静默接受但永不匹配。
+
+
 
 | 场景 | 上游 | 本 fork |
 |---|---|---|
@@ -89,9 +108,11 @@
 | exec deny（`enable_deny_patterns=false`） | `custom_deny_patterns` 一并失效 | 新增 `enable_custom_deny_patterns`，可只加载自定义规则 |
 | 卡片交互 | 仅消息文本 | 流式卡「停止」按钮（card.action.trigger 回调，1/3 行宽） |
 | 长无写入期间流式卡超时（200850） | 元素写入持续报错 | 自动重开，失败降级全卡更新，turn 不中断 |
+| Web launcher 外观 | 上游默认主题 | 深空紫青主题（仅改 index.css，升级时留意该文件冲突） |
+| systemd 部署 | 官方 unit | 禁 sandbox 指令（见 §9），unit 变更时不得带回 |
 
 ## 同步上游注意事项
 
-- 主要冲突面：`pkg/commands/`、`pkg/agent/pipeline_execute.go`、`pkg/tools/shell.go`、`pkg/channels/feishu/`、`pkg/config/config.go`（AgentDefaults）。
+- 主要冲突面：`pkg/commands/`、`pkg/agent/pipeline_execute.go`、`pkg/tools/shell.go`、`pkg/channels/feishu/`、`pkg/config/config.go`（AgentDefaults）、`web/frontend/src/index.css`（§8 主题）。
 - `pkg/providers/openai_compat/provider.go` 的流式超时如与上游改动冲突，保留 `streamRoundTripper` 语义优先。
-- 合并后跑 `go test ./pkg/agent/ ./pkg/tools/ ./pkg/providers/... ./pkg/commands/` 验证 fork 测试（文件名含 `_test.go` 且测试名带 `NewResets`/`NeverBlocks`/`ResponseHeaderTimeout`/`CleanCommandOutput` 的均为 fork 独有）。
+- 合并后跑 `go test ./pkg/agent/ ./pkg/tools/ ./pkg/providers/... ./pkg/commands/` 验证 fork 测试（文件名含 `_test.go` 且测试名带 `NewResets`/`NeverBlocks`/`ResponseHeaderTimeout`/`CleanCommandOutput` 的均为 fork 独有）；前端改动需另跑 `pnpm build` 验证。
