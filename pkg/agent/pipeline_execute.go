@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
+	"github.com/sipeed/picoclaw/pkg/channels"
 	"github.com/sipeed/picoclaw/pkg/constants"
 	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
 	"github.com/sipeed/picoclaw/pkg/logger"
@@ -531,6 +532,40 @@ toolLoop:
 			continue
 		}
 
+		// Human approval gate: tools may flag a call (exec approval patterns)
+		// as requiring an interactive approve/deny from the chat before it
+		// runs. Blocks until the user decides, the timeout passes, or the
+		// turn aborts — fail-closed on any failure to ask.
+		if command, needsApproval := p.toolNeedsApproval(ts, toolName, toolArgs); needsApproval {
+			approved, reason := p.requestToolApproval(turnCtx, ts, toolName, command)
+			if !approved {
+				exec.allResponsesHandled = false
+				denyContent := fmt.Sprintf(
+					"Tool execution denied by the human approval gate: %s. Do not retry the same command unchanged; explain to the user or choose a different approach.",
+					reason,
+				)
+				al.emitEvent(
+					runtimeevents.KindAgentToolExecSkipped,
+					ts.eventMeta("runTurn", "turn.tool.skipped"),
+					ToolExecSkippedPayload{
+						Tool:   toolName,
+						Reason: denyContent,
+					},
+				)
+				deniedMsg := providers.Message{
+					Role:       "tool",
+					Content:    denyContent,
+					ToolCallID: tc.ID,
+				}
+				messages = append(messages, deniedMsg)
+				if !ts.opts.NoHistory {
+					ts.agent.Sessions.AddFullMessage(ts.sessionKey, deniedMsg)
+					ts.recordPersistedMessage(deniedMsg)
+				}
+				continue
+			}
+		}
+
 		argsJSON, _ := json.Marshal(toolArgs)
 		argsPreview := utils.Truncate(string(argsJSON), 200)
 		logger.InfoCF("agent", fmt.Sprintf("Tool call: %s(%s)", toolName, argsPreview),
@@ -948,4 +983,62 @@ toolLoop:
 		"agent_id": ts.agent.ID, "iteration": iteration,
 	})
 	return ToolControlContinue
+}
+
+// toolNeedsApproval asks the named tool whether this call requires human
+// approval (e.g. exec approval patterns). Only tools implementing
+// tools.ApprovalChecker participate; the pattern match itself stays inside
+// the tool next to its deny logic.
+func (p *Pipeline) toolNeedsApproval(ts *turnState, toolName string, toolArgs map[string]any) (string, bool) {
+	if ts == nil || ts.agent == nil || ts.agent.Tools == nil {
+		return "", false
+	}
+	tool, ok := ts.agent.Tools.Get(toolName)
+	if !ok {
+		return "", false
+	}
+	checker, ok := tool.(tools.ApprovalChecker)
+	if !ok {
+		return "", false
+	}
+	return checker.NeedsApproval(toolArgs)
+}
+
+// defaultToolApprovalTimeout bounds the interactive approval wait when no
+// explicit timeout is configured.
+const defaultToolApprovalTimeout = 120 * time.Second
+
+// requestToolApproval routes an approval request to the turn's channel and
+// blocks until the user decides, the timeout passes, or the turn aborts.
+// Fail-closed: a missing manager, an unknown channel, or a channel without
+// interactive approval support denies the call.
+func (p *Pipeline) requestToolApproval(ctx context.Context, ts *turnState, toolName, command string) (bool, string) {
+	timeout := defaultToolApprovalTimeout
+	if p != nil && p.Cfg != nil && p.Cfg.Tools.Exec.ApprovalTimeoutSeconds > 0 {
+		timeout = time.Duration(p.Cfg.Tools.Exec.ApprovalTimeoutSeconds) * time.Second
+	}
+	appCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	if p == nil || p.ChannelManager == nil {
+		return false, "approval required but the channel manager is unavailable"
+	}
+	ch, ok := p.ChannelManager.GetChannel(ts.channel)
+	if !ok {
+		return false, fmt.Sprintf("approval required but channel %q was not found", ts.channel)
+	}
+	approver, ok := ch.(channels.ApprovalCapable)
+	if !ok {
+		return false, fmt.Sprintf("approval required but channel %q does not support interactive approval", ts.channel)
+	}
+	approved, reason := approver.RequestApproval(appCtx, ts.chatID, command)
+	logger.InfoCF("agent", "tool approval decision", map[string]any{
+		"agent_id": ts.agent.ID,
+		"tool":     toolName,
+		"channel":  ts.channel,
+		"chat_id":  ts.chatID,
+		"approved": approved,
+		"reason":   reason,
+	})
+	return approved, reason
 }

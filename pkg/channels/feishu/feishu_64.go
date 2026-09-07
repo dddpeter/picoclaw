@@ -55,6 +55,10 @@ type FeishuChannel struct {
 	progress *channels.ToolFeedbackAnimator
 	streams  sync.Map // chatID -> *feishuCardStreamer (in-flight streaming cards)
 
+	// approvals maps approval id -> *feishuApprovalPending for in-flight
+	// approve/deny cards (see feishu_approval.go).
+	approvals sync.Map
+
 	spinnerImgKey      atomic.Value // string: uploaded amber spinner image_key
 	spinnerUploadTried atomic.Bool
 	deleteMessageFn    func(context.Context, string, string) error

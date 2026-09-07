@@ -337,8 +337,12 @@ PicoClaw 默认在沙箱环境中运行。Agent 只能访问配置的工作区�
 | `tools.exec.enable_custom_deny_patterns` | bool | `false` | 仅加载 `custom_deny_patterns` 而不加载内置默认规则（fork 新增，见下方说明） |
 | `tools.exec.custom_deny_patterns` | string[] | `[]` | 自定义阻止的正则表达式模式 |
 | `tools.exec.custom_allow_patterns` | string[] | `[]` | 自定义允许的正则表达式模式 |
+| `tools.exec.approval_patterns` | string[] | `[]` | 触发人工审批的正则模式：命中后向聊天发送「批准/拒绝」卡片，用户批准才执行（fork 新增，见下方说明） |
+| `tools.exec.approval_timeout_seconds` | int | `120` | 审批等待超时（秒），超时视为拒绝；`0` 用默认值 |
 
 > **custom-only 模式（本 fork 新增）：** 上游行为是 `enable_deny_patterns=false` 时 `custom_deny_patterns` 一并失效。本 fork 增加独立开关 `enable_custom_deny_patterns`：当 `enable_deny_patterns=false` 且 `enable_custom_deny_patterns=true` 时，只加载自定义拦截规则、不加载内置默认规则——适合"内置规则误伤太多（`sudo`/`git push`/`kill` 等日常命令都在默认拦截列表），但仍有定向高危命令要拦"的场景。`enable_deny_patterns=true` 时行为与上游一致（默认 + 自定义都加载），该开关无额外作用。
+
+> **人工审批门禁（本 fork 新增）：** `tools.exec.approval_patterns` 命中的命令不再直接执行，而是暂停回合并向当前聊天发送带「✅ 批准 / 🛑 拒绝」按钮的卡片（飞书 CardKit 回调）；用户批准后继续执行，拒绝或超时（`approval_timeout_seconds`，默认 120 秒）则不执行，模型会收到明确的拒绝说明并被要求换方案而非原样重试。三层优先级：**硬拒绝（deny patterns）> 人工审批（approval patterns）> 放行**——审批永远不会绕过硬拒绝。Fail-closed：审批卡投递失败、渠道不支持交互审批（如 CLI）时一律拒绝执行。`/stop` 中止回合时等待中的审批自动作废。当前仅飞书渠道支持交互审批。
 
 > **安全提示：** Symlink 保护默认启用——所有文件路径在允许列表匹配前都会通过 `filepath.EvalSymlinks` 解析，防止符号链接逃逸攻击。
 

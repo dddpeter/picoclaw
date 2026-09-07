@@ -71,7 +71,8 @@
 - **回调链路**：ws 长连接可收 `card.action.trigger`（spike 实测三次点击均到达，SDK v3.9.4 走 `message_type=event` 路径）；**schema 2.0 不支持旧 `action` 标签（错误码 200861），按钮必须是独立 `button` 元素 + `behaviors` 回调**——这是硬约束，上游同步或改造时不要改回 action 写法。
 - **上下文嵌入**：回调事件不含 chat 上下文，按钮渲染时把 `chat_id` 嵌进 callback value；handler 校验 allowlist + 该 chat 存在未封口流式卡后，合成 `/stop` 入站消息走既有命令管道（确认回复、卡片「⚠ 已中断 · 用户停止」封口全部复用）。
 - 测试锚点：`TestStreamingCardsCarryStopButtonWithChatContext`、`TestHandleCardActionStop*`。
-- 后续候选：危险命令「批准/拒绝」门禁按钮（需 exec 执行前挂起 + 超时/补偿，见会话讨论）、报告翻页。
+- **人工审批门禁（同链路扩展）**：`tools.exec.approval_patterns` 命中的命令暂停回合，向聊天发「✅ 批准 / 🛑 拒绝」卡片，批准才执行；拒绝/超时（默认 120s，`approval_timeout_seconds`）不执行并要求模型换方案。三层优先级：硬 deny > 审批 > 放行；fail-closed（投递失败/渠道不支持一律拒绝）；`/stop` 中止自动作废等待中的审批。实现分层：`pkg/tools/approval.go`（ApprovalChecker 接口 + exec 模式匹配）、`pkg/channels/interfaces.go`（ApprovalCapable）、`pkg/channels/feishu/feishu_approval.go`（审批卡 + pending 注册表）、`pkg/agent/pipeline_execute.go`（ExecuteTools 门禁拦截，紧跟 hooks.ApproveTool 块）。测试锚点：`TestExecToolNeedsApproval*`、`TestRequestApproval*`、`TestToolNeedsApprovalRoutes*`、`TestRequestToolApprovalFailsClosed`。
+- 后续候选：报告翻页。
 
 ## 与上游的行为差异速查
 

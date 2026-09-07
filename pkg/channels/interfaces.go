@@ -68,6 +68,15 @@ type SteeringNotifyCapable interface {
 	NotifySteeringInChat(ctx context.Context, chatID, preview string) bool
 }
 
+// ApprovalCapable — channels that can surface an interactive approve/deny
+// prompt (e.g. IM card buttons) to a human and block until they decide.
+// RequestApproval returns the decision; reason explains a denial (user
+// rejected, timed out, turn canceled, delivery failed). The caller bounds
+// the wait via ctx; implementations must honor ctx cancellation.
+type ApprovalCapable interface {
+	RequestApproval(ctx context.Context, chatID, command string) (approved bool, reason string)
+}
+
 // Streamer is defined in pkg/bus to avoid circular imports.
 // This alias keeps channel implementations using channels.Streamer unchanged.
 type Streamer = bus.Streamer
