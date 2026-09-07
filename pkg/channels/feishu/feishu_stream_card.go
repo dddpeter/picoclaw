@@ -383,11 +383,15 @@ func buildFeishuPanelBudget(state *feishuStreamState, expanded bool, textBudget 
 	// render them before the reasoning rounds and keep them out of the
 	// header's tool count.
 	skillSteps := make([]bus.ToolStep, 0, len(tools))
+	textSteps := make([]bus.ToolStep, 0, len(tools))
 	execSteps := make([]bus.ToolStep, 0, len(tools))
 	for _, step := range tools {
-		if step.Kind == bus.ToolStepKindSkill {
+		switch step.Kind {
+		case bus.ToolStepKindSkill:
 			skillSteps = append(skillSteps, step)
-		} else {
+		case bus.ToolStepKindText:
+			textSteps = append(textSteps, step)
+		default:
 			execSteps = append(execSteps, step)
 		}
 	}
@@ -424,6 +428,9 @@ func buildFeishuPanelBudget(state *feishuStreamState, expanded bool, textBudget 
 	}
 	for i, r := range rounds {
 		children = append(children, feishuReasoningRoundPanel(i+1, r))
+	}
+	for _, step := range textSteps {
+		children = append(children, feishuMidTurnTextElements(step)...)
 	}
 	if cur := strings.TrimSpace(state.CurReasoning); cur != "" {
 		children = append(children, feishuReasoningTitle(len(rounds)+1, 0, false))
@@ -470,6 +477,30 @@ func feishuReasoningTitle(index int, elapsed time.Duration, finalized bool) map[
 		},
 		"text": map[string]any{
 			"tag": "lark_md", "content": content, "text_size": "notation",
+		},
+	}
+}
+
+// feishuMidTurnTextElements renders an archived mid-turn assistant text:
+// a small amber label plus the indented prose. It is context for the tool
+// actions that follow, not an execution, so there is no status symbol or
+// elapsed suffix.
+func feishuMidTurnTextElements(step bus.ToolStep) []any {
+	title := fmt.Sprintf(
+		"<font color='%s'>**💬 本轮说明**</font>", feishuAmberColor)
+	return []any{
+		map[string]any{
+			"tag":       "markdown",
+			"content":   title,
+			"text_size": "notation",
+		},
+		map[string]any{
+			"tag":    "div",
+			"margin": "0px 0px 0px 22px",
+			"text": map[string]any{
+				"tag": "plain_text", "content": strings.TrimSpace(step.Result),
+				"text_color": "grey", "text_size": "notation",
+			},
 		},
 	}
 }

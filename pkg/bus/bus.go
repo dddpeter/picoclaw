@@ -120,6 +120,11 @@ const (
 	ToolStepKindMCP = "mcp"
 	// ToolStepKindSkill marks skill context activated for the turn.
 	ToolStepKindSkill = "skill"
+	// ToolStepKindText archives a mid-turn assistant text: iterations that
+	// continue with tool calls have their prose shown in the answer slot
+	// only until the next iteration overwrites it, so the process panel
+	// keeps a copy.
+	ToolStepKindText = "text"
 )
 
 // ToolStep describes a single tool execution for streaming panels that render

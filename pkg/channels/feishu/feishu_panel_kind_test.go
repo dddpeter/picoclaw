@@ -74,3 +74,84 @@ func TestBuildFeishuPanelPlainToolUnchanged(t *testing.T) {
 		t.Errorf("plain tool step missing from panel (header %q):\n%s", title, rendered)
 	}
 }
+
+func TestMidTurnTextStepsRenderWithoutToolCount(t *testing.T) {
+	state := &feishuStreamState{
+		Tools: []bus.ToolStep{
+			{Kind: bus.ToolStepKindText, Result: "我先检查一下配置文件的默认模型设置。"},
+			{Tool: "exec", Args: "cat config.json", Result: "…", Duration: 12},
+			{Kind: bus.ToolStepKindText, Result: "配置没有问题，接下来修改代码。"},
+			{Tool: "edit_file", Args: "x.go", Result: "ok", Duration: 5},
+		},
+	}
+	panel := buildFeishuPanelBudget(state, true, feishuPanelTextBudget)
+	children := panel["elements"].([]any)
+
+	var labels, bodies, execTitles int
+	for _, el := range children {
+		m, ok := el.(map[string]any)
+		if !ok {
+			continue
+		}
+		if m["tag"] == "markdown" {
+			if c, _ := m["content"].(string); strings.Contains(c, "本轮说明") {
+				labels++
+			}
+		}
+		if m["tag"] == "div" {
+			if txt, ok := m["text"].(map[string]any); ok {
+				c, _ := txt["content"].(string)
+				if c == "我先检查一下配置文件的默认模型设置。" || c == "配置没有问题，接下来修改代码。" {
+					bodies++
+				}
+				// Short tool results render as compact div lines carrying
+				// the args preview.
+				if strings.Contains(c, "cat config.json") || strings.Contains(c, "x.go") {
+					execTitles++
+				}
+			}
+		}
+	}
+	if labels != 2 || bodies != 2 {
+		t.Fatalf("mid-turn texts should render as 2 labels + 2 bodies, got %d/%d in %d children", labels, bodies, len(children))
+	}
+	if execTitles != 2 {
+		t.Fatalf("tool steps should still render, got %d", execTitles)
+	}
+
+	// The header must not count text archives as tool executions: 2 real
+	// tools, not 4 steps.
+	header := panel["header"].(map[string]any)
+	for _, v := range headerChildrenTexts(header) {
+		if strings.Contains(v, "4 次工具") {
+			t.Fatalf("text archives leaked into the tool count: %q", v)
+		}
+		if strings.Contains(v, "2 次工具") {
+			return // pass
+		}
+	}
+	t.Fatalf("header should report 2 tool executions, got %+v", header)
+}
+
+func headerChildrenTexts(header map[string]any) []string {
+	var out []string
+	title, ok := header["title"].(map[string]any)
+	if !ok {
+		return out
+	}
+	if content, ok := title["content"].(string); ok {
+		out = append(out, content)
+	}
+	elements, ok := header["elements"].([]any)
+	if !ok {
+		return out
+	}
+	for _, el := range elements {
+		if m, ok := el.(map[string]any); ok {
+			if c, ok := m["content"].(string); ok {
+				out = append(out, c)
+			}
+		}
+	}
+	return out
+}

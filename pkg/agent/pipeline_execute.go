@@ -132,6 +132,19 @@ func (p *Pipeline) ExecuteTools(
 	messages := exec.messages
 	handledAttachments := make([]providers.Attachment, 0)
 
+	// This iteration continues with tool calls, so the streamed answer slot
+	// will be overwritten by the next LLM iteration. Archive the mid-turn
+	// prose on the process panel before that happens — otherwise it is
+	// visible only while streaming and lost in the final card.
+	if exec.streamingPublisher != nil {
+		if content := strings.TrimSpace(exec.response.Content); content != "" {
+			exec.streamingPublisher.AppendToolStep(turnCtx, bus.ToolStep{
+				Kind:   bus.ToolStepKindText,
+				Result: utils.Truncate(content, 400),
+			})
+		}
+	}
+
 	// A "length" finish means the model output was cut off by the token
 	// limit. Streamed tool-call arguments can then parse as valid JSON while
 	// silently missing content, so executing them is unsafe — fail every
