@@ -2,7 +2,7 @@
 
 > 本仓库 fork 自 [sipeed/picoclaw](https://github.com/sipeed/picoclaw)，在保留上游全部能力的基础上做了面向个人部署（飞书 IM + 中台网关模型 + systemd 用户服务）的定向增强。上游通过 `upstream` remote 跟踪，合并上游时本文档列出的文件是主要冲突面。
 >
-> 维护日期：2026-09-07（对应提交 `24ee54f8` 的 fork 状态；fork 领先上游 51 个自有提交、落后 0，上游 main 已停滞——合并方向为单往上 fork 里 merge 上游）
+> 维护日期：2026-09-07（对应提交 `539c046f` 的 fork 状态；fork 领先上游 53 个自有提交、落后 0，上游 main 已停滞——合并方向为单往上 fork 里 merge 上游）
 
 ## 功能块总览
 
@@ -23,6 +23,7 @@
 用飞书卡片（CardKit v2）承载 agent 回复的流式渲染，替代纯文本回复：
 
 - 过程面板：工具调用步骤、嵌套推理轮次（reasoning rounds）、kind 着色图标、动态状态行、面板自动折叠；工具输出以行内代码渲染以控制卡片体积。
+- **行为对齐 hermes-lark-streaming**（`539c046f`，2026-09-07）：①面板条目按事件到达序**时间线交错**渲染（R→T→R→T），不按类型分组；②面板标题始终显示**裁剪前的实际总数**（含运行中条目），超 20 上限不缩水，标题耗时 = 推理 + 工具之和；③工具执行中显示 `⏳ …（运行中）` amber 条目（`bus.ToolStep.Running`，pipeline 执行前发布，完成即替换）。配套修复：`streamingChunkPublisher` 放行无工具名的 KindText 归档步骤（`280ffb8a` 的"本轮说明"此前被空名门禁拦截，从未到达面板）。测试锚点：`TestFeishuPanelTimelineInterleave`、`TestFeishuPanelHeaderShowsActualTotals`、`TestFeishuPanelRunningTool`、`TestStreamerRunningToolStepLifecycle`、`TestAppendToolStepAllowsUnnamedTextArchives`。
 - 打字机效果跨面板刷新保持存活；中止/取消时显示原因（cancel reason）与 steering 通知；turn 在 LLM 调用中被中止时流式卡片保持可达。
 - **流式模式超时韧性（200850）**：回合长时间无元素写入（如长工具运行）时飞书会服务端自动关闭流式模式，元素写入随即报 `card streaming timeout`。处理顺序：按官方补救用 settings 接口重开 `streaming_mode=true` 并重试一次；重开失败则降级为全卡更新（config 换 `update_multi`，不再带流式 config），**绝不因失去打字机而失败整个 LLM 调用**（此前的故障形态：长阻塞后续流失败直接报 "LLM call failed after retries"）。测试锚点：`TestUpdateRecoversFromStreamingTimeout*`、`TestUpdateDegradesWhenReopenFails`、`TestDegradedUpdateSkipsElementWrites`、`TestFinalizeSkipsCloseWhenDegraded`。
 - 细节加固：rune 安全截断、无效图片 key 清洗（规避 CardKit 200570）、CardKit 调用次数上限。
@@ -98,7 +99,7 @@
 
 | 场景 | 上游 | 本 fork |
 |---|---|---|
-| 飞书回复 | 文本消息 | CardKit 流式卡片（含过程面板） |
+| 飞书回复 | 文本消息 | CardKit 流式卡片（过程面板时间线交错 + 工具运行中条目 + 标题实际总数） |
 | `/new` | 无此命令 | 清历史 + 重置为配置默认模型（重读磁盘） |
 | `/switch model`（turn 活跃时） | 阻塞等待 | 立即返回 busy 提示 |
 | 流式 LLM 请求 | 无响应头超时 | 90 秒响应头超时后快速失败 |
