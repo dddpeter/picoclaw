@@ -169,7 +169,7 @@ func buildFeishuStreamingCard(chatID string) map[string]any {
 			"element_id": feishuAnswerElementID,
 		},
 		buildFeishuLoadingElement(feishuPhaseLoading, ""),
-		feishuStopButtonElement(chatID),
+		feishuStopButtonRow(chatID),
 	}
 	return map[string]any{
 		"schema": "2.0",
@@ -195,6 +195,32 @@ func feishuStopButtonElement(chatID string) map[string]any {
 			"type":  "callback",
 			"value": map[string]any{"cmd": feishuStopCmd, "chat_id": chatID},
 		}},
+	}
+}
+
+// feishuStopButtonRow narrows the stop button to ~1/3 of the row: a
+// standalone button is block-level and spans the full card width, which
+// invites accidental taps while scrolling. A 1:2 weighted column set keeps
+// the button left-aligned and short (the empty filler column is officially
+// supported).
+func feishuStopButtonRow(chatID string) map[string]any {
+	return map[string]any{
+		"tag":       "column_set",
+		"flex_mode": "none",
+		"columns": []any{
+			map[string]any{
+				"tag":      "column",
+				"width":    "weighted",
+				"weight":   1,
+				"elements": []any{feishuStopButtonElement(chatID)},
+			},
+			map[string]any{
+				"tag":      "column",
+				"width":    "weighted",
+				"weight":   2,
+				"elements": []any{},
+			},
+		},
 	}
 }
 
@@ -247,7 +273,7 @@ func buildFeishuRefreshCard(state *feishuStreamState, answer, phase string, pane
 					"element_id": feishuAnswerElementID,
 				},
 				buildFeishuLoadingElement(phase, spinnerKey),
-				feishuStopButtonElement(chatID),
+				feishuStopButtonRow(chatID),
 			},
 		},
 	}

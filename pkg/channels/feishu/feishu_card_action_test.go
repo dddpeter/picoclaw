@@ -13,6 +13,34 @@ import (
 	"github.com/sipeed/picoclaw/pkg/channels"
 )
 
+// findStopButton walks a card (any nesting depth — the button lives inside a
+// column set) and returns the stop button element, or nil.
+func findStopButton(node any) map[string]any {
+	switch v := node.(type) {
+	case map[string]any:
+		if v["tag"] == "button" && strings.Contains(string(mustJSON(v)), "⏹ 停止") {
+			return v
+		}
+		for _, child := range v {
+			if found := findStopButton(child); found != nil {
+				return found
+			}
+		}
+	case []any:
+		for _, child := range v {
+			if found := findStopButton(child); found != nil {
+				return found
+			}
+		}
+	}
+	return nil
+}
+
+func mustJSON(v any) []byte {
+	data, _ := json.Marshal(v)
+	return data
+}
+
 // stopButtonJSON walks a card for the stop button and returns its callback
 // value map (nil when absent).
 func stopButtonJSON(t *testing.T, card map[string]any) map[string]any {
@@ -24,22 +52,42 @@ func stopButtonJSON(t *testing.T, card map[string]any) map[string]any {
 	if !strings.Contains(string(data), "⏹ 停止") {
 		t.Errorf("card should carry the stop button, got: %.300s", string(data))
 	}
+	btn := findStopButton(card)
+	if btn == nil {
+		return nil
+	}
+	for _, b := range btn["behaviors"].([]any) {
+		bm, _ := b.(map[string]any)
+		if bm["type"] == "callback" {
+			vm, _ := bm["value"].(map[string]any)
+			return vm
+		}
+	}
+	return nil
+}
+
+// assertNarrowStopButton verifies the stop button is wrapped in a 1:2
+// column set (~1/3 row width) instead of spanning the full card width.
+func assertNarrowStopButton(t *testing.T, card map[string]any) {
+	t.Helper()
 	body, _ := card["body"].(map[string]any)
 	elements, _ := body["elements"].([]any)
 	for _, elem := range elements {
 		m, ok := elem.(map[string]any)
-		if !ok || m["tag"] != "button" {
+		if !ok || m["tag"] != "column_set" {
 			continue
 		}
-		for _, b := range m["behaviors"].([]any) {
-			bm := b.(map[string]any)
-			if bm["type"] == "callback" {
-				vm, _ := bm["value"].(map[string]any)
-				return vm
-			}
+		columns, _ := m["columns"].([]any)
+		if len(columns) != 2 {
+			continue
+		}
+		first, _ := columns[0].(map[string]any)
+		second, _ := columns[1].(map[string]any)
+		if first["weight"] == 1 && second["weight"] == 2 && findStopButton(first) != nil {
+			return
 		}
 	}
-	return nil
+	t.Errorf("stop button should sit in a 1:2 column set, got: %.400s", string(mustJSON(card)))
 }
 
 func TestStreamingCardsCarryStopButtonWithChatContext(t *testing.T) {
@@ -48,12 +96,15 @@ func TestStreamingCardsCarryStopButtonWithChatContext(t *testing.T) {
 	if value == nil || value["cmd"] != feishuStopCmd || value["chat_id"] != chatID {
 		t.Fatalf("initial card stop button value wrong: %v", value)
 	}
+	assertNarrowStopButton(t, buildFeishuStreamingCard(chatID))
 
 	state := &feishuStreamState{Tools: nil}
-	value = stopButtonJSON(t, buildFeishuRefreshCard(state, "", feishuPhaseThinking, feishuPanelTextBudget, "", chatID))
+	refresh := buildFeishuRefreshCard(state, "", feishuPhaseThinking, feishuPanelTextBudget, "", chatID)
+	value = stopButtonJSON(t, refresh)
 	if value == nil || value["cmd"] != feishuStopCmd || value["chat_id"] != chatID {
 		t.Fatalf("refresh card stop button value wrong: %v", value)
 	}
+	assertNarrowStopButton(t, refresh)
 
 	// The sealed card must NOT offer a stop button: the turn is over.
 	final := buildFeishuFinalCard(&feishuStreamState{}, "done", false, time.Second, "")
