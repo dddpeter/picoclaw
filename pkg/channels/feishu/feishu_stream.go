@@ -305,13 +305,6 @@ func (c *FeishuChannel) handleCardAction(_ context.Context, event *callback.Card
 			"sender":  operatorOpenID,
 		})
 		return toast("success", "已发送停止指令"), nil
-	case feishuApproveCmd, feishuDenyCmd:
-		id, _ := value["id"].(string)
-		if id == "" {
-			return toast("error", "审批卡缺少请求标识"), nil
-		}
-		result := c.resolveApprovalButton(cmd == feishuApproveCmd, id)
-		return toast(result.typ, result.text), nil
 	default:
 		return toast("info", "未知操作"), nil
 	}

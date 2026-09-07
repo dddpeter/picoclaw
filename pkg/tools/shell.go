@@ -40,7 +40,6 @@ type ExecTool struct {
 	workingDir          string
 	timeout             time.Duration
 	denyPatterns        []*regexp.Regexp
-	approvalPatterns    []*regexp.Regexp
 	allowPatterns       []*regexp.Regexp
 	customAllowPatterns []*regexp.Regexp
 	allowedPathPatterns []*regexp.Regexp
@@ -148,7 +147,6 @@ func NewExecToolWithConfig(
 	allowPaths ...[]*regexp.Regexp,
 ) (*ExecTool, error) {
 	denyPatterns := make([]*regexp.Regexp, 0)
-	approvalPatterns := make([]*regexp.Regexp, 0)
 	customAllowPatterns := make([]*regexp.Regexp, 0)
 	var allowedPathPatterns []*regexp.Regexp
 	allowRemote := true
@@ -160,15 +158,6 @@ func NewExecToolWithConfig(
 		execConfig := cfg.Tools.Exec
 		enableDenyPatterns := execConfig.EnableDenyPatterns
 		allowRemote = execConfig.AllowRemote
-		// Approval patterns are independent of the deny switches: they gate
-		// execution behind a human decision rather than blocking outright.
-		if len(execConfig.ApprovalPatterns) > 0 {
-			compiled, err := compileApprovalPatterns(execConfig.ApprovalPatterns)
-			if err != nil {
-				return nil, fmt.Errorf("invalid approval pattern: %w", err)
-			}
-			approvalPatterns = compiled
-		}
 		if enableDenyPatterns {
 			denyPatterns = append(denyPatterns, defaultDenyPatterns...)
 			if runtime.GOOS == "windows" {
@@ -229,7 +218,6 @@ func NewExecToolWithConfig(
 		workingDir:          workingDir,
 		timeout:             timeout,
 		denyPatterns:        denyPatterns,
-		approvalPatterns:    approvalPatterns,
 		allowPatterns:       nil,
 		customAllowPatterns: customAllowPatterns,
 		allowedPathPatterns: allowedPathPatterns,
