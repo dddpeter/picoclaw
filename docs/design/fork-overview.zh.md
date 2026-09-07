@@ -2,7 +2,7 @@
 
 > 本仓库 fork 自 [sipeed/picoclaw](https://github.com/sipeed/picoclaw)，在保留上游全部能力的基础上做了面向个人部署（飞书 IM + 中台网关模型 + systemd 用户服务）的定向增强。上游通过 `upstream` remote 跟踪，合并上游时本文档列出的文件是主要冲突面。
 >
-> 维护日期：2026-09-07（对应提交 `3fce044b` 附近的 fork 状态，落后上游 33 个自有提交）
+> 维护日期：2026-09-07（对应提交 `9cc5a3b1` 附近的 fork 状态，落后上游 33 个自有提交）
 
 ## 功能块总览
 
@@ -13,6 +13,7 @@
 | 命令增强（/new、/status） | `125b3287` | `pkg/commands/` | 本文 §3 |
 | 工具输出处理 | `a5b71f89` / `3fce044b` | `pkg/tools/truncate.go`、`pkg/tools/output_clean.go` | 本文 §4 |
 | 可靠性加固 | `9bab2b25`…`3fce044b` | `pkg/agent/turn_health.go` 等 | 本文 §5 |
+| exec 安全加固 | `9cc5a3b1` | `pkg/tools/shell.go`、`pkg/config/config.go` | 本文 §6、`docs/security-exec-hardening.md` |
 
 ## 1. 飞书 CardKit v2 流式卡片
 
@@ -53,6 +54,15 @@
 - 低收益循环检测（`3fce044b`，借鉴 MiMo-Code Try-Best 最小版）：per-turn 检测两类信号——`bash_retry`（归一化后同一命令连续失败且输出无变化，默认 3 次）与 `edit_streak`（连续编辑类调用无其他动作穿插，默认 4 次）。命中后在工具结果前注入重规划警示，**不终止 turn**；检测器随即重置。配置见 `agents.defaults.loop_detection`（`enabled` 未配置视为开启）。
 - LLM 重试与摘要加固：`4c0640c8`（工具摘要 + light model + fail-fast 重试）、`af8975b2`（工具循环加固）。
 
+## 6. exec 安全加固（custom-only 拦截模式）
+
+上游逻辑：`enable_deny_patterns=false` 时 `custom_deny_patterns` 完全不加载，自定义拦截规则形同虚设；而内置默认规则拦截面太大（`sudo`、`git push`、`kill`、`rm -rf`、`apt install` 等日常命令全部在列），不适合个人部署直接启用。
+
+- 新增独立开关 `tools.exec.enable_custom_deny_patterns`（`9cc5a3b1`，默认 `false`，向后兼容）：`enable_deny_patterns=false` 且该开关为 `true` 时，**只加载** `custom_deny_patterns`，不加载内置默认规则。
+- `enable_deny_patterns=true` 时行为与上游完全一致（默认 + 自定义都加载），新开关无额外作用。
+- 测试锚点：`TestShellTool_CustomDenyOnly*`、`TestShellTool_CustomDenyInactive*`（同步上游后必须通过）。
+- 设计与部署细节：`docs/security-exec-hardening.md`。
+
 ## 与上游的行为差异速查
 
 | 场景 | 上游 | 本 fork |
@@ -64,6 +74,7 @@
 | 命令输出（inline） | 尾部截断 | 清理管线 + 尾部截断，原文照旧落盘 |
 | 死循环防护 | 仅 MaxToolIterations | 迭代上限 + 低收益检测注入警示 |
 | 记忆 | workspace 文件 | 附加 OpenViking recall/commit（可配置关闭） |
+| exec deny（`enable_deny_patterns=false`） | `custom_deny_patterns` 一并失效 | 新增 `enable_custom_deny_patterns`，可只加载自定义规则 |
 
 ## 同步上游注意事项
 
