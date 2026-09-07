@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
 import { extractConfigWarnings } from "@/api/channels"
-import { launcherFetch } from "@/api/http"
+import { launcherFetch, parseResponseError } from "@/api/http"
 import { ConfigChangeNotice } from "@/components/config-change-notice"
 import { PageHeader } from "@/components/page-header"
 import {
@@ -34,10 +34,7 @@ export function RawConfigPage() {
     queryFn: async () => {
       const res = await launcherFetch("/api/config")
       if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as {
-          error?: string
-        } | null
-        throw new Error(body?.error ?? "Failed to fetch config")
+        throw new Error(await parseResponseError(res, "Failed to fetch config"))
       }
       return res.json()
     },
@@ -89,7 +86,7 @@ export function RawConfigPage() {
   const { clean: cleanConfig, warnings: configWarnings } =
     extractConfigWarnings(config ?? {})
   const effectiveEditorValue =
-    editorValue || (cleanConfig ? JSON.stringify(cleanConfig, null, 2) : "")
+    editorValue || (config ? JSON.stringify(cleanConfig, null, 2) : "")
 
   const handleSave = () => {
     try {
@@ -130,7 +127,7 @@ export function RawConfigPage() {
     if (lastSavedConfig) {
       setEditorValue(JSON.stringify(lastSavedConfig, null, 2))
     } else if (config) {
-      setEditorValue(JSON.stringify(config, null, 2))
+      setEditorValue(JSON.stringify(cleanConfig, null, 2))
     }
     setIsDirty(false)
     toast.info(t("pages.config.reset_success"))

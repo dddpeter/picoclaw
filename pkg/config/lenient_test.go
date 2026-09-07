@@ -82,3 +82,41 @@ func TestLoadConfigLenient_NoUnknownFieldsNoWarnings(t *testing.T) {
 	assert.NotNil(t, cfg)
 	assert.Empty(t, warnings)
 }
+
+func TestDecodeJSONLenient_UnknownFieldsAsSortedWarnings(t *testing.T) {
+	var cfg struct {
+		Known string `json:"known"`
+	}
+	warnings, err := decodeJSONLenient(
+		[]byte(`{"known":"a","zz_unknown":1,"nested":{"deep_unknown":2}}`),
+		&cfg,
+		"test.json",
+	)
+	assert.NoError(t, err)
+	assert.Equal(t, "a", cfg.Known)
+	// Note: nested objects with unknown fields are reported at the parent
+	// path ("nested"), matching collectUnknownJSONFields' existing behavior
+	// in strict mode errors.
+	assert.Equal(t, []string{"nested", "zz_unknown"}, warnings)
+}
+
+func TestDecodeJSONLenient_SyntaxAndTypeErrorsStillFail(t *testing.T) {
+	var cfg struct {
+		Known int `json:"known"`
+	}
+	if _, err := decodeJSONLenient([]byte(`{"known":`), &cfg, "test.json"); err == nil {
+		t.Fatal("syntax error should fail")
+	}
+	if _, err := decodeJSONLenient([]byte(`{"known":"not-an-int"}`), &cfg, "test.json"); err == nil {
+		t.Fatal("type error on known field should fail")
+	}
+}
+
+func TestMergeFieldWarnings_DeduplicatesPreservingOrder(t *testing.T) {
+	merged := mergeFieldWarnings(
+		[]string{"a", "b"},
+		[]string{"b", "c"},
+	)
+	assert.Equal(t, []string{"a", "b", "c"}, merged)
+	assert.Empty(t, mergeFieldWarnings(nil, nil))
+}

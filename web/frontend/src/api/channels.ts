@@ -14,14 +14,15 @@ export function extractConfigWarnings(
   if (!config || typeof config !== "object") {
     return { clean: config, warnings: [] }
   }
-  const warnings = Array.isArray(config.config_warnings)
-    ? (config.config_warnings as unknown[])
-        .filter((w): w is string => typeof w === "string")
-        .filter((w) => w.length > 0)
-    : []
-  if (warnings.length === 0) {
+  const raw = config.config_warnings
+  if (raw === undefined) {
     return { clean: config, warnings: [] }
   }
+  // Strip the key whenever it exists (even if it holds no valid entries) so
+  // callers never write it back to disk; validity filtering is separate.
+  const warnings = Array.isArray(raw)
+    ? raw.filter((w): w is string => typeof w === "string" && w.length > 0)
+    : []
   const clean: AppConfig = { ...config }
   delete clean.config_warnings
   return { clean, warnings }

@@ -40,3 +40,16 @@ export async function launcherFetch(
   }
   return res
 }
+
+/**
+ * Extract an error message from a non-ok launcher API response.
+ * Falls back to the provided message when the body is not JSON or carries no
+ * `error` field (e.g. plain-text legacy errors).
+ */
+export async function parseResponseError(
+  res: Response,
+  fallback: string,
+): Promise<string> {
+  const body = (await res.json().catch(() => null)) as { error?: string } | null
+  return body?.error ?? fallback
+}

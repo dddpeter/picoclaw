@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
 import { extractConfigWarnings, patchAppConfig, resetAppConfig } from "@/api/channels"
-import { launcherFetch } from "@/api/http"
+import { launcherFetch, parseResponseError } from "@/api/http"
 import { postLauncherDashboardSetup } from "@/api/launcher-auth"
 import {
   getAutoStartStatus,
@@ -123,10 +123,7 @@ export function ConfigPage() {
           signal: controller.signal,
         })
         if (!res.ok) {
-          const body = (await res.json().catch(() => null)) as {
-            error?: string
-          } | null
-          throw new Error(body?.error ?? "Failed to load config")
+          throw new Error(await parseResponseError(res, "Failed to load config"))
         }
         return res.json()
       } finally {
