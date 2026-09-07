@@ -78,7 +78,7 @@ func TestFeishuRefreshCardKeepsStreamingConfig(t *testing.T) {
 		Rounds: []feishuReasoningRound{{Text: "thinking"}},
 		Tools:  []bus.ToolStep{{Tool: "shell", Result: "ok"}},
 	}
-	card := buildFeishuRefreshCard(state, "partial answer", feishuPhaseAnswer, feishuPanelTextBudget, "")
+	card := buildFeishuRefreshCard(state, "partial answer", feishuPhaseAnswer, feishuPanelTextBudget, "", "chat-t")
 
 	cfg, ok := card["config"].(map[string]any)
 	if !ok || cfg["streaming_mode"] != true {
@@ -134,7 +134,7 @@ func TestBuildFeishuLoadingElementSpinnerFallback(t *testing.T) {
 
 	// The initial streaming card must never carry the custom icon: a bad
 	// img_key there would break card creation and the whole streaming reply.
-	initial := buildFeishuStreamingCard()
+	initial := buildFeishuStreamingCard("chat-t")
 	els := initial["body"].(map[string]any)["elements"].([]any)
 	for _, el := range els {
 		div, ok := el.(map[string]any)

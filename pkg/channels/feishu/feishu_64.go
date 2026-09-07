@@ -106,7 +106,8 @@ func (c *FeishuChannel) Start(ctx context.Context) error {
 	}
 
 	dispatcher := larkdispatcher.NewEventDispatcher(c.config.VerificationToken.String(), c.config.EncryptKey.String()).
-		OnP2MessageReceiveV1(c.handleMessageReceive)
+		OnP2MessageReceiveV1(c.handleMessageReceive).
+		OnP2CardActionTrigger(c.handleCardAction)
 
 	runCtx, cancel := context.WithCancel(ctx)
 

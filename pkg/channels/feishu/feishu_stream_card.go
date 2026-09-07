@@ -156,8 +156,8 @@ func (s *feishuStreamState) reasoningTotal() time.Duration {
 
 // buildFeishuStreamingCard builds the initial CardKit v2 streaming card: a
 // collapsible process panel placeholder, the answer element that receives
-// streamed content, and a loading spinner.
-func buildFeishuStreamingCard() map[string]any {
+// streamed content, a loading spinner, and the stop button.
+func buildFeishuStreamingCard(chatID string) map[string]any {
 	elements := []any{
 		buildFeishuPanelPlaceholder(),
 		map[string]any{
@@ -169,11 +169,32 @@ func buildFeishuStreamingCard() map[string]any {
 			"element_id": feishuAnswerElementID,
 		},
 		buildFeishuLoadingElement(feishuPhaseLoading, ""),
+		feishuStopButtonElement(chatID),
 	}
 	return map[string]any{
 		"schema": "2.0",
 		"config": feishuStreamingCardConfig(),
 		"body":   map[string]any{"elements": elements},
+	}
+}
+
+// feishuStopCmd is the callback command carried by the streaming card's stop
+// button; card.action.trigger callbacks arrive with no chat context, so the
+// button also embeds the chat it was rendered for.
+const feishuStopCmd = "stop"
+
+// feishuStopButtonElement is the schema-2.0 stop button shown while the card
+// streams. Schema V2 rejects the classic "action" wrapper (code 200861) —
+// buttons are standalone elements with behaviors.
+func feishuStopButtonElement(chatID string) map[string]any {
+	return map[string]any{
+		"tag":  "button",
+		"text": map[string]any{"tag": "plain_text", "content": "⏹ 停止"},
+		"type": "danger",
+		"behaviors": []any{map[string]any{
+			"type":  "callback",
+			"value": map[string]any{"cmd": feishuStopCmd, "chat_id": chatID},
+		}},
 	}
 }
 
@@ -204,7 +225,7 @@ func feishuStreamingCardConfig() map[string]any {
 // the streaming config so the answer element's typewriter survives the
 // replacement. spinnerKey, when non-empty, swaps the status line icon for
 // the animated amber spinner.
-func buildFeishuRefreshCard(state *feishuStreamState, answer, phase string, panelBudget int, spinnerKey string) map[string]any {
+func buildFeishuRefreshCard(state *feishuStreamState, answer, phase string, panelBudget int, spinnerKey, chatID string) map[string]any {
 	card := map[string]any{
 		"schema": "2.0",
 		"config": feishuStreamingCardConfig(),
@@ -219,6 +240,7 @@ func buildFeishuRefreshCard(state *feishuStreamState, answer, phase string, pane
 					"element_id": feishuAnswerElementID,
 				},
 				buildFeishuLoadingElement(phase, spinnerKey),
+				feishuStopButtonElement(chatID),
 			},
 		},
 	}

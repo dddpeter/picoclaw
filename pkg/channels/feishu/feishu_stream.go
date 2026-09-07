@@ -12,9 +12,11 @@ import (
 	"time"
 
 	larkcardkit "github.com/larksuite/oapi-sdk-go/v3/service/cardkit/v1"
+	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher/callback"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/channels"
+	"github.com/sipeed/picoclaw/pkg/identity"
 	"github.com/sipeed/picoclaw/pkg/logger"
 )
 
@@ -101,7 +103,7 @@ func (c *FeishuChannel) BeginStream(ctx context.Context, chatID string) (channel
 		}
 	}
 
-	cardJSON, err := json.Marshal(buildFeishuStreamingCard())
+	cardJSON, err := json.Marshal(buildFeishuStreamingCard(chatID))
 	if err != nil {
 		return nil, fmt.Errorf("feishu stream: build card: %w", err)
 	}
@@ -197,6 +199,98 @@ func (c *FeishuChannel) NotifySteeringInChat(ctx context.Context, chatID, previe
 func (s *feishuCardStreamer) nextSeqLocked() int {
 	s.seq++
 	return s.seq
+}
+
+// streamerActiveLocked reports whether the streamer still has an unsealed
+// card. Caller holds s.mu.
+func (s *feishuCardStreamer) streamerActiveLocked() bool {
+	return !s.done
+}
+
+// handleCardAction implements the CardKit v2 button callback
+// (card.action.trigger, delivered over the websocket long connection). The
+// streaming card's stop button routes here: it synthesizes the "/stop"
+// command as a regular inbound message so the existing command pipeline runs
+// unchanged — including the confirmation reply and the card sealing with the
+// "用户停止" verdict. Card callbacks carry no chat context, so the button
+// embeds its chat_id in the callback value at render time.
+func (c *FeishuChannel) handleCardAction(_ context.Context, event *callback.CardActionTriggerEvent) (*callback.CardActionTriggerResponse, error) {
+	toast := func(typ, text string) *callback.CardActionTriggerResponse {
+		return &callback.CardActionTriggerResponse{Toast: &callback.Toast{Type: typ, Content: text}}
+	}
+	if event == nil || event.Event == nil || event.Event.Action == nil {
+		return toast("error", "无法识别的卡片操作"), nil
+	}
+	value := event.Event.Action.Value
+	cmd, _ := value["cmd"].(string)
+	chatID, _ := value["chat_id"].(string)
+	operatorOpenID := ""
+	if event.Event.Operator != nil {
+		operatorOpenID = event.Event.Operator.OpenID
+	}
+
+	// Resolve the operator through the same sender gate as typed messages;
+	// a button click must never bypass the channel allowlist.
+	sender := bus.SenderInfo{
+		Platform:   "feishu",
+		PlatformID: operatorOpenID,
+	}
+	if operatorOpenID != "" {
+		sender.CanonicalID = identity.BuildCanonicalID("feishu", operatorOpenID)
+	}
+	if !c.IsAllowedSender(sender) {
+		return toast("error", "无权执行此操作"), nil
+	}
+
+	switch cmd {
+	case feishuStopCmd:
+		if chatID == "" {
+			return toast("error", "卡片缺少会话信息"), nil
+		}
+		// The button only exists while a card streams, but a delayed click can
+		// land after the turn sealed; refuse instead of stopping nothing.
+		if !c.chatHasActiveStreamer(chatID) {
+			return toast("info", "当前没有进行中的任务"), nil
+		}
+		inboundCtx := bus.InboundContext{
+			Channel:  "feishu",
+			ChatID:   chatID,
+			SenderID: operatorOpenID,
+		}
+		// Detached context: the /stop processing is downstream of the callback
+		// and must not be bound to the ws frame's lifetime.
+		if err := c.HandleInboundContext(context.Background(), chatID, "/stop", nil, inboundCtx, sender); err != nil {
+			logger.WarnCF("feishu", "stop button: /stop enqueue failed", map[string]any{
+				"chat_id": chatID,
+				"error":   err.Error(),
+			})
+			return toast("error", "停止指令发送失败"), nil
+		}
+		logger.InfoCF("feishu", "stop button clicked; /stop enqueued", map[string]any{
+			"chat_id": chatID,
+			"sender":  operatorOpenID,
+		})
+		return toast("success", "已发送停止指令"), nil
+	default:
+		return toast("info", "未知操作"), nil
+	}
+}
+
+// chatHasActiveStreamer reports whether the chat still has an unsealed
+// streaming card (i.e. a stoppable turn).
+func (c *FeishuChannel) chatHasActiveStreamer(chatID string) bool {
+	v, ok := c.streams.Load(chatID)
+	if !ok {
+		return false
+	}
+	s, ok := v.(*feishuCardStreamer)
+	if !ok {
+		return false
+	}
+	s.mu.Lock()
+	active := s.streamerActiveLocked()
+	s.mu.Unlock()
+	return active
 }
 
 // Update streams accumulated answer text into the card's answer element,
@@ -348,7 +442,7 @@ func (s *feishuCardStreamer) refreshPanelLocked(ctx context.Context) error {
 
 	spinnerKey := s.spinnerKey
 	card := buildFeishuCardWithinSize(func(panelBudget int) map[string]any {
-		return buildFeishuRefreshCard(&s.state, s.answer, s.phase, panelBudget, spinnerKey)
+		return buildFeishuRefreshCard(&s.state, s.answer, s.phase, panelBudget, spinnerKey, s.chatID)
 	})
 	s.panelSentAt = time.Now()
 	s.panelDirty = false
