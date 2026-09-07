@@ -56,7 +56,7 @@
   --grid-line: oklch(0.541 0.247 293 / 4%);
   --background: oklch(0.985 0.004 292);
   --foreground: oklch(0.21 0.02 290);
-  --card: oklch(1 0 0 / 88%);
+  --card: oklch(1 0 0 / 96%);
   --card-foreground: oklch(0.21 0.02 290);
   --popover: oklch(1 0.002 292 / 96%);
   --popover-foreground: oklch(0.21 0.02 290);
@@ -95,7 +95,7 @@
   --grid-line: oklch(0.75 0.12 292 / 8%);
   --background: oklch(0.145 0.022 284);
   --foreground: oklch(0.965 0.006 286);
-  --card: oklch(0.19 0.03 286 / 88%);
+  --card: oklch(0.225 0.032 286 / 96%);
   --card-foreground: oklch(0.965 0.006 286);
   --popover: oklch(0.21 0.03 286 / 92%);
   --popover-foreground: oklch(0.965 0.006 286);
@@ -201,13 +201,14 @@ header.sticky {
   border-bottom-color: color-mix(in oklab, var(--primary) 18%, transparent);
 }
 
-/* Frosted cards: solid enough to read on the aurora backdrop, with a violet
-   glow that lifts them on hover. */
+/* Frosted cards: bright solid panel that pops off the aurora backdrop, with
+   a violet edge glow that lifts them on hover. */
 [data-slot="card"] {
   background: var(--card);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 8px 32px -12px color-mix(in oklab, var(--primary) 22%, transparent);
+  border-color: color-mix(in oklab, var(--primary) 22%, var(--border));
+  box-shadow: 0 8px 32px -12px color-mix(in oklab, var(--primary) 28%, transparent);
   transition:
     border-color 0.25s ease,
     box-shadow 0.25s ease,
