@@ -413,6 +413,59 @@ PicoClaw 可以自动执行周期性任务。在工作区创建 `HEARTBEAT.md` �
 
 Agent 将每隔 30 分钟（可配置）读取此文件，并使用可用工具执行任务。
 
+### 低收益循环检测 (loop_detection)
+
+Agent 陷入"烧 token 换不来进展"的循环时（同一命令反复失败、连续编辑不做验证），在工具结果中注入重规划警示，提示模型停下换策略。**不会终止任务**，误报的代价只是一条提示。借鉴 MiMo-Code 的 Try-Best 设计（详见 `docs/design/mimo-code-borrowing-analysis.zh.md`）。
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "loop_detection": {
+        "enabled": true,
+        "bash_retry_threshold": 3,
+        "edit_streak_threshold": 4
+      }
+    }
+  }
+}
+```
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `enabled` | 未配置时视为 `true` | 总开关；显式设为 `false` 关闭。存量配置无此块时检测依然生效 |
+| `bash_retry_threshold` | 3 | 同一命令（归一化临时路径/时长/seed 后）连续失败且输出无变化的触发次数 |
+| `edit_streak_threshold` | 4 | 连续 edit_file/write_file/append_file 调用之间无其他动作的触发次数 |
+
+命中后检测器自动重置，需重新累计才会再次触发（幂等）。环境变量：`PICOCLAW_AGENTS_DEFAULTS_LOOP_DETECTION_ENABLED` 等。
+
+### 共享记忆 (memory)
+
+对接 MCP 记忆服务（如 OpenViking）的自动召回与会话提交，完整接入指南见 `docs/guides/openviking.md`。
+
+```json
+{
+  "memory": {
+    "recall": {
+      "enabled": true,
+      "server": "openviking",
+      "tool": "search",
+      "max_chars": 2400,
+      "timeout_ms": 3000
+    },
+    "commit": {
+      "enabled": true,
+      "server": "openviking",
+      "tool": "remember",
+      "timeout_ms": 5000
+    }
+  }
+}
+```
+
+- `memory.recall`：turn 开始时以用户消息为语义查询调用 `server`（须已在 `tools.mcp.servers` 注册）的 `tool`，命中内容注入系统提示词记忆槽；`max_chars` 限制注入上限，`timeout_ms` 限制单次调用时长。
+- `memory.commit`：完成的 turn（用户消息 + 最终答复）推送到记忆服务，由其异步蒸馏为长期记忆。
+
 #### 使用 Spawn 的异步任务
 
 对于耗时较长的任务（网络搜索、API 调用），使用 `spawn` 工具创建一个 **子 Agent (subagent)**：

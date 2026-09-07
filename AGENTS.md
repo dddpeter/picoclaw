@@ -1,0 +1,30 @@
+# AGENTS.md — Agent 协作须知
+
+本仓库是 [sipeed/picoclaw](https://github.com/sipeed/picoclaw) 的个人 fork（remote `origin` = dddpeter/picoclaw，`upstream` = sipeed/picoclaw），面向个人部署增强。**fork 的功能地图、行为差异与上游同步注意事项见 `docs/design/fork-overview.zh.md`**，改代码前先读它。
+
+## 仓库事实
+
+- Go 项目，`go build ./...` 全量编译，`go test ./pkg/...` 全量测试（agent 套件约 70 秒）。
+- 本 fork 独有的测试集中在：`/new` 与 `/switch` 的非阻塞语义、流式响应头超时、输出清理管线、低收益循环检测——同步上游后必须保证这些测试仍然通过。
+- 文档以中文为主：`docs/guides/configuration.zh.md`（配置详解）、`docs/guides/openviking.md`（共享记忆）、`docs/design/`（设计文档：fork-overview、mimo-code-borrowing-analysis、steering-spec 等）。
+
+## 本 fork 的关键行为差异（改动时不要"修"掉它们）
+
+- turn 全程持有 agent 模型状态读锁（`runTurn`），因此**任何命令路径禁止无超时地拿该写锁**——用 TryLock + 降级提示（参考 `ResetModel` / `SwitchModel` 的实现）。
+- `/new` 会重读磁盘配置并把模型重置为配置默认值；`/switch`、`/new` 在 turn 活跃时返回 busy 而非排队。
+- ChatStream 走独立流式 Transport（响应头超时默认 90 秒）；改 `openai_compat` provider 时保留 `streamRoundTripper` 语义。
+- exec 工具的 inline 输出经过清理管线（`pkg/tools/output_clean.go`），落盘保持原文；给清理管线加新规则时保持 never-worse 守门。
+- `agents.defaults.loop_detection` 的 `enabled` 是 `*bool`，**未配置 = 开启**——不要改成值类型 bool，否则存量配置会静默关闭检测。
+
+## 部署链路（本机）
+
+- systemd 用户服务 `picoclaw.service` → `~/.local/bin/picoclaw-nr-gateway`（bash 包装脚本，替换配置中的密钥占位符）→ `/usr/bin/picoclaw gateway`。
+- 源码唯一真源：`/works/workspace/ai/picoclaw`。构建部署：`go build -o /tmp/picoclaw-new ./cmd/picoclaw && sudo install -m 0755 /tmp/picoclaw-new /usr/bin/picoclaw && systemctl --user restart picoclaw.service`。
+- 配置在 `~/.picoclaw/config.json`（version 3），workspace 在 `~/.picoclaw/workspace/`。热重载 `gateway.hot_reload` 只在进程启动时读取；改默认模型后可用聊天命令 `/reload` 或重启服务。
+- 排查运行时挂起：`kill -QUIT <pid>` 触发 goroutine dump（写入 `~/.picoclaw/logs/gateway_panic.log`），systemd 自动拉起服务。
+
+## 协作规范
+
+- 提交信息用 conventional commits（`feat:`/`fix:`/`docs:`），中文内容允许出现在 body。
+- push 需用户明确指令，不要自动推送。
+- 技术文档：先调查后落笔，不写金额信息；更新已有文档前必须读完全文。

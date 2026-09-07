@@ -20,6 +20,8 @@
 
 **中文** | [日本語](README.ja.md) | [한국어](README.ko.md) | [Português](README.pt-br.md) | [Tiếng Việt](README.vi.md) | [Français](README.fr.md) | [Italiano](README.it.md) | [Bahasa Indonesia](README.id.md) | [Malay](README.ms.md) | [English](../../README.md)
 
+> **关于本 fork** — 本仓库是 [sipeed/picoclaw](https://github.com/sipeed/picoclaw) 的个人分支，在上游基础上增加了：飞书 CardKit 流式卡片（含过程面板）、OpenViking 共享记忆召回/提交、`/new`（重开会话**并**重置为配置文件当前定义的默认模型）、非阻塞 `/switch`、流式响应头超时、命令输出 inline 清理、低收益循环检测。完整功能地图与上游同步注意事项见 [docs/design/fork-overview.zh.md](../design/fork-overview.zh.md)。本 fork 的功能需**从源码构建**；下文安装指引指向的是上游官方发布渠道。
+
 </div>
 
 ---

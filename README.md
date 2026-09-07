@@ -20,6 +20,8 @@
 
 [中文](docs/project/README.zh.md) | [日本語](docs/project/README.ja.md) | [한국어](docs/project/README.ko.md) | [Português](docs/project/README.pt-br.md) | [Tiếng Việt](docs/project/README.vi.md) | [Français](docs/project/README.fr.md) | [Italiano](docs/project/README.it.md) | [Bahasa Indonesia](docs/project/README.id.md) | [Malay](docs/project/README.ms.md) | **English**
 
+> **About this fork** — this repository is a personal fork of [sipeed/picoclaw](https://github.com/sipeed/picoclaw) with additions on top of upstream: Feishu CardKit streaming cards with a process panel, OpenViking shared-memory recall/commit, `/new` (reset conversation **and** the configured default model, re-reading the config file), non-blocking `/switch`, streamed-response header timeout, inline command-output cleaning, and low-progress loop detection. See [docs/design/fork-overview.zh.md](docs/design/fork-overview.zh.md) (中文) for the full feature map and upstream-sync notes. The fork's features are only available when **building from source**; the install channels below point to upstream releases.
+
 </div>
 
 ---
