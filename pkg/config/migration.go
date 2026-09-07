@@ -82,6 +82,14 @@ func migrateLegacyAgentDefaultsModel(m map[string]any) {
 
 // loadConfigV1 loads a version 1 config (current schema)
 func loadConfig(data []byte) (*Config, error) {
+	cfg, _, err := loadConfigLenient(data, false)
+	return cfg, err
+}
+
+// loadConfigLenient decodes config bytes. When lenient is true, unknown fields
+// are skipped with warnings collected instead of failing the load; JSON syntax
+// errors always fail regardless of mode.
+func loadConfigLenient(data []byte, lenient bool) (*Config, []string, error) {
 	cfg := DefaultConfig()
 	evolutionModeExplicit := configObjectHasField(data, "evolution", "mode")
 	evolutionExplicitWithoutMode := configObjectHasTopLevelField(data, "evolution") && !evolutionModeExplicit
@@ -93,20 +101,57 @@ func loadConfig(data []byte) (*Config, error) {
 	// index position. We only reset cfg.ModelList when the user actually provides
 	// entries; when count is 0 we keep DefaultConfig's built-in list as fallback.
 	var tmp Config
-	if err := decodeJSONWithDiagnostics(data, &tmp, "config.json"); err != nil {
-		return nil, err
+	var warnings []string
+	var err error
+	if lenient {
+		warnings, err = decodeJSONLenient(data, &tmp, "config.json")
+	} else {
+		err = decodeJSONWithDiagnostics(data, &tmp, "config.json")
+	}
+	if err != nil {
+		return nil, nil, err
 	}
 	if len(tmp.ModelList) > 0 {
 		cfg.ModelList = nil
 	}
 
-	if err := decodeJSONWithDiagnostics(data, cfg, "config.json"); err != nil {
-		return nil, err
+	if lenient {
+		var w2 []string
+		w2, err = decodeJSONLenient(data, cfg, "config.json")
+		warnings = mergeFieldWarnings(warnings, w2)
+	} else {
+		err = decodeJSONWithDiagnostics(data, cfg, "config.json")
+	}
+	if err != nil {
+		return nil, nil, err
 	}
 	if evolutionExplicitWithoutMode {
 		cfg.Evolution.Mode = ""
 	}
-	return cfg, nil
+	return cfg, warnings, nil
+}
+
+// mergeFieldWarnings merges two unknown-field warning lists, deduplicating
+// (both decode passes report the same fields) while keeping order stable.
+func mergeFieldWarnings(a, b []string) []string {
+	if len(a) == 0 {
+		return b
+	}
+	if len(b) == 0 {
+		return a
+	}
+	seen := make(map[string]struct{}, len(a)+len(b))
+	merged := make([]string, 0, len(a)+len(b))
+	for _, list := range [][]string{a, b} {
+		for _, f := range list {
+			if _, ok := seen[f]; ok {
+				continue
+			}
+			seen[f] = struct{}{}
+			merged = append(merged, f)
+		}
+	}
+	return merged
 }
 
 func configObjectHasTopLevelField(data []byte, field string) bool {

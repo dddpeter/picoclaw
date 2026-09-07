@@ -5,7 +5,7 @@ import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
-import { patchAppConfig, resetAppConfig } from "@/api/channels"
+import { extractConfigWarnings, patchAppConfig, resetAppConfig } from "@/api/channels"
 import { launcherFetch } from "@/api/http"
 import { postLauncherDashboardSetup } from "@/api/launcher-auth"
 import {
@@ -123,7 +123,10 @@ export function ConfigPage() {
           signal: controller.signal,
         })
         if (!res.ok) {
-          throw new Error("Failed to load config")
+          const body = (await res.json().catch(() => null)) as {
+            error?: string
+          } | null
+          throw new Error(body?.error ?? "Failed to load config")
         }
         return res.json()
       } finally {
@@ -131,6 +134,12 @@ export function ConfigPage() {
       }
     },
   })
+
+  // Unknown fields are tolerated by the backend; surface them as a banner
+  // instead of blocking the page. `clean` keeps the editor payload free of
+  // the injected config_warnings key.
+  const { clean: cleanConfig, warnings: configWarnings } =
+    extractConfigWarnings(data ?? {})
 
   const { data: launcherConfig, isLoading: isLauncherLoading } = useQuery({
     queryKey: ["system", "launcher-config"],
@@ -153,8 +162,8 @@ export function ConfigPage() {
   })
 
   useEffect(() => {
-    if (!data) return
-    const parsed = buildFormFromConfig(data)
+    if (!cleanConfig) return
+    const parsed = buildFormFromConfig(cleanConfig)
     setForm(parsed)
     setBaseline(parsed)
   }, [data])
@@ -799,13 +808,26 @@ export function ConfigPage() {
             </div>
           ) : error ? (
             <div className="space-y-4">
-              <div className="text-destructive py-6 text-sm">
+              <div className="text-destructive py-6 text-sm whitespace-pre-wrap">
                 {t("pages.config.load_error")}
+                {error instanceof Error && error.message
+                  ? "\n" + error.message
+                  : ""}
               </div>
               <div className="flex justify-end">{factoryResetButton}</div>
             </div>
           ) : (
             <div className="space-y-6">
+              {configWarnings.length > 0 && (
+                <ConfigChangeNotice
+                  kind="warning"
+                  title={t("pages.config.unknown_fields_title")}
+                  description={t("pages.config.unknown_fields_desc", {
+                    fields: configWarnings.join(", "),
+                  })}
+                  className="shrink-0"
+                />
+              )}
               <LauncherSection
                 launcherForm={launcherForm}
                 onFieldChange={updateLauncherField}

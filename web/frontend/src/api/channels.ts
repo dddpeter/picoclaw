@@ -3,6 +3,30 @@ import { launcherFetch } from "@/api/http"
 export type ChannelConfig = Record<string, unknown>
 export type AppConfig = Record<string, unknown>
 
+/**
+ * Unknown-field warnings attached by the backend when it loaded the config
+ * leniently (GET /api/config may respond with the config plus a
+ * `config_warnings` array). Extract them and return a clean config object.
+ */
+export function extractConfigWarnings(
+  config: AppConfig,
+): { clean: AppConfig; warnings: string[] } {
+  if (!config || typeof config !== "object") {
+    return { clean: config, warnings: [] }
+  }
+  const warnings = Array.isArray(config.config_warnings)
+    ? (config.config_warnings as unknown[])
+        .filter((w): w is string => typeof w === "string")
+        .filter((w) => w.length > 0)
+    : []
+  if (warnings.length === 0) {
+    return { clean: config, warnings: [] }
+  }
+  const clean: AppConfig = { ...config }
+  delete clean.config_warnings
+  return { clean, warnings }
+}
+
 export interface SupportedChannel {
   name: string
   display_name?: string

@@ -43,6 +43,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/cron"
 	"github.com/sipeed/picoclaw/pkg/devices"
 	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
+	"github.com/sipeed/picoclaw/pkg/fileutil"
 	"github.com/sipeed/picoclaw/pkg/health"
 	"github.com/sipeed/picoclaw/pkg/heartbeat"
 	"github.com/sipeed/picoclaw/pkg/logger"
@@ -786,8 +787,13 @@ func setupConfigWatcherPolling(configPath string, debug bool) (chan *config.Conf
 					newCfg, err := config.LoadConfig(configPath)
 					if err != nil {
 						logger.Errorf("⚠ Error loading new config: %v", err)
-						logger.Warn("  Using previous valid config")
-						continue
+						logger.Warn("  Attempting to restore config from backup...")
+						if restoredCfg, ok := restoreConfigFromBackup(configPath); ok {
+							newCfg = restoredCfg
+						} else {
+							logger.Warn("  Using previous valid config (no backup restored)")
+							continue
+						}
 					}
 
 					if err := newCfg.ValidateModelList(); err != nil {
@@ -816,6 +822,45 @@ func setupConfigWatcherPolling(configPath string, debug bool) (chan *config.Conf
 	}
 
 	return configChan, stopFunc
+}
+
+// restoreConfigFromBackup attempts to recover a malformed config.json by
+// restoring the most recent loadable backup (path + ".YYYYMMDD.bak" pattern,
+// written by config.MakeBackup). Keeps the bad file for forensics as
+// path + ".corrupt.<timestamp>". Returns the restored config on success.
+func restoreConfigFromBackup(configPath string) (*config.Config, bool) {
+	badData, badErr := os.ReadFile(configPath)
+	if badErr != nil {
+		return nil, false // cannot even read the bad file; nothing to salvage
+	}
+	corruptPath := configPath + ".corrupt." + time.Now().Format("20060102_150405")
+	if err := fileutil.WriteFileAtomic(corruptPath, badData, 0o600); err != nil {
+		logger.Errorf("⚠ Failed to quarantine malformed config: %v", err)
+		// non-fatal: still try to restore
+	} else {
+		logger.Warnf("🛟 Malformed config quarantined at %s", corruptPath)
+	}
+
+	matches, _ := filepath.Glob(configPath + ".*.bak")
+	// filepath.Glob returns sorted names; latest date suffix = newest first target
+	for i := len(matches) - 1; i >= 0; i-- {
+		bakPath := matches[i]
+		if _, err := os.Stat(bakPath); err != nil {
+			continue
+		}
+		if err := fileutil.CopyFile(bakPath, configPath, 0o600); err != nil {
+			logger.Errorf("⚠ Failed to restore from %s: %v", bakPath, err)
+			continue
+		}
+		cfg, err := config.LoadConfig(configPath)
+		if err != nil {
+			logger.Errorf("⚠ Backup %s also unloadable: %v", bakPath, err)
+			continue
+		}
+		logger.Infof("🛟 Config restored from backup %s", bakPath)
+		return cfg, true
+	}
+	return nil, false
 }
 
 func getFileModTime(path string) time.Time {

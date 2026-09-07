@@ -5,6 +5,7 @@ import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
+import { extractConfigWarnings } from "@/api/channels"
 import { launcherFetch } from "@/api/http"
 import { ConfigChangeNotice } from "@/components/config-change-notice"
 import { PageHeader } from "@/components/page-header"
@@ -33,7 +34,10 @@ export function RawConfigPage() {
     queryFn: async () => {
       const res = await launcherFetch("/api/config")
       if (!res.ok) {
-        throw new Error("Failed to fetch config")
+        const body = (await res.json().catch(() => null)) as {
+          error?: string
+        } | null
+        throw new Error(body?.error ?? "Failed to fetch config")
       }
       return res.json()
     },
@@ -80,8 +84,12 @@ export function RawConfigPage() {
     unknown
   > | null>(null)
 
+  // Strip backend-injected config_warnings so saving the raw editor never
+  // writes the warning list back into config.json.
+  const { clean: cleanConfig, warnings: configWarnings } =
+    extractConfigWarnings(config ?? {})
   const effectiveEditorValue =
-    editorValue || (config ? JSON.stringify(config, null, 2) : "")
+    editorValue || (cleanConfig ? JSON.stringify(cleanConfig, null, 2) : "")
 
   const handleSave = () => {
     try {
@@ -148,6 +156,16 @@ export function RawConfigPage() {
             </div>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col gap-3">
+              {configWarnings.length > 0 && (
+                <ConfigChangeNotice
+                  kind="warning"
+                  title={t("pages.config.unknown_fields_title")}
+                  description={t("pages.config.unknown_fields_desc", {
+                    fields: configWarnings.join(", "),
+                  })}
+                  className="shrink-0"
+                />
+              )}
               {isDirty && (
                 <ConfigChangeNotice
                   kind="save"

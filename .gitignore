@@ -74,3 +74,4 @@ docker/data
 
 .omc/
 .worktrees/
+.playwright-mcp/

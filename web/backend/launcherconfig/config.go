@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/sipeed/picoclaw/pkg/fileutil"
 )
 
 const (
@@ -141,7 +143,8 @@ func detectBoolFieldSource(data []byte, field string) BoolFieldSource {
 	return BoolFieldPresent
 }
 
-// Save writes launcher settings to disk.
+// Save writes launcher settings to disk atomically (temp file + fsync + rename)
+// so an interrupted write can never leave a truncated config behind.
 func Save(path string, cfg Config) error {
 	cfg.AllowedCIDRs = NormalizeCIDRs(cfg.AllowedCIDRs)
 	cfg.TrustedProxyCIDRs = NormalizeCIDRs(cfg.TrustedProxyCIDRs)
@@ -150,13 +153,10 @@ func Save(path string, cfg Config) error {
 	if err := Validate(cfg); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
 	}
 	data = append(data, '\n')
-	return os.WriteFile(path, data, 0o600)
+	return fileutil.WriteFileAtomic(path, data, 0o600)
 }

@@ -959,7 +959,9 @@
       "factory_reset_confirm_desc": "Isso redefinirá todas as configurações para os padrões de fábrica. As chaves de API e credenciais de segurança serão preservadas. Um backup da configuração atual será criado.",
       "factory_reset_confirm": "Redefinir para Padrões",
       "factory_reset_success": "A configuração foi redefinida para os padrões de fábrica.",
-      "factory_reset_error": "Falha ao redefinir a configuração."
+      "factory_reset_error": "Falha ao redefinir a configuração.",
+      "unknown_fields_title": "A configuração contém campos desconhecidos",
+      "unknown_fields_desc": "Os campos a seguir não são reconhecidos por esta versão e foram ignorados: {{fields}}"
     },
     "logs": {
       "log_level_error": "Falha ao atualizar nível de log.",

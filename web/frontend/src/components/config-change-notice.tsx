@@ -7,14 +7,14 @@ import {
 import { cn } from "@/lib/utils"
 
 interface ConfigChangeNoticeProps {
-  kind: "save" | "restart"
+  kind?: "save" | "restart" | "warning"
   title: string
   description?: string
   className?: string
 }
 
 export function ConfigChangeNotice({
-  kind,
+  kind = "save",
   title,
   description,
   className,
@@ -32,7 +32,9 @@ export function ConfigChangeNotice({
         "flex items-start gap-3 rounded-lg border px-3 py-2 text-sm",
         kind === "restart"
           ? "border-amber-200 bg-amber-50 text-amber-900"
-          : "border-yellow-200 bg-yellow-50 text-yellow-900",
+          : kind === "warning"
+            ? "border-orange-200 bg-orange-50 text-orange-900"
+            : "border-yellow-200 bg-yellow-50 text-yellow-900",
         className,
       )}
     >

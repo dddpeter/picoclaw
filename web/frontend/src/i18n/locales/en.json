@@ -959,7 +959,9 @@
       "factory_reset_confirm_desc": "This will reset all configuration to factory defaults. API keys and security credentials will be preserved. A backup of the current config will be created.",
       "factory_reset_confirm": "Reset to Defaults",
       "factory_reset_success": "Configuration has been reset to factory defaults.",
-      "factory_reset_error": "Failed to reset configuration."
+      "factory_reset_error": "Failed to reset configuration.",
+      "unknown_fields_title": "Config contains unknown fields",
+      "unknown_fields_desc": "The following fields are not recognized by this version and were ignored: {{fields}}"
     },
     "logs": {
       "log_level_error": "Failed to update log level.",

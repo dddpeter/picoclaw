@@ -957,7 +957,9 @@
       "factory_reset_confirm_desc": "Tímto obnovíte veškerou konfiguraci na tovární nastavení. API klíče a bezpečnostní údaje budou zachovány. Záloha aktuální konfigurace bude vytvořena.",
       "factory_reset_confirm": "Obnovit výchozí nastavení",
       "factory_reset_success": "Konfigurace byla obnovena na tovární nastavení.",
-      "factory_reset_error": "Obnovení konfigurace selhalo."
+      "factory_reset_error": "Obnovení konfigurace selhalo.",
+      "unknown_fields_title": "Konfigurace obsahuje neznámá pole",
+      "unknown_fields_desc": "Následující pole tato verze nezná a byla ignorována: {{fields}}"
     },
     "logs": {
       "log_level_error": "Aktualizace úrovně logování selhala.",

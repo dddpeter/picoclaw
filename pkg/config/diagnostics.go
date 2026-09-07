@@ -34,6 +34,23 @@ func decodeJSONWithDiagnostics(data []byte, target any, label string) error {
 	return nil
 }
 
+// decodeJSONLenient parses data into target. JSON syntax errors are returned
+// as hard errors (same diagnostics as the strict path), but unknown fields are
+// tolerated: they are skipped by the decoder and reported back as a sorted
+// warning list so UIs can surface them without blocking config loading.
+func decodeJSONLenient(data []byte, target any, label string) ([]string, error) {
+	var raw any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, wrapJSONError(data, err, label)
+	}
+	warnings := collectUnknownJSONFields(raw, reflect.TypeOf(target), "")
+	sort.Strings(warnings)
+	if err := json.Unmarshal(data, target); err != nil {
+		return nil, wrapJSONError(data, err, label)
+	}
+	return warnings, nil
+}
+
 func DiagnosticSummary(err error) string {
 	if err == nil {
 		return ""

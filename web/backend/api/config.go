@@ -34,14 +34,38 @@ func (h *Handler) applyRuntimeLogLevel() {
 //
 //	GET /api/config
 func (h *Handler) handleGetConfig(w http.ResponseWriter, r *http.Request) {
-	cfg, err := config.LoadConfig(h.configPath)
+	cfg, warnings, err := config.LoadConfigLenient(h.configPath)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to load config: %v", err), http.StatusInternalServerError)
+		// Syntax error (or unreadable file): hard-fail so the UI can show
+		// the diagnostic instead of rendering an empty/partial form.
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		writeErrorf(w, "%v", fmt.Sprintf("Failed to load config: %v", err))
 		return
 	}
 
+	// Keep the response shape a bare Config for backward compatibility; when
+	// unknown fields were tolerated, attach them alongside so the UI can warn.
+	// NOTE: Config has a custom MarshalJSON, so the warned variant cannot embed
+	// *config.Config (method promotion would shadow config_warnings); marshal
+	// the config first and splice the key into the resulting object instead.
+	var resp any = cfg
+	if len(warnings) > 0 {
+		cfgBytes, err := json.Marshal(cfg)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to encode config: %v", err), http.StatusInternalServerError)
+			return
+		}
+		var obj map[string]any
+		if err := json.Unmarshal(cfgBytes, &obj); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to encode config: %v", err), http.StatusInternalServerError)
+			return
+		}
+		obj["config_warnings"] = warnings
+		resp = obj
+	}
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(cfg); err != nil {
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 	}
 }

@@ -462,32 +462,32 @@ type ToolFeedbackConfig struct {
 }
 
 type AgentDefaults struct {
-	Workspace                 string             `json:"workspace"                        env:"PICOCLAW_AGENTS_DEFAULTS_WORKSPACE"`
-	RestrictToWorkspace       bool               `json:"restrict_to_workspace"            env:"PICOCLAW_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE"`
-	AllowReadOutsideWorkspace bool               `json:"allow_read_outside_workspace"     env:"PICOCLAW_AGENTS_DEFAULTS_ALLOW_READ_OUTSIDE_WORKSPACE"`
-	Provider                  string             `json:"provider"                         env:"PICOCLAW_AGENTS_DEFAULTS_PROVIDER"`
-	ModelName                 string             `json:"model_name"                       env:"PICOCLAW_AGENTS_DEFAULTS_MODEL_NAME"`
-	ModelFallbacks            []string           `json:"model_fallbacks,omitempty"`
-	ImageModel                string             `json:"image_model,omitempty"            env:"PICOCLAW_AGENTS_DEFAULTS_IMAGE_MODEL"`
-	ImageModelFallbacks       []string           `json:"image_model_fallbacks,omitempty"`
-	MaxTokens                 int                `json:"max_tokens"                       env:"PICOCLAW_AGENTS_DEFAULTS_MAX_TOKENS"`
-	ContextWindow             int                `json:"context_window,omitempty"         env:"PICOCLAW_AGENTS_DEFAULTS_CONTEXT_WINDOW"`
-	Temperature               *float64           `json:"temperature,omitempty"            env:"PICOCLAW_AGENTS_DEFAULTS_TEMPERATURE"`
-	MaxToolIterations         int                `json:"max_tool_iterations"              env:"PICOCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`
-	SummarizeMessageThreshold int                `json:"summarize_message_threshold"      env:"PICOCLAW_AGENTS_DEFAULTS_SUMMARIZE_MESSAGE_THRESHOLD"`
-	SummarizeTokenPercent     int                `json:"summarize_token_percent"          env:"PICOCLAW_AGENTS_DEFAULTS_SUMMARIZE_TOKEN_PERCENT"`
-	MaxMediaSize              int                `json:"max_media_size,omitempty"         env:"PICOCLAW_AGENTS_DEFAULTS_MAX_MEDIA_SIZE"`
-	Routing                   *RoutingConfig     `json:"routing,omitempty"`
-	SteeringMode              string             `json:"steering_mode,omitempty"          env:"PICOCLAW_AGENTS_DEFAULTS_STEERING_MODE"`      // "one-at-a-time" (default) or "all"
-	MaxParallelTurns          int                `json:"max_parallel_turns,omitempty"     env:"PICOCLAW_AGENTS_DEFAULTS_MAX_PARALLEL_TURNS"` // Max concurrent turns (0 or 1 = sequential)
-	SubTurn                   SubTurnConfig      `json:"subturn"                                                                                      envPrefix:"PICOCLAW_AGENTS_DEFAULTS_SUBTURN_"`
-	ToolFeedback              ToolFeedbackConfig `json:"tool_feedback,omitempty"`
-	SplitOnMarker             bool               `json:"split_on_marker"                  env:"PICOCLAW_AGENTS_DEFAULTS_SPLIT_ON_MARKER"` // split messages on <|[SPLIT]|> marker
-	ContextManager            string             `json:"context_manager,omitempty"        env:"PICOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER"`
-	ContextManagerConfig      json.RawMessage    `json:"context_manager_config,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER_CONFIG"`
-	TurnProfile               TurnProfileConfig  `json:"turn_profile,omitempty"`
-	MaxLLMRetries             int                `json:"max_llm_retries,omitempty"        env:"PICOCLAW_AGENTS_DEFAULTS_MAX_LLM_RETRIES"`
-	LLMRetryBackoffSecs       int                `json:"llm_retry_backoff_secs,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_LLM_RETRY_BACKOFF_SECS"`
+	Workspace                 string              `json:"workspace"                        env:"PICOCLAW_AGENTS_DEFAULTS_WORKSPACE"`
+	RestrictToWorkspace       bool                `json:"restrict_to_workspace"            env:"PICOCLAW_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE"`
+	AllowReadOutsideWorkspace bool                `json:"allow_read_outside_workspace"     env:"PICOCLAW_AGENTS_DEFAULTS_ALLOW_READ_OUTSIDE_WORKSPACE"`
+	Provider                  string              `json:"provider"                         env:"PICOCLAW_AGENTS_DEFAULTS_PROVIDER"`
+	ModelName                 string              `json:"model_name"                       env:"PICOCLAW_AGENTS_DEFAULTS_MODEL_NAME"`
+	ModelFallbacks            []string            `json:"model_fallbacks,omitempty"`
+	ImageModel                string              `json:"image_model,omitempty"            env:"PICOCLAW_AGENTS_DEFAULTS_IMAGE_MODEL"`
+	ImageModelFallbacks       []string            `json:"image_model_fallbacks,omitempty"`
+	MaxTokens                 int                 `json:"max_tokens"                       env:"PICOCLAW_AGENTS_DEFAULTS_MAX_TOKENS"`
+	ContextWindow             int                 `json:"context_window,omitempty"         env:"PICOCLAW_AGENTS_DEFAULTS_CONTEXT_WINDOW"`
+	Temperature               *float64            `json:"temperature,omitempty"            env:"PICOCLAW_AGENTS_DEFAULTS_TEMPERATURE"`
+	MaxToolIterations         int                 `json:"max_tool_iterations"              env:"PICOCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`
+	SummarizeMessageThreshold int                 `json:"summarize_message_threshold"      env:"PICOCLAW_AGENTS_DEFAULTS_SUMMARIZE_MESSAGE_THRESHOLD"`
+	SummarizeTokenPercent     int                 `json:"summarize_token_percent"          env:"PICOCLAW_AGENTS_DEFAULTS_SUMMARIZE_TOKEN_PERCENT"`
+	MaxMediaSize              int                 `json:"max_media_size,omitempty"         env:"PICOCLAW_AGENTS_DEFAULTS_MAX_MEDIA_SIZE"`
+	Routing                   *RoutingConfig      `json:"routing,omitempty"`
+	SteeringMode              string              `json:"steering_mode,omitempty"          env:"PICOCLAW_AGENTS_DEFAULTS_STEERING_MODE"`      // "one-at-a-time" (default) or "all"
+	MaxParallelTurns          int                 `json:"max_parallel_turns,omitempty"     env:"PICOCLAW_AGENTS_DEFAULTS_MAX_PARALLEL_TURNS"` // Max concurrent turns (0 or 1 = sequential)
+	SubTurn                   SubTurnConfig       `json:"subturn"                                                                                      envPrefix:"PICOCLAW_AGENTS_DEFAULTS_SUBTURN_"`
+	ToolFeedback              ToolFeedbackConfig  `json:"tool_feedback,omitempty"`
+	SplitOnMarker             bool                `json:"split_on_marker"                  env:"PICOCLAW_AGENTS_DEFAULTS_SPLIT_ON_MARKER"` // split messages on <|[SPLIT]|> marker
+	ContextManager            string              `json:"context_manager,omitempty"        env:"PICOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER"`
+	ContextManagerConfig      json.RawMessage     `json:"context_manager_config,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER_CONFIG"`
+	TurnProfile               TurnProfileConfig   `json:"turn_profile,omitempty"`
+	MaxLLMRetries             int                 `json:"max_llm_retries,omitempty"        env:"PICOCLAW_AGENTS_DEFAULTS_MAX_LLM_RETRIES"`
+	LLMRetryBackoffSecs       int                 `json:"llm_retry_backoff_secs,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_LLM_RETRY_BACKOFF_SECS"`
 	LoopDetection             LoopDetectionConfig `json:"loop_detection,omitempty"`
 	// ProjectDocs lists workspace-root markdown files auto-injected into the
 	// system prompt (AGENTS.md, README.md, ...). Absent from the config file
@@ -503,8 +503,8 @@ type LoopDetectionConfig struct {
 	// Enabled is nil when unset, which means enabled — existing configs
 	// without the loop_detection block must not silently turn it off.
 	Enabled             *bool `json:"enabled,omitempty"    env:"PICOCLAW_AGENTS_DEFAULTS_LOOP_DETECTION_ENABLED"`
-	BashRetryThreshold  int  `json:"bash_retry_threshold"  env:"PICOCLAW_AGENTS_DEFAULTS_LOOP_DETECTION_BASH_RETRY_THRESHOLD"`  // consecutive identical failed commands
-	EditStreakThreshold int  `json:"edit_streak_threshold" env:"PICOCLAW_AGENTS_DEFAULTS_LOOP_DETECTION_EDIT_STREAK_THRESHOLD"` // consecutive edit-class calls
+	BashRetryThreshold  int   `json:"bash_retry_threshold"  env:"PICOCLAW_AGENTS_DEFAULTS_LOOP_DETECTION_BASH_RETRY_THRESHOLD"`  // consecutive identical failed commands
+	EditStreakThreshold int   `json:"edit_streak_threshold" env:"PICOCLAW_AGENTS_DEFAULTS_LOOP_DETECTION_EDIT_STREAK_THRESHOLD"` // consecutive edit-class calls
 }
 
 // EffectiveLoopDetection returns thresholds with defaults filled in and a
@@ -1143,13 +1143,13 @@ type CronToolsConfig struct {
 }
 
 type ExecConfig struct {
-	ToolConfig                 `                                 envPrefix:"PICOCLAW_TOOLS_EXEC_"`
-	EnableDenyPatterns         bool     `                                 json:"enable_deny_patterns"         env:"PICOCLAW_TOOLS_EXEC_ENABLE_DENY_PATTERNS"`
-	EnableCustomDenyPatterns   bool     `                                 json:"enable_custom_deny_patterns"  env:"PICOCLAW_TOOLS_EXEC_ENABLE_CUSTOM_DENY_PATTERNS"`
-	AllowRemote                bool     `                                 json:"allow_remote"                 env:"PICOCLAW_TOOLS_EXEC_ALLOW_REMOTE"`
-	CustomDenyPatterns         []string `                                 json:"custom_deny_patterns"         env:"PICOCLAW_TOOLS_EXEC_CUSTOM_DENY_PATTERNS"`
-	CustomAllowPatterns        []string `                                 json:"custom_allow_patterns"        env:"PICOCLAW_TOOLS_EXEC_CUSTOM_ALLOW_PATTERNS"`
-	TimeoutSeconds             int      `                                 json:"timeout_seconds"              env:"PICOCLAW_TOOLS_EXEC_TIMEOUT_SECONDS"` // 0 means use default (60s)
+	ToolConfig               `                                 envPrefix:"PICOCLAW_TOOLS_EXEC_"`
+	EnableDenyPatterns       bool     `                                 json:"enable_deny_patterns"         env:"PICOCLAW_TOOLS_EXEC_ENABLE_DENY_PATTERNS"`
+	EnableCustomDenyPatterns bool     `                                 json:"enable_custom_deny_patterns"  env:"PICOCLAW_TOOLS_EXEC_ENABLE_CUSTOM_DENY_PATTERNS"`
+	AllowRemote              bool     `                                 json:"allow_remote"                 env:"PICOCLAW_TOOLS_EXEC_ALLOW_REMOTE"`
+	CustomDenyPatterns       []string `                                 json:"custom_deny_patterns"         env:"PICOCLAW_TOOLS_EXEC_CUSTOM_DENY_PATTERNS"`
+	CustomAllowPatterns      []string `                                 json:"custom_allow_patterns"        env:"PICOCLAW_TOOLS_EXEC_CUSTOM_ALLOW_PATTERNS"`
+	TimeoutSeconds           int      `                                 json:"timeout_seconds"              env:"PICOCLAW_TOOLS_EXEC_TIMEOUT_SECONDS"` // 0 means use default (60s)
 }
 
 type SkillsToolsConfig struct {
@@ -1374,6 +1374,22 @@ func (c *MCPConfig) GetMaxInlineTextChars() int {
 }
 
 func LoadConfig(path string) (*Config, error) {
+	cfg, _, err := LoadConfigWithWarnings(path, false)
+	return cfg, err
+}
+
+// LoadConfigLenient loads config tolerating unknown fields (reported as
+// warnings) while still failing hard on JSON syntax errors. Intended for
+// UI-facing surfaces (launcher dashboard) that prefer showing a degraded
+// config plus warnings over refusing to load at all.
+func LoadConfigLenient(path string) (*Config, []string, error) {
+	return LoadConfigWithWarnings(path, true)
+}
+
+// LoadConfigWithWarnings is the shared loader. When lenient is true, unknown
+// fields downgrade from errors to warnings; syntax errors always fail.
+func LoadConfigWithWarnings(path string, lenient bool) (*Config, []string, error) {
+	var warnings []string
 	updateResolver(filepath.Dir(path))
 
 	data, err := os.ReadFile(path)
@@ -1383,9 +1399,9 @@ func LoadConfig(path string) (*Config, error) {
 				"config file not found, using default config",
 				map[string]any{"path": path},
 			)
-			return DefaultConfig(), nil
+			return DefaultConfig(), nil, nil
 		}
-		return nil, err
+		return nil, nil, err
 	}
 
 	// First, try to detect config version by reading the version field
@@ -1395,11 +1411,11 @@ func LoadConfig(path string) (*Config, error) {
 	if e := json.Unmarshal(data, &versionInfo); e != nil {
 		e = wrapJSONError(data, e, "config.json")
 		logger.ErrorCF("config", formatDiagnosticLogMessage("Malformed config file", e), map[string]any{"path": path})
-		return nil, e
+		return nil, nil, e
 	}
 	if len(data) <= 10 {
 		logger.Warn(fmt.Sprintf("content is [%s]", string(data)))
-		return DefaultConfig(), nil
+		return DefaultConfig(), nil, nil
 	}
 
 	// Load config based on detected version
@@ -1416,7 +1432,7 @@ func LoadConfig(path string) (*Config, error) {
 				formatDiagnosticLogMessage("Failed to load config", err),
 				map[string]any{"path": path},
 			)
-			return nil, err
+			return nil, nil, err
 		}
 
 		var m map[string]any
@@ -1427,36 +1443,36 @@ func LoadConfig(path string) (*Config, error) {
 				formatDiagnosticLogMessage("Failed to load config", err),
 				map[string]any{"path": path},
 			)
-			return nil, err
+			return nil, nil, err
 		}
 
 		migrateErr := migrateV0ToV1(m)
 		if migrateErr != nil {
-			return nil, fmt.Errorf("V0→V1 migration failed: %w", migrateErr)
+			return nil, nil, fmt.Errorf("V0→V1 migration failed: %w", migrateErr)
 		}
 		migrateErr = migrateV1ToV2(m)
 		if migrateErr != nil {
-			return nil, fmt.Errorf("V1→V2 migration failed: %w", migrateErr)
+			return nil, nil, fmt.Errorf("V1→V2 migration failed: %w", migrateErr)
 		}
 		migrateErr = migrateV2ToV3(m)
 		if migrateErr != nil {
-			return nil, fmt.Errorf("V2→V3 migration failed: %w", migrateErr)
+			return nil, nil, fmt.Errorf("V2→V3 migration failed: %w", migrateErr)
 		}
 
 		var migrated []byte
 		migrated, err = json.Marshal(m)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		cfg, err = loadConfig(migrated)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		err = MakeBackup(path)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		defer func(cfg *Config) {
@@ -1474,7 +1490,7 @@ func LoadConfig(path string) (*Config, error) {
 				formatDiagnosticLogMessage("Failed to load config", err),
 				map[string]any{"path": path},
 			)
-			return nil, err
+			return nil, nil, err
 		}
 
 		var m map[string]any
@@ -1485,32 +1501,32 @@ func LoadConfig(path string) (*Config, error) {
 				formatDiagnosticLogMessage("Failed to load config", err),
 				map[string]any{"path": path},
 			)
-			return nil, err
+			return nil, nil, err
 		}
 
 		migrateErr := migrateV1ToV2(m)
 		if migrateErr != nil {
-			return nil, fmt.Errorf("V1→V2 migration failed: %w", migrateErr)
+			return nil, nil, fmt.Errorf("V1→V2 migration failed: %w", migrateErr)
 		}
 		migrateErr = migrateV2ToV3(m)
 		if migrateErr != nil {
-			return nil, fmt.Errorf("V2→V3 migration failed: %w", migrateErr)
+			return nil, nil, fmt.Errorf("V2→V3 migration failed: %w", migrateErr)
 		}
 
 		var migrated []byte
 		migrated, err = json.Marshal(m)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		cfg, err = loadConfig(migrated)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		err = MakeBackup(path)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		defer func(cfg *Config) {
@@ -1532,7 +1548,7 @@ func LoadConfig(path string) (*Config, error) {
 				formatDiagnosticLogMessage("Failed to load config", err),
 				map[string]any{"path": path},
 			)
-			return nil, err
+			return nil, nil, err
 		}
 		var m map[string]any
 		m, err = loadConfigMap(path)
@@ -1542,27 +1558,27 @@ func LoadConfig(path string) (*Config, error) {
 				formatDiagnosticLogMessage("Failed to load config", err),
 				map[string]any{"path": path},
 			)
-			return nil, err
+			return nil, nil, err
 		}
 		migrateErr := migrateV2ToV3(m)
 		if migrateErr != nil {
-			return nil, fmt.Errorf("V2→V3 migration failed: %w", migrateErr)
+			return nil, nil, fmt.Errorf("V2→V3 migration failed: %w", migrateErr)
 		}
 
 		var migrated []byte
 		migrated, err = json.Marshal(m)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		cfg, err = loadConfig(migrated)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		err = MakeBackup(path)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		defer func(cfg *Config) {
@@ -1574,24 +1590,30 @@ func LoadConfig(path string) (*Config, error) {
 		)
 	case CurrentVersion:
 		// Current version
-		cfg, err = loadConfig(data)
+		if lenient {
+			var w []string
+			cfg, w, err = loadConfigLenient(data, true)
+			warnings = w
+		} else {
+			cfg, err = loadConfig(data)
+		}
 		if err != nil {
 			logger.ErrorCF(
 				"config",
 				formatDiagnosticLogMessage("Failed to load config", err),
 				map[string]any{"path": path},
 			)
-			return nil, err
+			return nil, nil, err
 		}
 		// Load security configuration
 		secPath := securityPath(path)
 		err = loadSecurityConfig(cfg, secPath)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("failed to load security config: %w", err)
+			return nil, nil, fmt.Errorf("failed to load security config: %w", err)
 		}
 
 	default:
-		return nil, fmt.Errorf("unsupported config version: %d", versionInfo.Version)
+		return nil, nil, fmt.Errorf("unsupported config version: %d", versionInfo.Version)
 	}
 
 	applyLegacyBindingsMigration(data, cfg)
@@ -1599,19 +1621,19 @@ func LoadConfig(path string) (*Config, error) {
 	gatewayHostBeforeEnv := cfg.Gateway.Host
 
 	if err = env.Parse(cfg); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	applySkillsRegistryEnvCompat(cfg)
 
 	if err = InitChannelList(cfg.Channels); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err = cfg.ValidateTurnProfile(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	cfg.Gateway.Host, err = resolveGatewayHostFromEnv(gatewayHostBeforeEnv)
 	if err != nil {
-		return nil, fmt.Errorf("invalid gateway host: %w", err)
+		return nil, nil, fmt.Errorf("invalid gateway host: %w", err)
 	}
 
 	// Expand multi-key configs into separate entries for key-level failover
@@ -1619,7 +1641,7 @@ func LoadConfig(path string) (*Config, error) {
 
 	// Validate model_list for uniqueness and required fields
 	if err = cfg.ValidateModelList(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Ensure Workspace has a default if not set
@@ -1631,7 +1653,7 @@ func LoadConfig(path string) (*Config, error) {
 	cfg.Session.ApplyDmScope()
 	cfg.Session.DeriveDmScope()
 
-	return cfg, nil
+	return cfg, warnings, nil
 }
 
 func applySkillsRegistryEnvCompat(cfg *Config) {
