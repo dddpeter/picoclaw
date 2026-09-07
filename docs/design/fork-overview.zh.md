@@ -14,6 +14,7 @@
 | 工具输出处理 | `a5b71f89` / `3fce044b` | `pkg/tools/truncate.go`、`pkg/tools/output_clean.go` | 本文 §4 |
 | 可靠性加固 | `9bab2b25`…`3fce044b` | `pkg/agent/turn_health.go` 等 | 本文 §5 |
 | exec 安全加固 | `9cc5a3b1` | `pkg/tools/shell.go`、`pkg/config/config.go` | 本文 §6、`docs/security-exec-hardening.md` |
+| 卡片停止按钮（CardKit 回调） | `fc18f452` | `pkg/channels/feishu/` | 本文 §7 |
 
 ## 1. 飞书 CardKit v2 流式卡片
 
@@ -63,6 +64,15 @@
 - 测试锚点：`TestShellTool_CustomDenyOnly*`、`TestShellTool_CustomDenyInactive*`（同步上游后必须通过）。
 - 设计与部署细节：`docs/security-exec-hardening.md`。
 
+## 7. 卡片停止按钮（card.action.trigger 回调）
+
+流式卡片（初始卡与刷新卡）带「⏹ 停止」按钮，点击即停当前回合——替代打字 `/stop`（`fc18f452`，2026-09-07）。
+
+- **回调链路**：ws 长连接可收 `card.action.trigger`（spike 实测三次点击均到达，SDK v3.9.4 走 `message_type=event` 路径）；**schema 2.0 不支持旧 `action` 标签（错误码 200861），按钮必须是独立 `button` 元素 + `behaviors` 回调**——这是硬约束，上游同步或改造时不要改回 action 写法。
+- **上下文嵌入**：回调事件不含 chat 上下文，按钮渲染时把 `chat_id` 嵌进 callback value；handler 校验 allowlist + 该 chat 存在未封口流式卡后，合成 `/stop` 入站消息走既有命令管道（确认回复、卡片「⚠ 已中断 · 用户停止」封口全部复用）。
+- 测试锚点：`TestStreamingCardsCarryStopButtonWithChatContext`、`TestHandleCardActionStop*`。
+- 后续候选：危险命令「批准/拒绝」门禁按钮（需 exec 执行前挂起 + 超时/补偿，见会话讨论）、报告翻页。
+
 ## 与上游的行为差异速查
 
 | 场景 | 上游 | 本 fork |
@@ -75,6 +85,7 @@
 | 死循环防护 | 仅 MaxToolIterations | 迭代上限 + 低收益检测注入警示 |
 | 记忆 | workspace 文件 | 附加 OpenViking recall/commit（可配置关闭） |
 | exec deny（`enable_deny_patterns=false`） | `custom_deny_patterns` 一并失效 | 新增 `enable_custom_deny_patterns`，可只加载自定义规则 |
+| 卡片交互 | 仅消息文本 | 流式卡带「停止」按钮（card.action.trigger 回调） |
 
 ## 同步上游注意事项
 
