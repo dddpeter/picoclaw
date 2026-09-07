@@ -220,6 +220,13 @@ func feishuStreamingCardConfig() map[string]any {
 	}
 }
 
+// degradeFeishuCardConfig replaces a refresh card's streaming config with a
+// plain updatable one, for cards whose streaming mode Feishu closed (code
+// 200850): element streaming is gone, but full-card updates keep working.
+func degradeFeishuCardConfig(card map[string]any) {
+	card["config"] = map[string]any{"update_multi": true}
+}
+
 // buildFeishuRefreshCard builds the mid-stream full-card update: process
 // panel, current answer snapshot and the dynamic status line, while keeping
 // the streaming config so the answer element's typewriter survives the

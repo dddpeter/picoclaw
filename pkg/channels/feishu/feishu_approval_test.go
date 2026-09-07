@@ -140,8 +140,41 @@ func TestApprovalCardCarriesButtonsWithRequestID(t *testing.T) {
 			t.Errorf("approval card missing %q: %.300s", want, string(data))
 		}
 	}
-	if strings.Count(string(data), `"tag":"button"`) != 2 {
-		t.Errorf("approval card should have exactly two buttons, got: %s", string(data))
+
+	// The two buttons must share one row: a column_set with two weighted
+	// columns, one button per column (schema 2.0 buttons are block-level).
+	body, _ := card["body"].(map[string]any)
+	elements, _ := body["elements"].([]any)
+	if len(elements) != 2 {
+		t.Fatalf("approval card should be markdown + column_set, got %d elements", len(elements))
+	}
+	columnSet, ok := elements[1].(map[string]any)
+	if !ok || columnSet["tag"] != "column_set" {
+		t.Fatalf("second element should be the button column_set, got %#v", elements[1])
+	}
+	columns, _ := columnSet["columns"].([]any)
+	if len(columns) != 2 {
+		t.Fatalf("column_set should have two columns, got %d", len(columns))
+	}
+	wantCmds := []string{feishuApproveCmd, feishuDenyCmd}
+	for i, col := range columns {
+		colMap, ok := col.(map[string]any)
+		if !ok || colMap["tag"] != "column" || colMap["width"] != "weighted" {
+			t.Fatalf("column %d malformed: %#v", i, col)
+		}
+		colElements, _ := colMap["elements"].([]any)
+		if len(colElements) != 1 {
+			t.Fatalf("column %d should hold exactly one button, got %d elements", i, len(colElements))
+		}
+		btn, ok := colElements[0].(map[string]any)
+		if !ok || btn["tag"] != "button" {
+			t.Fatalf("column %d element should be a button, got %#v", i, colElements[0])
+		}
+		behavior, _ := btn["behaviors"].([]any)[0].(map[string]any)
+		value, _ := behavior["value"].(map[string]any)
+		if value["cmd"] != wantCmds[i] || value["id"] != "apr_test1234" {
+			t.Errorf("button %d callback value = %v, want cmd=%s id=apr_test1234", i, value, wantCmds[i])
+		}
 	}
 }
 

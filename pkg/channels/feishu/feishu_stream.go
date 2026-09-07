@@ -7,6 +7,7 @@ package feishu
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -33,6 +34,17 @@ const (
 // hung request must never block either indefinitely (the lark client's
 // default HTTP client has no timeout of its own).
 const feishuCallTimeout = 10 * time.Second
+
+// feishuCodeStreamingTimeout (200850): Feishu closed the card's streaming
+// mode after a period without element updates — e.g. while a turn sat blocked
+// in a human approval. Element writes are refused until the mode is reopened
+// via the card settings API; full-card updates keep working.
+const feishuCodeStreamingTimeout = 200850
+
+// errFeishuStreamingEnded marks a CardKit rejection caused by the server
+// closing streaming mode (200850). The card is still updatable, only element
+// streaming is gone, so this must never fail the agent's LLM call.
+var errFeishuStreamingEnded = errors.New("feishu card streaming mode ended")
 
 // feishuCardStreamer implements bus.Streamer on top of a CardKit v2 streaming
 // card: one card per turn, showing a process panel (reasoning rounds + tool
@@ -66,10 +78,44 @@ type feishuCardStreamer struct {
 	answerSentAt time.Time
 	panelSentAt  time.Time
 
+	// streamingLost records that Feishu closed the card's streaming mode
+	// (200850) and reopening failed: the answer is then delivered through
+	// throttled full-card refreshes instead of the typewriter element.
+	streamingLost bool
+
+	// API seams bound at construction (tests substitute fakes). All CardKit
+	// calls from streamer methods must go through these, never s.ch directly.
+	streamContent   func(ctx context.Context, cardID, elementID, content string, sequence int) error
+	updateCard      func(ctx context.Context, cardID string, card map[string]any, sequence int) error
+	reopenStreaming func(ctx context.Context, cardID string, sequence int) error
+	closeStreaming  func(ctx context.Context, cardID string, summary map[string]any, sequence int) error
+
 	// spinnerKey is the uploaded amber spinner image_key for the status
 	// line's custom icon (empty = standard icon). Snapshot per streamer so
 	// mid-turn invalidation does not race card construction.
 	spinnerKey string
+}
+
+// newFeishuCardStreamer builds a streamer bound to a delivered card, wiring
+// the CardKit API seams to the channel's real implementations.
+func newFeishuCardStreamer(ch *FeishuChannel, chatID, cardID, spinnerKey string) *feishuCardStreamer {
+	return &feishuCardStreamer{
+		ch:      ch,
+		chatID:  chatID,
+		cardID:  cardID,
+		startAt: time.Now(),
+		lastAt:  time.Now(),
+		// Best-effort prewarm: first streamer uploads the embedded GIF once
+		// per process; later ones reuse the cached key (passed in here).
+		spinnerKey: spinnerKey,
+		// CardKit sequence must be a small incrementing positive int32;
+		// seeding with UnixMilli overflows the API's accepted range (code 9499).
+		seq:             0,
+		streamContent:   ch.cardkitStreamContent,
+		updateCard:      ch.cardkitUpdateCard,
+		reopenStreaming: ch.cardkitReopenStreaming,
+		closeStreaming:  ch.cardkitCloseStreaming,
+	}
 }
 
 // setPhaseLocked records the current turn phase for the status line.
@@ -135,19 +181,7 @@ func (c *FeishuChannel) BeginStream(ctx context.Context, chatID string) (channel
 		return nil, fmt.Errorf("feishu stream: send streaming card: %w", err)
 	}
 
-	s := &feishuCardStreamer{
-		ch:      c,
-		chatID:  chatID,
-		cardID:  cardID,
-		startAt: time.Now(),
-		lastAt:  time.Now(),
-		// Best-effort prewarm: first streamer uploads the embedded GIF once
-		// per process (bounded timeout); later ones reuse the cached key.
-		spinnerKey: c.spinnerIconKey(ctx),
-		// CardKit sequence must be a small incrementing positive int32;
-		// seeding with UnixMilli overflows the API's accepted range (code 9499).
-		seq: 0,
-	}
+	s := newFeishuCardStreamer(c, chatID, cardID, c.spinnerIconKey(ctx))
 	s.state.LLMCalls = 1
 	c.streams.Store(chatID, s)
 	logger.DebugCF("feishu", "streaming card created", map[string]any{
@@ -303,8 +337,12 @@ func (c *FeishuChannel) chatHasActiveStreamer(chatID string) bool {
 // Update streams accumulated answer text into the card's answer element,
 // throttled to feishuAnswerFlushInterval. The answer element is owned by the
 // native typewriter: this method must never trigger a full-card refresh
-// (that would replace the element mid-print and drop its streaming state) —
-// the phase flip only updates the status line element-scoped, best effort.
+// (that would replace the element mid-print and drop its streaming state).
+//
+// If Feishu closed the card's streaming mode while the turn was blocked (a
+// human approval wait, a long tool run), element writes fail with 200850:
+// reopen once and retry, and degrade to full-card refreshes if that fails —
+// never fail the LLM call over a lost typewriter.
 func (s *feishuCardStreamer) Update(ctx context.Context, content string) error {
 	s.mu.Lock()
 	if s.done {
@@ -313,37 +351,82 @@ func (s *feishuCardStreamer) Update(ctx context.Context, content string) error {
 	}
 	s.answer = content
 	s.lastAt = time.Now()
-	statusText := ""
 	if s.phase != feishuPhaseAnswer {
+		// The status line element is a div, which the element-content API
+		// cannot write (code 300313); the phase reaches the card only through
+		// panel refreshes and the final seal.
 		s.setPhaseLocked(feishuPhaseAnswer)
 		s.renderedPhase = feishuPhaseAnswer
-		statusText, _, _ = feishuLoadingText(feishuPhaseAnswer)
+	}
+	if s.streamingLost {
+		// Element streaming is gone server-side; the answer rides the
+		// throttled full-card refreshes instead of the typewriter.
+		s.panelDirty = true
+		err := s.refreshPanelLocked(ctx)
+		s.mu.Unlock()
+		s.logPanelErr("degraded answer refresh", err)
+		return nil
 	}
 	cardID := s.cardID
-	statusSeq := 0
-	if statusText != "" {
-		statusSeq = s.nextSeqLocked()
-	}
 	throttled := time.Since(s.answerSentAt) < feishuAnswerFlushInterval
 	if !throttled {
 		s.answerSentAt = time.Now()
 	}
-	streamContent := sanitizeFeishuMarkdownImages(s.answer)
+	answerContent := sanitizeFeishuMarkdownImages(s.answer)
 	seq := 0
 	if !throttled {
 		seq = s.nextSeqLocked()
 	}
 	s.mu.Unlock()
 
-	if statusText != "" {
-		if err := s.ch.cardkitStreamContent(ctx, cardID, feishuLoadingElementID, statusText, statusSeq); err != nil {
-			s.logPanelErr("status line", err)
-		}
-	}
 	if throttled {
 		return nil
 	}
-	return s.ch.cardkitStreamContent(ctx, cardID, feishuAnswerElementID, streamContent, seq)
+	err := s.streamContent(ctx, cardID, feishuAnswerElementID, answerContent, seq)
+	if err == nil || !errors.Is(err, errFeishuStreamingEnded) {
+		return err
+	}
+
+	// 200850: reopen streaming mode (documented remedy: settings update with
+	// streaming_mode=true), then retry the element write once.
+	s.mu.Lock()
+	if s.streamingLost {
+		s.mu.Unlock()
+		return nil
+	}
+	reopenSeq := s.nextSeqLocked()
+	retrySeq := s.nextSeqLocked()
+	s.mu.Unlock()
+	if reopenErr := s.reopenStreaming(ctx, cardID, reopenSeq); reopenErr != nil {
+		s.degradeStreaming(ctx, reopenErr)
+		return nil
+	}
+	if retryErr := s.streamContent(ctx, cardID, feishuAnswerElementID, answerContent, retrySeq); retryErr != nil {
+		s.degradeStreaming(ctx, retryErr)
+	}
+	return nil
+}
+
+// degradeStreaming marks the streamer as having lost element streaming and
+// pushes one immediate full-card refresh carrying the answer so far, so the
+// turn keeps rendering without the typewriter.
+func (s *feishuCardStreamer) degradeStreaming(ctx context.Context, cause error) {
+	s.mu.Lock()
+	if s.streamingLost {
+		s.mu.Unlock()
+		return
+	}
+	s.streamingLost = true
+	s.panelDirty = true
+	s.panelSentAt = time.Time{} // force the next refresh through the throttle
+	err := s.flushPanelLocked(ctx)
+	s.mu.Unlock()
+	logger.WarnCF("feishu", "streaming card lost element streaming; degrading to full-card updates", map[string]any{
+		"chat_id": s.chatID,
+		"card_id": s.cardID,
+		"error":   cause.Error(),
+	})
+	s.logPanelErr("degraded full-card refresh", err)
 }
 
 // UpdateReasoning accumulates the in-progress reasoning round and refreshes
@@ -442,20 +525,30 @@ func (s *feishuCardStreamer) refreshPanelLocked(ctx context.Context) error {
 		return nil
 	}
 	// Without panel content a full-card refresh is only worth it to flip the
-	// status line; there is nothing else to redraw yet.
-	if !s.state.hasPanelContent() && !phaseChanged {
+	// status line — or, once element streaming is lost, to carry the answer.
+	if !s.state.hasPanelContent() && !phaseChanged && !s.streamingLost {
 		return nil
 	}
+	return s.flushPanelLocked(ctx)
+}
 
+// flushPanelLocked sends one full-card refresh unconditionally (caller holds
+// s.mu and has already passed the throttle guards).
+func (s *feishuCardStreamer) flushPanelLocked(ctx context.Context) error {
 	spinnerKey := s.spinnerKey
 	card := buildFeishuCardWithinSize(func(panelBudget int) map[string]any {
 		return buildFeishuRefreshCard(&s.state, s.answer, s.phase, panelBudget, spinnerKey, s.chatID)
 	})
+	if s.streamingLost {
+		// The card is out of streaming mode server-side; carrying the
+		// streaming config would try to re-enter it on every refresh.
+		degradeFeishuCardConfig(card)
+	}
 	s.panelSentAt = time.Now()
 	s.panelDirty = false
 	s.renderedPhase = s.phase
 	cardID, seq := s.cardID, s.nextSeqLocked()
-	err := s.ch.cardkitUpdateCard(ctx, cardID, card, seq)
+	err := s.updateCard(ctx, cardID, card, seq)
 	if err != nil && spinnerKey != "" {
 		// The refresh card is the only place the custom icon is used; a
 		// rejection here most plausibly implicates it, so drop the key and
@@ -497,15 +590,20 @@ func (s *feishuCardStreamer) FinalizeWithContext(ctx context.Context, content st
 	cardID := s.cardID
 	seq := s.nextSeqLocked()
 	seqClose := s.nextSeqLocked()
+	streamingLost := s.streamingLost
 	s.done = true
 	s.mu.Unlock()
 	defer s.ch.streams.Delete(s.chatID)
 
 	card := buildFeishuFinalCard(&state, answer, false, elapsed, "")
-	if err := s.ch.cardkitUpdateCard(ctx, cardID, card, seq); err != nil {
+	if err := s.updateCard(ctx, cardID, card, seq); err != nil {
 		return err
 	}
-	return s.ch.cardkitCloseStreaming(ctx, cardID, feishuCardSummary(answer), seqClose)
+	if streamingLost {
+		// Streaming mode was already closed by the server; nothing to seal.
+		return nil
+	}
+	return s.closeStreaming(ctx, cardID, feishuCardSummary(answer), seqClose)
 }
 
 // Cancel seals the card in an interrupted state (best effort).
@@ -532,6 +630,7 @@ func (s *feishuCardStreamer) CancelWithReason(ctx context.Context, reason string
 	cardID := s.cardID
 	seq := s.nextSeqLocked()
 	seqClose := s.nextSeqLocked()
+	streamingLost := s.streamingLost
 	if reason != "" {
 		s.cancelReasn = reason
 	}
@@ -542,14 +641,17 @@ func (s *feishuCardStreamer) CancelWithReason(ctx context.Context, reason string
 	defer s.ch.streams.Delete(s.chatID)
 
 	card := buildFeishuFinalCard(&state, answer, true, elapsed, reason)
-	if err := s.ch.cardkitUpdateCard(ctx, cardID, card, seq); err != nil {
+	if err := s.updateCard(ctx, cardID, card, seq); err != nil {
 		logger.WarnCF("feishu", "streaming card cancel seal failed", map[string]any{
 			"chat_id": s.chatID,
 			"error":   err.Error(),
 		})
 		return
 	}
-	_ = s.ch.cardkitCloseStreaming(ctx, cardID, feishuCardSummary(answer), seqClose)
+	if streamingLost {
+		return // streaming mode was already closed by the server
+	}
+	_ = s.closeStreaming(ctx, cardID, feishuCardSummary(answer), seqClose)
 }
 
 func (s *feishuCardStreamer) SetModelName(modelName string) {
@@ -593,6 +695,12 @@ func (c *FeishuChannel) cardkitStreamContent(ctx context.Context, cardID, elemen
 			// The sealed card carries the full answer, so this late update is
 			// redundant — swallow instead of failing the whole LLM call.
 			return nil
+		}
+		if resp.Code == feishuCodeStreamingTimeout {
+			// Streaming mode auto-closed server-side (e.g. a long approval
+			// wait with no element writes). Never ErrTemporary: failing the
+			// LLM call over a lost typewriter kills the whole turn.
+			return errFeishuStreamingEnded
 		}
 		return fmt.Errorf("feishu stream content api error (code=%d msg=%s): %w", resp.Code, resp.Msg, channels.ErrTemporary)
 	}
@@ -662,7 +770,44 @@ func (c *FeishuChannel) cardkitCloseStreaming(ctx context.Context, cardID string
 	}
 	if !resp.Success() {
 		c.invalidateTokenOnAuthError(resp.Code)
+		if resp.Code == feishuCodeStreamingTimeout {
+			// Streaming mode already closed server-side — that is exactly
+			// what this call wanted; treat as success.
+			return nil
+		}
 		return fmt.Errorf("feishu cardkit settings api error (code=%d msg=%s): %w", resp.Code, resp.Msg, channels.ErrTemporary)
+	}
+	return nil
+}
+
+// cardkitReopenStreaming re-enables streaming mode after Feishu closed it
+// for inactivity (element writes fail with code 200850). The documented
+// remedy is a card settings update setting streaming_mode back to true.
+func (c *FeishuChannel) cardkitReopenStreaming(ctx context.Context, cardID string, sequence int) error {
+	ctx, cancel := context.WithTimeout(ctx, feishuCallTimeout)
+	defer cancel()
+
+	settings := map[string]any{
+		"config": map[string]any{"streaming_mode": true},
+	}
+	settingsJSON, err := json.Marshal(settings)
+	if err != nil {
+		return fmt.Errorf("feishu cardkit reopen streaming: marshal: %w", err)
+	}
+	req := larkcardkit.NewSettingsCardReqBuilder().
+		CardId(cardID).
+		Body(larkcardkit.NewSettingsCardReqBodyBuilder().
+			Settings(string(settingsJSON)).
+			Sequence(sequence).
+			Build()).
+		Build()
+	resp, err := c.client.Cardkit.V1.Card.Settings(ctx, req)
+	if err != nil {
+		return fmt.Errorf("feishu cardkit reopen streaming: %w", channels.ErrTemporary)
+	}
+	if !resp.Success() {
+		c.invalidateTokenOnAuthError(resp.Code)
+		return fmt.Errorf("feishu cardkit reopen streaming api error (code=%d msg=%s): %w", resp.Code, resp.Msg, channels.ErrTemporary)
 	}
 	return nil
 }

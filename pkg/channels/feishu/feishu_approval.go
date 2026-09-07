@@ -217,9 +217,10 @@ func (c *FeishuChannel) updateApprovalCardOutcome(pending *feishuApprovalPending
 }
 
 // buildFeishuApprovalCard builds the interactive approval card. Schema V2
-// buttons are standalone elements (the classic action wrapper is rejected,
-// code 200861); the approval id is embedded because card callbacks carry no
-// other context.
+// buttons are block-level standalone elements (the classic action wrapper is
+// rejected, code 200861), so two buttons each on their own row unless wrapped
+// in a column_set; a 1:1 two-column set puts approve/deny on one line. The
+// approval id is embedded because card callbacks carry no other context.
 func buildFeishuApprovalCard(command, id string) map[string]any {
 	return map[string]any{
 		"schema": "2.0",
@@ -230,23 +231,36 @@ func buildFeishuApprovalCard(command, id string) map[string]any {
 				"content": "🔐 **命令审批请求**\n模型请求执行以下命令，请确认：\n" + feishuInlineCodeBlock(command),
 			},
 			map[string]any{
-				"tag":  "button",
-				"text": map[string]any{"tag": "plain_text", "content": "✅ 批准"},
-				"type": "primary",
-				"behaviors": []any{map[string]any{
-					"type":  "callback",
-					"value": map[string]any{"cmd": feishuApproveCmd, "id": id},
-				}},
+				"tag":       "column_set",
+				"flex_mode": "none",
+				"columns": []any{
+					map[string]any{
+						"tag":      "column",
+						"width":    "weighted",
+						"weight":   1,
+						"elements": []any{feishuApprovalButton("✅ 批准", "primary", feishuApproveCmd, id)},
+					},
+					map[string]any{
+						"tag":      "column",
+						"width":    "weighted",
+						"weight":   1,
+						"elements": []any{feishuApprovalButton("🛑 拒绝", "danger", feishuDenyCmd, id)},
+					},
+				},
 			},
-			map[string]any{
-				"tag":  "button",
-				"text": map[string]any{"tag": "plain_text", "content": "🛑 拒绝"},
-				"type": "danger",
-				"behaviors": []any{map[string]any{
-					"type":  "callback",
-					"value": map[string]any{"cmd": feishuDenyCmd, "id": id},
-				}},
-			},
+		}},
+	}
+}
+
+// feishuApprovalButton builds one approval button with its callback payload.
+func feishuApprovalButton(label, typ, cmd, id string) map[string]any {
+	return map[string]any{
+		"tag":  "button",
+		"text": map[string]any{"tag": "plain_text", "content": label},
+		"type": typ,
+		"behaviors": []any{map[string]any{
+			"type":  "callback",
+			"value": map[string]any{"cmd": cmd, "id": id},
 		}},
 	}
 }

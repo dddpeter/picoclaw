@@ -22,6 +22,7 @@
 
 - 过程面板：工具调用步骤、嵌套推理轮次（reasoning rounds）、kind 着色图标、动态状态行、面板自动折叠；工具输出以行内代码渲染以控制卡片体积。
 - 打字机效果跨面板刷新保持存活；中止/取消时显示原因（cancel reason）与 steering 通知；turn 在 LLM 调用中被中止时流式卡片保持可达。
+- **流式模式超时韧性（200850）**：回合长时间无元素写入（如等待人工审批）时飞书会服务端自动关闭流式模式，元素写入随即报 `card streaming timeout`。处理顺序：按官方补救用 settings 接口重开 `streaming_mode=true` 并重试一次；重开失败则降级为全卡更新（config 换 `update_multi`，不再带流式 config），**绝不因失去打字机而失败整个 LLM 调用**（此前的故障形态：审批批准后 turn 直接报 "LLM call failed after retries"）。测试锚点：`TestUpdateRecoversFromStreamingTimeout*`、`TestUpdateDegradesWhenReopenFails`、`TestDegradedUpdateSkipsElementWrites`、`TestFinalizeSkipsCloseWhenDegraded`。
 - 细节加固：rune 安全截断、无效图片 key 清洗（规避 CardKit 200570）、CardKit 调用次数上限。
 
 相关提交：`9a99dcd4`、`e9e656cd`、`009fec8f`、`7b8f21d9`、`b0ba0c49`、`8f31514a`、`1150de27`、`ac9be327`、`d9d113b5`、`7338eac0` 等。
@@ -71,7 +72,7 @@
 - **回调链路**：ws 长连接可收 `card.action.trigger`（spike 实测三次点击均到达，SDK v3.9.4 走 `message_type=event` 路径）；**schema 2.0 不支持旧 `action` 标签（错误码 200861），按钮必须是独立 `button` 元素 + `behaviors` 回调**——这是硬约束，上游同步或改造时不要改回 action 写法。
 - **上下文嵌入**：回调事件不含 chat 上下文，按钮渲染时把 `chat_id` 嵌进 callback value；handler 校验 allowlist + 该 chat 存在未封口流式卡后，合成 `/stop` 入站消息走既有命令管道（确认回复、卡片「⚠ 已中断 · 用户停止」封口全部复用）。
 - 测试锚点：`TestStreamingCardsCarryStopButtonWithChatContext`、`TestHandleCardActionStop*`。
-- **人工审批门禁（同链路扩展）**：`tools.exec.approval_patterns` 命中的命令暂停回合，向聊天发「✅ 批准 / 🛑 拒绝」卡片，批准才执行；拒绝/超时（默认 120s，`approval_timeout_seconds`）不执行并要求模型换方案。三层优先级：硬 deny > 审批 > 放行；fail-closed（投递失败/渠道不支持一律拒绝）；`/stop` 中止自动作废等待中的审批。实现分层：`pkg/tools/approval.go`（ApprovalChecker 接口 + exec 模式匹配）、`pkg/channels/interfaces.go`（ApprovalCapable）、`pkg/channels/feishu/feishu_approval.go`（审批卡 + pending 注册表）、`pkg/agent/pipeline_execute.go`（ExecuteTools 门禁拦截，紧跟 hooks.ApproveTool 块）。测试锚点：`TestExecToolNeedsApproval*`、`TestRequestApproval*`、`TestToolNeedsApprovalRoutes*`、`TestRequestToolApprovalFailsClosed`。
+- **人工审批门禁（同链路扩展）**：`tools.exec.approval_patterns` 命中的命令暂停回合，向聊天发「✅ 批准 / 🛑 拒绝」卡片，批准才执行；拒绝/超时（默认 120s，`approval_timeout_seconds`）不执行并要求模型换方案。三层优先级：硬 deny > 审批 > 放行；fail-closed（投递失败/渠道不支持一律拒绝）；`/stop` 中止自动作废等待中的审批。**schema 2.0 按钮是块级元素，两个按钮不放 column_set 会各占一行**——审批卡用 1:1 双分栏让批准/拒绝同行。实现分层：`pkg/tools/approval.go`（ApprovalChecker 接口 + exec 模式匹配）、`pkg/channels/interfaces.go`（ApprovalCapable）、`pkg/channels/feishu/feishu_approval.go`（审批卡 + pending 注册表）、`pkg/agent/pipeline_execute.go`（ExecuteTools 门禁拦截，紧跟 hooks.ApproveTool 块）。测试锚点：`TestExecToolNeedsApproval*`、`TestRequestApproval*`、`TestApprovalCardCarriesButtonsWithRequestID`、`TestToolNeedsApprovalRoutes*`、`TestRequestToolApprovalFailsClosed`。
 - 后续候选：报告翻页。
 
 ## 与上游的行为差异速查
@@ -86,7 +87,8 @@
 | 死循环防护 | 仅 MaxToolIterations | 迭代上限 + 低收益检测注入警示 |
 | 记忆 | workspace 文件 | 附加 OpenViking recall/commit（可配置关闭） |
 | exec deny（`enable_deny_patterns=false`） | `custom_deny_patterns` 一并失效 | 新增 `enable_custom_deny_patterns`，可只加载自定义规则 |
-| 卡片交互 | 仅消息文本 | 流式卡带「停止」按钮（card.action.trigger 回调） |
+| 卡片交互 | 仅消息文本 | 流式卡「停止」按钮 + exec 审批「批准/拒绝」卡（card.action.trigger 回调） |
+| 审批等待期间流式卡超时 | —（无审批卡） | 200850 自动重开，失败降级全卡更新，turn 不中断 |
 
 ## 同步上游注意事项
 
