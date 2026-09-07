@@ -19,7 +19,7 @@ func TestFeishuLoadingText(t *testing.T) {
 		feishuPhaseAnswer:   {"✍ 正在生成回答…", "Generating answer…"},
 	}
 	for phase, want := range cases {
-		zh, en := feishuLoadingText(phase)
+		zh, en, _ := feishuLoadingText(phase)
 		if zh != want.zh || en != want.en {
 			t.Errorf("phase %q = (%q, %q), want (%q, %q)", phase, zh, en, want.zh, want.en)
 		}
@@ -28,15 +28,31 @@ func TestFeishuLoadingText(t *testing.T) {
 
 func TestBuildFeishuLoadingElementPhases(t *testing.T) {
 	for _, phase := range []string{feishuPhaseLoading, feishuPhaseThinking, feishuPhaseAnswer} {
-		el := buildFeishuLoadingElement(phase)
+		el := buildFeishuLoadingElement(phase, "")
 		if el["element_id"] != feishuLoadingElementID {
 			t.Errorf("phase %q: wrong element id %v", phase, el["element_id"])
 		}
-		zh, _ := feishuLoadingText(phase)
+		zh, _, wantColor := feishuLoadingText(phase)
 		text := el["text"].(map[string]any)
 		if text["content"] != zh {
 			t.Errorf("phase %q: content %q != %q", phase, text["content"], zh)
 		}
+		if text["text_size"] != "notation" {
+			t.Errorf("phase %q: status line should use the small notation size, got %v", phase, text["text_size"])
+		}
+		if text["text_color"] != wantColor {
+			t.Errorf("phase %q: text_color %v != %q", phase, text["text_color"], wantColor)
+		}
+	}
+	// In-flight phases must carry the amber tone; the pre-activity phase
+	// stays grey.
+	for _, phase := range []string{feishuPhaseThinking, feishuPhaseAnswer} {
+		if _, _, color := feishuLoadingText(phase); color != feishuAmberColor {
+			t.Errorf("phase %q should use the amber status color, got %q", phase, color)
+		}
+	}
+	if _, _, color := feishuLoadingText(feishuPhaseLoading); color != "grey" {
+		t.Errorf("loading phase should stay grey, got %q", color)
 	}
 }
 
@@ -62,7 +78,7 @@ func TestFeishuRefreshCardKeepsStreamingConfig(t *testing.T) {
 		Rounds: []feishuReasoningRound{{Text: "thinking"}},
 		Tools:  []bus.ToolStep{{Tool: "shell", Result: "ok"}},
 	}
-	card := buildFeishuRefreshCard(state, "partial answer", feishuPhaseAnswer, feishuPanelTextBudget)
+	card := buildFeishuRefreshCard(state, "partial answer", feishuPhaseAnswer, feishuPanelTextBudget, "")
 
 	cfg, ok := card["config"].(map[string]any)
 	if !ok || cfg["streaming_mode"] != true {
@@ -99,6 +115,35 @@ func TestFeishuToolStepTitleIconColorByKind(t *testing.T) {
 		icon := title["icon"].(map[string]any)
 		if icon["color"] != tc.color {
 			t.Errorf("%s: icon color = %v, want %v", name, icon["color"], tc.color)
+		}
+	}
+}
+
+func TestBuildFeishuLoadingElementSpinnerFallback(t *testing.T) {
+	withKey := buildFeishuLoadingElement(feishuPhaseThinking, "img_v2_test_spinner")
+	icon := withKey["icon"].(map[string]any)
+	if icon["tag"] != "custom_icon" || icon["img_key"] != "img_v2_test_spinner" {
+		t.Fatalf("non-empty spinner key should render a custom_icon, got %v", icon)
+	}
+
+	withoutKey := buildFeishuLoadingElement(feishuPhaseThinking, "")
+	icon = withoutKey["icon"].(map[string]any)
+	if icon["tag"] != "standard_icon" {
+		t.Fatalf("empty spinner key must fall back to the standard icon, got %v", icon)
+	}
+
+	// The initial streaming card must never carry the custom icon: a bad
+	// img_key there would break card creation and the whole streaming reply.
+	initial := buildFeishuStreamingCard()
+	els := initial["body"].(map[string]any)["elements"].([]any)
+	for _, el := range els {
+		div, ok := el.(map[string]any)
+		if !ok || div["element_id"] != feishuLoadingElementID {
+			continue
+		}
+		icon := div["icon"].(map[string]any)
+		if icon["tag"] != "standard_icon" {
+			t.Fatalf("initial card must use the standard icon, got %v", icon)
 		}
 	}
 }

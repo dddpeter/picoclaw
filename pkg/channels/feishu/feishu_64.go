@@ -3,7 +3,9 @@
 package feishu
 
 import (
+	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -50,11 +52,14 @@ type FeishuChannel struct {
 	mu     sync.Mutex
 	cancel context.CancelFunc
 
-	progress        *channels.ToolFeedbackAnimator
-	streams         sync.Map // chatID -> *feishuCardStreamer (in-flight streaming cards)
-	deleteMessageFn func(context.Context, string, string) error
-	sendMediaPartFn func(context.Context, string, bus.MediaPart, media.MediaStore) error
-	sendTextFn      func(context.Context, string, string) (string, error)
+	progress *channels.ToolFeedbackAnimator
+	streams  sync.Map // chatID -> *feishuCardStreamer (in-flight streaming cards)
+
+	spinnerImgKey      atomic.Value // string: uploaded amber spinner image_key
+	spinnerUploadTried atomic.Bool
+	deleteMessageFn    func(context.Context, string, string) error
+	sendMediaPartFn    func(context.Context, string, bus.MediaPart, media.MediaStore) error
+	sendTextFn         func(context.Context, string, string) (string, error)
 }
 
 type cachedMessage struct {
@@ -1264,4 +1269,62 @@ func (c *FeishuChannel) invalidateTokenOnAuthError(code int) {
 		c.tokenCache.InvalidateAll()
 		logger.WarnCF("feishu", "Invalidated cached token due to auth error", nil)
 	}
+}
+
+// spinnerAmberGIF is the animated amber status icon rendered next to the
+// streaming status line (Feishu cards carry no CSS/JS; an uploaded GIF is
+// the only way to get a real animation).
+//
+//go:embed assets/spinner_amber.gif
+var spinnerAmberGIF []byte
+
+// spinnerIconKey uploads the embedded spinner GIF once per process and
+// returns its image_key; empty string means "use the standard icon". A
+// failed upload (permissions, network) is terminal for the process so a
+// broken environment does not retry on every turn.
+func (c *FeishuChannel) spinnerIconKey(ctx context.Context) string {
+	if v := c.spinnerImgKey.Load(); v != nil {
+		if key, _ := v.(string); key != "" {
+			return key
+		}
+		return ""
+	}
+	if !c.spinnerUploadTried.CompareAndSwap(false, true) {
+		return ""
+	}
+
+	uploadCtx, cancel := context.WithTimeout(ctx, feishuCallTimeout)
+	defer cancel()
+	req := larkim.NewCreateImageReqBuilder().
+		Body(larkim.NewCreateImageReqBodyBuilder().
+			ImageType("message").
+			Image(bytes.NewReader(spinnerAmberGIF)).
+			Build()).
+		Build()
+	resp, err := c.client.Im.V1.Image.Create(uploadCtx, req)
+	if err != nil {
+		logger.WarnCF("feishu", "spinner icon upload failed; falling back to standard icon",
+			map[string]any{"error": err.Error()})
+		return ""
+	}
+	if !resp.Success() || resp.Data == nil || resp.Data.ImageKey == nil {
+		code, msg := 0, ""
+		if resp != nil {
+			code, msg = resp.Code, resp.Msg
+		}
+		logger.WarnCF("feishu", "spinner icon upload rejected; falling back to standard icon",
+			map[string]any{"code": code, "msg": msg})
+		return ""
+	}
+	key := *resp.Data.ImageKey
+	c.spinnerImgKey.Store(key)
+	logger.InfoCF("feishu", "amber spinner icon uploaded",
+		map[string]any{"image_key": key})
+	return key
+}
+
+// invalidateSpinnerIcon drops a cached spinner key after a card update that
+// used it was rejected, so subsequent cards fall back to the standard icon.
+func (c *FeishuChannel) invalidateSpinnerIcon() {
+	c.spinnerImgKey.Store("")
 }

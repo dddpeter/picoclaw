@@ -168,7 +168,7 @@ func buildFeishuStreamingCard() map[string]any {
 			"margin":     "0px 0px 0px 0px",
 			"element_id": feishuAnswerElementID,
 		},
-		buildFeishuLoadingElement(feishuPhaseLoading),
+		buildFeishuLoadingElement(feishuPhaseLoading, ""),
 	}
 	return map[string]any{
 		"schema": "2.0",
@@ -202,8 +202,9 @@ func feishuStreamingCardConfig() map[string]any {
 // buildFeishuRefreshCard builds the mid-stream full-card update: process
 // panel, current answer snapshot and the dynamic status line, while keeping
 // the streaming config so the answer element's typewriter survives the
-// replacement.
-func buildFeishuRefreshCard(state *feishuStreamState, answer, phase string, panelBudget int) map[string]any {
+// replacement. spinnerKey, when non-empty, swaps the status line icon for
+// the animated amber spinner.
+func buildFeishuRefreshCard(state *feishuStreamState, answer, phase string, panelBudget int, spinnerKey string) map[string]any {
 	card := map[string]any{
 		"schema": "2.0",
 		"config": feishuStreamingCardConfig(),
@@ -217,7 +218,7 @@ func buildFeishuRefreshCard(state *feishuStreamState, answer, phase string, pane
 					"text_size":  "normal_v2",
 					"element_id": feishuAnswerElementID,
 				},
-				buildFeishuLoadingElement(phase),
+				buildFeishuLoadingElement(phase, spinnerKey),
 			},
 		},
 	}
@@ -248,35 +249,55 @@ const (
 )
 
 // feishuLoadingText maps a stream phase to the status line shown next to the
-// loading icon while the card is streaming.
-func feishuLoadingText(phase string) (zh, en string) {
+// loading icon while the card is streaming. The third return picks the
+// status-line color: in-flight phases use the warm amber tone (orange-300,
+// same palette as the footer's context-warning color), loading stays grey.
+func feishuLoadingText(phase string) (zh, en, color string) {
 	switch phase {
 	case feishuPhaseThinking:
-		return "🧠 正在思考…", "Thinking…"
+		return "🧠 正在思考…", "Thinking…", feishuAmberColor
 	case feishuPhaseAnswer:
-		return "✍ 正在生成回答…", "Generating answer…"
+		return "✍ 正在生成回答…", "Generating answer…", feishuAmberColor
 	default:
-		return "正在加载上下文…", "Loading context…"
+		return "正在加载上下文…", "Loading context…", "grey"
 	}
 }
 
-func buildFeishuLoadingElement(phase string) map[string]any {
-	zh, en := feishuLoadingText(phase)
+// feishuAmberColor is the amber-ish status tone. Feishu's markdown/plain_text
+// palette has no literal amber; orange-300 is the closest verified value.
+const feishuAmberColor = "orange-300"
+
+func buildFeishuLoadingElement(phase string, spinnerKey string) map[string]any {
+	zh, en, color := feishuLoadingText(phase)
+	text := map[string]any{
+		"tag":        "plain_text",
+		"content":    zh,
+		"text_size":  "notation",
+		"text_color": color,
+		"i18n_content": map[string]any{
+			"zh_cn": zh,
+			"en_us": en,
+		},
+	}
+	icon := map[string]any{
+		"tag":   "standard_icon",
+		"token": "time_outlined",
+		"size":  "14px 14px",
+	}
+	if spinnerKey != "" {
+		// Animated amber spinner (uploaded GIF). Only used on refresh cards;
+		// the initial card stays on the standard icon so a bad img_key can
+		// never break card creation.
+		icon = map[string]any{
+			"tag":     "custom_icon",
+			"img_key": spinnerKey,
+			"size":    "14px 14px",
+		}
+	}
 	return map[string]any{
-		"tag": "div",
-		"icon": map[string]any{
-			"tag":   "standard_icon",
-			"token": "time_outlined",
-			"size":  "16px 16px",
-		},
-		"text": map[string]any{
-			"tag":     "plain_text",
-			"content": zh,
-			"i18n_content": map[string]any{
-				"zh_cn": zh,
-				"en_us": en,
-			},
-		},
+		"tag":        "div",
+		"icon":       icon,
+		"text":       text,
 		"element_id": feishuLoadingElementID,
 	}
 }
@@ -696,14 +717,18 @@ func buildFeishuFinalCardBudget(state *feishuStreamState, answer string, aborted
 			"element_id": feishuAnswerElementID,
 		})
 	} else if !state.hasPanelContent() {
-		content := "已完成"
+		content := "✓ 已完成"
 		if aborted {
-			content = "已中断"
+			content = "⚠ 已中断"
 			if text := feishuCancelReasonText(cancelReason); text != "" {
 				content += " · " + text
 			}
 		}
-		elements = append(elements, map[string]any{"tag": "markdown", "content": content})
+		elements = append(elements, map[string]any{
+			"tag":       "markdown",
+			"content":   content,
+			"text_size": "normal_v2",
+		})
 	}
 	elements = append(elements, buildFeishuFooter(state, aborted, elapsed, cancelReason)...)
 
@@ -728,7 +753,7 @@ func buildFeishuFooter(state *feishuStreamState, aborted bool, elapsed time.Dura
 			status += " · " + text
 		}
 	}
-	line1 := []string{status}
+	line1 := []string{}
 	if elapsed > 0 {
 		line1 = append(line1, "⏱ "+formatFeishuElapsed(elapsed))
 	}
@@ -759,17 +784,19 @@ func buildFeishuFooter(state *feishuStreamState, aborted bool, elapsed time.Dura
 		}
 		line2 = append(line2, ctxPart)
 	}
-	parts := append(append([]string{}, line1...), line2...)
-	if len(parts) == 0 {
-		return nil
-	}
-	color := "grey"
+	// Status verdict carries the color (green when done, amber family when
+	// interrupted); metrics lines stay grey so the context-warning colors
+	// inside them remain the only accents on line two.
+	statusColor := "green"
 	if aborted {
-		color = "orange"
+		statusColor = feishuAmberColor
 	}
-	content := fmt.Sprintf("<font color='%s'>%s</font>", color, strings.Join(line1, " · "))
+	content := fmt.Sprintf("<font color='%s'>%s</font>", statusColor, status)
+	if len(line1) > 0 {
+		content += fmt.Sprintf(" <font color='grey'>%s</font>", strings.Join(line1, " · "))
+	}
 	if len(line2) > 0 {
-		content += fmt.Sprintf("\n<font color='%s'>%s</font>", color, strings.Join(line2, " · "))
+		content += fmt.Sprintf("\n<font color='grey'>%s</font>", strings.Join(line2, " · "))
 	}
 	return []any{
 		map[string]any{"tag": "hr"},

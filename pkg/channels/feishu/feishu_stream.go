@@ -63,6 +63,11 @@ type feishuCardStreamer struct {
 
 	answerSentAt time.Time
 	panelSentAt  time.Time
+
+	// spinnerKey is the uploaded amber spinner image_key for the status
+	// line's custom icon (empty = standard icon). Snapshot per streamer so
+	// mid-turn invalidation does not race card construction.
+	spinnerKey string
 }
 
 // setPhaseLocked records the current turn phase for the status line.
@@ -134,6 +139,9 @@ func (c *FeishuChannel) BeginStream(ctx context.Context, chatID string) (channel
 		cardID:  cardID,
 		startAt: time.Now(),
 		lastAt:  time.Now(),
+		// Best-effort prewarm: first streamer uploads the embedded GIF once
+		// per process (bounded timeout); later ones reuse the cached key.
+		spinnerKey: c.spinnerIconKey(ctx),
 		// CardKit sequence must be a small incrementing positive int32;
 		// seeding with UnixMilli overflows the API's accepted range (code 9499).
 		seq: 0,
@@ -208,7 +216,7 @@ func (s *feishuCardStreamer) Update(ctx context.Context, content string) error {
 	if s.phase != feishuPhaseAnswer {
 		s.setPhaseLocked(feishuPhaseAnswer)
 		s.renderedPhase = feishuPhaseAnswer
-		statusText, _ = feishuLoadingText(feishuPhaseAnswer)
+		statusText, _, _ = feishuLoadingText(feishuPhaseAnswer)
 	}
 	cardID := s.cardID
 	statusSeq := 0
@@ -338,14 +346,23 @@ func (s *feishuCardStreamer) refreshPanelLocked(ctx context.Context) error {
 		return nil
 	}
 
+	spinnerKey := s.spinnerKey
 	card := buildFeishuCardWithinSize(func(panelBudget int) map[string]any {
-		return buildFeishuRefreshCard(&s.state, s.answer, s.phase, panelBudget)
+		return buildFeishuRefreshCard(&s.state, s.answer, s.phase, panelBudget, spinnerKey)
 	})
 	s.panelSentAt = time.Now()
 	s.panelDirty = false
 	s.renderedPhase = s.phase
 	cardID, seq := s.cardID, s.nextSeqLocked()
-	return s.ch.cardkitUpdateCard(ctx, cardID, card, seq)
+	err := s.ch.cardkitUpdateCard(ctx, cardID, card, seq)
+	if err != nil && spinnerKey != "" {
+		// The refresh card is the only place the custom icon is used; a
+		// rejection here most plausibly implicates it, so drop the key and
+		// fall back to the standard icon for the rest of this process.
+		s.ch.invalidateSpinnerIcon()
+		s.spinnerKey = ""
+	}
+	return err
 }
 
 // Finalize seals the card: full answer, collapsed panel, footer statistics,
