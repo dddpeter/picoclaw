@@ -333,9 +333,7 @@ func (c *WhatsAppNativeChannel) reconnectWithBackoff() {
 		case <-time.After(backoff):
 			if backoff < reconnectMax {
 				next := time.Duration(float64(backoff) * reconnectMultiplier)
-				if next > reconnectMax {
-					next = reconnectMax
-				}
+				next = min(next, reconnectMax)
 				backoff = next
 			}
 		}

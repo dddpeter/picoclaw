@@ -220,9 +220,7 @@ func (h *Handler) handleSearchSkills(w http.ResponseWriter, r *http.Request) {
 
 	registryMgr := newSkillsRegistryManager(cfg)
 	searchLimit := offset + limit + 1
-	if searchLimit > maxRegistrySearchFanout {
-		searchLimit = maxRegistrySearchFanout
-	}
+	searchLimit = min(searchLimit, maxRegistrySearchFanout)
 	results, err := registryMgr.SearchAll(r.Context(), query, searchLimit)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to search skills: %v", err), http.StatusBadGateway)

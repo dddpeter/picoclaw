@@ -68,9 +68,7 @@ func (b *LogBuffer) LinesSince(offset int) (lines []string, total int, runID int
 
 	// How many new lines since offset
 	newCount := b.total - offset
-	if newCount > buffered {
-		newCount = buffered
-	}
+	newCount = min(newCount, buffered)
 
 	result := make([]string, newCount)
 

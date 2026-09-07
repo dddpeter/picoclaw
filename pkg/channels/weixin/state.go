@@ -228,9 +228,7 @@ func (c *WeixinChannel) getTypingTicket(ctx context.Context, userID string) (str
 		retryDelay = weixinConfigRetryInitial
 	} else {
 		retryDelay *= 2
-		if retryDelay > weixinConfigRetryMax {
-			retryDelay = weixinConfigRetryMax
-		}
+		retryDelay = min(retryDelay, weixinConfigRetryMax)
 	}
 
 	c.typingMu.Lock()

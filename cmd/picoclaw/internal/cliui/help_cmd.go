@@ -278,9 +278,7 @@ func renderTwoColPairs(rows [][2]string, contentW int) string {
 	if leftW < minLeft {
 		leftW = minLeft
 	}
-	if leftW > maxLeft {
-		leftW = maxLeft
-	}
+	leftW = min(leftW, maxLeft)
 	gap := "  "
 	rightW := contentW - leftW - lipgloss.Width(gap)
 	if rightW < 24 {
