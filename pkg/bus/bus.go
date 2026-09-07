@@ -138,6 +138,10 @@ type ToolStep struct {
 	// Kind labels the invocation type (ToolStepKind*); empty means a regular
 	// tool execution.
 	Kind string
+	// Running marks an in-flight invocation: published when the tool starts,
+	// carrying no result yet. Panels render it as a live entry until the
+	// completed step for the same call arrives.
+	Running bool
 }
 
 // ToolStepStreamer can render tool execution steps as they happen, letting a

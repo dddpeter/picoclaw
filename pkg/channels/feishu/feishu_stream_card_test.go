@@ -317,6 +317,104 @@ func TestFinalCardShowsCancelReason(t *testing.T) {
 	}
 }
 
+// panelChildOrder marshals panel children and returns the indexes of the
+// first occurrence of each marker, for timeline-order assertions.
+func panelChildOrder(t *testing.T, panel map[string]any, markers ...string) []int {
+	t.Helper()
+	data, _ := json.Marshal(panel["elements"])
+	rendered := string(data)
+	out := make([]int, len(markers))
+	for i, m := range markers {
+		out[i] = strings.Index(rendered, m)
+		if out[i] < 0 {
+			t.Fatalf("marker %q not found in panel:\n%s", m, rendered)
+		}
+	}
+	return out
+}
+
+func TestFeishuPanelTimelineInterleave(t *testing.T) {
+	// A two-iteration turn: reason → tool → reason → tool. The panel must
+	// interleave them chronologically, not group rounds before tools.
+	state := &feishuStreamState{
+		Rounds: []feishuReasoningRound{
+			{Text: "first thinking", Seq: 1},
+			{Text: "second thinking", Seq: 3},
+		},
+		Tools: []bus.ToolStep{
+			{Tool: "search_one", Args: "q1", Result: "r1", Duration: time.Second},
+			{Tool: "search_two", Args: "q2", Result: "r2", Duration: time.Second},
+		},
+		ToolSeqs: []int{2, 4},
+	}
+	panel := buildFeishuPanel(state, true)
+	// Tool titles are markdown-escaped; the compact "args → result" lines
+	// survive JSON marshaling verbatim and identify each step.
+	idx := panelChildOrder(t, panel, "第 1 轮推理", "q1 → r1", "第 2 轮推理", "q2 → r2")
+	if !(idx[0] < idx[1] && idx[1] < idx[2] && idx[2] < idx[3]) {
+		t.Errorf("panel should interleave R→T→R→T, got indexes %v", idx)
+	}
+}
+
+func TestFeishuPanelHeaderShowsActualTotals(t *testing.T) {
+	// Over the display caps: the header must still report the real totals
+	// (hermes-lark-streaming semantics), only the body gets trimmed.
+	state := &feishuStreamState{}
+	for i := 0; i < feishuMaxReasoningRounds+5; i++ {
+		state.Rounds = append(state.Rounds, feishuReasoningRound{Text: fmt.Sprintf("round %d", i), Seq: i + 1})
+	}
+	for i := 0; i < feishuMaxToolSteps+3; i++ {
+		state.Tools = append(state.Tools, bus.ToolStep{Tool: fmt.Sprintf("tool%d", i), Result: "ok"})
+	}
+	panel := buildFeishuPanel(state, true)
+
+	title := panel["header"].(map[string]any)["title"].(map[string]any)["content"].(string)
+	if !strings.Contains(title, fmt.Sprintf("%d 轮推理", feishuMaxReasoningRounds+5)) {
+		t.Errorf("header %q should report the actual round total", title)
+	}
+	if !strings.Contains(title, fmt.Sprintf("%d 次工具", feishuMaxToolSteps+3)) {
+		t.Errorf("header %q should report the actual tool total", title)
+	}
+	hint, _ := panel["elements"].([]any)[0].(map[string]any)["content"].(string)
+	if !strings.Contains(hint, "5 轮早期推理") || !strings.Contains(hint, "3 步早期操作") {
+		t.Errorf("collapse hint %q should still report what was trimmed from the body", hint)
+	}
+}
+
+func TestFeishuPanelRunningTool(t *testing.T) {
+	state := &feishuStreamState{
+		Rounds: []feishuReasoningRound{{Text: "planned the search", Seq: 1}},
+		Tools: []bus.ToolStep{
+			{Tool: "previous_step", Args: "pre", Result: "done", Duration: time.Second},
+		},
+		ToolSeqs:    []int{2},
+		RunningTool: &bus.ToolStep{Tool: "long_exec", Args: `{"cmd":"sleep 300"}`},
+	}
+	if !state.hasPanelContent() {
+		t.Fatal("a running tool alone should count as panel content")
+	}
+	panel := buildFeishuPanel(state, true)
+	data, _ := json.Marshal(panel["elements"])
+	rendered := string(data)
+	if !strings.Contains(rendered, "⏳ long") || !strings.Contains(rendered, "（运行中）") {
+		t.Errorf("running tool should render an amber running entry:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "sleep 300") {
+		t.Errorf("running tool should show its args preview:\n%s", rendered)
+	}
+	// The running entry sits at the very end of the timeline, after every
+	// finalized item.
+	idx := panelChildOrder(t, panel, "第 1 轮推理", "pre → done", "（运行中）")
+	if !(idx[0] < idx[1] && idx[1] < idx[2]) {
+		t.Errorf("running entry should close the timeline, got indexes %v", idx)
+	}
+	// The header already counts the in-flight execution.
+	title := panel["header"].(map[string]any)["title"].(map[string]any)["content"].(string)
+	if !strings.Contains(title, "2 次工具") {
+		t.Errorf("header %q should count the running tool as an execution", title)
+	}
+}
+
 func TestPanelShowsSteeringNotice(t *testing.T) {
 	state := &feishuStreamState{
 		SteeringCount: 2,

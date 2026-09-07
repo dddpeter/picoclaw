@@ -537,7 +537,12 @@ func (p *streamingChunkPublisher) FinalizeReasoning(ctx context.Context, content
 // render tool-call timelines. Failures are logged but non-fatal: the panel is
 // auxiliary and must never break the turn.
 func (p *streamingChunkPublisher) AppendToolStep(ctx context.Context, step bus.ToolStep) {
-	if p == nil || p.streamer == nil || strings.TrimSpace(step.Tool) == "" {
+	if p == nil || p.streamer == nil {
+		return
+	}
+	// Mid-turn text archives (ToolStepKindText) carry no tool name by design;
+	// only they may pass the gate unnamed.
+	if strings.TrimSpace(step.Tool) == "" && step.Kind != bus.ToolStepKindText {
 		return
 	}
 	toolStepStreamer, ok := p.streamer.(bus.ToolStepStreamer)

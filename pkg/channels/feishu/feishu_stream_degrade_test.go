@@ -6,6 +6,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/sipeed/picoclaw/pkg/bus"
 )
 
 // degradeAPIFake records CardKit calls and lets each be scripted to fail.
@@ -181,5 +184,38 @@ func TestUpdateStillPropagatesOtherErrors(t *testing.T) {
 	s.mu.Unlock()
 	if lost {
 		t.Error("streamer must not degrade for other errors")
+	}
+}
+
+// TestStreamerRunningToolStepLifecycle: a Running step becomes the live
+// in-flight entry without joining the timeline; the completed step clears it
+// and takes its place in the interleaved history.
+func TestStreamerRunningToolStepLifecycle(t *testing.T) {
+	s := newDegradeTestStreamer(t, &degradeAPIFake{})
+
+	if err := s.AppendToolStep(context.Background(), bus.ToolStep{Tool: "long_exec", Args: `{"cmd":"x"}`, Running: true}); err != nil {
+		t.Fatalf("running step: %v", err)
+	}
+	s.mu.Lock()
+	running, toolCount := s.state.RunningTool, len(s.state.Tools)
+	s.mu.Unlock()
+	if running == nil || running.Tool != "long_exec" {
+		t.Fatalf("running step should occupy the live slot, got %+v", running)
+	}
+	if toolCount != 0 {
+		t.Fatalf("running step must not join the timeline yet, got %d tools", toolCount)
+	}
+
+	if err := s.AppendToolStep(context.Background(), bus.ToolStep{Tool: "long_exec", Args: `{"cmd":"x"}`, Result: "done", Duration: time.Second}); err != nil {
+		t.Fatalf("completed step: %v", err)
+	}
+	s.mu.Lock()
+	running, toolCount, seqCount := s.state.RunningTool, len(s.state.Tools), len(s.state.ToolSeqs)
+	s.mu.Unlock()
+	if running != nil {
+		t.Fatal("completed step should clear the live slot")
+	}
+	if toolCount != 1 || seqCount != 1 {
+		t.Fatalf("completed step should join the timeline with a seq, got tools=%d seqs=%d", toolCount, seqCount)
 	}
 }

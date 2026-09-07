@@ -614,6 +614,18 @@ toolLoop:
 			})
 		}
 
+		// Surface the invocation on the streaming panel before it runs, so
+		// long executions show a live "running" entry instead of a silent gap.
+		if exec.streamingPublisher != nil {
+			argsJSON, _ := json.Marshal(toolArgs)
+			exec.streamingPublisher.AppendToolStep(turnCtx, bus.ToolStep{
+				Tool:    toolName,
+				Args:    utils.Truncate(string(argsJSON), 200),
+				Kind:    toolStepKind(toolName),
+				Running: true,
+			})
+		}
+
 		toolStart := time.Now()
 		execCtx := tools.WithToolInboundContext(
 			turnCtx,

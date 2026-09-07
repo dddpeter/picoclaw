@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	larkcardkit "github.com/larksuite/oapi-sdk-go/v3/service/cardkit/v1"
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher/callback"
+	larkcardkit "github.com/larksuite/oapi-sdk-go/v3/service/cardkit/v1"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/channels"
@@ -57,6 +57,11 @@ type feishuCardStreamer struct {
 	mu      sync.Mutex
 	seq     int
 	startAt time.Time
+
+	// eventSeq orders panel events (rounds, tool steps) by arrival so the
+	// panel can interleave them chronologically. Distinct from seq, which is
+	// the CardKit API sequence.
+	eventSeq int
 
 	state       feishuStreamState
 	answer      string
@@ -460,9 +465,11 @@ func (s *feishuCardStreamer) FinalizeReasoning(ctx context.Context, content stri
 		if !s.reasonAt.IsZero() {
 			duration = time.Since(s.reasonAt)
 		}
+		s.eventSeq++
 		s.state.Rounds = append(s.state.Rounds, feishuReasoningRound{
 			Text:     s.state.CurReasoning,
 			Duration: duration,
+			Seq:      s.eventSeq,
 		})
 		s.state.CurReasoning = ""
 		s.reasonAt = time.Time{}
@@ -473,7 +480,9 @@ func (s *feishuCardStreamer) FinalizeReasoning(ctx context.Context, content stri
 	return nil
 }
 
-// AppendToolStep implements bus.ToolStepStreamer.
+// AppendToolStep implements bus.ToolStepStreamer. A Running step replaces the
+// live in-flight entry (rendered at the end of the panel timeline); a
+// completed step clears it and joins the interleaved timeline.
 func (s *feishuCardStreamer) AppendToolStep(ctx context.Context, step bus.ToolStep) error {
 	s.mu.Lock()
 	if s.done {
@@ -483,7 +492,15 @@ func (s *feishuCardStreamer) AppendToolStep(ctx context.Context, step bus.ToolSt
 	s.lastAt = time.Now()
 	s.setPhaseLocked(feishuPhaseThinking)
 	s.panelDirty = true
-	s.state.Tools = append(s.state.Tools, step)
+	if step.Running {
+		running := step
+		s.state.RunningTool = &running
+	} else {
+		s.state.RunningTool = nil
+		s.eventSeq++
+		s.state.Tools = append(s.state.Tools, step)
+		s.state.ToolSeqs = append(s.state.ToolSeqs, s.eventSeq)
+	}
 	err := s.refreshPanelLocked(ctx)
 	s.mu.Unlock()
 	s.logPanelErr("tool step", err)
@@ -574,7 +591,8 @@ func (s *feishuCardStreamer) FinalizeWithContext(ctx context.Context, content st
 	}
 	// Fold any in-progress reasoning round so the sealed panel is complete.
 	if s.state.CurReasoning != "" {
-		s.state.Rounds = append(s.state.Rounds, feishuReasoningRound{Text: s.state.CurReasoning})
+		s.eventSeq++
+		s.state.Rounds = append(s.state.Rounds, feishuReasoningRound{Text: s.state.CurReasoning, Seq: s.eventSeq})
 		s.state.CurReasoning = ""
 	}
 	state := s.state
@@ -614,7 +632,8 @@ func (s *feishuCardStreamer) CancelWithReason(ctx context.Context, reason string
 	}
 	// Fold the in-progress reasoning round so the panel stays consistent.
 	if s.state.CurReasoning != "" {
-		s.state.Rounds = append(s.state.Rounds, feishuReasoningRound{Text: s.state.CurReasoning})
+		s.eventSeq++
+		s.state.Rounds = append(s.state.Rounds, feishuReasoningRound{Text: s.state.CurReasoning, Seq: s.eventSeq})
 		s.state.CurReasoning = ""
 	}
 	state := s.state

@@ -225,3 +225,21 @@ func TestSeedSkillPanelStep_NoSkills(t *testing.T) {
 		t.Fatalf("expected no skill steps, got %d", len(streamer.steps))
 	}
 }
+
+// TestAppendToolStepAllowsUnnamedTextArchives: mid-turn text archives carry no
+// tool name by design and must survive the publisher gate; every other
+// unnamed step is still dropped.
+func TestAppendToolStepAllowsUnnamedTextArchives(t *testing.T) {
+	streamer := &toolStepRecordingStreamer{}
+	publisher := &streamingChunkPublisher{streamer: streamer}
+
+	publisher.AppendToolStep(context.Background(), bus.ToolStep{Kind: bus.ToolStepKindText, Result: "中间说明"})
+	publisher.AppendToolStep(context.Background(), bus.ToolStep{Result: "unnamed execution"})
+
+	if len(streamer.steps) != 1 {
+		t.Fatalf("expected only the text archive to pass the gate, got %d steps", len(streamer.steps))
+	}
+	if step := streamer.steps[0]; step.Kind != bus.ToolStepKindText || step.Result != "中间说明" {
+		t.Fatalf("unexpected surviving step: %+v", step)
+	}
+}

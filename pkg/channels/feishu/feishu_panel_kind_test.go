@@ -12,13 +12,15 @@ import (
 func TestBuildFeishuPanelSkillAndMCPSteps(t *testing.T) {
 	state := &feishuStreamState{
 		Rounds: []feishuReasoningRound{
-			{Text: "thinking about it", Duration: time.Second},
+			{Text: "thinking about it", Duration: time.Second, Seq: 2},
 		},
 		Tools: []bus.ToolStep{
 			{Tool: "pdf-reader, web-lookup", Kind: bus.ToolStepKindSkill},
 			{Tool: "web_search", Args: `{"q":"picoclaw"}`, Result: "3 results", Duration: time.Second},
 			{Tool: "mcp_fetch_search", Args: `{"url":"https://example.com"}`, Result: "page text", Duration: 2 * time.Second, Kind: bus.ToolStepKindMCP},
 		},
+		// Real chronology: skills seed first, then reasoning, then tools.
+		ToolSeqs: []int{1, 3, 4},
 	}
 
 	panel := buildFeishuPanel(state, true)

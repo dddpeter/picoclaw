@@ -117,6 +117,9 @@ func applyPanelTextBudget(rounds []feishuReasoningRound, tools []bus.ToolStep, b
 type feishuReasoningRound struct {
 	Text     string
 	Duration time.Duration
+	// Seq orders the round against tool steps on the panel timeline (assigned
+	// by the streamer in arrival order; rounds and tools share one counter).
+	Seq int
 }
 
 // feishuStreamState is the mutable content of one streaming card. All card
@@ -125,6 +128,13 @@ type feishuStreamState struct {
 	Rounds       []feishuReasoningRound
 	CurReasoning string
 	Tools        []bus.ToolStep
+	// ToolSeqs carries the timeline sequence of each entry in Tools (parallel
+	// slice, assigned by the streamer) so the panel can interleave rounds and
+	// tool steps chronologically. An empty/misaligned slice means "no timeline
+	// information": tools then render after all rounds (the legacy order).
+	ToolSeqs    []int
+	RunningTool *bus.ToolStep
+
 	ModelName    string
 	InputTokens  int
 	OutputTokens int
@@ -143,7 +153,7 @@ type feishuStreamState struct {
 
 func (s *feishuStreamState) hasPanelContent() bool {
 	return len(s.Rounds) > 0 || strings.TrimSpace(s.CurReasoning) != "" ||
-		len(s.Tools) > 0 || s.SteeringCount > 0
+		len(s.Tools) > 0 || s.SteeringCount > 0 || s.RunningTool != nil
 }
 
 func (s *feishuStreamState) reasoningTotal() time.Duration {
@@ -416,12 +426,16 @@ func buildFeishuCardWithinSize(build func(panelBudget int) map[string]any) map[s
 }
 
 // buildFeishuPanelBudget builds the unified process panel: collapse hint for
-// trimmed early items, finalized reasoning rounds, in-progress reasoning, then
-// tool steps — all in chronological order (reasoning rounds of a turn precede
-// the tool calls that followed them).
+// trimmed early items, then reasoning rounds and tool steps merged in the
+// chronological order they occurred (timeline interleave, matching
+// hermes-lark-streaming), the live in-progress reasoning, and finally the
+// in-flight tool step. The header always reports the ACTUAL totals, even when
+// display caps trimmed early items from the panel body.
 func buildFeishuPanelBudget(state *feishuStreamState, expanded bool, textBudget int) map[string]any {
 	rounds := state.Rounds
 	tools := state.Tools
+	toolSeqs := state.ToolSeqs
+	seqsAligned := len(toolSeqs) == len(tools)
 	trimmedRounds := 0
 	trimmedTools := 0
 	if len(rounds) > feishuMaxReasoningRounds {
@@ -431,24 +445,30 @@ func buildFeishuPanelBudget(state *feishuStreamState, expanded bool, textBudget 
 	if len(tools) > feishuMaxToolSteps {
 		trimmedTools = len(tools) - feishuMaxToolSteps
 		tools = tools[len(tools)-feishuMaxToolSteps:]
+		if seqsAligned {
+			toolSeqs = toolSeqs[len(toolSeqs)-feishuMaxToolSteps:]
+		}
 	}
 	rounds, tools = applyPanelTextBudget(rounds, tools, textBudget)
-
-	// Skill activation entries are context preparation, not tool executions:
-	// render them before the reasoning rounds and keep them out of the
-	// header's tool count.
-	skillSteps := make([]bus.ToolStep, 0, len(tools))
-	textSteps := make([]bus.ToolStep, 0, len(tools))
-	execSteps := make([]bus.ToolStep, 0, len(tools))
-	for _, step := range tools {
-		switch step.Kind {
-		case bus.ToolStepKindSkill:
-			skillSteps = append(skillSteps, step)
-		case bus.ToolStepKindText:
-			textSteps = append(textSteps, step)
-		default:
-			execSteps = append(execSteps, step)
+	toolSeq := func(i int) int {
+		if seqsAligned {
+			return toolSeqs[i]
 		}
+		return 0
+	}
+
+	// Header totals are computed pre-trim so the counts never shrink when the
+	// display caps kick in; a running tool already counts as an execution.
+	totalExecTools := 0
+	toolElapsedMs := int64(0)
+	for _, step := range state.Tools {
+		if step.Kind != bus.ToolStepKindSkill && step.Kind != bus.ToolStepKindText {
+			totalExecTools++
+		}
+		toolElapsedMs += step.Duration.Milliseconds()
+	}
+	if state.RunningTool != nil {
+		totalExecTools++
 	}
 
 	children := []any{}
@@ -478,28 +498,31 @@ func buildFeishuPanelBudget(state *feishuStreamState, expanded bool, textBudget 
 		})
 	}
 
-	for _, step := range skillSteps {
-		children = append(children, feishuToolStepTitle(step))
-	}
-	for i, r := range rounds {
-		children = append(children, feishuReasoningRoundPanel(i+1, r))
-	}
-	for _, step := range textSteps {
-		children = append(children, feishuMidTurnTextElements(step)...)
+	// Timeline merge: rounds and tools interleave by their arrival sequence.
+	// Ties (and seq-less legacy states) render the round first.
+	ri, ti := 0, 0
+	for ri < len(rounds) || ti < len(tools) {
+		if ti >= len(tools) || (ri < len(rounds) && rounds[ri].Seq <= toolSeq(ti)) {
+			children = append(children, feishuReasoningRoundPanel(ri+1, rounds[ri]))
+			ri++
+		} else {
+			children = append(children, feishuToolStepChildren(tools[ti])...)
+			ti++
+		}
 	}
 	if cur := strings.TrimSpace(state.CurReasoning); cur != "" {
 		children = append(children, feishuReasoningTitle(len(rounds)+1, 0, false))
 		children = append(children, feishuIndentedLarkMD(truncateFeishuReasoning(cur)))
 	}
-	for _, step := range execSteps {
-		children = append(children, feishuToolStepElements(step)...)
+	if state.RunningTool != nil {
+		children = append(children, feishuRunningToolStepElements(*state.RunningTool)...)
 	}
 	if len(children) == 0 {
 		children = append(children, map[string]any{"tag": "markdown", "content": " "})
 	}
 
-	header := feishuPanelHeader(len(rounds), strings.TrimSpace(state.CurReasoning) != "", len(execSteps),
-		int64((state.reasoningTotal()).Milliseconds()))
+	header := feishuPanelHeader(len(state.Rounds), strings.TrimSpace(state.CurReasoning) != "", totalExecTools,
+		int64((state.reasoningTotal()).Milliseconds())+toolElapsedMs)
 	return map[string]any{
 		"tag":              "collapsible_panel",
 		"expanded":         expanded,
@@ -510,6 +533,54 @@ func buildFeishuPanelBudget(state *feishuStreamState, expanded bool, textBudget 
 		"elements":         children,
 		"element_id":       feishuPanelElementID,
 	}
+}
+
+// feishuToolStepChildren renders one tool step by kind: skill activations and
+// mid-turn texts have their dedicated forms; everything else is a regular
+// execution step.
+func feishuToolStepChildren(step bus.ToolStep) []any {
+	switch step.Kind {
+	case bus.ToolStepKindSkill:
+		// Context activation, not an execution: title only.
+		return []any{feishuToolStepTitle(step)}
+	case bus.ToolStepKindText:
+		return feishuMidTurnTextElements(step)
+	default:
+		return feishuToolStepElements(step)
+	}
+}
+
+// feishuRunningToolStepElements renders the in-flight tool invocation at the
+// end of the timeline: amber ⏳ title without an elapsed suffix (mirrors
+// hermes-lark-streaming's running status: orange-300, motion cue, no time).
+func feishuRunningToolStepElements(step bus.ToolStep) []any {
+	title := fmt.Sprintf(
+		"<font color='%s'>**⏳ %s（运行中）**</font>", feishuAmberColor, escapeFeishuMD(step.Tool))
+	iconColor := "grey"
+	if step.Kind == bus.ToolStepKindMCP {
+		iconColor = "blue"
+	}
+	children := []any{map[string]any{
+		"tag": "div",
+		"icon": map[string]any{
+			"tag":   "standard_icon",
+			"token": "tool_02",
+			"color": iconColor,
+		},
+		"text": map[string]any{
+			"tag": "lark_md", "content": title, "text_size": "notation",
+		},
+	}}
+	if args := strings.TrimSpace(step.Args); args != "" {
+		children = append(children, map[string]any{
+			"tag":    "div",
+			"margin": "0px 0px 0px 22px",
+			"text": map[string]any{
+				"tag": "plain_text", "content": args, "text_color": "grey", "text_size": "notation",
+			},
+		})
+	}
+	return children
 }
 
 func feishuReasoningTitle(index int, elapsed time.Duration, finalized bool) map[string]any {
