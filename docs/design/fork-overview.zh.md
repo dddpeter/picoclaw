@@ -18,6 +18,7 @@
 | Web launcher 主题 | `5d3ad431` | `web/frontend/src/index.css` | 本文 §8 |
 | 运维禁令 | `23b1275d` | `AGENTS.md` | 本文 §9 |
 | 技能目录扩展与项目文档注入 | `<本次>` | `pkg/skills/loader.go`、`pkg/agent/project_docs.go` | 本文 §10 |
+| 会话标题两阶段生成 | `48bf141f` | `pkg/agent/session_title.go`、`pkg/memory/jsonl.go` | `docs/design/hermes-borrowing-analysis.zh.md` §二 |
 
 ## 1. 飞书 CardKit v2 流式卡片
 
@@ -124,6 +125,7 @@
 | 长无写入期间流式卡超时（200850） | 元素写入持续报错 | 自动重开，失败降级全卡更新，turn 不中断 |
 | 技能来源 | 3 级（workspace/global/builtin） | 5 级（+`<ws>/.skills`、`~/.agents/skills`），restrict 下技能根只读放行 |
 | 项目文档 | 无（README/CLAUDE.md 完全忽略） | `project_docs` 自动注入（AGENTS.md/README.md/CLAUDE.md，截断保护） |
+| 会话标题 | 无（launcher 列表显示首条消息截断） | 两阶段自动命名（派生→轻模型升级）+ `/title` 手动，user>llm>derived 优先级 |
 | Web launcher 外观 | 上游默认主题 | 深空紫青主题（仅改 index.css，升级时留意该文件冲突） |
 | systemd 部署 | 官方 unit | 禁 sandbox 指令（见 §9），unit 变更时不得带回 |
 

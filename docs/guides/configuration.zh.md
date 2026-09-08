@@ -479,6 +479,28 @@ Agent 陷入"烧 token 换不来进展"的循环时（同一命令反复失败�
 
 命中后检测器自动重置，需重新累计才会再次触发（幂等）。环境变量：`PICOCLAW_AGENTS_DEFAULTS_LOOP_DETECTION_ENABLED` 等。
 
+### 会话标题 (session_titles)
+
+会话自动命名（fork 新增，借鉴 hermes-agent 的两阶段方案，详见 `docs/design/hermes-borrowing-analysis.zh.md` §二）：turn 开始时从用户开场消息同步落一个确定性标题（不可能失败）；后台再用轻模型升级为更简洁的标题。手动 `/title` 永远优先。
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "session_titles": {
+        "enabled": true
+      }
+    }
+  }
+}
+```
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `enabled` | 未配置时视为 `true` | 总开关；显式设为 `false` 关闭 |
+
+标题来源优先级 `user > llm > derived`：`/title` 手动命名永不被覆盖；轻模型标题只替换派生标题；派生标题只填充空位。心跳/cron/异步工具结果等机器消息不触发命名（防"心跳"型标题）；轻模型输出超过 32 字或含换行视为"回答而非命名"，拒绝且不截断存储。标题持久化在会话 `.meta.json`，launcher 控制台的会话列表优先展示。环境变量：`PICOCLAW_AGENTS_DEFAULTS_SESSION_TITLES_ENABLED`。
+
 ### 共享记忆 (memory)
 
 对接 MCP 记忆服务（如 OpenViking）的自动召回与会话提交，完整接入指南见 `docs/guides/openviking.md`。

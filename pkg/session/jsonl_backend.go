@@ -34,6 +34,13 @@ type MetadataAwareSessionStore interface {
 	GetSessionScope(sessionKey string) *SessionScope
 }
 
+// TitleAwareSessionStore exposes optional per-session title operations
+// (two-phase title generation, see pkg/agent/session_title.go).
+type TitleAwareSessionStore interface {
+	SetSessionTitle(sessionKey, title, source string) bool
+	GetSessionTitle(sessionKey string) (title, source string, ok bool)
+}
+
 // NewJSONLBackend wraps a memory.Store for use as a SessionStore.
 func NewJSONLBackend(store memory.Store) *JSONLBackend {
 	return &JSONLBackend{store: store}
@@ -116,6 +123,42 @@ func (b *JSONLBackend) GetSessionScope(sessionKey string) *SessionScope {
 		return nil
 	}
 	return CloneScope(&scope)
+}
+
+type titleAwareStore interface {
+	SetSessionTitle(ctx context.Context, sessionKey, title, source string) (bool, error)
+}
+
+// SetSessionTitle stores a session title honoring source priority
+// (user > llm > derived); returns false when the store does not support
+// titles or the existing title outranks the incoming one.
+func (b *JSONLBackend) SetSessionTitle(sessionKey, title, source string) bool {
+	ts, ok := b.store.(titleAwareStore)
+	if !ok {
+		return false
+	}
+	applied, err := ts.SetSessionTitle(context.Background(), b.resolveSessionKey(sessionKey), title, source)
+	if err != nil {
+		log.Printf("session: set session title: %v", err)
+		return false
+	}
+	return applied
+}
+
+// GetSessionTitle returns the stored title and its source for a session.
+func (b *JSONLBackend) GetSessionTitle(sessionKey string) (string, string, bool) {
+	metaStore, ok := b.store.(metaAwareStore)
+	if !ok {
+		return "", "", false
+	}
+	meta, err := metaStore.GetSessionMeta(context.Background(), b.resolveSessionKey(sessionKey))
+	if err != nil {
+		return "", "", false
+	}
+	if meta.Title == "" {
+		return "", "", false
+	}
+	return meta.Title, meta.TitleSource, true
 }
 
 func (b *JSONLBackend) AddMessage(sessionKey, role, content string) {

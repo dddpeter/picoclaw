@@ -393,6 +393,20 @@ func (al *AgentLoop) buildCommandsRuntime(
 			return al.contextManager.Clear(ctx, opts.SessionKey)
 		}
 
+		// /title: manual session titles outrank derived and light-model ones.
+		rt.SetSessionTitle = func(title string) bool {
+			if opts == nil {
+				return false
+			}
+			return al.setSessionTitleUser(agent, opts.Dispatch.SessionKey, title)
+		}
+		rt.GetSessionTitle = func() (string, string, bool) {
+			if opts == nil {
+				return "", "", false
+			}
+			return al.getSessionTitleInfo(agent, opts.Dispatch.SessionKey)
+		}
+
 		rt.AskSideQuestion = func(ctx context.Context, question string) (string, error) {
 			return al.askSideQuestion(ctx, agent, opts, question)
 		}

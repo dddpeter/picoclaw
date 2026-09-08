@@ -36,6 +36,15 @@ const (
 	maxLineSize = 10 * 1024 * 1024 // 10 MB
 )
 
+// Session title sources, in increasing override priority. SetSessionTitle
+// refuses to replace a title from a higher-or-equal-priority source except
+// when writing with the same source.
+const (
+	SessionTitleSourceDerived = "derived" // deterministic, from the opening user message
+	SessionTitleSourceLLM     = "llm"     // background light-model upgrade
+	SessionTitleSourceUser    = "user"    // manual /title — never overwritten
+)
+
 // SessionMeta holds per-session metadata stored in a .meta.json file.
 //
 // Scope is stored as raw JSON so pkg/memory can stay decoupled from the
@@ -49,6 +58,10 @@ type SessionMeta struct {
 	UpdatedAt time.Time       `json:"updated_at"`
 	Scope     json.RawMessage `json:"scope,omitempty"`
 	Aliases   []string        `json:"aliases,omitempty"`
+	Title     string          `json:"title,omitempty"`
+	// TitleSource records where Title came from (see SessionTitleSource*
+	// constants); user titles are never overwritten by derived/llm ones.
+	TitleSource string `json:"title_source,omitempty"`
 }
 
 // JSONLStore implements Store using append-only JSONL files.
@@ -225,6 +238,56 @@ func (s *JSONLStore) UpsertSessionMeta(
 	meta.UpdatedAt = now
 
 	return s.writeMeta(sessionKey, meta)
+}
+
+// titlePriority ranks title sources; higher wins. Unknown sources rank
+// lowest so a corrupted meta file never blocks fresh titles.
+func titlePriority(source string) int {
+	switch source {
+	case SessionTitleSourceUser:
+		return 3
+	case SessionTitleSourceLLM:
+		return 2
+	case SessionTitleSourceDerived:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// SetSessionTitle stores a session title with compare-and-swap source
+// priority: user titles are never overwritten; llm titles only replace
+// derived (or unset) ones; derived titles only fill empty slots. Replacing
+// a title with the same source is allowed (e.g. llm retry). Returns false
+// when the existing title outranks the incoming one.
+func (s *JSONLStore) SetSessionTitle(
+	_ context.Context,
+	sessionKey string,
+	title, source string,
+) (bool, error) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return false, nil
+	}
+
+	l := s.sessionLock(sessionKey)
+	l.Lock()
+	defer l.Unlock()
+
+	meta, err := s.readMeta(sessionKey)
+	if err != nil {
+		return false, err
+	}
+	if titlePriority(meta.TitleSource) > titlePriority(source) {
+		return false, nil
+	}
+	meta.Title = title
+	meta.TitleSource = source
+	meta.UpdatedAt = time.Now()
+	if err := s.writeMeta(sessionKey, meta); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // PromoteAliasHistory atomically promotes the first non-empty alias session

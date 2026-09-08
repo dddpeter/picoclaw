@@ -62,6 +62,8 @@ type Runtime struct {
 	GetStatusOverview  func() *StatusOverview
 	SwitchModel        func(value string) (oldModel string, err error)
 	ResetModel         func() (model string, err error)
+	SetSessionTitle    func(title string) bool
+	GetSessionTitle    func() (title, source string, ok bool)
 	SwitchChannel      func(value string) error
 	ClearHistory       func() error
 	ReloadConfig       func() error

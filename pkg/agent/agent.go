@@ -573,6 +573,10 @@ func (al *AgentLoop) runAgentLoop(
 		opts.Dispatch.SessionAliases,
 	)
 
+	// Two-phase session titling: derived title now (cannot fail), light-model
+	// upgrade armed in the background. Best effort, never blocks the turn.
+	al.maybeTitleSession(agent, &opts)
+
 	turnScope := al.newTurnEventScope(
 		agent.ID,
 		opts.Dispatch.SessionKey,

@@ -97,4 +97,6 @@ Hermes 与 picoclaw 是同一定位（个人部署、IM 通道、cron 自动化�
 
 ## 实施状态
 
-- 2026-09-08：调研完成，本文档存档。各项均未实施。
+- 2026-09-08：调研完成，本文档存档。
+- 2026-09-08：**第一项（会话标题两阶段生成）已实施**。分层：`pkg/memory/jsonl.go`（SessionMeta 增 title/title_source + SetSessionTitle CAS 优先级 user>llm>derived）、`pkg/session/jsonl_backend.go`（TitleAwareSessionStore 可选能力）、`pkg/agent/session_title.go`（两阶段核心：turn 开始派生标题 + 后台轻模型升级，answer-shaped guard、机器消息黑名单、进程内单次升级去重）、`/title` 手动命令、launcher `GET /api/sessions` 优先返回存储标题。配置 `agents.defaults.session_titles.enabled`（未配置=开启）。测试锚点：`TestSetSessionTitlePriorityMatrix`、`TestMaybeTitleSession*`、`TestTitleCommand*`。
+- 第二项（脚本 RPC）、第三项（技能闭环）未实施。

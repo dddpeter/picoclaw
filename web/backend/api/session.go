@@ -32,8 +32,11 @@ type sessionFile struct {
 	Key      string              `json:"key"`
 	Messages []providers.Message `json:"messages"`
 	Summary  string              `json:"summary,omitempty"`
-	Created  time.Time           `json:"created"`
-	Updated  time.Time           `json:"updated"`
+	// Title is the stored session title from .meta.json, when the gateway
+	// has written one (two-phase titling; empty for legacy sessions).
+	Title   string    `json:"title,omitempty"`
+	Created time.Time `json:"created"`
+	Updated time.Time `json:"updated"`
 }
 
 // sessionListItem is a lightweight summary returned by GET /api/sessions.
@@ -201,6 +204,7 @@ func (h *Handler) readJSONLSession(dir, sessionKey string) (sessionFile, error) 
 		Key:      meta.Key,
 		Messages: messages,
 		Summary:  meta.Summary,
+		Title:    meta.Title,
 		Created:  created,
 		Updated:  updated,
 	}, nil
@@ -430,7 +434,12 @@ func buildSessionListItem(sessionID string, sess sessionFile, toolFeedbackMaxArg
 	if preview == "" {
 		preview = "(empty)"
 	}
-	title := preview
+	// Prefer the stored title (derived/light-model/manual) over the raw
+	// first-message preview; legacy sessions keep the preview behavior.
+	title := strings.TrimSpace(sess.Title)
+	if title == "" {
+		title = preview
+	}
 
 	return sessionListItem{
 		ID:           sessionID,

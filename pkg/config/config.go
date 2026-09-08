@@ -489,6 +489,9 @@ type AgentDefaults struct {
 	MaxLLMRetries             int                 `json:"max_llm_retries,omitempty"        env:"PICOCLAW_AGENTS_DEFAULTS_MAX_LLM_RETRIES"`
 	LLMRetryBackoffSecs       int                 `json:"llm_retry_backoff_secs,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_LLM_RETRY_BACKOFF_SECS"`
 	LoopDetection             LoopDetectionConfig `json:"loop_detection,omitempty"`
+	// SessionTitles controls two-phase session titling (fork feature, see
+	// docs/design/hermes-borrowing-analysis.zh.md §二). Absent block = enabled.
+	SessionTitles SessionTitleConfig `json:"session_titles,omitempty"`
 	// ProjectDocs lists workspace-root markdown files auto-injected into the
 	// system prompt (AGENTS.md, README.md, ...). Absent from the config file
 	// means the default list; an explicit empty list disables the section.
@@ -505,6 +508,23 @@ type LoopDetectionConfig struct {
 	Enabled             *bool `json:"enabled,omitempty"    env:"PICOCLAW_AGENTS_DEFAULTS_LOOP_DETECTION_ENABLED"`
 	BashRetryThreshold  int   `json:"bash_retry_threshold"  env:"PICOCLAW_AGENTS_DEFAULTS_LOOP_DETECTION_BASH_RETRY_THRESHOLD"`  // consecutive identical failed commands
 	EditStreakThreshold int   `json:"edit_streak_threshold" env:"PICOCLAW_AGENTS_DEFAULTS_LOOP_DETECTION_EDIT_STREAK_THRESHOLD"` // consecutive edit-class calls
+}
+
+// SessionTitleConfig controls two-phase session titling: a deterministic
+// derived title at turn start, upgraded in the background by a light model;
+// manual /title always wins (source priority user > llm > derived).
+type SessionTitleConfig struct {
+	// Enabled is nil when unset, which means enabled — existing configs
+	// without the session_titles block must not silently turn it off.
+	Enabled *bool `json:"enabled,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_SESSION_TITLES_ENABLED"`
+}
+
+// SessionTitlesEnabled reports whether session titling is active (nil = on).
+func (d *AgentDefaults) SessionTitlesEnabled() bool {
+	if d == nil {
+		return true
+	}
+	return d.SessionTitles.Enabled == nil || *d.SessionTitles.Enabled
 }
 
 // EffectiveLoopDetection returns thresholds with defaults filled in and a
