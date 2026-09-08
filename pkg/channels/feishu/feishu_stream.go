@@ -283,6 +283,14 @@ func (c *FeishuChannel) handleCardAction(_ context.Context, event *callback.Card
 	if event.Event.Operator != nil {
 		operatorOpenID = event.Event.Operator.OpenID
 	}
+	// Every path below returns a toast to the user and used to be invisible
+	// in logs — a dead stop button could not be told apart from a callback
+	// that never arrived. Log the arrival and each refusal at info.
+	logger.InfoCF("feishu", "card action received", map[string]any{
+		"cmd":      cmd,
+		"chat_id":  chatID,
+		"operator": operatorOpenID,
+	})
 
 	// Resolve the operator through the same sender gate as typed messages;
 	// a button click must never bypass the channel allowlist.
@@ -294,17 +302,20 @@ func (c *FeishuChannel) handleCardAction(_ context.Context, event *callback.Card
 		sender.CanonicalID = identity.BuildCanonicalID("feishu", operatorOpenID)
 	}
 	if !c.IsAllowedSender(sender) {
+		logger.WarnCF("feishu", "card action refused: sender not in allowlist", map[string]any{"operator": operatorOpenID})
 		return toast("error", "无权执行此操作"), nil
 	}
 
 	switch cmd {
 	case feishuStopCmd:
 		if chatID == "" {
+			logger.WarnCF("feishu", "card action refused: missing chat_id in callback value", nil)
 			return toast("error", "卡片缺少会话信息"), nil
 		}
 		// The button only exists while a card streams, but a delayed click can
 		// land after the turn sealed; refuse instead of stopping nothing.
 		if !c.chatHasActiveStreamer(chatID) {
+			logger.InfoCF("feishu", "card action refused: no active streamer for chat", map[string]any{"chat_id": chatID})
 			return toast("info", "当前没有进行中的任务"), nil
 		}
 		inboundCtx := bus.InboundContext{
@@ -327,6 +338,7 @@ func (c *FeishuChannel) handleCardAction(_ context.Context, event *callback.Card
 		})
 		return toast("success", "已发送停止指令"), nil
 	default:
+		logger.InfoCF("feishu", "card action ignored: unknown cmd", map[string]any{"cmd": cmd})
 		return toast("info", "未知操作"), nil
 	}
 }

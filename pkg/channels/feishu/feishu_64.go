@@ -109,12 +109,15 @@ func (c *FeishuChannel) Start(ctx context.Context) error {
 	// reactions (inbound ack via RandomReactionEmoji, undone at preSend):
 	// without a handler the SDK logs "not found handler" and leaves the
 	// event unacked, which makes Feishu redeliver it ~20s later. picoclaw
-	// consumes no reaction state, so the payloads are ignored.
+	// consumes no reaction state, so the payloads are ignored. The read
+	// receipt (message_read_v1) is the same class: fired whenever any chat
+	// member reads a message, and picoclaw consumes no read state.
 	dispatcher := larkdispatcher.NewEventDispatcher(c.config.VerificationToken.String(), c.config.EncryptKey.String()).
 		OnP2MessageReceiveV1(c.handleMessageReceive).
 		OnP2CardActionTrigger(c.handleCardAction).
 		OnP2MessageReactionCreatedV1(c.handleReactionEcho).
-		OnP2MessageReactionDeletedV1(c.handleReactionEchoDelete)
+		OnP2MessageReactionDeletedV1(c.handleReactionEchoDelete).
+		OnP2MessageReadV1(c.handleMessageReadAck)
 
 	runCtx, cancel := context.WithCancel(ctx)
 
@@ -602,6 +605,13 @@ func (c *FeishuChannel) handleReactionEcho(ctx context.Context, event *larkim.P2
 
 // handleReactionEchoDelete ACKs im.message.reaction.deleted_v1.
 func (c *FeishuChannel) handleReactionEchoDelete(ctx context.Context, event *larkim.P2MessageReactionDeletedV1) error {
+	return nil
+}
+
+// handleMessageReadAck ACKs im.message.message_read_v1 (已读回执，会内成员读消息
+// 即触发); see the dispatcher comment in Start. The payload carries no state
+// picoclaw needs.
+func (c *FeishuChannel) handleMessageReadAck(ctx context.Context, event *larkim.P2MessageReadV1) error {
 	return nil
 }
 
