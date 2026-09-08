@@ -175,9 +175,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   return (
     <Sidebar
       {...props}
-      className="bg-background border-r-border/20 border-r pt-3"
+      className="bg-sidebar border-r-sidebar-border/60 border-r pt-3"
     >
-      <SidebarContent className="bg-background">
+      <SidebarContent className="bg-sidebar">
         {navGroups.map((group) => (
           <Collapsible
             key={group.label}
@@ -208,15 +208,15 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                             data-tour={
                               item.url === "/models" ? "models-nav" : undefined
                             }
-                            className={`h-9 px-3 ${isActive ? "bg-accent/80 text-foreground font-medium" : "text-muted-foreground hover:bg-muted/60"}`}
+                            className={`h-9 px-3 ${isActive ? "bg-accent/80 text-foreground font-medium shadow-[0_4px_14px_-4px_oklch(0.2_0.03_55/50%)] -translate-y-px" : "text-foreground/85 hover:bg-muted/60"}`}
                           >
                             <Link to={item.url}>
                               <item.icon
-                                className={`size-4 ${isActive ? "opacity-100" : "opacity-60"}`}
+                                className={`size-4 ${isActive ? "opacity-100" : "opacity-80"}`}
                               />
                               <span
                                 className={
-                                  isActive ? "opacity-100" : "opacity-80"
+                                  isActive ? "opacity-100" : "opacity-95"
                                 }
                               >
                                 {item.translateTitle === false

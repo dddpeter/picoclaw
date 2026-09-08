@@ -22,7 +22,7 @@ export function SkillCard({ skill, onView, onDelete }: SkillCardProps) {
 
   return (
     <Card
-      className="group border-border/40 bg-card/40 hover:bg-card hover:border-border/80 relative overflow-hidden transition-all hover:shadow-md"
+      className="group border-border/50 bg-card/80 hover:bg-card hover:border-border/80 relative overflow-hidden transition-all hover:shadow-md"
       size="sm"
     >
       <div className="via-primary/10 absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" />

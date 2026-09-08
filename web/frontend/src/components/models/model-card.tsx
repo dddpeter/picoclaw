@@ -87,27 +87,44 @@ export function ModelCard({
   return (
     <div
       className={[
-        "group/card hover:bg-muted/30 relative flex w-full max-w-[36rem] flex-col gap-3 justify-self-start rounded-xl border p-4 transition-colors hover:shadow-xs",
+        "group/card relative flex w-full flex-col gap-3 rounded-xl border p-4 transition-all duration-200",
         model.available
-          ? "border-border/60 bg-card"
-          : "border-border/50 bg-card/60",
+          ? "border-border/60 bg-card hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-[0_8px_24px_-8px_oklch(0.66_0.19_55/35%)]"
+          : "border-border/50 bg-card/90 hover:-translate-y-0.5 hover:shadow-[0_6px_18px_-8px_oklch(0.66_0.19_55/25%)]",
+        isDefault
+          ? "border-primary/50 shadow-[0_0_0_1px_oklch(0.66_0.19_55/30%),0_6px_20px_-6px_oklch(0.66_0.19_55/30%)]"
+          : "",
       ].join(" ")}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <span
             className={[
-              "mt-0.5 h-2 w-2 shrink-0 rounded-full",
+              "flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] leading-none font-medium",
               isDefault
-                ? "bg-green-400 shadow-[0_0_0_2px_rgba(74,222,128,0.35)]"
+                ? "bg-green-500/15 text-green-600 dark:text-green-400"
                 : status === "available"
-                  ? "bg-green-500"
+                  ? "bg-green-500/10 text-green-600 dark:text-green-400"
                   : status === "unreachable"
-                    ? "bg-amber-500"
-                    : "bg-muted-foreground/25",
+                    ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                    : "bg-muted text-muted-foreground",
             ].join(" ")}
             title={statusLabel}
-          />
+          >
+            <span
+              className={[
+                "h-1.5 w-1.5 rounded-full",
+                isDefault
+                  ? "bg-green-400 shadow-[0_0_0_2px_rgba(74,222,128,0.35)]"
+                  : status === "available"
+                    ? "bg-green-500"
+                    : status === "unreachable"
+                      ? "bg-amber-500"
+                      : "bg-muted-foreground/25",
+              ].join(" ")}
+            />
+            {statusLabel}
+          </span>
           <span className="text-foreground truncate text-sm font-semibold">
             {model.model_name}
           </span>
@@ -238,7 +255,9 @@ export function ModelCard({
         ) : status === "available" && model.api_key ? (
           <span className="text-muted-foreground/70 flex items-center gap-1 font-mono text-[11px]">
             <IconKey className="size-3" />
-            {model.api_key}
+            {model.api_key.length > 8
+              ? `${model.api_key.slice(0, 3)}••••${model.api_key.slice(-4)}`
+              : model.api_key}
           </span>
         ) : (
           <span className="text-muted-foreground/50 text-[11px]">

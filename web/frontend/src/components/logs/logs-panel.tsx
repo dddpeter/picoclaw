@@ -71,6 +71,10 @@ export function LogsPanel({
     }
 
     if (shouldStickToBottomRef.current) {
+      // Custom stick-to-bottom replaces the browser's scroll anchoring
+      // entirely; disabling it permanently avoids the two mechanisms
+      // fighting each other on every append (visible flicker).
+      viewport.style.overflowAnchor = "none"
       viewport.scrollTop = viewport.scrollHeight
     }
   }, [logs])

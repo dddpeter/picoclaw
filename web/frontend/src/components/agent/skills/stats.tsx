@@ -12,7 +12,7 @@ export function Stats({ stats }: { stats: SkillStatItem[] }) {
         <Card
           key={stat.key}
           size="sm"
-          className="border-border/40 bg-card/40 hover:bg-card gap-3 shadow-sm transition-all hover:shadow-md"
+          className="border-border/50 bg-card/80 hover:bg-card gap-3 shadow-sm transition-all hover:shadow-md"
         >
           <CardContent className="flex items-center justify-between pt-4">
             <div className="space-y-1">

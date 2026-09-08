@@ -3,7 +3,9 @@ import {
   IconDatabase,
   IconLoader2,
   IconPlus,
+  IconSearch,
   IconStar,
+  IconStarFilled,
 } from "@tabler/icons-react"
 import {
   useCallback,
@@ -475,6 +477,7 @@ export function ModelsPage() {
 
   const [editingModel, setEditingModel] = useState<ModelInfo | null>(null)
   const [deletingModel, setDeletingModel] = useState<ModelInfo | null>(null)
+  const [search, setSearch] = useState("")
   const [addOpen, setAddOpen] = useState(false)
   const [catalogOpen, setCatalogOpen] = useState(false)
   const [defaultChainOpen, setDefaultChainOpen] = useState(false)
@@ -847,6 +850,7 @@ export function ModelsPage() {
     setFallbackChainDraft(fallbackChainBaseline)
   }
 
+  const searchLower = search.trim().toLowerCase()
   const grouped: Record<
     string,
     {
@@ -858,6 +862,14 @@ export function ModelsPage() {
     }
   > = {}
   for (const model of models) {
+    if (searchLower) {
+      const providerKey = getCanonicalProviderKey(
+        model.provider,
+        providerOptions,
+      )
+      const haystack = `${model.model_name} ${model.model} ${providerKey ?? ""}`.toLowerCase()
+      if (!haystack.includes(searchLower)) continue
+    }
     const providerKey = getCanonicalProviderKey(model.provider, providerOptions)
     const providerDef = providerKey ? providerMap.get(providerKey) : undefined
     if (!grouped[providerKey]) {
@@ -983,7 +995,6 @@ export function ModelsPage() {
           </Button>
           <Button
             size="sm"
-            variant="outline"
             onClick={() => setAddOpen(true)}
             disabled={
               savingChain || modelUpdatePending || providerOptions.length === 0
@@ -997,6 +1008,18 @@ export function ModelsPage() {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 sm:px-6">
         <div className="pt-2">
+          <div className="flex items-center gap-2">
+            <div className="bg-card focus-within:border-primary/50 relative flex-1 rounded-lg border border-border/60 transition-colors sm:max-w-xs">
+              <IconSearch className="text-muted-foreground/70 pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t("models.searchPlaceholder")}
+                className="placeholder:text-muted-foreground/60 h-9 w-full rounded-lg bg-transparent pr-3 pl-9 text-sm outline-none"
+              />
+            </div>
+          </div>
           {!defaultModelDraft && (
             <div className="text-muted-foreground flex items-center gap-1.5 text-sm">
               <span>{t("models.noDefaultHintPrefix")}</span>
@@ -1010,18 +1033,43 @@ export function ModelsPage() {
           {!loading && (models.length > 0 || defaultModelDraft) && (
             <div className="bg-muted/30 mt-4 rounded-xl border px-4 py-3">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
+                <div className="min-w-0">
                   <p className="text-sm font-medium">
                     {t("models.defaultChain.title")}
                   </p>
-                  <p className="text-muted-foreground mt-1 text-sm">
-                    {defaultModelLabel
-                      ? t("models.defaultChain.summary", {
-                          model: defaultModelLabel,
-                          count: fallbackChainDraft.length,
-                        })
-                      : t("models.defaultChain.noDefault")}
-                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-gradient-to-r from-primary/90 to-[oklch(0.6_0.19_28)] px-3 py-1 text-xs font-medium text-primary-foreground shadow-sm">
+                      <IconStarFilled className="size-3 shrink-0" />
+                      <span className="truncate">
+                        {defaultModelLabel || t("models.defaultChain.noDefault")}
+                      </span>
+                    </span>
+                    {fallbackChainDraft.map((name, idx) => (
+                      <span key={name} className="flex items-center gap-1.5">
+                        <span className="text-primary/70 flex size-4 shrink-0 items-center justify-center">
+                          <svg
+                            viewBox="0 0 16 16"
+                            className="size-3.5"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.8"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M3 8h9" />
+                            <path d="m9 5 3 3-3 3" />
+                          </svg>
+                        </span>
+                        <span className="border-primary/25 bg-primary/5 text-foreground/85 hover:border-primary/45 inline-flex max-w-full items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors">
+                          <span className="bg-primary/20 text-primary size-1.5 shrink-0 rounded-full" />
+                          <span className="truncate">{name}</span>
+                        </span>
+                        {idx === fallbackChainDraft.length - 1 && (
+                          <span className="bg-primary/25 size-1 shrink-0 rounded-full" />
+                        )}
+                      </span>
+                    ))}
+                  </div>
                 </div>
                 <Button
                   size="sm"
@@ -1066,24 +1114,56 @@ export function ModelsPage() {
 
         {!loading && !savingChain && !modelUpdatePending && !fetchError && (
           <div className="pb-8">
-            {providerGroups.map((providerGroup) => (
-              <ProviderSection
-                key={providerGroup.key}
-                provider={providerGroup.provider}
-                models={providerGroup.models}
-                onEdit={setEditingModel}
-                onSetDefault={handleSetDefault}
-                onToggleFallback={handleToggleFallback}
-                onDelete={setDeletingModel}
-                fallbackChain={fallbackChainDraft}
-                defaultModelName={defaultModelDraft}
-                defaultModelEntryCount={defaultModelEntryCount}
-                defaultChainAllowedModelNames={defaultChainAllowedModelNames}
-                fallbackDefaultConflictModelNames={
-                  fallbackDefaultConflictModelNames
-                }
-              />
-            ))}
+            {models.length === 0 && !defaultModelDraft ? (
+              <div className="flex flex-col items-center justify-center py-20">
+                <div className="from-primary/15 to-[oklch(0.62_0.2_25/12%)] mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br shadow-lg shadow-primary/10">
+                  <IconDatabase className="text-primary size-8" />
+                </div>
+                <h3 className="text-foreground text-lg font-semibold">
+                  {t("models.emptyTitle")}
+                </h3>
+                <p className="text-muted-foreground mt-1.5 text-sm">
+                  {t("models.emptyDesc")}
+                </p>
+                <Button
+                  size="sm"
+                  className="mt-5"
+                  onClick={() => setAddOpen(true)}
+                  disabled={
+                    savingChain ||
+                    modelUpdatePending ||
+                    providerOptions.length === 0
+                  }
+                >
+                  <IconPlus className="size-4" />
+                  {t("models.add.button")}
+                </Button>
+              </div>
+            ) : providerGroups.length === 0 && searchLower ? (
+              <div className="text-muted-foreground flex flex-col items-center justify-center py-16 text-sm">
+                <IconSearch className="mb-3 size-8 opacity-40" />
+                {t("models.emptySearch")}
+              </div>
+            ) : (
+              providerGroups.map((providerGroup) => (
+                <ProviderSection
+                  key={providerGroup.key}
+                  provider={providerGroup.provider}
+                  models={providerGroup.models}
+                  onEdit={setEditingModel}
+                  onSetDefault={handleSetDefault}
+                  onToggleFallback={handleToggleFallback}
+                  onDelete={setDeletingModel}
+                  fallbackChain={fallbackChainDraft}
+                  defaultModelName={defaultModelDraft}
+                  defaultModelEntryCount={defaultModelEntryCount}
+                  defaultChainAllowedModelNames={defaultChainAllowedModelNames}
+                  fallbackDefaultConflictModelNames={
+                    fallbackDefaultConflictModelNames
+                  }
+                />
+              ))
+            )}
           </div>
         )}
       </div>

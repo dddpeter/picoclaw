@@ -1,5 +1,5 @@
-import githubDarkCss from "highlight.js/styles/github-dark.css?inline"
-import githubLightCss from "highlight.js/styles/github.css?inline"
+import atomOneDarkCss from "highlight.js/styles/atom-one-dark-reasonable.css?inline"
+import atomOneLightCss from "highlight.js/styles/atom-one-light.css?inline"
 import { useEffect } from "react"
 
 const THEME_STYLE_ID = "hljs-theme-style"
@@ -58,8 +58,8 @@ export function useHighlightTheme() {
 
     const applyTheme = () => {
       const nextThemeCss = root.classList.contains("dark")
-        ? githubDarkCss
-        : githubLightCss
+        ? atomOneDarkCss
+        : atomOneLightCss
       styleElement.textContent = `${nextThemeCss}\n${CHAT_CODE_BLOCK_OVERRIDES}`
     }
 

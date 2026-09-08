@@ -155,7 +155,8 @@
     "fix": "Fix",
     "saveChangesTitle": "You have unsaved configuration changes",
     "restartRequiredTitle": "Gateway restart required",
-    "restartRequiredDesc": "The latest {{name}} configuration has been saved. Restart the gateway for it to take effect."
+    "restartRequiredDesc": "The latest {{name}} configuration has been saved. Restart the gateway for it to take effect.",
+    "retry": "Retry"
   },
   "labels": {
     "loading": "Loading..."
@@ -432,7 +433,11 @@
       "noProvider": "No provider found.",
       "noCatalog": "Provider catalog unavailable.",
       "local": "local"
-    }
+    },
+    "searchPlaceholder": "Search models or providers...",
+    "emptySearch": "No matching models",
+    "emptyTitle": "No models configured",
+    "emptyDesc": "Add your first AI model to start chatting"
   },
   "channels": {
     "loadError": "Failed to load channels",

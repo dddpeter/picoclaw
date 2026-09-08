@@ -155,7 +155,8 @@
     "saveChangesTitle": "有未保存的配置更改",
     "restartRequiredTitle": "需要重启服务",
     "restartRequiredDesc": "{{name}} 的最新配置已保存。重启服务后才能正式生效。",
-    "fix": "修复"
+    "fix": "修复",
+    "retry": "重试"
   },
   "labels": {
     "loading": "加载中..."
@@ -432,7 +433,11 @@
       "noProvider": "未找到服务商。",
       "noCatalog": "Provider catalog 暂不可用。",
       "local": "本地"
-    }
+    },
+    "searchPlaceholder": "搜索模型或服务商...",
+    "emptySearch": "没有匹配的模型",
+    "emptyTitle": "还没有配置模型",
+    "emptyDesc": "添加你的第一个 AI 模型，开始对话"
   },
   "channels": {
     "loadError": "加载频道列表失败",

@@ -116,7 +116,7 @@ export function DetailSheet({
           ) : selectedSkillDetail ? (
             <div className="space-y-6">
               {activeSkillOrigin === "third_party" ? (
-                <div className="border-border/40 bg-card/40 space-y-4 rounded-xl border p-4 shadow-sm">
+                <div className="border-border/50 bg-card/80 space-y-4 rounded-xl border p-4 shadow-sm">
                   <div className="flex flex-wrap items-center gap-2 px-1">
                     <OriginBadge
                       origin={activeSkillOrigin}

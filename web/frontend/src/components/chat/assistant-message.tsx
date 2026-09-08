@@ -73,19 +73,19 @@ export function AssistantMessage({
   return (
     <div className="group flex w-full flex-col gap-1.5">
       {!isCollapsedBlock && (
-          <div className="text-muted-foreground/60 flex items-center justify-between gap-2 px-1 text-xs opacity-70">
-          <div className="flex items-center gap-2">
-            <span>PicoClaw</span>
+          <div className="flex items-center justify-between gap-2 px-1 text-xs opacity-90">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <span className="text-foreground/70 font-medium">PicoClaw</span>
             {trimmedModelName && (
               <>
-                <span className="opacity-50">•</span>
-                <span>{trimmedModelName}</span>
+                <span className="opacity-60">•</span>
+                <span className="text-foreground/60">{trimmedModelName}</span>
               </>
             )}
             {formattedTimestamp && (
               <>
-                <span className="opacity-50">•</span>
-                <span>{formattedTimestamp}</span>
+                <span className="opacity-60">•</span>
+                <span className="text-foreground/60">{formattedTimestamp}</span>
               </>
             )}
           </div>
@@ -98,9 +98,12 @@ export function AssistantMessage({
             "relative overflow-hidden rounded-xl border",
             isCollapsedBlock
               ? "border-border/30 bg-muted/20 text-muted-foreground dark:border-border/20 dark:bg-muted/10"
-              : "bg-card text-card-foreground border-border/60",
+              : "bg-card text-card-foreground border-border/60 shadow-sm",
           )}
         >
+          {!isCollapsedBlock && (
+            <div className="from-primary/70 via-rose-500/40 to-orange-400/50 absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r" />
+          )}
           {isCollapsedBlock && (
             <div
               className="text-muted-foreground/60 hover:text-muted-foreground/80 flex cursor-pointer items-center justify-between px-3 py-2 text-[12px] font-medium transition-colors select-none"
@@ -212,8 +215,8 @@ export function AssistantMessage({
               className={cn(
                 "prose dark:prose-invert prose-pre:my-2 prose-pre:overflow-x-auto prose-pre:rounded-lg prose-pre:border prose-pre:bg-zinc-100 prose-pre:p-0 prose-pre:text-zinc-900 dark:prose-pre:bg-zinc-950 dark:prose-pre:text-zinc-100 max-w-none [overflow-wrap:anywhere] break-words",
                 isThought
-                  ? "prose-p:my-1.5 prose-p:whitespace-pre-wrap px-3 pt-0 pb-3 text-[13px] leading-relaxed opacity-70"
-                  : "prose-p:my-2 prose-p:whitespace-pre-wrap p-4 text-[15px] leading-relaxed",
+                  ? "prose-p:my-1.5 prose-p:whitespace-pre-wrap px-3 pt-0 pb-3 text-[13px] leading-relaxed opacity-75"
+                  : "prose-p:my-2 prose-p:whitespace-pre-wrap p-4 text-[14px] leading-relaxed",
               )}
             >
               <ReactMarkdown
@@ -277,13 +280,13 @@ export function AssistantMessage({
               key={`${attachment.url}-${index}`}
               href={attachment.url}
               download={attachment.filename}
-              className="group/file border-border/60 bg-card flex w-fit max-w-sm min-w-[220px] items-center gap-3.5 rounded-xl border px-4 py-3 transition-all duration-300 hover:-translate-y-0.5 hover:border-violet-500/30 hover:shadow-sm dark:hover:border-violet-500/40"
+              className="group/file border-border/60 bg-card flex w-fit max-w-sm min-w-[220px] items-center gap-3.5 rounded-xl border px-4 py-3 transition-all duration-300 hover:-translate-y-0.5 hover:border-orange-500/40 hover:shadow-sm dark:hover:border-orange-500/40"
             >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-violet-400 ring-1 ring-violet-500/10 dark:bg-violet-500/10 dark:text-violet-400 dark:ring-violet-500/30">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-orange-400 ring-1 ring-orange-500/15 dark:bg-orange-500/10 dark:text-amber-400 dark:ring-orange-500/30">
                 <IconFileText className="h-5 w-5" />
               </div>
               <div className="flex min-w-0 flex-1 flex-col pr-1">
-                <span className="text-foreground/90 truncate text-[14px] leading-tight font-medium transition-colors group-hover/file:text-violet-600 dark:group-hover/file:text-violet-400">
+                <span className="text-foreground/90 truncate text-[14px] leading-tight font-medium transition-colors group-hover/file:text-orange-600 dark:group-hover/file:text-amber-400">
                   {attachment.filename || "Download file"}
                 </span>
                 <span className="text-muted-foreground/70 mt-1 text-[12px] font-medium">
@@ -291,7 +294,7 @@ export function AssistantMessage({
                     "FILE"}
                 </span>
               </div>
-              <div className="bg-muted/60 text-muted-foreground/50 dark:bg-muted/20 flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-300 group-hover/file:bg-violet-400 group-hover/file:text-white group-hover/file:shadow-sm dark:group-hover/file:bg-violet-400">
+              <div className="bg-muted/60 text-muted-foreground/50 dark:bg-muted/20 flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-300 group-hover/file:bg-orange-400 group-hover/file:text-white group-hover/file:shadow-sm dark:group-hover/file:bg-orange-400">
                 <IconDownload className="h-4 w-4 transition-transform duration-300 group-hover/file:-translate-y-[1px]" />
               </div>
             </a>

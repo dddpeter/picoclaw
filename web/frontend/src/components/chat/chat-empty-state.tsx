@@ -74,11 +74,13 @@ export function ChatEmptyState({
   }
 
   return (
-    <div className="flex flex-col items-center justify-center py-20 opacity-70">
-      <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-violet-500/10 text-violet-500">
+    <div className="flex flex-col items-center justify-center py-20">
+      <div className="from-amber-500/20 to-rose-500/15 mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br text-orange-500 shadow-lg shadow-orange-500/20">
         <IconRobot className="h-8 w-8" />
       </div>
-      <h3 className="mb-2 text-xl font-medium">{t("chat.welcome")}</h3>
+      <h3 className="from-orange-600 via-rose-500 to-amber-500 mb-2 bg-gradient-to-r bg-clip-text text-lg font-semibold text-transparent">
+        {t("chat.welcome")}
+      </h3>
       <p className="text-muted-foreground text-center text-sm">
         {t("chat.welcomeDesc")}
       </p>

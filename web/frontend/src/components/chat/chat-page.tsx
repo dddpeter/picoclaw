@@ -17,7 +17,7 @@ import {
 } from "@/components/chat/chat-composer"
 import { ChatEmptyState } from "@/components/chat/chat-empty-state"
 import { ModelSelector } from "@/components/chat/model-selector"
-import { SessionHistoryMenu } from "@/components/chat/session-history-menu"
+import { SessionHistorySidebar } from "@/components/chat/session-history-sidebar"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { UserMessage } from "@/components/chat/user-message"
 import { PageHeader } from "@/components/page-header"
@@ -161,6 +161,7 @@ export function ChatPage() {
   const {
     sessions,
     hasMore,
+    isLoading,
     loadError,
     loadErrorMessage,
     observerRef,
@@ -310,8 +311,22 @@ export function ChatPage() {
     canInput && (Boolean(input.trim()) || attachments.length > 0)
 
   return (
-    <div className="bg-background/95 flex h-full flex-col">
-      <PageHeader
+    <div className="bg-background/95 flex h-full">
+      <SessionHistorySidebar
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        hasMore={hasMore}
+        isLoading={isLoading}
+        loadError={loadError}
+        loadErrorMessage={loadErrorMessage}
+        observerRef={observerRef}
+        onSwitchSession={switchSession}
+        onDeleteSession={handleDeleteSession}
+        onRefresh={() => void loadSessions(true)}
+      />
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <PageHeader
         title={t("navigation.chat")}
         className={`transition-shadow ${
           hasScrolled ? "shadow-xs" : "shadow-none"
@@ -365,22 +380,6 @@ export function ChatPage() {
           <IconPlus className="size-4" />
           <span className="hidden sm:inline">{t("chat.newChat")}</span>
         </Button>
-
-        <SessionHistoryMenu
-          sessions={sessions}
-          activeSessionId={activeSessionId}
-          hasMore={hasMore}
-          loadError={loadError}
-          loadErrorMessage={loadErrorMessage}
-          observerRef={observerRef}
-          onOpenChange={(open) => {
-            if (open) {
-              void loadSessions(true)
-            }
-          }}
-          onSwitchSession={switchSession}
-          onDeleteSession={handleDeleteSession}
-        />
       </PageHeader>
 
       <div
@@ -461,6 +460,7 @@ export function ChatPage() {
         isDragActive={isDragActive}
         contextUsage={contextUsage}
       />
+      </div>
     </div>
   )
 }

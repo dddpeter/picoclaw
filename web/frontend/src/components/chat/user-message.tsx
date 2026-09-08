@@ -53,7 +53,7 @@ export function UserMessage({
               "wrap-break-word whitespace-pre-wrap",
               isCommand
                 ? "rounded-xl border border-zinc-200 bg-transparent px-4 py-3 font-mono text-[14px] text-zinc-800 dark:border-zinc-800/60 dark:bg-[#121212] dark:text-zinc-200 dark:shadow-sm"
-                : "rounded-2xl rounded-tr-sm bg-violet-500 px-5 py-3 text-[15px] leading-relaxed text-white shadow-sm",
+                : "rounded-2xl rounded-tr-sm bg-gradient-to-br from-amber-500 via-orange-500 to-rose-500 px-4.5 py-2.5 text-[14px] leading-relaxed text-white shadow-md shadow-orange-500/25",
             )}
           >
             {isCommand ? (
@@ -75,7 +75,7 @@ export function UserMessage({
               "bg-background/75 hover:bg-background absolute top-2 right-2 h-7 w-7 opacity-0 shadow-xs transition-opacity group-hover:opacity-100",
               isCommand
                 ? "text-zinc-700 dark:text-zinc-200"
-                : "text-violet-700 dark:text-violet-100",
+                : "text-orange-700 dark:text-amber-100",
             )}
             onClick={() => void copy(content)}
             aria-label={copyMessageLabel}

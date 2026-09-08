@@ -54,7 +54,7 @@ export function MarketSkillCard({
 
   return (
     <Card
-      className="group border-border/40 bg-card/40 hover:border-border/80 hover:bg-card relative overflow-hidden transition-all hover:shadow-md"
+      className="group border-border/50 bg-card/80 hover:border-border/80 hover:bg-card relative overflow-hidden transition-all hover:shadow-md"
       size="sm"
     >
       {result.installed && (

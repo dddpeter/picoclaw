@@ -21,6 +21,7 @@ export function useSessionHistory({
   const [hasMore, setHasMore] = useState(true)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [loadError, setLoadError] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
 
   const loadSessions = useCallback(
     async (reset = true) => {
@@ -57,6 +58,7 @@ export function useSessionHistory({
           setHasMore(false)
         }
       } finally {
+        setIsLoading(false)
         setIsLoadingMore(false)
       }
     },
@@ -109,6 +111,7 @@ export function useSessionHistory({
   return {
     sessions,
     hasMore,
+    isLoading,
     loadError,
     loadErrorMessage: t("chat.historyLoadFailed"),
     observerRef,
