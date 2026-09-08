@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	modelProbeTimeout             = 800 * time.Millisecond
+	modelProbeTimeout             = 8 * time.Second
 	modelProbeSuccessBaseInterval = 2 * time.Second
 	modelProbeSuccessMaxInterval  = 60 * time.Second
 	modelProbeFailureBaseInterval = 1 * time.Second
