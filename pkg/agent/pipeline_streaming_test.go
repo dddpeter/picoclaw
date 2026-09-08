@@ -276,15 +276,16 @@ func (h configuredStreamingBeforeModelHook) AfterLLM(
 
 func TestConfiguredStreamingEligibilityGates(t *testing.T) {
 	tests := []struct {
-		name              string
-		channel           string
-		channelStreaming  bool
-		modelStreaming    bool
-		fallbacks         []string
-		streamingProvider bool
-		streamDelegate    bool
-		wantStreamCalls   int
-		wantChatCalls     int
+		name               string
+		channel            string
+		channelStreaming   bool
+		modelStreaming     bool
+		modelStreamingOmit bool
+		fallbacks          []string
+		streamingProvider  bool
+		streamDelegate     bool
+		wantStreamCalls    int
+		wantChatCalls      int
 	}{
 		{
 			name:              "channel and model enabled streams",
@@ -319,6 +320,17 @@ func TestConfiguredStreamingEligibilityGates(t *testing.T) {
 			streamingProvider: true,
 			streamDelegate:    true,
 			wantChatCalls:     1,
+		},
+		{
+			// Fork default-on: a model entry that omits the streaming block
+			// (nil *bool) streams as long as the channel switch is on.
+			name:              "model omitted still streams",
+			channel:           "pico",
+			channelStreaming:  true,
+			modelStreamingOmit: true,
+			streamingProvider: true,
+			streamDelegate:    true,
+			wantStreamCalls:   1,
 		},
 		{
 			name:             "provider without streaming uses chat",
@@ -357,7 +369,7 @@ func TestConfiguredStreamingEligibilityGates(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := newConfiguredStreamingTestConfig(t, tt.channelStreaming, tt.modelStreaming, tt.fallbacks)
+			cfg := newConfiguredStreamingTestConfig(t, tt.channelStreaming, tt.modelStreaming, tt.fallbacks, tt.modelStreamingOmit)
 			msgBus := bus.NewMessageBus()
 			if tt.streamDelegate {
 				msgBus.SetStreamDelegate(configuredStreamingDelegate{streamer: &recordingStreamer{}})
@@ -801,7 +813,7 @@ func TestConfiguredStreamingBeforeLLMModelRewriteReevaluatesModelStreaming(t *te
 				ModelName: tt.rewriteModel,
 				Provider:  "openai",
 				Model:     "openai/" + tt.rewriteModel,
-				Streaming: config.ModelStreamingConfig{Enabled: tt.rewriteModelStreaming},
+				Streaming: config.ModelStreamingConfig{Enabled: boolPtr(tt.rewriteModelStreaming)},
 			})
 			streamer := &recordingStreamer{}
 			msgBus := bus.NewMessageBus()
@@ -1064,6 +1076,7 @@ func newConfiguredStreamingTestConfig(
 	channelStreaming bool,
 	modelStreaming bool,
 	fallbacks []string,
+	modelStreamingOmit ...bool,
 ) *config.Config {
 	t.Helper()
 	tmpDir, err := os.MkdirTemp("", "configured-streaming-agent-test-*")
@@ -1071,6 +1084,7 @@ func newConfiguredStreamingTestConfig(
 		t.Fatalf("MkdirTemp() error = %v", err)
 	}
 	t.Cleanup(func() { os.RemoveAll(tmpDir) })
+	omitStreaming := len(modelStreamingOmit) > 0 && modelStreamingOmit[0]
 
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
@@ -1090,7 +1104,7 @@ func newConfiguredStreamingTestConfig(
 			ModelName: "test-model",
 			Provider:  "openai",
 			Model:     "openai/test-model",
-			Streaming: config.ModelStreamingConfig{Enabled: modelStreaming},
+			Streaming: newModelStreamingSetting(modelStreaming, omitStreaming),
 		}},
 	}
 	if len(fallbacks) > 0 {
@@ -1098,13 +1112,22 @@ func newConfiguredStreamingTestConfig(
 			ModelName: "fallback-model",
 			Provider:  "openai",
 			Model:     "openai/fallback-model",
-			Streaming: config.ModelStreamingConfig{Enabled: true},
+			Streaming: newModelStreamingSetting(true, false),
 		})
 	}
 	if err := config.InitChannelList(cfg.Channels); err != nil {
 		t.Fatalf("InitChannelList() error = %v", err)
 	}
 	return cfg
+}
+
+// newModelStreamingSetting builds the model-side streaming switch: omitted
+// leaves the zero value (nil *bool, fork default-on), otherwise explicit.
+func newModelStreamingSetting(enabled, omit bool) config.ModelStreamingConfig {
+	if omit {
+		return config.ModelStreamingConfig{}
+	}
+	return config.ModelStreamingConfig{Enabled: boolPtr(enabled)}
 }
 
 func newConfiguredStreamingWeComChannel(t *testing.T, enabled bool) *config.Channel {

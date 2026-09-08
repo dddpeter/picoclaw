@@ -49,75 +49,91 @@ type ExecTool struct {
 }
 
 var (
+	// defaultDenyPatterns is the fork's destructive-only guard: general
+	// commands and scripts ($(), pipes, heredocs, sudo, git push, package
+	// managers, …) are allowed by default; only data-destroying commands,
+	// machine-stop commands, and writes into OS system directories are
+	// refused. File tools get the equivalent protection via
+	// fs.IsProtectedSystemPath; exec only blocks system-dir WRITES so
+	// running/reading system paths stays possible.
 	defaultDenyPatterns = []*regexp.Regexp{
-		regexp.MustCompile(`\brm\s+-[rf]{1,2}\b`),
+		// Destructive deletions (rm needs BOTH r and f — combined in one flag
+		// in any order, split across flags, or trailing the operands like
+		// `rm file -rf`; plain `rm -r dir` stays allowed).
+		regexp.MustCompile(`\brm\s+-[a-z]*r[a-z]*f\b`),
+		regexp.MustCompile(`\brm\s+-[a-z]*f[a-z]*r\b`),
+		regexp.MustCompile(`\brm\s+(?:-{1,2}[a-z-]+\s+)*(?:-{1,2}[a-z]*r[a-z]*\s+(?:-{1,2}[a-z-]+\s+)*-{1,2}[a-z]*f[a-z]*|-{1,2}[a-z]*f[a-z]*\s+(?:-{1,2}[a-z-]+\s+)*-{1,2}[a-z]*r[a-z]*)\b`),
+		regexp.MustCompile(`\brm\s+[^|;&<]*\s-[a-z]*r[a-z]*f\b`),
+		regexp.MustCompile(`\brm\s+[^|;&<]*\s-[a-z]*f[a-z]*r\b`),
+		regexp.MustCompile(`\brm\s+[^|;&<]*\s(?:-{1,2}[a-z-]+\s+)*(?:-{1,2}[a-z]*r[a-z]*\s+(?:-{1,2}[a-z-]+\s+)*-{1,2}[a-z]*f[a-z]*|-{1,2}[a-z]*f[a-z]*\s+(?:-{1,2}[a-z-]+\s+)*-{1,2}[a-z]*r[a-z]*)\b`),
+		regexp.MustCompile(`\brm\s+(-\S+\s+)*(--\S+\s+)*/\w*(\s|$|\*)`),
+		regexp.MustCompile(`\brm\s+(-\S+\s+)*(--\S+\s+)*\.\s*$`),
+		regexp.MustCompile(`\brm\s+(-\S+\s+)*(--\S+\s+)*\*\s*$`),
 		regexp.MustCompile(`\bdel\s+/[fq]\b`),
+		regexp.MustCompile(`\brd\s+/s\b`),
 		regexp.MustCompile(`\brmdir\s+/s\b`),
-		// Match disk wiping commands (must be followed by space/args)
-		regexp.MustCompile(
-			`(^|[^-\w])\b(format|mkfs|diskpart)\b\s`,
-		),
+		// NOTE: guardCommand lowercases the command before matching, so any
+		// PowerShell cmdlet literals below must be written case-insensitively
+		// ((?i:...)) to ever fire.
+		regexp.MustCompile(`(?i:\bremove-item\s+[^|]*-recurse[^|]*-force)`),
+		regexp.MustCompile(`(?i:\bremove-item\s+[^|]*-force[^|]*-recurse)`),
+		// Disk wiping (must be followed by space/args).
+		regexp.MustCompile(`(^|[^-\w])\b(format|mkfs|diskpart)\b\s`),
 		regexp.MustCompile(`\bdd\s+if=`),
 		// Block writes to block devices (all common naming schemes).
 		regexp.MustCompile(
 			`>\s*/dev/(sd[a-z]|hd[a-z]|vd[a-z]|xvd[a-z]|nvme\d|mmcblk\d|loop\d|dm-\d|md\d|sr\d|nbd\d)`,
 		),
+		regexp.MustCompile(`\bmkfs(\.\w+)?\s+/dev/(sd[a-z]|hd[a-z]|vd[a-z]|xvd[a-z]|nvme\d|mmcblk\d|loop\d)`),
+		regexp.MustCompile(`\bmv\b[^|;>]*\s/dev/null\b`),
+		// 777 on root-ish paths; a leading sticky/setgid digit (1777 /tmp)
+		// must NOT match, and leading 0 may.
+		regexp.MustCompile(`\bchmod\s+(-[a-zA-Z]+\s+)*0?7\s*7\s*7\s+/\w*(\s|$|\*)`),
+		// Machine stop.
 		regexp.MustCompile(`\b(shutdown|reboot|poweroff)\b`),
+		// Fork bomb.
 		regexp.MustCompile(`:\(\)\s*\{.*\};\s*:`),
-		regexp.MustCompile(`\$\([^)]+\)`),
-		regexp.MustCompile(`\$\{[^}]+\}`),
-		regexp.MustCompile("`[^`]+`"),
-		regexp.MustCompile(`\|\s*sh\b`),
-		regexp.MustCompile(`\|\s*bash\b`),
-		regexp.MustCompile(`;\s*rm\s+-[rf]`),
-		regexp.MustCompile(`&&\s*rm\s+-[rf]`),
-		regexp.MustCompile(`\|\|\s*rm\s+-[rf]`),
-		regexp.MustCompile(`<<\s*EOF`),
-		regexp.MustCompile(`\$\(\s*cat\s+`),
-		regexp.MustCompile(`\$\(\s*curl\s+`),
-		regexp.MustCompile(`\$\(\s*wget\s+`),
-		regexp.MustCompile(`\$\(\s*which\s+`),
-		regexp.MustCompile(`\bsudo\b`),
-		regexp.MustCompile(`\bchmod\s+[0-7]{3,4}\b`),
-		regexp.MustCompile(`\bchown\b`),
-		regexp.MustCompile(`\bpkill\b`),
-		regexp.MustCompile(`\bkillall\b`),
-		regexp.MustCompile(`\bkill\b`),
-		regexp.MustCompile(`\bcurl\b.*\|\s*(sh|bash)`),
-		regexp.MustCompile(`\bwget\b.*\|\s*(sh|bash)`),
-		regexp.MustCompile(`\bnpm\s+install\s+-g\b`),
-		regexp.MustCompile(`\bpip\s+install\s+--user\b`),
-		regexp.MustCompile(`\bapt\s+(install|remove|purge)\b`),
-		regexp.MustCompile(`\byum\s+(install|remove)\b`),
-		regexp.MustCompile(`\bdnf\s+(install|remove)\b`),
-		regexp.MustCompile(`\bdocker\s+run\b`),
-		regexp.MustCompile(`\bdocker\s+exec\b`),
-		regexp.MustCompile(`\bgit\s+push\b`),
-		regexp.MustCompile(`\bgit\s+force\b`),
-		regexp.MustCompile(`\bssh\b.*@`),
-		regexp.MustCompile(`\beval\b`),
-		regexp.MustCompile(`\bsource\s+.*\.sh\b`),
+		// Remote code execution via pipe-to-shell.
+		regexp.MustCompile(`\bcurl\b.*\|\s*(?:sudo\s+)?(ba|z)?sh\b`),
+		regexp.MustCompile(`\bwget\b.*\|\s*(?:sudo\s+)?(ba|z)?sh\b`),
+		// Credential store overwrite.
+		regexp.MustCompile(`>>?\s*~/?\.ssh/`),
+		// Writes into Unix system directories — redirects, plus the common
+		// write commands whose last argument is the destination (cp/mv/
+		// install/tee). All three prefix lists below MUST stay aligned with
+		// each other and with fs/system_paths.go's Unix prefixes.
+		// Reading or executing system paths stays allowed; /var and /opt are
+		// deliberately NOT listed (user-managed areas, matching the
+		// file-tool protection list in fs/system_paths.go).
+		regexp.MustCompile(
+			`(^|[^|;&\w/])\s*>+\s*(/etc/|/boot/|/usr/|/bin/|/sbin/|/lib/|/lib64/|/lib32/|/libx32/|/run/|/proc/|/sys/)[^\s;|]*`,
+		),
+		regexp.MustCompile(
+			`\b(cp|mv|install)\b[^|;>]*\s(/etc/|/boot/|/usr/|/bin/|/sbin/|/lib/|/lib64/|/lib32/|/libx32/|/run/|/proc/|/sys/)[^\s;|]*\s*$`,
+		),
+		regexp.MustCompile(
+			`\btee\b\s+(-[a-z]+\s+)*(>>?)?\s*(/etc/|/boot/|/usr/|/bin/|/sbin/|/lib/|/lib64/|/lib32/|/libx32/|/run/|/proc/|/sys/)`,
+		),
+		// Windows system directory targeting (case-insensitive; redirects,
+		// deletions, and copy/move with the system dir as destination).
+		// progra~N covers the 8.3 short names of Program Files (x86/x64)
+		// and ProgramData, whose ~N suffixes vary by install order.
+		regexp.MustCompile(`>+\s*"?[A-Za-z]:\\(?i:windows)\b`),
+		regexp.MustCompile(`>+\s*"?[A-Za-z]:\\(?i:program files|progra~[0-9])\b`),
+		regexp.MustCompile(`>+\s*"?[A-Za-z]:\\(?i:programdata|progra~[0-9])\b`),
+		regexp.MustCompile(`\b(del|erase|rd|(?i:remove-item)|rmdir)\s+[^|;]*[A-Za-z]:\\(?i:windows)\b`),
+		regexp.MustCompile(`\b(del|erase|rd|(?i:remove-item)|rmdir)\s+[^|;]*[A-Za-z]:\\(?i:program files|progra~[0-9])\b`),
+		regexp.MustCompile(`\b((?i:copy-item)|(?i:move-item))\b[^|;]*[A-Za-z]:\\(?i:windows)\b`),
+		regexp.MustCompile(`\b((?i:copy-item)|(?i:move-item))\b[^|;]*[A-Za-z]:\\(?i:program files|progra~[0-9])\b`),
+		// Bash history substitution (e.g. ^rm^echo^ replays with edits).
+		regexp.MustCompile(`^\s*\^[^\s|;&]+\^[^\s|;&]+`),
 	}
 
-	// windowsDenyPatterns contains PowerShell-specific deny patterns that only
-	// apply on Windows, where commands are executed via powershell -Command.
-	windowsDenyPatterns = []*regexp.Regexp{
-		// [Text.Encoding] used to construct command strings at runtime.
-		// Matches [Text.Encoding] and [System.Text.Encoding] variants.
-		regexp.MustCompile(`\[(?:\w+\.)?text\.encoding\]`),
-		// PowerShell -EncodedCommand flag (base64-encoded command) and all short forms.
-		// Matches: -e, -ec, -enc, -en, -EncodedCommand (all with space prefix)
-		regexp.MustCompile(` -e(?:$|\s)| -ec(?:$|\s)| -enc(?:$|\s)| -en(?:$|\s)| -encodedcommand\b`),
-		// .GetString called on byte array to decode commands.
-		regexp.MustCompile(`\.getstring\s*\(\s*\[byte\[\]`),
-		// FromBase64String used in command construction chain.
-		regexp.MustCompile(`frombase64string\(`),
-		// PowerShell variable holding byte array used in GetString.
-		regexp.MustCompile(`\$[a-zA-Z_]\w*\s*=\s*\[byte\[\]`),
-		// Unicode escape sequences that could be used to construct commands.
-		// Matches \uXXXX format used to represent characters like i = "i"
-		regexp.MustCompile(`\\u[0-9a-fA-F]{4}`),
-	}
+	// windowsDenyPatterns was a PowerShell obfuscation guard (encoded
+	// commands, [Text.Encoding] chains). Removed from the fork defaults: the
+	// `-e` pattern false-positives on everyday flags (`pip install -e .`) and
+	// the destructive-only default set above matches the fork's openness
+	// policy. Revive from git history if the threat model changes.
 
 	// absolutePathPattern matches absolute file paths in commands (Unix and Windows).
 	absolutePathPattern = regexp.MustCompile(`[A-Za-z]:\\[^\\\"']+|/[^\s\"']+`)
@@ -160,9 +176,6 @@ func NewExecToolWithConfig(
 		allowRemote = execConfig.AllowRemote
 		if enableDenyPatterns {
 			denyPatterns = append(denyPatterns, defaultDenyPatterns...)
-			if runtime.GOOS == "windows" {
-				denyPatterns = append(denyPatterns, windowsDenyPatterns...)
-			}
 			if len(execConfig.CustomDenyPatterns) > 0 {
 				logger.InfoCF("tools", "using custom deny patterns", map[string]any{
 					"patterns": execConfig.CustomDenyPatterns,
@@ -204,9 +217,6 @@ func NewExecToolWithConfig(
 		}
 	} else {
 		denyPatterns = append(denyPatterns, defaultDenyPatterns...)
-		if runtime.GOOS == "windows" {
-			denyPatterns = append(denyPatterns, windowsDenyPatterns...)
-		}
 	}
 
 	var timeout time.Duration

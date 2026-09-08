@@ -60,6 +60,13 @@ func validatePathWithAllowPaths(
 		}
 	}
 
+	// System-directory protection applies regardless of restrict mode (fork
+	// default-on): with the sandbox off by default this is the floor that
+	// keeps OS system directories off-limits to file tools.
+	if protectSystemPaths.Load() && IsProtectedSystemPath(absPath) {
+		return "", fmt.Errorf("access denied: path is inside a protected system directory (disable tools.protect_system_paths to override)")
+	}
+
 	if restrict {
 		if isAllowedPath(absPath, patterns) {
 			return absPath, nil
@@ -1057,7 +1064,22 @@ type fileSystem interface {
 // hostFs is an unrestricted fileReadWriter that operates directly on the host filesystem.
 type hostFs struct{}
 
+// checkProtectedSystemPath guards the unrestricted (host) filesystem: with
+// restrict_to_workspace off by default this is where the system-directory
+// floor lives — the shared validator above is only reached by callers that
+// validate explicitly (send_file, load_image, exec cwd), while the everyday
+// file tools go straight through this implementation.
+func (h *hostFs) checkProtectedSystemPath(path string) error {
+	if protectSystemPaths.Load() && IsProtectedSystemPath(path) {
+		return fmt.Errorf("access denied: path is inside a protected system directory (disable tools.protect_system_paths to override)")
+	}
+	return nil
+}
+
 func (h *hostFs) ReadFile(path string) ([]byte, error) {
+	if err := h.checkProtectedSystemPath(path); err != nil {
+		return nil, err
+	}
 	content, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -1072,16 +1094,25 @@ func (h *hostFs) ReadFile(path string) ([]byte, error) {
 }
 
 func (h *hostFs) ReadDir(path string) ([]os.DirEntry, error) {
+	if err := h.checkProtectedSystemPath(path); err != nil {
+		return nil, err
+	}
 	return os.ReadDir(path)
 }
 
 func (h *hostFs) WriteFile(path string, data []byte) error {
+	if err := h.checkProtectedSystemPath(path); err != nil {
+		return err
+	}
 	// Use unified atomic write utility with explicit sync for flash storage reliability.
 	// Using 0o600 (owner read/write only) for secure default permissions.
 	return fileutil.WriteFileAtomic(path, data, 0o600)
 }
 
 func (h *hostFs) Open(path string) (fs.File, error) {
+	if err := h.checkProtectedSystemPath(path); err != nil {
+		return nil, err
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {

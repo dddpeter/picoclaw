@@ -63,13 +63,13 @@ func TestResolveActiveModelConfig_PrefersCandidateIdentityKey(t *testing.T) {
 				ModelName: "glm-4.7",
 				Provider:  "zhipu",
 				Model:     "glm-4.7",
-				Streaming: config.ModelStreamingConfig{Enabled: false},
+				Streaming: config.ModelStreamingConfig{Enabled: boolPtr(false)},
 			},
 			{
 				ModelName: "suanneng-glm-4.7",
 				Provider:  "zhipu",
 				Model:     "glm-4.7",
-				Streaming: config.ModelStreamingConfig{Enabled: true},
+				Streaming: config.ModelStreamingConfig{Enabled: boolPtr(true)},
 			},
 		},
 	}
@@ -92,7 +92,7 @@ func TestResolveActiveModelConfig_PrefersCandidateIdentityKey(t *testing.T) {
 	if got.ModelName != "suanneng-glm-4.7" {
 		t.Fatalf("model_name = %q, want %q", got.ModelName, "suanneng-glm-4.7")
 	}
-	if !got.Streaming.Enabled {
+	if !got.Streaming.EffectiveEnabled() {
 		t.Fatal("streaming.enabled = false, want true from identity-matched model config")
 	}
 }
@@ -103,12 +103,12 @@ func TestResolveActiveModelConfig_LoadBalancedAliasUsesSelectedCandidate(t *test
 			{
 				ModelName: "lb-model",
 				Model:     "openai/primary",
-				Streaming: config.ModelStreamingConfig{Enabled: false},
+				Streaming: config.ModelStreamingConfig{Enabled: boolPtr(false)},
 			},
 			{
 				ModelName: "lb-model",
 				Model:     "openai/secondary",
-				Streaming: config.ModelStreamingConfig{Enabled: true},
+				Streaming: config.ModelStreamingConfig{Enabled: boolPtr(true)},
 			},
 		},
 	}
@@ -131,7 +131,7 @@ func TestResolveActiveModelConfig_LoadBalancedAliasUsesSelectedCandidate(t *test
 	if got.Model != "openai/secondary" {
 		t.Fatalf("model = %q, want openai/secondary", got.Model)
 	}
-	if !got.Streaming.Enabled {
+	if !got.Streaming.EffectiveEnabled() {
 		t.Fatal("streaming.enabled = false, want true from selected load-balanced entry")
 	}
 }
@@ -143,7 +143,7 @@ func TestResolveActiveModelConfig_DoesNotFallbackToOpenAIForDefaultProviderCandi
 				ModelName: "openai-gpt",
 				Provider:  "openai",
 				Model:     "gpt-4o",
-				Streaming: config.ModelStreamingConfig{Enabled: true},
+				Streaming: config.ModelStreamingConfig{Enabled: boolPtr(true)},
 			},
 		},
 	}

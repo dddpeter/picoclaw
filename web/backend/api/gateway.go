@@ -575,7 +575,7 @@ func computeModelStreamingSignatures(cfg *config.Config) []string {
 				strconv.Itoa(match.index),
 				strings.TrimSpace(mc.Provider),
 				strings.TrimSpace(mc.Model),
-				strconv.FormatBool(mc.Streaming.Enabled),
+				strconv.FormatBool(mc.Streaming.EffectiveEnabled()),
 			}, ":")
 			if seenEntries[entry] {
 				continue

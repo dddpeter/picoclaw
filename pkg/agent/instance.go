@@ -18,6 +18,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/routing"
 	"github.com/sipeed/picoclaw/pkg/session"
 	"github.com/sipeed/picoclaw/pkg/tools"
+	fstools "github.com/sipeed/picoclaw/pkg/tools/fs"
 )
 
 // AgentInstance represents a fully configured agent with its own workspace,
@@ -111,6 +112,11 @@ func NewAgentInstance(
 
 	restrict := defaults.RestrictToWorkspace
 	readRestrict := restrict && !defaults.AllowReadOutsideWorkspace
+
+	// System-directory protection is the floor under the open-by-default
+	// fork sandbox: file tools may roam the filesystem but never into OS
+	// system directories unless explicitly disabled via config.
+	fstools.SetSystemPathProtection(cfg.Tools.EffectiveProtectSystemPaths())
 
 	// Compile path whitelist patterns from config, plus the skill roots that
 	// live outside the workspace so the model can actually open the SKILL.md

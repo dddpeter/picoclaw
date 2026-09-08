@@ -69,7 +69,7 @@ func TestTryConfiguredStreamingOwnsPublisherDuringLLMCall(t *testing.T) {
 	exec.activeProvider = provider
 	exec.activeModel = "test-model"
 	exec.activeCandidates = []providers.FallbackCandidate{{Provider: "test", Model: "test-model"}}
-	exec.activeModelConfig = &config.ModelConfig{ModelName: "test-model", Streaming: config.ModelStreamingConfig{Enabled: true}}
+	exec.activeModelConfig = &config.ModelConfig{ModelName: "test-model", Streaming: config.ModelStreamingConfig{Enabled: boolPtr(true)}}
 	exec.llmModel = "test-model"
 
 	pipeline := NewPipeline(al)

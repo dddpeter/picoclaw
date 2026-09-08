@@ -117,6 +117,8 @@
 | `/new` | 无此命令 | 清历史 + 重置为配置默认模型（重读磁盘） |
 | `/switch model`（turn 活跃时） | 阻塞等待 | 立即返回 busy 提示 |
 | 流式 LLM 请求 | 无响应头超时 | 90 秒响应头超时后快速失败 |
+| 流式默认值 | 双开关默认关（省略=关） | 模型侧 `*bool` **省略=开**；安装默认 pico+feishu 渠道出厂开（`TestModelStreamingConfigDefaultOn`、"model omitted still streams" 钉住） |
+| 工作区沙箱 | 默认 `restrict_to_workspace: true` | 默认 `false`——任意目录读写 + 一般命令脚本可执行；以 `tools.protect_system_paths`（nil=开）拒 OS 系统目录读写，exec 仅拦毁灭性命令与系统目录写入（`TestSystemPathProtection`、`TestOpenByDefaultSandboxDefaults` 钉住） |
 | 命令输出（inline） | 尾部截断 | 清理管线 + 尾部截断，原文照旧落盘 |
 | 死循环防护 | 仅 MaxToolIterations | 迭代上限 + 低收益检测注入警示 |
 | 记忆 | workspace 文件 | 附加 OpenViking recall/commit（可配置关闭） |
@@ -133,4 +135,6 @@
 
 - 主要冲突面：`pkg/commands/`、`pkg/agent/pipeline_execute.go`、`pkg/tools/shell.go`、`pkg/channels/feishu/`、`pkg/config/config.go`（AgentDefaults）、`pkg/skills/loader.go`（§10 五级根目录）、`web/frontend/src/index.css`（§8 主题）。
 - `pkg/providers/openai_compat/provider.go` 的流式超时如与上游改动冲突，保留 `streamRoundTripper` 语义优先。
+- `pkg/config/config.go` 的 `ModelStreamingConfig.Enabled` 是 `*bool`（nil=开启，fork 默认开流式）；上游若改回值 bool，同步时保留 `*bool` + `EffectiveEnabled()` 语义，消费点走 `EffectiveEnabled()` 而非直接读字段。`defaults.go` 里 feishu 渠道出厂带 `streaming.enabled: true`。
+- 开放默认三件套（不要"加固"回去）：`restrict_to_workspace` 默认 `false`；`pkg/tools/fs/system_paths.go` 的系统目录保护（`tools.protect_system_paths` nil=开，校验入口在 `validatePathWithAllowPaths` 最前）；`defaultDenyPatterns` 为毁灭性+系统目录写入集（一般命令/脚本/$()/管道/heredoc 放行，windowsDenyPatterns 已删除）。同步上游时若上游改动这三处，保留 fork 语义优先。
 - 合并后跑 `go test ./pkg/agent/ ./pkg/tools/ ./pkg/providers/... ./pkg/commands/` 验证 fork 测试（文件名含 `_test.go` 且测试名带 `NewResets`/`NeverBlocks`/`ResponseHeaderTimeout`/`CleanCommandOutput` 的均为 fork 独有）；前端改动需另跑 `pnpm build` 验证。

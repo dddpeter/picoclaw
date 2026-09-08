@@ -179,22 +179,23 @@ PICOCLAW_TOOLS_EXEC_ENABLED=false
 - **`enable_deny_patterns`**：设为 `false` 可完全禁用默认的危险命令拦截模式
 - **`custom_deny_patterns`**：添加自定义拒绝正则模式；匹配的命令将被拦截
 
-### 默认拦截的命令模式
+### 默认拦截的命令模式（fork：毁灭性 + 系统目录写入）
 
-默认情况下，PicoClaw 会拦截以下危险命令：
+> **本 fork 重写了内置拦截表**：一般命令和脚本（`$()`、`${}`、反引号、`| sh`、heredoc、`sudo`、`chmod`、`kill`、`git push`、`docker`、包管理器、`eval`、`source` 等）默认**放行**——上游的内置表会拦截这些日常命令。`tools.exec.custom_allow_patterns` 仍可用于优先放行。另外，上游针对 PowerShell 编码命令（`-EncodedCommand`、`[Text.Encoding]` 等）的防混淆拦截已移除（其 `-e` 模式会误伤 `pip install -e .`）。
 
-- 删除命令：`rm -rf`、`del /f/q`、`rmdir /s`
-- 磁盘操作：`format`、`mkfs`、`diskpart`、`dd if=`、写入 `/dev/sd*`
-- 系统操作：`shutdown`、`reboot`、`poweroff`
-- 命令替换：`$()`、`${}`、反引号
-- 管道到 shell：`| sh`、`| bash`
-- 权限提升：`sudo`、`chmod`、`chown`
-- 进程控制：`pkill`、`killall`、`kill -9`
-- 远程操作：`curl | sh`、`wget | sh`、`ssh`
-- 包管理：`apt`、`yum`、`dnf`、`npm install -g`、`pip install --user`
-- 容器：`docker run`、`docker exec`
-- Git：`git push`、`git force`
-- 其他：`eval`、`source *.sh`
+fork 默认只拦截：
+
+- 毁灭性删除：`rm -rf`（flag 任意顺序，组合写或分写 `-r -f`/`--recursive --force` 均拦；`rm -r` 单独使用放行）、无 flag 的 `rm /`、`rm .`、`rm *`、`del /f`、`rd /s`、`rmdir /s`、`Remove-Item -Recurse -Force`
+- 磁盘毁灭：`format`、`mkfs`、`diskpart`、`dd if=`、写入块设备（`> /dev/sd*` 等）、`mkfs /dev/*`、`mv ... /dev/null`、`chmod 777 /`
+- 停机：`shutdown`、`reboot`、`poweroff`
+- fork 炸弹、`curl|sh` / `wget|sh`（含 `| sudo sh`、zsh 变体）
+- 凭据区覆写：`> ~/.ssh/*`
+- **向系统目录写入**（覆盖面如实说明）：
+  - 拦：重定向到 `/etc/ /boot/ /usr/ /bin/ /sbin/ /lib/ /lib64/ /lib32/ /libx32/ /run/ /proc/ /sys/` 或 `C:\Windows\`、`C:\Program Files\`、`C:\ProgramData\`（大小写不敏感；文件工具侧通过 GetLongPathName 解析 8.3 短名，exec 侧覆盖 `PROGRA~N` 短名形态）；`del`/`rd`/`Remove-Item` 以这些目录为目标；`cp`/`mv`/`install`/`tee` 的**目标参数**（末位参数）为 Unix 系统目录；`Copy-Item`/`Move-Item` 目标为 Windows 系统目录；`chmod 777/0777` 于单段根路径（如 `/`、`/usr`；sticky 位 1777 与多段个人路径不拦）
+  - **不拦**（有意）：`sed -i`、`cp` 源在系统目录（读系统文件）、任意写到 `/var` `/opt` `/tmp`（用户自管区，与文件工具的系统目录保护清单一致）
+- bash 历史替换 `^cmd^cmd`
+
+文件工具的系统目录读写限制见配置指南"系统目录保护"一节（`tools.protect_system_paths`）；exec 只拦系统目录的**写入**，运行/读取系统路径不受影响。
 
 ### 已知架构限制
 

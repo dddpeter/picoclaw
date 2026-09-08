@@ -31,8 +31,12 @@ func DefaultConfig() *Config {
 		},
 		Agents: AgentsConfig{
 			Defaults: AgentDefaults{
-				Workspace:                 workspacePath,
-				RestrictToWorkspace:       true,
+				Workspace: workspacePath,
+				// Fork default: the agent may roam the whole filesystem (minus
+				// protected OS system directories, see tools.protect_system_paths)
+				// and run general commands; upstream defaults to a workspace
+				// sandbox. Set restrict_to_workspace: true to restore it.
+				RestrictToWorkspace:       false,
 				Provider:                  "",
 				MaxTokens:                 32768,
 				Temperature:               nil, // nil means use provider default
@@ -538,7 +542,14 @@ func defaultChannels() ChannelsConfig {
 				"media_group_delay_ms": 500,
 			},
 		},
-		"feishu":  map[string]any{},
+		// Feishu ships with CardKit streaming on (fork flagship UX); the
+		// model-side *bool default-on completes the double switch. Explicit
+		// {"streaming": {"enabled": false}} in a user config still opts out.
+		"feishu": map[string]any{
+			"settings": map[string]any{
+				"streaming": map[string]any{"enabled": true},
+			},
+		},
 		"discord": map[string]any{},
 		"maixcam": map[string]any{
 			"settings": map[string]any{"host": "0.0.0.0", "port": 18790},

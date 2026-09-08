@@ -1086,7 +1086,7 @@ func TestHandleListModels_ReturnsStreamingConfig(t *testing.T) {
 		Provider:  "openai",
 		Model:     "gpt-4o-mini",
 		APIKeys:   config.SimpleSecureStrings("sk-existing"),
-		Streaming: config.ModelStreamingConfig{Enabled: true},
+		Streaming: config.ModelStreamingConfig{Enabled: boolPtr(true)},
 	}}
 	if err = config.SaveConfig(configPath, cfg); err != nil {
 		t.Fatalf("SaveConfig() error = %v", err)
@@ -1113,7 +1113,7 @@ func TestHandleListModels_ReturnsStreamingConfig(t *testing.T) {
 	if len(resp.Models) != 1 {
 		t.Fatalf("len(models) = %d, want 1", len(resp.Models))
 	}
-	if !resp.Models[0].Streaming.Enabled {
+	if !resp.Models[0].Streaming.EffectiveEnabled() {
 		t.Fatal("streaming.enabled = false, want true")
 	}
 }
@@ -1583,7 +1583,7 @@ func TestHandleUpdateModel_StreamingPreserveAndChange(t *testing.T) {
 		Provider:  "openai",
 		Model:     "gpt-4o-mini",
 		APIKeys:   config.SimpleSecureStrings("sk-existing"),
-		Streaming: config.ModelStreamingConfig{Enabled: true},
+		Streaming: config.ModelStreamingConfig{Enabled: boolPtr(true)},
 	}}
 	if err = config.SaveConfig(configPath, cfg); err != nil {
 		t.Fatalf("SaveConfig() error = %v", err)
@@ -1609,7 +1609,7 @@ func TestHandleUpdateModel_StreamingPreserveAndChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfig() after preserve error = %v", err)
 	}
-	if !afterPreserve.ModelList[0].Streaming.Enabled {
+	if !afterPreserve.ModelList[0].Streaming.EffectiveEnabled() {
 		t.Fatal("preserved streaming.enabled = false, want true")
 	}
 
@@ -1630,7 +1630,7 @@ func TestHandleUpdateModel_StreamingPreserveAndChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfig() after change error = %v", err)
 	}
-	if afterChange.ModelList[0].Streaming.Enabled {
+	if afterChange.ModelList[0].Streaming.EffectiveEnabled() {
 		t.Fatal("streaming.enabled = true, want false after explicit update")
 	}
 }

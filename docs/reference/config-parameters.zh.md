@@ -83,7 +83,7 @@
 | 键 | 类型 | 默认值 | Env | 说明 |
 |---|---|---|---|---|
 | `workspace` | string | `~/.picoclaw/workspace` | `PICOCLAW_AGENTS_DEFAULTS_WORKSPACE` | 工作区根目录 |
-| `restrict_to_workspace` | bool | `true` | `PICOCLAW_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE` | 限制写入仅在工作区内（主 agent / subagent / 心跳任务同一边界） |
+| `restrict_to_workspace` | bool | `false`（fork；上游 `true`） | `PICOCLAW_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE` | 限制写入仅在工作区内（主 agent / subagent / 心跳任务同一边界）；fork 以 `tools.protect_system_paths` 兜底系统目录 |
 | `allow_read_outside_workspace` | bool | `false` | `PICOCLAW_AGENTS_DEFAULTS_ALLOW_READ_OUTSIDE_WORKSPACE` | 允许读工作区外路径 |
 | `provider` | string | `""` | `PICOCLAW_AGENTS_DEFAULTS_PROVIDER` | 旧版全局 provider（建议用 model_name） |
 | `model_name` | string | `""` | `PICOCLAW_AGENTS_DEFAULTS_MODEL_NAME` | **默认模型**，取 `model_list[].model_name` 之一 |
@@ -321,7 +321,7 @@
 | `request_timeout` | int | `120` 秒（0 时自动） | 请求超时 |
 | `thinking_level` | string | — | `off/low/medium/high/xhigh/adaptive` |
 | `tool_schema_transform` | string | — | 工具 schema 兼容变换（如 `simple`） |
-| `streaming.enabled` | bool | `false` | 该条目启用流式 |
+| `streaming.enabled` | *bool | 未配置视为 `true`（fork 默认开，nil=开启约定）；显式 `false` 关闭且保存时原样保留 | 该条目启用流式 |
 | `extra_body` | object | — | 注入请求体的额外字段（如 `reasoning_split`） |
 | `custom_headers` | object | — | 注入每个 HTTP 请求的额外头 |
 | `user_agent` | string | — | 自定义 UA |
@@ -365,8 +365,9 @@
 
 | 键 | 类型 | 默认值 | Env | 说明 |
 |---|---|---|---|---|
-| `tools.allow_read_paths` | string[] | `[]` | `PICOCLAW_TOOLS_ALLOW_READ_PATHS` | 额外允许读的路径 |
-| `tools.allow_write_paths` | string[] | `[]` | `PICOCLAW_TOOLS_ALLOW_WRITE_PATHS` | 额外允许写的路径 |
+| `tools.allow_read_paths` | string[] | `[]` | `PICOCLAW_TOOLS_ALLOW_READ_PATHS` | 额外允许读的路径（**按正则编译**，需匹配绝对路径，`~` 不展开） |
+| `tools.allow_write_paths` | string[] | `[]` | `PICOCLAW_TOOLS_ALLOW_WRITE_PATHS` | 额外允许写的路径（正则语义同上） |
+| `tools.protect_system_paths` | *bool | 未配置视为 `true` | `PICOCLAW_TOOLS_PROTECT_SYSTEM_PATHS` | 系统目录保护（fork）：文件工具拒绝读写 OS 系统目录，与 restrict 无关；显式 `false` 关闭 |
 | `tools.filter_sensitive_data` | bool | `true` | `PICOCLAW_TOOLS_FILTER_SENSITIVE_DATA` | 工具结果回传 LLM 前过滤敏感值 |
 | `tools.filter_min_length` | int | `8` | `PICOCLAW_TOOLS_FILTER_MIN_LENGTH` | 短于此长度不做过滤（性能） |
 
@@ -425,7 +426,7 @@
 | 键 | 类型 | 默认值 | Env | 说明 |
 |---|---|---|---|---|
 | `tools.exec.enabled` | bool | `true` | `PICOCLAW_TOOLS_EXEC_ENABLED` | exec 总开关 |
-| `tools.exec.enable_deny_patterns` | bool | `true` | `PICOCLAW_TOOLS_EXEC_ENABLE_DENY_PATTERNS` | 内置危险命令拦截 |
+| `tools.exec.enable_deny_patterns` | bool | `true` | `PICOCLAW_TOOLS_EXEC_ENABLE_DENY_PATTERNS` | 启用内置拦截（fork 内置表为"毁灭性 + 系统目录写入"，一般命令与脚本放行） |
 | `tools.exec.enable_custom_deny_patterns` | bool | `false` | `PICOCLAW_TOOLS_EXEC_ENABLE_CUSTOM_DENY_PATTERNS` | 启用自定义正则规则 |
 | `tools.exec.custom_deny_patterns` | string[] | `[]` | `PICOCLAW_TOOLS_EXEC_CUSTOM_DENY_PATTERNS` | 自定义拦截正则 |
 | `tools.exec.custom_allow_patterns` | string[] | `[]` | `PICOCLAW_TOOLS_EXEC_CUSTOM_ALLOW_PATTERNS` | 自定义放行正则（优先于 deny） |

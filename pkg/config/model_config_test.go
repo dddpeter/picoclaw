@@ -156,12 +156,12 @@ func TestModelConfig_StreamingConfig(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Unmarshal() error = %v", err)
 		}
-		if !cfg.Streaming.Enabled {
-			t.Fatal("Streaming.Enabled = false, want true")
+		if !cfg.Streaming.EffectiveEnabled() {
+			t.Fatal("Streaming.EffectiveEnabled() = false, want true")
 		}
 	})
 
-	t.Run("defaults disabled", func(t *testing.T) {
+	t.Run("defaults enabled", func(t *testing.T) {
 		var cfg ModelConfig
 		err := json.Unmarshal([]byte(`{
 			"model_name": "plain-model",
@@ -170,8 +170,11 @@ func TestModelConfig_StreamingConfig(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Unmarshal() error = %v", err)
 		}
-		if cfg.Streaming.Enabled {
-			t.Fatal("Streaming.Enabled = true, want false by default")
+		if cfg.Streaming.Enabled != nil {
+			t.Fatal("Streaming.Enabled should stay nil (omitted) so the fork default-on applies")
+		}
+		if !cfg.Streaming.EffectiveEnabled() {
+			t.Fatal("omitted streaming must default to enabled (fork default-on)")
 		}
 	})
 

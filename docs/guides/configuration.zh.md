@@ -328,9 +328,26 @@ Routing 通过 `agents.dispatch.rules` 配置。
 
 ### 🔒 安全沙箱 (Security Sandbox)
 
-PicoClaw 默认在沙箱环境中运行。Agent 只能访问配置的工作区内的文件和执行命令。
+> **本 fork 默认不启用工作区沙箱**：Agent 默认可以读写任意目录（**OS 系统目录除外**，见下方"系统目录保护"）并执行一般命令与脚本。上游默认 `restrict_to_workspace: true`；如需恢复工作区沙箱，显式配置 `"restrict_to_workspace": true`。
 
-#### 默认配置
+#### 系统目录保护（fork 默认开启）
+
+无论 `restrict_to_workspace` 开或关，文件工具（read_file / write_file / edit_file / append_file / list_dir）都不能访问操作系统系统目录：
+
+| 平台 | 受保护目录 |
+|---|---|
+| Windows | `%SystemRoot%`（如 C:\Windows）、Program Files（x86/x64/ARM 均含）、ProgramData |
+| Linux | `/bin` `/sbin` `/usr` `/etc` `/boot` `/dev` `/proc` `/sys` `/run` `/lib*` |
+| macOS | 上述 Linux 目录 + `/System` `/Library` `/private/etc` `/private/var/db` |
+
+- `/opt`、`/var`、`/tmp`、用户主目录**不在**保护范围（用户自管软件与数据区）。
+- 符号链接指向系统目录同样被拒（解析后匹配）。
+- exec 通道**不受此读限制**：执行系统命令、读取系统文件照常允许；exec 只拦截"向系统目录写入"（重定向/删除目标为系统目录）与毁灭性命令。
+- 配置项 `tools.protect_system_paths`（`*bool`，**未配置 = 开启**；显式 `false` 关闭——不建议）。
+
+#### 沙箱模式（可选）
+
+需要把 Agent 重新限制回工作区时：
 
 ```json
 {
@@ -346,7 +363,7 @@ PicoClaw 默认在沙箱环境中运行。Agent 只能访问配置的工作区�
 | 选项                    | 默认值                  | 描述                          |
 | ----------------------- | ----------------------- | ----------------------------- |
 | `workspace`             | `~/.picoclaw/workspace` | Agent 的工作目录              |
-| `restrict_to_workspace` | `true`                  | 限制文件/命令访问在工作区内   |
+| `restrict_to_workspace` | `false`（fork 默认；上游为 `true`） | 限制文件/命令访问在工作区内   |
 
 #### 受保护的工具
 
@@ -712,11 +729,18 @@ Agent 读取 HEARTBEAT.md
 
 #### 流式输出配置
 
-Provider 流式输出采用双开关，默认关闭。只有当前 channel 的 `settings.streaming.enabled` 和当前模型条目的 `streaming.enabled` 都为 `true`，并且 provider 与 channel 都支持流式能力时，Agent 才会尝试流式请求；任一条件不满足时仍使用普通非流式请求。
+Provider 流式输出采用双开关。当前 channel 的 `settings.streaming.enabled` 和当前模型条目的 `streaming.enabled` 都开启（显式 true 或按下方默认），并且 provider 与 channel 都支持流式能力时，Agent 才会尝试流式请求；任一条件不满足时仍使用普通非流式请求。
 
-当前完整落地的是 Pico WebUI。Pico 使用已有的 `message.create` 创建第一条 assistant 消息，随后用 `message.update` 更新同一条消息，不新增协议消息类型。
+**默认值（本 fork）**：
 
-不需要流式时请省略 `streaming` 配置块。省略表示关闭，不需要写 `"streaming": {"enabled": false}`。
+- **模型侧** `model_list[].streaming.enabled` 是 `*bool`，**未配置（省略 streaming 块）= 开启**——与 `loop_detection`/`session_titles` 同一 nil=开启 约定。想关掉必须显式写 `"streaming": {"enabled": false}`（显式 false 会在保存时原样保留）。
+- **渠道侧**：安装默认里 **pico 与 feishu 出厂即开启**（feishu 即 CardKit 流式卡片，fork 主打体验）；其余渠道省略 = 关闭。**存量配置注意**：出厂默认只影响新建配置，已存在的 `config.json` 里渠道没有 `streaming` 块的话不会自动补上——升级后如需流式，手动给渠道加 `"streaming": {"enabled": true}`（模型侧无需改动，省略即开）。
+
+上游语义差异：上游模型侧默认关闭（省略=关）；同步上游时若见到"省略表示关闭"的描述，以本节为准。
+
+当前完整落地流式渲染的是 Pico WebUI 与飞书 CardKit 流式卡片。Pico 使用已有的 `message.create` 创建第一条 assistant 消息，随后用 `message.update` 更新同一条消息，不新增协议消息类型；飞书走 CardKit 卡片流式更新（过程面板 + 打字机效果，详见 `docs/design/fork-overview.zh.md` §1）。
+
+失败处理保持保守：如果还没有任何可见 chunk 就失败，PicoClaw 会回退到普通 `Chat()` 路径重试一次；如果已经有 chunk 展示给用户，则不会再发送一条非流式最终答案，避免界面重复输出。这也是模型侧敢默认开启的原因——流式坏端点的代价是一次静默回退。
 
 开启示例：
 
@@ -750,10 +774,10 @@ Provider 流式输出采用双开关，默认关闭。只有当前 channel 的 `
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `channel_list.<name>.settings.streaming.enabled` | bool | `false` | 是否允许该 channel 尝试展示 provider 流式输出 |
+| `channel_list.<name>.settings.streaming.enabled` | bool | pico/feishu 出厂 `true`，其余渠道 `false` | 是否允许该 channel 尝试展示 provider 流式输出 |
 | `channel_list.<name>.settings.streaming.throttle_seconds` | int | Pico 开启后默认 `0` | 中间更新的最小时间间隔，最终内容不受此限制 |
 | `channel_list.<name>.settings.streaming.min_growth_chars` | int | Pico 开启后默认 `1` | 中间更新相比上次发送至少增长的字符数，最终内容不受此限制 |
-| `model_list[].streaming.enabled` | bool | `false` | 是否允许该模型条目尝试 provider 流式请求 |
+| `model_list[].streaming.enabled` | *bool | 未配置视为 `true`（fork 默认开）；显式 `false` 关闭 | 是否允许该模型条目尝试 provider 流式请求 |
 
 Telegram 旧环境变量仍兼容：`PICOCLAW_CHANNELS_TELEGRAM_STREAMING_ENABLED`、`PICOCLAW_CHANNELS_TELEGRAM_STREAMING_THROTTLE_SECONDS`、`PICOCLAW_CHANNELS_TELEGRAM_STREAMING_MIN_GROWTH_CHARS`。这些环境变量只作用于 Telegram settings，不会开启或修改 Pico 的 `settings.streaming`。
 

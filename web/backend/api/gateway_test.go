@@ -21,6 +21,8 @@ import (
 	"github.com/sipeed/picoclaw/web/backend/utils"
 )
 
+func boolPtr(b bool) *bool { return &b }
+
 func startLongRunningProcess(t *testing.T) *exec.Cmd {
 	t.Helper()
 
@@ -1436,7 +1438,7 @@ func TestGatewayStatusRequiresRestartAfterDefaultModelStreamingChange(t *testing
 	cfg := config.DefaultConfig()
 	cfg.Agents.Defaults.ModelName = cfg.ModelList[0].ModelName
 	cfg.ModelList[0].SetAPIKey("test-key")
-	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: false}
+	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: boolPtr(false)}
 	if err := config.SaveConfig(configPath, cfg); err != nil {
 		t.Fatalf("SaveConfig() error = %v", err)
 	}
@@ -1462,7 +1464,7 @@ func TestGatewayStatusRequiresRestartAfterDefaultModelStreamingChange(t *testing
 	if err != nil {
 		t.Fatalf("LoadConfig() error = %v", err)
 	}
-	updatedCfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: true}
+	updatedCfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: boolPtr(true)}
 	if err := config.SaveConfig(configPath, updatedCfg); err != nil {
 		t.Fatalf("SaveConfig() error = %v", err)
 	}
@@ -1498,11 +1500,11 @@ func TestConfigSignatureIncludesModelStreamingForDefaultModelRef(t *testing.T) {
 	cfg.ModelList[0].Provider = ""
 	cfg.ModelList[0].Model = "openai/gpt-4o-ref"
 	cfg.Agents.Defaults.ModelName = "openai/gpt-4o-ref"
-	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: false}
+	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: boolPtr(false)}
 
 	before := computeConfigSignature(cfg)
 
-	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: true}
+	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: boolPtr(true)}
 	after := computeConfigSignature(cfg)
 
 	if before == after {
@@ -1516,19 +1518,19 @@ func TestConfigSignatureIncludesModelStreamingForLoadBalancedAliasEntries(t *tes
 		{
 			ModelName: "lb-alias",
 			Model:     "openai/gpt-4o-primary",
-			Streaming: config.ModelStreamingConfig{Enabled: false},
+			Streaming: config.ModelStreamingConfig{Enabled: boolPtr(false)},
 		},
 		{
 			ModelName: "lb-alias",
 			Model:     "openai/gpt-4o-secondary",
-			Streaming: config.ModelStreamingConfig{Enabled: false},
+			Streaming: config.ModelStreamingConfig{Enabled: boolPtr(false)},
 		},
 	}
 	cfg.Agents.Defaults.ModelName = "lb-alias"
 
 	before := computeConfigSignature(cfg)
 
-	cfg.ModelList[1].Streaming = config.ModelStreamingConfig{Enabled: true}
+	cfg.ModelList[1].Streaming = config.ModelStreamingConfig{Enabled: boolPtr(true)}
 	after := computeConfigSignature(cfg)
 
 	if before == after {
@@ -1543,7 +1545,7 @@ func TestConfigSignatureIncludesSlashModelIDForDefaultProvider(t *testing.T) {
 			ModelName: "nvidia-model",
 			Provider:  "nvidia",
 			Model:     "z-ai/glm-5.1",
-			Streaming: config.ModelStreamingConfig{Enabled: false},
+			Streaming: config.ModelStreamingConfig{Enabled: boolPtr(false)},
 		},
 	}
 	cfg.Agents.Defaults.Provider = "nvidia"
@@ -1551,7 +1553,7 @@ func TestConfigSignatureIncludesSlashModelIDForDefaultProvider(t *testing.T) {
 
 	before := computeConfigSignature(cfg)
 
-	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: true}
+	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: boolPtr(true)}
 	after := computeConfigSignature(cfg)
 
 	if before == after {
@@ -1568,7 +1570,7 @@ func TestConfigSignatureIncludesSupportedPrefixSlashModelIDForDefaultProvider(t 
 			ModelName: "openrouter-openai",
 			Provider:  "openrouter",
 			Model:     "openai/gpt-4o",
-			Streaming: config.ModelStreamingConfig{Enabled: false},
+			Streaming: config.ModelStreamingConfig{Enabled: boolPtr(false)},
 		},
 	}
 	cfg.Agents.Defaults.Provider = "openrouter"
@@ -1576,7 +1578,7 @@ func TestConfigSignatureIncludesSupportedPrefixSlashModelIDForDefaultProvider(t 
 
 	before := computeConfigSignature(cfg)
 
-	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: true}
+	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: boolPtr(true)}
 	after := computeConfigSignature(cfg)
 
 	if before == after {
@@ -1592,7 +1594,7 @@ func TestConfigSignatureIncludesLegacyDefaultProviderPrefixedSlashModelID(t *tes
 		{
 			ModelName: "legacy-openrouter-openai",
 			Model:     "openrouter/openai/gpt-4o",
-			Streaming: config.ModelStreamingConfig{Enabled: false},
+			Streaming: config.ModelStreamingConfig{Enabled: boolPtr(false)},
 		},
 	}
 	cfg.Agents.Defaults.Provider = "openrouter"
@@ -1600,7 +1602,7 @@ func TestConfigSignatureIncludesLegacyDefaultProviderPrefixedSlashModelID(t *tes
 
 	before := computeConfigSignature(cfg)
 
-	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: true}
+	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: boolPtr(true)}
 	after := computeConfigSignature(cfg)
 
 	if before == after {
@@ -1616,7 +1618,7 @@ func TestConfigSignatureIncludesSlashModelIDWithoutProviderFieldForDefaultProvid
 		{
 			ModelName: "nvidia-model",
 			Model:     "z-ai/glm-5.1",
-			Streaming: config.ModelStreamingConfig{Enabled: false},
+			Streaming: config.ModelStreamingConfig{Enabled: boolPtr(false)},
 		},
 	}
 	cfg.Agents.Defaults.Provider = "nvidia"
@@ -1624,7 +1626,7 @@ func TestConfigSignatureIncludesSlashModelIDWithoutProviderFieldForDefaultProvid
 
 	before := computeConfigSignature(cfg)
 
-	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: true}
+	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: boolPtr(true)}
 	after := computeConfigSignature(cfg)
 
 	if before == after {
@@ -1640,7 +1642,7 @@ func TestConfigSignatureIncludesUnknownSlashPrefixModelIDWithoutProviderFieldFor
 		{
 			ModelName: "nvidia-meta",
 			Model:     "meta/llama-3.1-8b",
-			Streaming: config.ModelStreamingConfig{Enabled: false},
+			Streaming: config.ModelStreamingConfig{Enabled: boolPtr(false)},
 		},
 	}
 	cfg.Agents.Defaults.Provider = "nvidia"
@@ -1648,7 +1650,7 @@ func TestConfigSignatureIncludesUnknownSlashPrefixModelIDWithoutProviderFieldFor
 
 	before := computeConfigSignature(cfg)
 
-	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: true}
+	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: boolPtr(true)}
 	after := computeConfigSignature(cfg)
 
 	if before == after {
@@ -1665,7 +1667,7 @@ func TestConfigSignatureDashAliasSlashModelIDMatchesProviderAlias(t *testing.T) 
 			ModelName: "zai-model",
 			Provider:  "zai",
 			Model:     "glm-5.1",
-			Streaming: config.ModelStreamingConfig{Enabled: false},
+			Streaming: config.ModelStreamingConfig{Enabled: boolPtr(false)},
 		},
 	}
 	cfg.Agents.Defaults.Provider = "nvidia"
@@ -1673,7 +1675,7 @@ func TestConfigSignatureDashAliasSlashModelIDMatchesProviderAlias(t *testing.T) 
 
 	before := computeConfigSignature(cfg)
 
-	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: true}
+	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: boolPtr(true)}
 	after := computeConfigSignature(cfg)
 
 	if before == after {
@@ -1688,7 +1690,7 @@ func TestConfigSignatureDashAliasSlashModelIDMatchesProviderAliasWithOpenAIDefau
 			ModelName: "zai-model",
 			Provider:  "zai",
 			Model:     "glm-5.1",
-			Streaming: config.ModelStreamingConfig{Enabled: false},
+			Streaming: config.ModelStreamingConfig{Enabled: boolPtr(false)},
 		},
 	}
 	cfg.Agents.Defaults.Provider = "openai"
@@ -1696,7 +1698,7 @@ func TestConfigSignatureDashAliasSlashModelIDMatchesProviderAliasWithOpenAIDefau
 
 	before := computeConfigSignature(cfg)
 
-	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: true}
+	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: boolPtr(true)}
 	after := computeConfigSignature(cfg)
 
 	if before == after {
@@ -1713,7 +1715,7 @@ func TestConfigSignatureProviderAliasRefIgnoresDefaultProvider(t *testing.T) {
 			ModelName: "openai-gpt",
 			Provider:  "openai",
 			Model:     "gpt-4o",
-			Streaming: config.ModelStreamingConfig{Enabled: false},
+			Streaming: config.ModelStreamingConfig{Enabled: boolPtr(false)},
 		},
 	}
 	cfg.Agents.Defaults.Provider = "nvidia"
@@ -1721,7 +1723,7 @@ func TestConfigSignatureProviderAliasRefIgnoresDefaultProvider(t *testing.T) {
 
 	before := computeConfigSignature(cfg)
 
-	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: true}
+	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: boolPtr(true)}
 	after := computeConfigSignature(cfg)
 
 	if before == after {
@@ -1736,7 +1738,7 @@ func TestConfigSignatureExplicitProviderRefIgnoresDefaultProvider(t *testing.T) 
 			ModelName: "openai-gpt",
 			Provider:  "openai",
 			Model:     "gpt-4o",
-			Streaming: config.ModelStreamingConfig{Enabled: false},
+			Streaming: config.ModelStreamingConfig{Enabled: boolPtr(false)},
 		},
 	}
 	cfg.Agents.Defaults.Provider = "nvidia"
@@ -1744,7 +1746,7 @@ func TestConfigSignatureExplicitProviderRefIgnoresDefaultProvider(t *testing.T) 
 
 	before := computeConfigSignature(cfg)
 
-	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: true}
+	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: boolPtr(true)}
 	after := computeConfigSignature(cfg)
 
 	if before == after {
@@ -1772,13 +1774,13 @@ func TestConfigSignatureExactModelNameTakesPrecedenceOverResolvedRefs(t *testing
 					ModelName: "openai/gpt-4o",
 					Provider:  "nvidia",
 					Model:     "openai/gpt-4o",
-					Streaming: config.ModelStreamingConfig{Enabled: false},
+					Streaming: config.ModelStreamingConfig{Enabled: boolPtr(false)},
 				},
 				{
 					ModelName: "openai-gpt",
 					Provider:  "openai",
 					Model:     "gpt-4o",
-					Streaming: config.ModelStreamingConfig{Enabled: false},
+					Streaming: config.ModelStreamingConfig{Enabled: boolPtr(false)},
 				},
 			},
 			shadowedEntryIndex:    1,
@@ -1795,13 +1797,13 @@ func TestConfigSignatureExactModelNameTakesPrecedenceOverResolvedRefs(t *testing
 					ModelName: "gpt-4o",
 					Provider:  "anthropic",
 					Model:     "claude-sonnet",
-					Streaming: config.ModelStreamingConfig{Enabled: false},
+					Streaming: config.ModelStreamingConfig{Enabled: boolPtr(false)},
 				},
 				{
 					ModelName: "openai-gpt",
 					Provider:  "openai",
 					Model:     "gpt-4o",
-					Streaming: config.ModelStreamingConfig{Enabled: false},
+					Streaming: config.ModelStreamingConfig{Enabled: boolPtr(false)},
 				},
 			},
 			shadowedEntryIndex:    1,
@@ -1820,14 +1822,14 @@ func TestConfigSignatureExactModelNameTakesPrecedenceOverResolvedRefs(t *testing
 
 			before := computeConfigSignature(cfg)
 
-			cfg.ModelList[tt.shadowedEntryIndex].Streaming = config.ModelStreamingConfig{Enabled: true}
+			cfg.ModelList[tt.shadowedEntryIndex].Streaming = config.ModelStreamingConfig{Enabled: boolPtr(true)}
 			afterShadowedChange := computeConfigSignature(cfg)
 
 			if before != afterShadowedChange {
 				t.Fatal(tt.shadowedChangeMessage)
 			}
 
-			cfg.ModelList[tt.exactModelNameIndex].Streaming = config.ModelStreamingConfig{Enabled: true}
+			cfg.ModelList[tt.exactModelNameIndex].Streaming = config.ModelStreamingConfig{Enabled: boolPtr(true)}
 			afterExactModelNameChange := computeConfigSignature(cfg)
 
 			if before == afterExactModelNameChange {
@@ -1844,21 +1846,21 @@ func TestConfigSignatureIncludesLoadBalancedDuplicateEntryIndex(t *testing.T) {
 			ModelName: "lb-alias",
 			Provider:  "openai",
 			Model:     "gpt-4o",
-			Streaming: config.ModelStreamingConfig{Enabled: false},
+			Streaming: config.ModelStreamingConfig{Enabled: boolPtr(false)},
 		},
 		{
 			ModelName: "lb-alias",
 			Provider:  "openai",
 			Model:     "gpt-4o",
-			Streaming: config.ModelStreamingConfig{Enabled: true},
+			Streaming: config.ModelStreamingConfig{Enabled: boolPtr(true)},
 		},
 	}
 	cfg.Agents.Defaults.ModelName = "lb-alias"
 
 	before := computeConfigSignature(cfg)
 
-	cfg.ModelList[0].Streaming.Enabled = true
-	cfg.ModelList[1].Streaming.Enabled = false
+	cfg.ModelList[0].Streaming.Enabled = boolPtr(true)
+	cfg.ModelList[1].Streaming.Enabled = boolPtr(false)
 	after := computeConfigSignature(cfg)
 
 	if before == after {
@@ -1873,7 +1875,7 @@ func TestConfigSignatureProviderDotAliasRefIgnoresDefaultProvider(t *testing.T) 
 			ModelName: "zai-model",
 			Provider:  "zai",
 			Model:     "glm-5.1",
-			Streaming: config.ModelStreamingConfig{Enabled: false},
+			Streaming: config.ModelStreamingConfig{Enabled: boolPtr(false)},
 		},
 	}
 	cfg.Agents.Defaults.Provider = "nvidia"
@@ -1881,7 +1883,7 @@ func TestConfigSignatureProviderDotAliasRefIgnoresDefaultProvider(t *testing.T) 
 
 	before := computeConfigSignature(cfg)
 
-	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: true}
+	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: boolPtr(true)}
 	after := computeConfigSignature(cfg)
 
 	if before == after {
@@ -1898,7 +1900,7 @@ func TestConfigSignatureIncludesDefaultProviderPrefixedRefWithSplitConfig(t *tes
 			ModelName: "openai-split",
 			Provider:  "openai",
 			Model:     "gpt-4o",
-			Streaming: config.ModelStreamingConfig{Enabled: false},
+			Streaming: config.ModelStreamingConfig{Enabled: boolPtr(false)},
 		},
 	}
 	cfg.Agents.Defaults.Provider = "openai"
@@ -1906,7 +1908,7 @@ func TestConfigSignatureIncludesDefaultProviderPrefixedRefWithSplitConfig(t *tes
 
 	before := computeConfigSignature(cfg)
 
-	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: true}
+	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: boolPtr(true)}
 	after := computeConfigSignature(cfg)
 
 	if before == after {
@@ -1923,12 +1925,12 @@ func TestConfigSignatureBareModelRefUsesDefaultProviderModelID(t *testing.T) {
 			ModelName: "azure-alias",
 			Provider:  "azure",
 			Model:     "gpt-4o",
-			Streaming: config.ModelStreamingConfig{Enabled: false},
+			Streaming: config.ModelStreamingConfig{Enabled: boolPtr(false)},
 		},
 		{
 			ModelName: "openai-alias",
 			Model:     "openai/gpt-4o",
-			Streaming: config.ModelStreamingConfig{Enabled: false},
+			Streaming: config.ModelStreamingConfig{Enabled: boolPtr(false)},
 		},
 	}
 	cfg.Agents.Defaults.Provider = "openai"
@@ -1936,14 +1938,14 @@ func TestConfigSignatureBareModelRefUsesDefaultProviderModelID(t *testing.T) {
 
 	before := computeConfigSignature(cfg)
 
-	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: true}
+	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: boolPtr(true)}
 	afterExactModelChange := computeConfigSignature(cfg)
 
 	if before != afterExactModelChange {
 		t.Fatal("config signature should not change for a bare model entry on another provider")
 	}
 
-	cfg.ModelList[1].Streaming = config.ModelStreamingConfig{Enabled: true}
+	cfg.ModelList[1].Streaming = config.ModelStreamingConfig{Enabled: boolPtr(true)}
 	afterDefaultProviderModelChange := computeConfigSignature(cfg)
 
 	if afterExactModelChange == afterDefaultProviderModelChange {

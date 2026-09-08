@@ -869,12 +869,23 @@ type VoiceConfig struct {
 	ElevenLabsAPIKey  string `json:"elevenlabs_api_key,omitempty" env:"PICOCLAW_VOICE_ELEVENLABS_API_KEY"`
 }
 
+// ModelStreamingConfig gates provider streaming per model_list entry.
+// Enabled is a *bool where nil counts as ENABLED (fork default-on): the
+// streaming card UX is the fork's flagship, and the pre-visible-failure
+// fallback to Chat makes default-on safe. Write {"enabled": false} to opt
+// out explicitly. Same nil=on convention as loop_detection / session_titles.
 type ModelStreamingConfig struct {
-	Enabled bool `json:"enabled,omitempty"`
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 func (c ModelStreamingConfig) IsZero() bool {
-	return !c.Enabled
+	return c.Enabled == nil
+}
+
+// EffectiveEnabled resolves the tri-state: omitted (nil) streams, explicit
+// false opts out.
+func (c ModelStreamingConfig) EffectiveEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
 }
 
 // ModelConfig represents a model-centric provider configuration.
@@ -1198,6 +1209,11 @@ const (
 	ReadFileModeLines = "lines"
 )
 
+// EffectiveProtectSystemPaths resolves the tri-state guard: nil = enabled.
+func (c ToolsConfig) EffectiveProtectSystemPaths() bool {
+	return c.ProtectSystemPaths == nil || *c.ProtectSystemPaths
+}
+
 func (c ReadFileToolConfig) EffectiveMode() string {
 	switch strings.ToLower(strings.TrimSpace(c.Mode)) {
 	case ReadFileModeLines:
@@ -1212,6 +1228,11 @@ func (c ReadFileToolConfig) EffectiveMode() string {
 type ToolsConfig struct {
 	AllowReadPaths  []string `json:"allow_read_paths"  yaml:"-" env:"PICOCLAW_TOOLS_ALLOW_READ_PATHS"`
 	AllowWritePaths []string `json:"allow_write_paths" yaml:"-" env:"PICOCLAW_TOOLS_ALLOW_WRITE_PATHS"`
+	// ProtectSystemPaths keeps OS system directories off-limits to file
+	// tools (read and write) regardless of restrict_to_workspace. nil counts
+	// as enabled — the same nil=on convention as loop_detection. Explicit
+	// false disables the guard entirely (not recommended).
+	ProtectSystemPaths *bool `json:"protect_system_paths,omitzero" yaml:"-" env:"PICOCLAW_TOOLS_PROTECT_SYSTEM_PATHS"`
 	// FilterSensitiveData controls whether to filter sensitive values (API keys,
 	// tokens, secrets) from tool results before sending to the LLM.
 	// Default: true (enabled)
