@@ -135,7 +135,7 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 				logger.WarnCF("agent", "ChatStream update failed after visible output", logFields)
 				return nil, true, configuredStreamingVisibleError{err: updateErr}
 			}
-			logger.WarnCF("agent", "ChatStream update failed before visible output; retrying with Chat", logFields)
+			logger.WarnCF("agent", "ChatStream update failed before visible output; falling back to chain", logFields)
 			// Seal with a detached context: the turn context may already be
 			// canceled (e.g. /stop mid-call), which would silently turn this
 			// Cancel into a no-op and strand the live card.
@@ -143,22 +143,19 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 			publisher.Cancel(sealCtx)
 			sealCancel()
 			exec.streamingPublisher = nil // sealed above; answer goes legacy
-			fallbackResponse, err := exec.activeProvider.Chat(
-				ctx,
-				messagesForCall,
-				toolDefsForCall,
-				exec.llmModel,
-				exec.llmOpts,
-			)
-			if err == nil && fallbackResponse != nil {
-				exec.streamingFallback = true
-			}
-			return fallbackResponse, true, err
+			// Mark so finalize keeps the legacy interim publish path: the
+			// fallback chain's Chat answer must still be delivered even with
+			// SendResponse disabled.
+			exec.streamingFallback = true
+			// Hand the turn back: the caller's fallback chain (cooldown, rate
+			// limit, media awareness) retries with Chat across all candidates.
+			return nil, false, nil
 		}
 	}
+
 	if streamErr != nil {
 		if !publisher.Published() {
-			logger.WarnCF("agent", "ChatStream failed before visible output; retrying with Chat", map[string]any{
+			logger.WarnCF("agent", "ChatStream failed before visible output; falling back to chain", map[string]any{
 				"agent_id": ts.agent.ID,
 				"channel":  ts.channel,
 				"model":    exec.llmModel,
@@ -171,17 +168,10 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 			publisher.Cancel(sealCtx)
 			sealCancel()
 			exec.streamingPublisher = nil // sealed above; answer goes legacy
-			fallbackResponse, err := exec.activeProvider.Chat(
-				ctx,
-				messagesForCall,
-				toolDefsForCall,
-				exec.llmModel,
-				exec.llmOpts,
-			)
-			if err == nil && fallbackResponse != nil {
-				exec.streamingFallback = true
-			}
-			return fallbackResponse, true, err
+			// Same legacy-delivery marker as the update-failure path above.
+			exec.streamingFallback = true
+			// Hand the turn back so the fallback chain retries with Chat.
+			return nil, false, nil
 		}
 		return nil, true, configuredStreamingVisibleError{err: streamErr}
 	}
@@ -321,15 +311,18 @@ func (p *Pipeline) configuredStreamingEligible(ts *turnState, exec *turnExecutio
 		})
 		return false
 	}
-	if len(exec.activeCandidates) != 1 {
-		logger.DebugCF("agent", "configured streaming not used", map[string]any{
+	if len(exec.activeCandidates) > 1 {
+		// Fallback candidates are configured. Streaming is still allowed for
+		// the primary candidate — if the stream fails before visible output,
+		// tryConfiguredStreamingLLM hands the turn back (handled=false) so
+		// the full fallback chain (cooldown, rate limit, media awareness)
+		// takes over instead of a single-provider retry.
+		logger.DebugCF("agent", "configured streaming with fallback chain", map[string]any{
 			"agent_id":   ts.agent.ID,
 			"channel":    ts.channel,
 			"model":      exec.activeModel,
 			"candidates": len(exec.activeCandidates),
-			"reason":     "fallback_candidates_enabled",
 		})
-		return false
 	}
 	if exec.activeModelConfig == nil || !exec.activeModelConfig.Streaming.Enabled {
 		modelName := ""
