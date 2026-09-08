@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1449,5 +1450,63 @@ func TestApplyConfigSecretsFromMap_ChannelNotDecodedYet(t *testing.T) {
 	tgCfg := decoded.(*config.TelegramSettings)
 	if got := tgCfg.Token.String(); got != "lazy-decoded-token" {
 		t.Fatalf("telegram token = %q, want %q", got, "lazy-decoded-token")
+	}
+}
+
+// The gateway's strict loader refuses configs with unknown fields, and the
+// config page is the tool users reach for to fix exactly that state — so a
+// PATCH whose base load hits unknown fields must succeed and, by rewriting
+// the file from the known struct, remove them.
+func TestHandlePatchConfig_ToleratesUnknownFieldsOnDisk(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	var disk map[string]any
+	if err = json.Unmarshal(raw, &disk); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	disk["definitely_unknown_field"] = map[string]any{"oops": true}
+	if poisoned, marshalErr := json.Marshal(disk); marshalErr != nil {
+		t.Fatalf("Marshal() error = %v", marshalErr)
+	} else if writeErr := os.WriteFile(configPath, poisoned, 0o600); writeErr != nil {
+		t.Fatalf("WriteFile() error = %v", writeErr)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/config", bytes.NewBufferString(`{
+		"agents": {
+			"defaults": {
+				"max_tokens": 4321
+			}
+		}
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	healed, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("strict LoadConfig() after PATCH error = %v (unknown fields must be gone)", err)
+	}
+	if healed.Agents.Defaults.MaxTokens != 4321 {
+		t.Fatalf("max_tokens = %d, want 4321 (patch must still apply)", healed.Agents.Defaults.MaxTokens)
+	}
+
+	raw, err = os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile(healed) error = %v", err)
+	}
+	if bytes.Contains(raw, []byte("definitely_unknown_field")) {
+		t.Fatal("unknown field survived the PATCH save; the page must heal the file")
 	}
 }

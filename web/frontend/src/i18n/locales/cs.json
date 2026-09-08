@@ -959,7 +959,7 @@
       "factory_reset_success": "Konfigurace byla obnovena na tovární nastavení.",
       "factory_reset_error": "Obnovení konfigurace selhalo.",
       "unknown_fields_title": "Konfigurace obsahuje neznámá pole",
-      "unknown_fields_desc": "Následující pole tato verze nezná a byla ignorována: {{fields}}"
+      "unknown_fields_desc": "Následující pole tato verze nezná a v tomto zobrazení jsou ignorována: {{fields}}. Gateway načítá konfiguraci přísně a dokud jsou přítomna, odmítne startovat; uložením z této stránky se ze souboru odstraní."
     },
     "logs": {
       "log_level_error": "Aktualizace úrovně logování selhala.",

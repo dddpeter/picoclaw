@@ -102,11 +102,11 @@ func TestTryConfiguredStreamingOwnsPublisherDuringLLMCall(t *testing.T) {
 
 	close(provider.release)
 	res := <-done
-	// Since the fallback-chain handoff fix, a pre-visible stream failure
-	// returns handled=false (streamed=false, err=nil) so the caller's chain
-	// retries with Chat. The ownership invariant under test — publisher held
-	// for the whole in-flight call so /stop can seal the live card — held:
-	// cancelConfiguredStreamingLLMWithReason above already asserted the
-	// cancellation reached the streamer.
-	_ = res
+	// The ownership invariant above is confirmed by the failure shape too: no
+	// visible output was published, so the stream failure must hand the turn
+	// back to the caller's Chat fallback chain (streamed=false, err=nil),
+	// never surface as a turn error.
+	if res.streamed || res.err != nil {
+		t.Fatalf("expected stream failure before visible output to hand off to the fallback chain (streamed=false, err=nil), got streamed=%v err=%v", res.streamed, res.err)
+	}
 }

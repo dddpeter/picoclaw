@@ -966,7 +966,7 @@
       "factory_reset_success": "Configuration has been reset to factory defaults.",
       "factory_reset_error": "Failed to reset configuration.",
       "unknown_fields_title": "Config contains unknown fields",
-      "unknown_fields_desc": "The following fields are not recognized by this version and were ignored: {{fields}}"
+      "unknown_fields_desc": "The following fields are not recognized by this version and are ignored in this view: {{fields}}. The gateway loads the config strictly and will refuse to start while they are present; saving from this page removes them from the file."
     },
     "logs": {
       "log_level_error": "Failed to update log level.",

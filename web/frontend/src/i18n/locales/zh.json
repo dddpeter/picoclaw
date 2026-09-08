@@ -966,7 +966,7 @@
       "factory_reset_success": "配置已重置为出厂默认值。",
       "factory_reset_error": "重置配置失败。",
       "unknown_fields_title": "配置包含未识别字段",
-      "unknown_fields_desc": "以下字段未被当前版本识别，已忽略：{{fields}}"
+      "unknown_fields_desc": "以下字段未被当前版本识别，在本页中已忽略：{{fields}}。网关按严格模式加载配置，这些字段存在时网关将无法启动；通过本页保存会将其从配置文件中移除。"
     },
     "logs": {
       "log_level_error": "更新日志等级失败。",

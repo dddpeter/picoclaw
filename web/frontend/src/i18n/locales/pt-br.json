@@ -961,7 +961,7 @@
       "factory_reset_success": "A configuração foi redefinida para os padrões de fábrica.",
       "factory_reset_error": "Falha ao redefinir a configuração.",
       "unknown_fields_title": "A configuração contém campos desconhecidos",
-      "unknown_fields_desc": "Os campos a seguir não são reconhecidos por esta versão e foram ignorados: {{fields}}"
+      "unknown_fields_desc": "Os campos a seguir não são reconhecidos por esta versão e são ignorados nesta visualização: {{fields}}. O gateway carrega a configuração de forma estrita e se recusará a iniciar enquanto eles estiverem presentes; salvar nesta página os remove do arquivo."
     },
     "logs": {
       "log_level_error": "Falha ao atualizar nível de log.",

@@ -170,8 +170,14 @@ func (h *Handler) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Load existing config and marshal to a map for merging
-	cfg, err := config.LoadConfig(h.configPath)
+	// Load existing config and marshal to a map for merging. Lenient on
+	// purpose: the config page is the tool users reach for to *fix* a config
+	// the gateway's strict loader would refuse, so a base load must not
+	// hard-fail on unknown fields. Saving then rewrites the file from the
+	// known struct, which drops the unknown fields — the page heals exactly
+	// what its warning banner reports. Syntax errors still fail via the
+	// loader itself.
+	cfg, _, err := config.LoadConfigLenient(h.configPath)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to load config: %v", err), http.StatusInternalServerError)
 		return

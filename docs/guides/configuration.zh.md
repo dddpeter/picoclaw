@@ -31,6 +31,20 @@ PICOCLAW_HOME=/opt/picoclaw picoclaw agent
 PICOCLAW_HOME=/srv/picoclaw PICOCLAW_CONFIG=/srv/picoclaw/main.json picoclaw gateway
 ```
 
+### 配置加载的宽松/严格边界
+
+同一个 `config.json` 在不同路径下的加载语义不同（本 fork，`b0dfd94f` 引入）：
+
+| 加载路径 | 语义 | 未知字段（当前版本不认识的键）的处理 |
+|---|---|---|
+| Gateway 运行时（启动、`/reload`、热重载 watcher） | **严格** | 直接报错拒绝加载——fail-fast，防止拼写错误的配置键被静默忽略 |
+| Web 控制台读路径（`GET /api/config`） | **宽松** | 降级为警告（响应中的 `config_warnings`），页面顶部显示横幅 |
+| Web 控制台保存（`PATCH /api/config` 的基准加载） | **宽松** | 警告后照常合并；保存时文件按已知结构体重写，**未知字段被移除**——即"保存即自愈" |
+
+设计动机：配置页是用户修复"网关因未知字段拒绝启动"这一状态的工具，如果保存路径也严格失败，页面恰好在最需要时不可用。横幅文案会说明：网关启动走严格校验，未知字段存在时网关无法启动，通过页面保存会将其清除。
+
+注意：配置页之外的其他 launcher API（channels/models/tools 等读写端点）仍走严格加载，磁盘上存在未知字段时这些端点会返回加载错误——先在配置页保存一次清除未知字段即可。
+
 ### Gateway 日志等级
 
 `gateway.log_level` 控制 Gateway 的日志详细程度，可在 `config.json` 中配置：
