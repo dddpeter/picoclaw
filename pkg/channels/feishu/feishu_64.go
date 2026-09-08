@@ -105,9 +105,16 @@ func (c *FeishuChannel) Start(ctx context.Context) error {
 		})
 	}
 
+	// The reaction ACK handlers swallow the echo of the bot's own emoji
+	// reactions (inbound ack via RandomReactionEmoji, undone at preSend):
+	// without a handler the SDK logs "not found handler" and leaves the
+	// event unacked, which makes Feishu redeliver it ~20s later. picoclaw
+	// consumes no reaction state, so the payloads are ignored.
 	dispatcher := larkdispatcher.NewEventDispatcher(c.config.VerificationToken.String(), c.config.EncryptKey.String()).
 		OnP2MessageReceiveV1(c.handleMessageReceive).
-		OnP2CardActionTrigger(c.handleCardAction)
+		OnP2CardActionTrigger(c.handleCardAction).
+		OnP2MessageReactionCreatedV1(c.handleReactionEcho).
+		OnP2MessageReactionDeletedV1(c.handleReactionEchoDelete)
 
 	runCtx, cancel := context.WithCancel(ctx)
 
@@ -586,6 +593,17 @@ func firstMediaCaption(parts []bus.MediaPart) string {
 }
 
 // --- Inbound message handling ---
+
+// handleReactionEcho ACKs im.message.reaction.created_v1 (see the dispatcher
+// comment in Start); the payload carries no state picoclaw needs.
+func (c *FeishuChannel) handleReactionEcho(ctx context.Context, event *larkim.P2MessageReactionCreatedV1) error {
+	return nil
+}
+
+// handleReactionEchoDelete ACKs im.message.reaction.deleted_v1.
+func (c *FeishuChannel) handleReactionEchoDelete(ctx context.Context, event *larkim.P2MessageReactionDeletedV1) error {
+	return nil
+}
 
 func (c *FeishuChannel) handleMessageReceive(ctx context.Context, event *larkim.P2MessageReceiveV1) error {
 	if event == nil || event.Event == nil || event.Event.Message == nil {
