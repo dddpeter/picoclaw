@@ -19,11 +19,51 @@ func newTitleTestAgent(t *testing.T) (*AgentLoop, *AgentInstance, session.Sessio
 	backend := session.NewJSONLBackend(store)
 	al := &AgentLoop{}
 	agent := &AgentInstance{
-		Sessions: backend,
-		Provider: &mockProvider{},
-		Model:    "mock-model",
+		Sessions:     backend,
+		Provider:     &mockProvider{},
+		LightProvider: &mockProvider{}, // upgrades only run on the light model
+		Model:        "mock-model",
 	}
 	return al, agent, backend
+}
+
+func TestMaybeTitleSessionWithoutLightModelKeepsDerived(t *testing.T) {
+	titleUpgrades.mu.Lock()
+	titleUpgrades.inFlight = make(map[string]struct{})
+	titleUpgrades.tried = make(map[string]struct{})
+	titleUpgrades.mu.Unlock()
+
+	store, err := memory.NewJSONLStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	al := &AgentLoop{}
+	// No LightProvider: upgrades must not fire, and the primary provider
+	// must see zero background calls (exact-call-count tests rely on this).
+	provider := &countingMockProvider{response: "LLM reply"}
+	agent := &AgentInstance{
+		Sessions: session.NewJSONLBackend(store),
+		Provider: provider,
+		Model:    "mock-model",
+	}
+	const key = "agent:main:feishu:direct:oc_nolight"
+
+	al.maybeTitleSession(agent, titleOpts(key, "ou_peter", "帮我排查网关为什么挂死"))
+
+	ts := agent.Sessions.(titleCapableStore)
+	title, source, ok := ts.GetSessionTitle(key)
+	if !ok || source != titleSourceDerived || title != "帮我排查网关为什么挂死" {
+		t.Fatalf("derived title wrong: %q (%q, ok=%v)", title, source, ok)
+	}
+	// Drain any (wrongly armed) background upgrade, then prove the primary
+	// provider was never touched.
+	time.Sleep(100 * time.Millisecond)
+	if provider.calls != 0 {
+		t.Fatalf("primary provider must not be called for titles without a light model, calls=%d", provider.calls)
+	}
+	if _, source, ok := ts.GetSessionTitle(key); !ok || source != titleSourceDerived {
+		t.Fatalf("title must stay derived, got source=%q", source)
+	}
 }
 
 func titleOpts(sessionKey, senderID, userMsg string) *processOptions {

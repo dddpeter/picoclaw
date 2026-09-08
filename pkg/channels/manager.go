@@ -82,6 +82,10 @@ type channelWorker struct {
 	done       chan struct{}
 	mediaDone  chan struct{}
 	limiter    *rate.Limiter
+	// cancel stops this worker's goroutines. Queues are intentionally never
+	// closed: dispatcher goroutines may still hold a reference and a send on
+	// a closed channel panics (race-detector-visible under load).
+	cancel context.CancelFunc
 }
 
 type Manager struct {
@@ -1321,9 +1325,11 @@ func (m *Manager) StartAll(ctx context.Context) error {
 			}
 		}
 		w := newChannelWorker(name, channel, channelType)
+		workerCtx, workerCancel := context.WithCancel(dispatchCtx)
+		w.cancel = workerCancel
 		m.workers[name] = w
-		go m.runWorker(dispatchCtx, name, w)
-		go m.runMediaWorker(dispatchCtx, name, w)
+		go m.runWorker(workerCtx, name, w)
+		go m.runMediaWorker(workerCtx, name, w)
 		m.publishChannelEvent(
 			runtimeevents.KindChannelLifecycleStarted,
 			name,
@@ -1454,21 +1460,12 @@ func (m *Manager) StopAll(ctx context.Context) error {
 		m.dispatchTask = nil
 	}
 
-	// Close all worker queues and wait for them to drain
-	for _, w := range m.workers {
-		if w != nil {
-			close(w.queue)
-		}
-	}
+	// The dispatch-context cancel above stops every worker goroutine (each
+	// runs on a child context). Queues are never closed: a dispatcher may
+	// still be mid-send on one, and sending on a closed channel panics.
 	for _, w := range m.workers {
 		if w != nil {
 			<-w.done
-		}
-	}
-	// Close all media worker queues and wait for them to drain
-	for _, w := range m.workers {
-		if w != nil {
-			close(w.mediaQueue)
 		}
 	}
 	for _, w := range m.workers {
@@ -2042,9 +2039,11 @@ func (m *Manager) Reload(ctx context.Context, cfg *config.Config) error {
 			}
 		}
 		w := newChannelWorker(name, channel, channelType)
+		workerCtx, workerCancel := context.WithCancel(dispatchCtx)
+		w.cancel = workerCancel
 		m.workers[name] = w
-		go m.runWorker(dispatchCtx, name, w)
-		go m.runMediaWorker(dispatchCtx, name, w)
+		go m.runWorker(workerCtx, name, w)
+		go m.runMediaWorker(workerCtx, name, w)
 		m.publishChannelEvent(
 			runtimeevents.KindChannelLifecycleStarted,
 			name,
@@ -2092,9 +2091,10 @@ func (m *Manager) UnregisterChannel(name string) {
 		m.unregisterChannelHTTPHandler(name, ch)
 	}
 	if w, ok := m.workers[name]; ok && w != nil {
-		close(w.queue)
+		if w.cancel != nil {
+			w.cancel()
+		}
 		<-w.done
-		close(w.mediaQueue)
 		<-w.mediaDone
 	}
 	delete(m.workers, name)

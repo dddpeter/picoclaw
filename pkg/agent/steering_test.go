@@ -534,6 +534,14 @@ func (p *blockingDirectProvider) GetDefaultModel() string {
 	return "blocking-direct-mock"
 }
 
+// firstCallStarted snapshots the start-signal channel under the same mutex
+// Chat mutates it with; reading the field directly races Chat's nil write.
+func (p *blockingDirectProvider) firstCallStarted() <-chan struct{} {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.firstStarted
+}
+
 type interruptibleTool struct {
 	name    string
 	started chan struct{}
@@ -1200,7 +1208,7 @@ func TestAgentLoop_Steering_DirectResponseContinuesWithQueuedMessage(t *testing.
 	}()
 
 	select {
-	case <-provider.firstStarted:
+	case <-provider.firstCallStarted():
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for first LLM call to start")
 	}

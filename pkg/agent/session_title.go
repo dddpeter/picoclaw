@@ -239,37 +239,30 @@ func (al *AgentLoop) upgradeSessionTitleAsync(
 	}()
 }
 
-// generateSessionTitle calls the light model (falling back to the primary
-// provider) for a short title and applies the answer-shaped guard.
+// generateSessionTitle asks the light model for a concise title and applies
+// the answer-shaped guard. Only the light model participates: spending
+// primary-model tokens on titling is not worth it, so deployments without
+// routing.light_model keep their derived titles. This also keeps tests
+// asserting exact provider call counts deterministic — no background calls.
 func (al *AgentLoop) generateSessionTitle(agent *AgentInstance, openingMsg string) (string, error) {
 	openingMsg = strings.TrimSpace(openingMsg)
-	if openingMsg == "" {
+	if openingMsg == "" || agent.LightProvider == nil {
 		return "", nil
 	}
 	if len(openingMsg) > 1200 {
 		openingMsg = string([]rune(openingMsg)[:1200])
 	}
 
-	provider := agent.Provider
-	model := agent.Model
-	if agent.LightProvider != nil {
-		provider = agent.LightProvider
-		model = sideQuestionModelName(agent, true)
-	}
-	if provider == nil {
-		return "", fmt.Errorf("no provider available for title generation")
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), titleModelTimeout)
 	defer cancel()
-	resp, err := provider.Chat(
+	resp, err := agent.LightProvider.Chat(
 		ctx,
 		[]providers.Message{{Role: "user", Content: fmt.Sprintf(
 			"用一句不超过 %d 个字的短语为下面的对话起一个标题，直接输出标题本身，不要引号、不要标点结尾、不要解释。\n\n对话开头：\n%s",
 			llmTitleMaxRunes, openingMsg,
 		)}},
 		nil,
-		model,
+		sideQuestionModelName(agent, true),
 		map[string]any{
 			"max_tokens":  titleModelMaxTokens,
 			"temperature": 0.3,
