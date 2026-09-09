@@ -181,10 +181,47 @@ export function ConfigPage() {
       ),
       dashboardPassword: "",
       dashboardPasswordConfirm: "",
+      gatewayAutoStart: true,
     }
-    setLauncherForm(parsed)
-    setLauncherBaseline(parsed)
+    // gateway.auto_start is seeded from the app config by the effect below
+    // (it does not live in the launcher config). Keep the current value when
+    // launcher-config resolves/refetches so query ordering cannot clobber it
+    // back to the default.
+    setLauncherForm((prev) => ({
+      ...parsed,
+      gatewayAutoStart: prev.gatewayAutoStart,
+    }))
+    setLauncherBaseline((prev) => ({
+      ...parsed,
+      gatewayAutoStart: prev.gatewayAutoStart,
+    }))
   }, [launcherConfig])
+
+  // gateway.auto_start lives in the app config (not launcher config): seed
+  // the toggle from the loaded config so it reflects gateway.auto_start.
+  // Both form and baseline are updated so the dirty check does not report a
+  // phantom change for the freshly loaded value.
+  useEffect(() => {
+    if (!data) return
+    const rawGateway = (cleanConfig as Record<string, unknown> | undefined)
+      ?.gateway
+    const gateway =
+      rawGateway && typeof rawGateway === "object"
+        ? (rawGateway as Record<string, unknown>)
+        : undefined
+    const next =
+      gateway?.auto_start === undefined
+        ? true
+        : Boolean(gateway.auto_start)
+    setLauncherForm((prev) =>
+      prev.gatewayAutoStart === next ? prev : { ...prev, gatewayAutoStart: next },
+    )
+    setLauncherBaseline((prev) =>
+      prev.gatewayAutoStart === next
+        ? prev
+        : { ...prev, gatewayAutoStart: next },
+    )
+  }, [data, cleanConfig])
 
   useEffect(() => {
     if (!autoStartStatus) return
@@ -200,7 +237,8 @@ export function ConfigPage() {
     launcherForm.allowLocalhostBypass !==
       launcherBaseline.allowLocalhostBypass ||
     launcherForm.trustedProxyCIDRsText !==
-      launcherBaseline.trustedProxyCIDRsText
+      launcherBaseline.trustedProxyCIDRsText ||
+    launcherForm.gatewayAutoStart !== launcherBaseline.gatewayAutoStart
   const launcherPasswordDirty =
     launcherForm.dashboardPassword.trim() !== "" ||
     launcherForm.dashboardPasswordConfirm.trim() !== ""
@@ -658,6 +696,15 @@ export function ConfigPage() {
         const trustedProxyCIDRs = parseCIDRText(
           launcherForm.trustedProxyCIDRsText,
         )
+        // gateway.auto_start lives in the app config file: persist it with a
+        // dedicated merge-patch so other launcher fields above stay separate.
+        if (launcherForm.gatewayAutoStart !== launcherBaseline.gatewayAutoStart) {
+          await patchAppConfig({
+            gateway: {
+              auto_start: launcherForm.gatewayAutoStart,
+            },
+          })
+        }
         const savedLauncherConfig = await updateLauncherConfig({
           port,
           public: launcherForm.publicAccess,
@@ -678,6 +725,7 @@ export function ConfigPage() {
           ).join("\n"),
           dashboardPassword: "",
           dashboardPasswordConfirm: "",
+          gatewayAutoStart: launcherForm.gatewayAutoStart,
         }
         savedLauncherForm = parsedLauncher
         setLauncherForm(parsedLauncher)

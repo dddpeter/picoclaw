@@ -724,9 +724,35 @@ func main() {
 	// Auto-open browser will be handled by the launcher runtime.
 
 	// Auto-start gateway after backend starts listening.
+	// Retry with backoff at boot: network/proxy may not be up yet when the
+	// first probe runs. After that a watchdog keeps probing and restarts the
+	// gateway if it dies; after repeated failures it goes silent (no more
+	// restart attempts) to avoid log spam / crash loops. The watchdog stays
+	// alive when gateway.auto_start=false — it just pauses restarts, so
+	// re-enabling the toggle takes effect within one probe interval.
 	go func() {
-		time.Sleep(1 * time.Second)
-		apiHandler.TryAutoStartGateway()
+		if apiHandler.GatewayAutoStartEnabled() {
+			time.Sleep(1 * time.Second)
+			const maxAttempts = 12
+			backoff := 2 * time.Second
+			started := false
+			for attempt := 1; attempt <= maxAttempts; attempt++ {
+				if apiHandler.TryAutoStartGateway() {
+					started = true
+					break
+				}
+				time.Sleep(backoff)
+				if backoff < 30*time.Second {
+					backoff *= 2
+				}
+			}
+			if !started {
+				logger.ErrorC("gateway", "Auto-start gave up after max retries: gateway is NOT running")
+			}
+		} else {
+			logger.InfoC("gateway", "Gateway auto-start disabled (gateway.auto_start=false)")
+		}
+		startGatewayWatchdog(apiHandler)
 	}()
 
 	// Start the server(s) in goroutines.
@@ -770,5 +796,66 @@ func main() {
 	} else {
 		// GUI mode: start system tray
 		runTray()
+	}
+}
+
+// startGatewayWatchdog probes the gateway on a fixed interval. If the gateway
+// is down it restarts it via TryAutoStartGateway (which revalidates start
+// conditions each time, respecting hot-reloaded config). After
+// watchdogMaxConsecutiveFails consecutive restart failures it goes silent —
+// no further attempts — to avoid crash loops and log spam. Silence clears as
+// soon as a probe finds the gateway running again (e.g. someone started it
+// manually). Disabling gateway.auto_start only pauses restarts: the loop
+// keeps probing, so re-enabling the toggle (tray / settings page) takes
+// effect within one interval without restarting the launcher.
+func startGatewayWatchdog(h *api.Handler) {
+	const probeInterval = 30 * time.Second
+	const watchdogMaxConsecutiveFails = 5
+
+	consecutiveFails := 0
+	silent := false
+	disabledLogged := false
+	for {
+		time.Sleep(probeInterval)
+		if !h.GatewayAutoStartEnabled() {
+			if !disabledLogged {
+				logger.InfoC("gateway", "Watchdog: auto-start disabled (gateway.auto_start=false); pausing restarts")
+				disabledLogged = true
+			}
+			continue
+		}
+		disabledLogged = false
+		if h.GatewayRunning() {
+			if silent {
+				logger.InfoC("gateway", "Watchdog: gateway is running again; resuming monitoring")
+			}
+			silent = false
+			consecutiveFails = 0
+			continue
+		}
+		if h.GatewayUserStopped() {
+			// The operator explicitly stopped the gateway
+			// (POST /api/gateway/stop); do not undo that. Any later start
+			// (API, tray, auto-start) clears the flag.
+			continue
+		}
+		if silent {
+			continue
+		}
+		logger.WarnC("gateway", fmt.Sprintf(
+			"Watchdog: gateway is down, attempting restart (%d/%d)",
+			consecutiveFails+1, watchdogMaxConsecutiveFails))
+		if h.TryAutoStartGateway() {
+			consecutiveFails = 0
+			logger.InfoC("gateway", "Watchdog: gateway restarted")
+		} else {
+			consecutiveFails++
+			if consecutiveFails >= watchdogMaxConsecutiveFails {
+				silent = true
+				logger.ErrorC("gateway", fmt.Sprintf(
+					"Watchdog: %d consecutive restart failures; going silent (gateway stays down until manual restart)",
+					watchdogMaxConsecutiveFails))
+			}
+		}
 	}
 }

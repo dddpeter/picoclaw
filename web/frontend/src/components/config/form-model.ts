@@ -78,6 +78,7 @@ export interface LauncherForm {
   trustedProxyCIDRsText: string
   dashboardPassword: string
   dashboardPasswordConfirm: string
+  gatewayAutoStart: boolean
 }
 
 export const DM_SCOPE_OPTIONS = [
@@ -169,6 +170,7 @@ export const EMPTY_LAUNCHER_FORM: LauncherForm = {
   trustedProxyCIDRsText: "",
   dashboardPassword: "",
   dashboardPasswordConfirm: "",
+  gatewayAutoStart: true,
 }
 
 function asRecord(value: unknown): JsonRecord {

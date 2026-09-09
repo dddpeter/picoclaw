@@ -852,6 +852,8 @@
       "monitor_usb_hint": "Sledovat události připojení/odpojení USB při aktivních zařízeních.",
       "autostart_label": "Spustit při přihlášení",
       "autostart_hint": "Automaticky spustit PicoClaw Web při přihlášení.",
+      "gateway_autostart": "Automatické spuštění brány",
+      "gateway_autostart_hint": "Udržujte bránu v chodu; po výpadku ji restartujte, po opakovaných selháních ztichněte",
       "autostart_unsupported": "Spuštění při přihlášení není na této platformě podporováno.",
       "autostart_load_error": "Načtení stavu spuštění při přihlášení selhalo.",
       "server_port": "Port služby",

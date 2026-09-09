@@ -1271,6 +1271,17 @@ export function LauncherSection({
           }
         />
       </Field>
+
+      <SwitchCardField
+        label={t("pages.config.gateway_autostart")}
+        hint={t("pages.config.gateway_autostart_hint")}
+        layout="setting-row"
+        checked={launcherForm.gatewayAutoStart}
+        disabled={disabled}
+        onCheckedChange={(checked) =>
+          onFieldChange("gatewayAutoStart", checked)
+        }
+      />
     </ConfigSectionCard>
   )
 }

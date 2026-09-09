@@ -32,6 +32,10 @@ const (
 	MenuDocs           TranslationKey = "MenuDocs"
 	MenuRestart        TranslationKey = "MenuRestart"
 	MenuRestartTooltip TranslationKey = "MenuRestartTooltip"
+	MenuAutoStart      TranslationKey = "MenuAutoStart"
+	MenuAutoStartHint  TranslationKey = "MenuAutoStartHint"
+	MenuLaunchAtLogin  TranslationKey = "MenuLaunchAtLogin"
+	MenuLaunchAtLoginH TranslationKey = "MenuLaunchAtLoginH"
 	MenuQuit           TranslationKey = "MenuQuit"
 	MenuQuitTooltip    TranslationKey = "MenuQuitTooltip"
 	Exiting            TranslationKey = "Exiting"
@@ -55,6 +59,10 @@ var translations = map[Language]map[TranslationKey]string{
 		MenuDocs:           "Documentation",
 		MenuRestart:        "Restart Service",
 		MenuRestartTooltip: "Restart Gateway service",
+		MenuAutoStart:      "Auto-start Gateway",
+		MenuAutoStartHint:  "Keep the gateway running; restart it when down",
+		MenuLaunchAtLogin:  "Launch at Login",
+		MenuLaunchAtLoginH: "Start the launcher when you log in",
 		MenuQuit:           "Quit",
 		MenuQuitTooltip:    "Exit PicoClaw",
 		Exiting:            "Exiting PicoClaw...",
@@ -72,6 +80,10 @@ var translations = map[Language]map[TranslationKey]string{
 		MenuDocs:           "文档",
 		MenuRestart:        "重启服务",
 		MenuRestartTooltip: "重启核心服务",
+		MenuAutoStart:      "网关自动启动",
+		MenuAutoStartHint:  "保持网关运行，掉线自动拉起",
+		MenuLaunchAtLogin:  "开机自启",
+		MenuLaunchAtLoginH: "登录系统时自动启动本程序",
 		MenuQuit:           "退出",
 		MenuQuitTooltip:    "退出 PicoClaw",
 		Exiting:            "正在退出 PicoClaw...",

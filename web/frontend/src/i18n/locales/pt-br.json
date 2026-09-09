@@ -854,6 +854,8 @@
       "monitor_usb_hint": "Observar eventos de plug/unplug USB quando dispositivos estiverem habilitados.",
       "autostart_label": "Iniciar no Login",
       "autostart_hint": "Iniciar o PicoClaw Web automaticamente quando você fizer login.",
+      "gateway_autostart": "Iniciar gateway automaticamente",
+      "gateway_autostart_hint": "Mantenha o gateway em execução; reinicie-o quando cair, silencie após falhas repetidas",
       "autostart_unsupported": "Iniciar no login não é suportado nesta plataforma.",
       "autostart_load_error": "Falha ao carregar status de iniciar no login.",
       "server_port": "Porta do Serviço",

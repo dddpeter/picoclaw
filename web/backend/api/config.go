@@ -2,16 +2,25 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"reflect"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/logger"
 )
+
+// configWriteMu serializes in-process config writers (PATCH/PUT/reset HTTP
+// handlers and the tray's PatchConfigFile). All of them do read-merge-write
+// cycles on the same file; without the mutex two concurrent writers could
+// interleave and silently drop one side's changes. Cross-process writers
+// (the gateway itself) are out of scope here.
+var configWriteMu sync.Mutex
 
 // registerConfigRoutes binds configuration management endpoints to the ServeMux.
 func (h *Handler) registerConfigRoutes(mux *http.ServeMux) {
@@ -74,6 +83,9 @@ func (h *Handler) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 //
 //	PUT /api/config
 func (h *Handler) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
+
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
@@ -156,6 +168,9 @@ func execAllowRemoteOmitted(body []byte) bool {
 //
 //	PATCH /api/config
 func (h *Handler) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
+
 	patchBody, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
@@ -170,28 +185,68 @@ func (h *Handler) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Load existing config and marshal to a map for merging. Lenient on
-	// purpose: the config page is the tool users reach for to *fix* a config
-	// the gateway's strict loader would refuse, so a base load must not
-	// hard-fail on unknown fields. Saving then rewrites the file from the
-	// known struct, which drops the unknown fields — the page heals exactly
-	// what its warning banner reports. Syntax errors still fail via the
-	// loader itself.
+	newCfg, verrs, err := h.applyConfigPatch(patch)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, errInvalidConfigPatch) {
+			status = http.StatusBadRequest
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	if len(verrs) > 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]any{
+			"status": "validation_error",
+			"errors": verrs,
+		})
+		return
+	}
+
+	if err := config.SaveConfig(h.configPath, newCfg); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	h.applyRuntimeLogLevel()
+	logger.Infof("configuration updated successfully")
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// errInvalidConfigPatch marks patch-application failures caused by the patch
+// payload itself (HTTP 400) as opposed to server-side state (HTTP 500).
+var errInvalidConfigPatch = errors.New("invalid config patch")
+
+// applyConfigPatch loads the config leniently, applies a JSON merge patch
+// (RFC 7396), restores security fields and validates the result. It is the
+// shared pipeline of PATCH /api/config and PatchConfigFile (system tray), so
+// every writer gets identical merge, security-restore and validation
+// semantics. Lenient load is on purpose: the config page is the tool users
+// reach for to *fix* a config the gateway's strict loader would refuse, so a
+// base load must not hard-fail on unknown fields. Saving then rewrites the
+// file from the known struct, which drops the unknown fields — the page heals
+// exactly what its warning banner reports. Syntax errors still fail via the
+// loader itself.
+//
+// Returns the merged config ready to be saved plus its validation errors
+// (empty when valid). err is wrapped in errInvalidConfigPatch when the
+// failure came from the patch payload rather than server-side state.
+func (h *Handler) applyConfigPatch(patch map[string]any) (*config.Config, []string, error) {
 	cfg, _, err := config.LoadConfigLenient(h.configPath)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to load config: %v", err), http.StatusInternalServerError)
-		return
+		return nil, nil, fmt.Errorf("load config: %w", err)
 	}
 	existing, err := json.Marshal(cfg)
 	if err != nil {
-		http.Error(w, "Failed to serialize current config", http.StatusInternalServerError)
-		return
+		return nil, nil, fmt.Errorf("serialize current config: %w", err)
 	}
 
 	var base map[string]any
 	if err = json.Unmarshal(existing, &base); err != nil {
-		http.Error(w, "Failed to parse current config", http.StatusInternalServerError)
-		return
+		return nil, nil, fmt.Errorf("parse current config: %w", err)
 	}
 
 	// Recursively merge patch into base
@@ -211,21 +266,18 @@ func (h *Handler) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err = normalizeChannelArrayFields(base); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid channel array field: %v", err), http.StatusBadRequest)
-		return
+		return nil, nil, fmt.Errorf("%w: invalid channel array field: %v", errInvalidConfigPatch, err)
 	}
 
 	// Convert merged map back to Config struct
 	merged, err := json.Marshal(base)
 	if err != nil {
-		http.Error(w, "Failed to serialize merged config", http.StatusInternalServerError)
-		return
+		return nil, nil, fmt.Errorf("serialize merged config: %w", err)
 	}
 
 	var newCfg config.Config
 	if err = json.Unmarshal(merged, &newCfg); err != nil {
-		http.Error(w, fmt.Sprintf("Merged config is invalid: %v", err), http.StatusBadRequest)
-		return
+		return nil, nil, fmt.Errorf("%w: merged config is invalid: %v", errInvalidConfigPatch, err)
 	}
 	newCfg.Session.ApplyDmScope()
 	newCfg.Session.DeriveDmScope()
@@ -233,31 +285,33 @@ func (h *Handler) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 	// Restore security fields (tokens/keys) from the loaded config before validation,
 	// because private fields are lost during JSON round-trip.
 	if err = newCfg.SecurityCopyFrom(h.configPath); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to apply security config: %v", err), http.StatusInternalServerError)
-		return
+		return nil, nil, fmt.Errorf("apply security config: %w", err)
 	}
 	applyConfigSecretsFromMap(&newCfg, base)
 
-	if errs := validateConfig(&newCfg); len(errs) > 0 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]any{
-			"status": "validation_error",
-			"errors": errs,
-		})
-		return
-	}
+	return &newCfg, validateConfig(&newCfg), nil
+}
 
-	if err := config.SaveConfig(h.configPath, &newCfg); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
-		return
-	}
+// PatchConfigFile applies a JSON merge patch (RFC 7396) to the config file on
+// disk and saves it. Non-HTTP callers (system tray) go through the exact same
+// pipeline as PATCH /api/config — lenient load → merge → security restore →
+// validate → save — so nothing is written when the merged config is invalid.
+func (h *Handler) PatchConfigFile(patch map[string]any) error {
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
 
+	newCfg, verrs, err := h.applyConfigPatch(patch)
+	if err != nil {
+		return err
+	}
+	if len(verrs) > 0 {
+		return fmt.Errorf("config validation failed: %s", strings.Join(verrs, "; "))
+	}
+	if err := config.SaveConfig(h.configPath, newCfg); err != nil {
+		return fmt.Errorf("save config: %w", err)
+	}
 	h.applyRuntimeLogLevel()
-	logger.Infof("configuration updated successfully")
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	return nil
 }
 
 // handleResetConfig resets the configuration to factory defaults.
@@ -265,6 +319,9 @@ func (h *Handler) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 //
 //	POST /api/config/reset
 func (h *Handler) handleResetConfig(w http.ResponseWriter, r *http.Request) {
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
+
 	if err := config.ResetToDefaults(h.configPath); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to reset config: %v", err), http.StatusInternalServerError)
 		return

@@ -16,6 +16,16 @@ type GatewayConfig struct {
 	Port      int    `json:"port"                env:"PICOCLAW_GATEWAY_PORT"`
 	HotReload bool   `json:"hot_reload"          env:"PICOCLAW_GATEWAY_HOT_RELOAD"`
 	LogLevel  string `json:"log_level,omitempty" env:"PICOCLAW_LOG_LEVEL"`
+	// AutoStart controls the launcher watchdog that keeps the gateway running:
+	// probe on an interval, restart it when down, go silent after repeated
+	// failures. Default true (out-of-the-box); set false to disable.
+	AutoStart *bool `json:"auto_start,omitempty" env:"PICOCLAW_GATEWAY_AUTO_START"`
+}
+
+// GatewayAutoStartEnabled reports whether the launcher gateway watchdog is
+// enabled. Nil (unset) means enabled — auto-start is the default.
+func (g *GatewayConfig) GatewayAutoStartEnabled() bool {
+	return g == nil || g.AutoStart == nil || *g.AutoStart
 }
 
 func canonicalGatewayLogLevel(level logger.LogLevel) string {

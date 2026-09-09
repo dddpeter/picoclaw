@@ -859,6 +859,8 @@
       "monitor_usb_hint": "在启用设备功能时，监听 USB 插拔事件",
       "autostart_label": "开机自启",
       "autostart_hint": "登录系统后自动启动 PicoClaw Web",
+      "gateway_autostart": "网关自动启动",
+      "gateway_autostart_hint": "保持网关运行；掉线时自动拉起，连续失败后静默",
       "autostart_unsupported": "当前平台不支持开机自启",
       "autostart_load_error": "加载开机自启状态失败",
       "server_port": "服务端口",

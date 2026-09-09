@@ -36,6 +36,19 @@ func (h *Handler) registerStartupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/system/autostart", h.handleSetAutoStart)
 }
 
+// GetAutoStartStatus is the exported probe used by the system tray: reports
+// whether the launcher starts at OS login. Supported is always true on
+// desktop platforms; message is human-readable context.
+func (h *Handler) GetAutoStartStatus() (enabled, supported bool, message string, err error) {
+	return h.getAutoStartStatus()
+}
+
+// SetAutoStart is the exported setter used by the system tray: enables or
+// disables the launcher starting at OS login.
+func (h *Handler) SetAutoStart(enabled bool) error {
+	return h.setAutoStart(enabled)
+}
+
 func (h *Handler) handleGetAutoStart(w http.ResponseWriter, r *http.Request) {
 	enabled, supported, message, err := h.getAutoStartStatus()
 	if err != nil {

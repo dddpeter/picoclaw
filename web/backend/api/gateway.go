@@ -41,6 +41,7 @@ var gateway = struct {
 	logs                *LogBuffer
 	pidData             *ppid.PidFileData // pid file data read from picoclaw.pid.json
 	picoToken           string            // cached raw pico token for upstream gateway proxy injection
+	userStopped         bool              // set when the operator explicitly stopped the gateway; watchdog must not undo it
 }{
 	runtimeStatus: "stopped",
 	logs:          NewLogBuffer(200),
@@ -310,9 +311,12 @@ func (h *Handler) registerGatewayRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/gateway/restart", h.handleGatewayRestart)
 }
 
-// TryAutoStartGateway checks whether gateway start preconditions are met and
-// starts it when possible. Intended to be called by the backend at startup.
-func (h *Handler) TryAutoStartGateway() {
+// TryAutoStartGateway runs a single auto-start attempt and reports whether the
+// gateway is now running (started, or attached via PID file). It returns false
+// when preconditions (e.g. default model reachable) are not yet met, so
+// callers can retry with backoff. All outcomes are logged. Intended to be
+// called by the backend at startup.
+func (h *Handler) TryAutoStartGateway() bool {
 	// Check PID file first to detect an already-running gateway.
 	pidData := h.sanitizeGatewayPidData(ppid.ReadPidFileWithCheck(globalConfigDir()), nil)
 	if pidData != nil {
@@ -321,25 +325,25 @@ func (h *Handler) TryAutoStartGateway() {
 		if err != nil {
 			logger.ErrorC("gateway", fmt.Sprintf("Skip auto-starting gateway: %v", err))
 			gateway.mu.Unlock()
-			return
+			return false
 		}
 		logger.Infof("ready: %v, reason: %s", ready, reason)
 		if !ready {
 			logger.InfoC("gateway", fmt.Sprintf("Skip auto-starting gateway: %s", reason))
 			gateway.mu.Unlock()
-			return
+			return false
 		}
 		pid := pidData.PID
-		_, err = h.startGatewayLocked("starting", pid)
-		if err != nil {
+		if _, err := h.startGatewayLocked("starting", pid); err != nil {
 			logger.ErrorC("gateway", fmt.Sprintf("Failed to attach to running gateway (PID: %d): %v", pid, err))
-		} else {
-			gateway.pidData = pidData
-			refreshPicoTokensLocked(h.configPath)
-			logger.InfoC("gateway", fmt.Sprintf("Attached to running gateway via PID file (PID: %d)", pid))
+			gateway.mu.Unlock()
+			return false
 		}
+		gateway.pidData = pidData
+		refreshPicoTokensLocked(h.configPath)
+		logger.InfoC("gateway", fmt.Sprintf("Attached to running gateway via PID file (PID: %d)", pid))
 		gateway.mu.Unlock()
-		return
+		return true
 	}
 
 	gateway.mu.Lock()
@@ -352,19 +356,54 @@ func (h *Handler) TryAutoStartGateway() {
 	ready, reason, err := h.gatewayStartReady()
 	if err != nil {
 		logger.ErrorC("gateway", fmt.Sprintf("Skip auto-starting gateway: %v", err))
-		return
+		return false
 	}
 	if !ready {
 		logger.InfoC("gateway", fmt.Sprintf("Skip auto-starting gateway: %s", reason))
-		return
+		return false
 	}
 
 	pid, err := h.startGatewayLocked("starting", 0)
 	if err != nil {
 		logger.ErrorC("gateway", fmt.Sprintf("Failed to auto-start gateway: %v", err))
-		return
+		return false
 	}
 	logger.InfoC("gateway", fmt.Sprintf("Gateway auto-started (PID: %d)", pid))
+	return true
+}
+
+// GatewayRunning reports whether a gateway process is currently alive
+// (self-started or attached via PID file). Lightweight probe for watchdogs.
+func (h *Handler) GatewayRunning() bool {
+	gateway.mu.Lock()
+	defer gateway.mu.Unlock()
+	if gateway.cmd != nil && gateway.cmd.Process != nil && isCmdProcessAliveLocked(gateway.cmd) {
+		return true
+	}
+	pidData := h.sanitizeGatewayPidData(ppid.ReadPidFileWithCheck(globalConfigDir()), nil)
+	return pidData != nil
+}
+
+// GatewayAutoStartEnabled reports whether the gateway watchdog/auto-start is
+// enabled in the handler's config file (nil = unset = default true). The
+// launcher boot path and watchdog use this so they honor the same config file
+// as the handler itself — including a custom path passed on the command line.
+func (h *Handler) GatewayAutoStartEnabled() bool {
+	cfg, err := config.LoadConfig(h.configPath)
+	if err != nil {
+		// Config unreadable: keep the out-of-the-box default (enabled).
+		return true
+	}
+	return cfg.Gateway.GatewayAutoStartEnabled()
+}
+
+// GatewayUserStopped reports whether the operator explicitly stopped the
+// gateway via POST /api/gateway/stop since the last successful start. The
+// watchdog consults this so a manual stop is not undone 30 seconds later.
+func (h *Handler) GatewayUserStopped() bool {
+	gateway.mu.Lock()
+	defer gateway.mu.Unlock()
+	return gateway.userStopped
 }
 
 // gatewayStartReady validates whether current config can start the gateway.
@@ -403,8 +442,15 @@ func (h *Handler) gatewayStartReady() (bool, string, error) {
 	if !rawTemplateHasConfiguration(modelCfg) {
 		return false, fmt.Sprintf("default model %q has no credentials configured", modelName), nil
 	}
+	// Model reachability is a runtime concern, not a start precondition: the
+	// gateway itself must boot even when the model endpoint (e.g. a local
+	// proxy) is temporarily down — the fallback chain handles that at runtime.
+	// Only local-run protocols (ollama etc.) still gate startup because the
+	// gateway cannot serve anything without them.
 	if requiresRuntimeProbe(modelCfg) && !probeLocalModelAvailability(modelCfg) {
-		return false, fmt.Sprintf("default model %q is not reachable", modelName), nil
+		logger.WarnC("gateway", fmt.Sprintf(
+			"default model %q is not reachable yet; starting gateway anyway (runtime fallback applies)",
+			modelName))
 	}
 
 	return true, "", nil
@@ -1023,6 +1069,9 @@ func stopGatewayProcessForRestart(cmd *exec.Cmd) error {
 }
 
 func (h *Handler) startGatewayLocked(initialStatus string, existingPid int) (int, error) {
+	// Any explicit start (manual, restart or auto-start) means the gateway
+	// should be running again; clear a previous operator stop request.
+	gateway.userStopped = false
 	cfg, err := config.LoadConfig(h.configPath)
 	if err != nil {
 		return 0, fmt.Errorf("failed to load config: %w", err)
@@ -1296,6 +1345,10 @@ func (h *Handler) handleGatewayStop(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Failed to stop gateway (PID %d): %v", pid, err), http.StatusInternalServerError)
 		return
 	}
+
+	// Remember the operator's intent: the watchdog must not undo a manual
+	// stop. Any later start (API, tray, auto-start) clears the flag.
+	gateway.userStopped = true
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{

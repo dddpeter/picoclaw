@@ -859,6 +859,8 @@
       "monitor_usb_hint": "Watch USB plug/unplug events when devices are enabled.",
       "autostart_label": "Launch at Login",
       "autostart_hint": "Start PicoClaw Web automatically when you log in.",
+      "gateway_autostart": "Auto-start Gateway",
+      "gateway_autostart_hint": "Keep the gateway running; restart it when down, go silent after repeated failures",
       "autostart_unsupported": "Launch at login is not supported on this platform.",
       "autostart_load_error": "Failed to load launch-at-login status.",
       "server_port": "Service Port",
