@@ -1,7 +1,22 @@
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 
-export function TypingIndicator() {
+interface TypingIndicatorProps {
+  /** When the current turn started (ms epoch); defaults to mount time. */
+  startedAt?: number
+}
+
+const STALL_WARN_SECONDS = 30
+
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000))
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  if (minutes <= 0) return `${seconds}s`
+  return `${minutes}m${String(seconds).padStart(2, "0")}s`
+}
+
+export function TypingIndicator({ startedAt }: TypingIndicatorProps) {
   const { t } = useTranslation()
   const thinkingSteps = [
     t("chat.thinking.step1"),
@@ -10,6 +25,10 @@ export function TypingIndicator() {
     t("chat.thinking.step4"),
   ]
   const [stepIndex, setStepIndex] = useState(0)
+  const [elapsed, setElapsed] = useState(0)
+  // Stable fallback: a plain `startedAt ?? Date.now()` would re-evaluate on
+  // every render, resetting the elapsed clock to ~0 each second tick.
+  const [turnStartedAt] = useState(() => startedAt ?? Date.now())
 
   useEffect(() => {
     const stepsCount = thinkingSteps.length
@@ -18,6 +37,22 @@ export function TypingIndicator() {
     }, 3000)
     return () => clearInterval(interval)
   }, [thinkingSteps.length])
+
+  useEffect(() => {
+    const tick = setInterval(() => {
+      setElapsed(Date.now() - turnStartedAt)
+    }, 1000)
+    return () => clearInterval(tick)
+  }, [turnStartedAt])
+
+  const stalled = elapsed >= STALL_WARN_SECONDS * 1000
+  const elapsedLabel = t("chat.thinking.elapsed", {
+    defaultValue: "{{seconds}} elapsed",
+    seconds: formatElapsed(elapsed),
+  })
+  const stalledLabel = t("chat.thinking.stalled", {
+    defaultValue: "Still working — no new output for a while",
+  })
 
   return (
     <div className="flex w-full flex-col gap-1.5">
@@ -38,6 +73,17 @@ export function TypingIndicator() {
         >
           {thinkingSteps[stepIndex]}
         </p>
+
+        <div className="flex flex-col gap-0.5">
+          <p className="font-mono text-[11px] text-zinc-400 tabular-nums">
+            {elapsedLabel}
+          </p>
+          {stalled && (
+            <p className="text-[11px] text-amber-600 dark:text-amber-400">
+              ⏳ {stalledLabel}
+            </p>
+          )}
+        </div>
       </div>
     </div>
   )

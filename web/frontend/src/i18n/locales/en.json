@@ -57,7 +57,9 @@
       "step1": "Thinking...",
       "step2": "Analyzing your request...",
       "step3": "Preparing response...",
-      "step4": "Almost there..."
+      "step4": "Almost there...",
+      "elapsed": "{{seconds}} elapsed",
+      "stalled": "Still working — no new output for a while"
     },
     "reasoningLabel": "Reasoning",
     "toolCallsLabel": "Tool calls",
@@ -118,7 +120,9 @@
       "apikey": "API Key",
       "oauth": "OAuth",
       "local": "Local"
-    }
+    },
+    "steeringBadge": "steering",
+    "steeringTooltip": "Queued as steering — it will be consumed by the running turn"
   },
   "header": {
     "logout": {

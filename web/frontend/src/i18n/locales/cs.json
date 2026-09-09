@@ -57,7 +57,9 @@
       "step1": "Přemýšlím...",
       "step2": "Analyzuji váš požadavek...",
       "step3": "Připravuji odpověď...",
-      "step4": "Už brzy..."
+      "step4": "Už brzy...",
+      "elapsed": "Uplynulo {{seconds}}",
+      "stalled": "Stále pracuji — chvíli bez nového výstupu"
     },
     "reasoningLabel": "Uvažování",
     "toolCallsLabel": "Volání nástrojů",
@@ -116,7 +118,9 @@
       "apikey": "API Key",
       "oauth": "OAuth",
       "local": "Lokální"
-    }
+    },
+    "steeringBadge": "řízení",
+    "steeringTooltip": "Zařazeno jako steering — spotřebuje jej právě běžící kolo"
   },
   "header": {
     "logout": {

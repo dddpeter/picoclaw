@@ -133,6 +133,7 @@ export function ChatPage() {
     isTyping,
     activeSessionId,
     contextUsage,
+    turnStartedAt,
     sendMessage,
     switchSession,
     newChat,
@@ -419,13 +420,14 @@ export function ChatPage() {
                     content={msg.content}
                     attachments={msg.attachments}
                     timestamp={msg.timestamp}
+                    steering={msg.steering}
                   />
                 )}
               </div>
             )
           })}
 
-          {isTyping && <TypingIndicator />}
+          {isTyping && <TypingIndicator startedAt={turnStartedAt} />}
         </div>
       </div>
 

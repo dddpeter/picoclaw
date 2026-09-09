@@ -47,6 +47,8 @@ export interface ChatMessage {
   modelName?: string
   attachments?: ChatAttachment[]
   toolCalls?: ChatToolCall[]
+  /** User message queued as steering for the active turn (client-side flag). */
+  steering?: boolean
 }
 
 export interface ContextUsage {
@@ -71,6 +73,8 @@ export interface ChatStoreState {
   activeSessionId: string
   hasHydratedActiveSession: boolean
   contextUsage?: ContextUsage
+  /** When the current assistant turn started (ms epoch); undefined when idle. */
+  turnStartedAt?: number
 }
 
 type ChatStorePatch = Partial<ChatStoreState>

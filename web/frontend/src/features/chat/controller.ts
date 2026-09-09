@@ -340,6 +340,9 @@ export function sendChatMessage({
 
   const socket = wsRef
   const id = `msg-${++msgIdCounter}-${Date.now()}`
+  // A message sent while a turn is already active is steering: it gets queued
+  // by the agent and consumed by the running turn, so mark it for the badge.
+  const wasTyping = getChatState().isTyping
 
   updateChatStore((prev) => ({
     messages: [
@@ -351,9 +354,11 @@ export function sendChatMessage({
         attachments:
           normalizedAttachments.length > 0 ? normalizedAttachments : undefined,
         timestamp: Date.now(),
+        ...(wasTyping ? { steering: true } : {}),
       },
     ],
     isTyping: true,
+    ...(wasTyping ? {} : { turnStartedAt: Date.now() }),
   }))
 
   try {

@@ -57,7 +57,9 @@
       "step1": "Pensando...",
       "step2": "Analisando sua solicitação...",
       "step3": "Preparando resposta...",
-      "step4": "Quase lá..."
+      "step4": "Quase lá...",
+      "elapsed": "{{seconds}} decorridos",
+      "stalled": "Ainda trabalhando — sem nova saída há um tempo"
     },
     "reasoningLabel": "Raciocínio",
     "toolCallsLabel": "Chamadas de ferramentas",
@@ -118,7 +120,9 @@
       "apikey": "API Key",
       "oauth": "OAuth",
       "local": "Local"
-    }
+    },
+    "steeringBadge": "direção",
+    "steeringTooltip": "Enfileirado como steering — será consumido pelo turno em execução"
   },
   "header": {
     "logout": {

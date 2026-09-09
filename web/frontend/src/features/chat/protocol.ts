@@ -139,6 +139,10 @@ export function handlePicoMessage(
             ? false
             : prev.isTyping,
         ...(contextUsage ? { contextUsage } : {}),
+        ...(!isPlaceholder &&
+        (kind === "normal" || message.type === "media.create")
+          ? { turnStartedAt: undefined }
+          : {}),
       }))
       break
     }
@@ -216,11 +220,14 @@ export function handlePicoMessage(
     }
 
     case "typing.start":
-      updateChatStore({ isTyping: true })
+      updateChatStore((prev) => ({
+        isTyping: true,
+        ...(prev.turnStartedAt ? {} : { turnStartedAt: Date.now() }),
+      }))
       break
 
     case "typing.stop":
-      updateChatStore({ isTyping: false })
+      updateChatStore({ isTyping: false, turnStartedAt: undefined })
       break
 
     case "error": {
@@ -238,6 +245,7 @@ export function handlePicoMessage(
           ? prev.messages.filter((msg) => msg.id !== requestId)
           : prev.messages,
         isTyping: false,
+        turnStartedAt: undefined,
       }))
       break
     }

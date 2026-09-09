@@ -57,7 +57,9 @@
       "step1": "思考中...",
       "step2": "分析您的请求...",
       "step3": "准备回复...",
-      "step4": "马上就好..."
+      "step4": "马上就好...",
+      "elapsed": "已进行 {{seconds}}",
+      "stalled": "仍在处理 — 已有一段时间没有新输出了"
     },
     "reasoningLabel": "思考",
     "toolCallsLabel": "工具调用",
@@ -118,7 +120,9 @@
       "apikey": "API Key",
       "oauth": "OAuth",
       "local": "本地模型"
-    }
+    },
+    "steeringBadge": "已插入当前轮",
+    "steeringTooltip": "这条消息已排队为 steering，会被正在运行的这轮对话消费"
   },
   "header": {
     "logout": {

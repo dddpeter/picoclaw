@@ -11,12 +11,14 @@ interface UserMessageProps {
   content: string
   attachments?: ChatAttachment[]
   timestamp?: string | number
+  steering?: boolean
 }
 
 export function UserMessage({
   content,
   attachments = [],
   timestamp = "",
+  steering = false,
 }: UserMessageProps) {
   const { t } = useTranslation()
   const { copy, isCopied } = useCopyToClipboard()
@@ -90,8 +92,19 @@ export function UserMessage({
         </div>
       )}
 
-      {formattedTimestamp && (
-        <span className="px-1 text-[12px] text-zinc-400">
+      {(formattedTimestamp || steering) && (
+        <span className="flex items-center gap-1.5 px-1 text-[12px] text-zinc-400">
+          {steering && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-600 dark:text-sky-400"
+              title={t("chat.steeringTooltip", {
+                defaultValue:
+                  "Queued as steering — it will be consumed by the running turn",
+              })}
+            >
+              ↩︎ {t("chat.steeringBadge", { defaultValue: "steering" })}
+            </span>
+          )}
           {formattedTimestamp}
         </span>
       )}
