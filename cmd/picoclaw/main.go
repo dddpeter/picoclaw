@@ -21,6 +21,7 @@ import (
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/cliui"
 	configcmd "github.com/sipeed/picoclaw/cmd/picoclaw/internal/config"
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/cron"
+	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/doctor"
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/gateway"
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/mcp"
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/migrate"
@@ -133,6 +134,7 @@ picoclaw --no-color status`,
 		agent.NewAgentCommand(),
 		auth.NewAuthCommand(),
 		gateway.NewGatewayCommand(),
+		doctor.NewDoctorCommand(),
 		status.NewStatusCommand(),
 		cron.NewCronCommand(),
 		mcp.NewMCPCommand(),

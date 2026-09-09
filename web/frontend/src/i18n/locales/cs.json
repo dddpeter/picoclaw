@@ -157,7 +157,8 @@
     "fix": "Opravit",
     "saveChangesTitle": "Máte neuložené změny konfigurace",
     "restartRequiredTitle": "Vyžadován restart gateway",
-    "restartRequiredDesc": "Nejnovější konfigurace {{name}} byla uložena. Pro aktivaci restartujte gateway."
+    "restartRequiredDesc": "Nejnovější konfigurace {{name}} byla uložena. Pro aktivaci restartujte gateway.",
+    "back": "Zpět"
   },
   "labels": {
     "loading": "Načítám..."
@@ -942,7 +943,8 @@
         "exec": "Spouštění příkazů",
         "cron": "Cron úlohy",
         "launcher": "Launcher",
-        "devices": "Zařízení"
+        "devices": "Zařízení",
+        "security": "Zabezpečení"
       },
       "open_raw": "Raw konfigurace",
       "back_to_visual": "Vizuální konfigurace",
@@ -965,7 +967,15 @@
       "factory_reset_success": "Konfigurace byla obnovena na tovární nastavení.",
       "factory_reset_error": "Obnovení konfigurace selhalo.",
       "unknown_fields_title": "Konfigurace obsahuje neznámá pole",
-      "unknown_fields_desc": "Následující pole tato verze nezná a v tomto zobrazení jsou ignorována: {{fields}}. Gateway načítá konfiguraci přísně a dokud jsou přítomna, odmítne startovat; uložením z této stránky se ze souboru odstraní."
+      "unknown_fields_desc": "Následující pole tato verze nezná a v tomto zobrazení jsou ignorována: {{fields}}. Gateway načítá konfiguraci přísně a dokud jsou přítomna, odmítne startovat; uložením z této stránky se ze souboru odstraní.",
+      "deny_profile": "Úroveň zabezpečení",
+      "deny_profile_hint": "open = blokuje jen destruktivní příkazy (doporučeno); strict = sada ekvivalentní upstreamu",
+      "deny_profile_open": "Otevřená (jen destruktivní)",
+      "deny_profile_strict": "Striktní (upstream)",
+      "rerun_wizard": "Znovu spustit průvodce",
+      "rerun_wizard_hint": "Znovu vyberte poskytovatele, klíč a úroveň zabezpečení",
+      "rerun_wizard_button": "Spustit průvodce",
+      "recommended": "doporučeno"
     },
     "logs": {
       "log_level_error": "Aktualizace úrovně logování selhala.",
@@ -993,6 +1003,30 @@
     "docs": {
       "title": "Zobrazit dokumentaci",
       "description": "Potřebujete další pomoc? Klikněte na tlačítko dokumentace v pravém horním rohu pro zobrazení podrobných průvodců a dokumentace ke konfiguraci."
+    }
+  },
+  "wizard": {
+    "title": "Vítejte v PicoClaw 🦞",
+    "pickProvider": "Vyberte poskytovatele (později můžete přidat další)",
+    "apiKey": "API klíč",
+    "apiKeyOptional": "u tohoto poskytovatele volitelné",
+    "getKey": "Získat klíč →",
+    "modelName": "ID modelu (volitelné)",
+    "security": "Úroveň zabezpečení",
+    "testAndSave": "Otestovat a uložit",
+    "testing": "Testuji připojení…",
+    "done": "Vše připraveno! Zkuste poslat zprávu.",
+    "startChatting": "Začít chatovat",
+    "skip": "Přeskočit",
+    "profile": {
+      "name": {
+        "open": "Otevřená",
+        "strict": "Striktní"
+      },
+      "desc": {
+        "open": "Blokuje jen destruktivní příkazy (doporučeno)",
+        "strict": "Blokuje i sudo, roury, správce balíčků…"
+      }
     }
   }
 }

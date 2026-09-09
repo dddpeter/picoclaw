@@ -1177,6 +1177,7 @@ type ExecConfig struct {
 	ToolConfig               `                                 envPrefix:"PICOCLAW_TOOLS_EXEC_"`
 	EnableDenyPatterns       bool     `                                 json:"enable_deny_patterns"         env:"PICOCLAW_TOOLS_EXEC_ENABLE_DENY_PATTERNS"`
 	EnableCustomDenyPatterns bool     `                                 json:"enable_custom_deny_patterns"  env:"PICOCLAW_TOOLS_EXEC_ENABLE_CUSTOM_DENY_PATTERNS"`
+	DenyProfile              string   `                                 json:"deny_profile"                  env:"PICOCLAW_TOOLS_EXEC_DENY_PROFILE"`
 	AllowRemote              bool     `                                 json:"allow_remote"                 env:"PICOCLAW_TOOLS_EXEC_ALLOW_REMOTE"`
 	CustomDenyPatterns       []string `                                 json:"custom_deny_patterns"         env:"PICOCLAW_TOOLS_EXEC_CUSTOM_DENY_PATTERNS"`
 	CustomAllowPatterns      []string `                                 json:"custom_allow_patterns"        env:"PICOCLAW_TOOLS_EXEC_CUSTOM_ALLOW_PATTERNS"`

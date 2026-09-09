@@ -1334,3 +1334,65 @@ export function DevicesSection({
     </ConfigSectionCard>
   )
 }
+
+interface SecuritySectionProps {
+  denyProfile: string
+  disabled?: boolean
+  onDenyProfileChange: (profile: string) => void
+  onRerunWizard?: () => void
+}
+
+export function SecuritySection({
+  denyProfile,
+  disabled = false,
+  onDenyProfileChange,
+  onRerunWizard,
+}: SecuritySectionProps) {
+  const { t } = useTranslation()
+
+  return (
+    <ConfigSectionCard title={t("pages.config.sections.security")}>
+      <Field
+        label={t("pages.config.deny_profile")}
+        hint={t("pages.config.deny_profile_hint")}
+        layout="setting-row"
+        controlClassName="md:max-w-sm"
+      >
+        <Select
+          value={denyProfile}
+          disabled={disabled}
+          onValueChange={onDenyProfileChange}
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="open">
+              {t("pages.config.deny_profile_open")} ★
+            </SelectItem>
+            <SelectItem value="strict">
+              {t("pages.config.deny_profile_strict")}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </Field>
+
+      {onRerunWizard && (
+        <Field
+          label={t("pages.config.rerun_wizard")}
+          hint={t("pages.config.rerun_wizard_hint")}
+          layout="setting-row"
+          controlClassName="md:max-w-sm"
+        >
+          <Button
+            variant="outline"
+            disabled={disabled}
+            onClick={onRerunWizard}
+          >
+            {t("pages.config.rerun_wizard_button")}
+          </Button>
+        </Field>
+      )}
+    </ConfigSectionCard>
+  )
+}

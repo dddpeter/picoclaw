@@ -159,7 +159,8 @@
     "fix": "Corrigir",
     "saveChangesTitle": "Você tem alterações de configuração não salvas",
     "restartRequiredTitle": "Reinício do gateway necessário",
-    "restartRequiredDesc": "A configuração mais recente de {{name}} foi salva. Reinicie o gateway para que tenha efeito."
+    "restartRequiredDesc": "A configuração mais recente de {{name}} foi salva. Reinicie o gateway para que tenha efeito.",
+    "back": "Voltar"
   },
   "labels": {
     "loading": "Carregando..."
@@ -944,7 +945,8 @@
         "exec": "Execução de Comandos",
         "cron": "Tarefas Agendadas",
         "launcher": "Launcher",
-        "devices": "Dispositivos"
+        "devices": "Dispositivos",
+        "security": "Segurança"
       },
       "open_raw": "Configuração Bruta",
       "back_to_visual": "Configuração Visual",
@@ -967,7 +969,15 @@
       "factory_reset_success": "A configuração foi redefinida para os padrões de fábrica.",
       "factory_reset_error": "Falha ao redefinir a configuração.",
       "unknown_fields_title": "A configuração contém campos desconhecidos",
-      "unknown_fields_desc": "Os campos a seguir não são reconhecidos por esta versão e são ignorados nesta visualização: {{fields}}. O gateway carrega a configuração de forma estrita e se recusará a iniciar enquanto eles estiverem presentes; salvar nesta página os remove do arquivo."
+      "unknown_fields_desc": "Os campos a seguir não são reconhecidos por esta versão e são ignorados nesta visualização: {{fields}}. O gateway carrega a configuração de forma estrita e se recusará a iniciar enquanto eles estiverem presentes; salvar nesta página os remove do arquivo.",
+      "deny_profile": "Nível de segurança",
+      "deny_profile_hint": "open = bloqueia apenas comandos destrutivos (recomendado); strict = conjunto equivalente ao upstream",
+      "deny_profile_open": "Aberto (apenas destrutivo)",
+      "deny_profile_strict": "Estrito (upstream)",
+      "rerun_wizard": "Executar assistente novamente",
+      "rerun_wizard_hint": "Escolha provedor, chave e nível de segurança novamente",
+      "rerun_wizard_button": "Executar assistente",
+      "recommended": "recomendado"
     },
     "logs": {
       "log_level_error": "Falha ao atualizar nível de log.",
@@ -995,6 +1005,30 @@
     "docs": {
       "title": "Ver Documentação",
       "description": "Precisa de mais ajuda? Clique no botão de documentação no canto superior direito para ver guias detalhados e documentação de configuração."
+    }
+  },
+  "wizard": {
+    "title": "Bem-vindo ao PicoClaw 🦞",
+    "pickProvider": "Escolha um provedor para começar (adicione mais depois)",
+    "apiKey": "Chave de API",
+    "apiKeyOptional": "opcional para este provedor",
+    "getKey": "Obter chave →",
+    "modelName": "ID do modelo (opcional)",
+    "security": "Nível de segurança",
+    "testAndSave": "Testar e salvar",
+    "testing": "Testando conexão…",
+    "done": "Tudo pronto! Tente enviar uma mensagem.",
+    "startChatting": "Começar a conversar",
+    "skip": "Pular por agora",
+    "profile": {
+      "name": {
+        "open": "Aberto",
+        "strict": "Estrito"
+      },
+      "desc": {
+        "open": "Bloqueia apenas comandos destrutivos (recomendado)",
+        "strict": "Também bloqueia sudo, pipes, gerenciadores de pacotes…"
+      }
     }
   }
 }

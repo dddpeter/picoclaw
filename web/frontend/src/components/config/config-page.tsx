@@ -1,7 +1,7 @@
 import { IconCode, IconDeviceFloppy, IconTag } from "@tabler/icons-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
@@ -16,6 +16,7 @@ import {
   setLauncherConfig as updateLauncherConfig,
 } from "@/api/system"
 import { ConfigChangeNotice } from "@/components/config-change-notice"
+import { SetupWizard } from "@/components/setup/setup-wizard"
 import { UnknownFieldsNotice } from "@/components/config/unknown-fields-notice"
 import {
   AgentDefaultsSection,
@@ -24,6 +25,7 @@ import {
   EvolutionSection,
   ExecSection,
   LauncherSection,
+  SecuritySection,
   MCPSection,
   RuntimeSection,
 } from "@/components/config/config-sections"
@@ -228,6 +230,46 @@ export function ConfigPage() {
     setAutoStartEnabled(autoStartStatus.enabled)
     setAutoStartBaseline(autoStartStatus.enabled)
   }, [autoStartStatus])
+
+  // tools.exec.deny_profile security selector, read from the app config.
+  // Unset means "open" (fork default). Saved via dedicated merge-patch.
+  const [denyProfile, setDenyProfile] = useState("open")
+  const [denyProfileBaseline, setDenyProfileBaseline] = useState("open")
+  useEffect(() => {
+    if (!data) return
+    const rawTools = (cleanConfig as Record<string, unknown> | undefined)?.tools
+    const rawExec =
+      rawTools && typeof rawTools === "object"
+        ? (rawTools as Record<string, unknown>).exec
+        : undefined
+    const rawProfile =
+      rawExec && typeof rawExec === "object"
+        ? (rawExec as Record<string, unknown>).deny_profile
+        : undefined
+    const next =
+      typeof rawProfile === "string" && rawProfile ? rawProfile : "open"
+    setDenyProfile(next)
+    setDenyProfileBaseline(next)
+  }, [data, cleanConfig])
+  const denyProfileDirty = denyProfile !== denyProfileBaseline
+  const saveDenyProfile = useCallback(async () => {
+    await patchAppConfig({
+      tools: { exec: { deny_profile: denyProfile } },
+    })
+    setDenyProfileBaseline(denyProfile)
+  }, [denyProfile])
+  const [wizardOpen, setWizardOpen] = useState(false)
+  // The deny-profile selector saves immediately (dedicated merge-patch),
+  // independent from the main form's Save button.
+  useEffect(() => {
+    if (!denyProfileDirty) return
+    saveDenyProfile().catch((e: unknown) => {
+      toast.error(t("pages.config.save_failed"))
+      console.error("deny profile save failed", e)
+      setDenyProfile(denyProfileBaseline)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [denyProfileDirty])
 
   const configDirty = JSON.stringify(form) !== JSON.stringify(baseline)
   const launcherSettingsDirty =
@@ -608,6 +650,7 @@ export function ConfigPage() {
         if (form.execEnabled) {
           execConfigPatch.allow_remote = form.allowRemote
           execConfigPatch.enable_deny_patterns = form.enableDenyPatterns
+          execConfigPatch.deny_profile = denyProfile
           execConfigPatch.custom_allow_patterns = parseMultilineList(
             form.customAllowPatternsText,
           )
@@ -874,6 +917,15 @@ export function ConfigPage() {
                 disabled={saving || isLauncherLoading}
               />
 
+              <SecuritySection
+                denyProfile={denyProfile}
+                disabled={saving}
+                onDenyProfileChange={(p) => {
+                  if (p !== denyProfile) setDenyProfile(p)
+                }}
+                onRerunWizard={() => setWizardOpen(true)}
+              />
+
               <AgentDefaultsSection
                 form={form}
                 onFieldChange={updateField}
@@ -929,6 +981,11 @@ export function ConfigPage() {
           </div>
         </div>
       )}
+
+      <SetupWizard
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+      />
     </div>
   )
 }

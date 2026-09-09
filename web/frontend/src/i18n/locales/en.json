@@ -160,7 +160,8 @@
     "saveChangesTitle": "You have unsaved configuration changes",
     "restartRequiredTitle": "Gateway restart required",
     "restartRequiredDesc": "The latest {{name}} configuration has been saved. Restart the gateway for it to take effect.",
-    "retry": "Retry"
+    "retry": "Retry",
+    "back": "Back"
   },
   "labels": {
     "loading": "Loading..."
@@ -949,7 +950,8 @@
         "exec": "Run Commands",
         "cron": "Cron Tasks",
         "launcher": "Launcher",
-        "devices": "Devices"
+        "devices": "Devices",
+        "security": "Security"
       },
       "open_raw": "Raw Config",
       "back_to_visual": "Visual Config",
@@ -972,7 +974,15 @@
       "factory_reset_success": "Configuration has been reset to factory defaults.",
       "factory_reset_error": "Failed to reset configuration.",
       "unknown_fields_title": "Config contains unknown fields",
-      "unknown_fields_desc": "The following fields are not recognized by this version and are ignored in this view: {{fields}}. The gateway loads the config strictly and will refuse to start while they are present; saving from this page removes them from the file."
+      "unknown_fields_desc": "The following fields are not recognized by this version and are ignored in this view: {{fields}}. The gateway loads the config strictly and will refuse to start while they are present; saving from this page removes them from the file.",
+      "deny_profile": "Security level",
+      "deny_profile_hint": "open = destructive-only guard (recommended); strict = upstream-equivalent set (sudo/pipes/package managers blocked)",
+      "deny_profile_open": "Open (destructive-only)",
+      "deny_profile_strict": "Strict (upstream-equivalent)",
+      "rerun_wizard": "Re-run setup wizard",
+      "rerun_wizard_hint": "Pick provider, key, and security level again",
+      "rerun_wizard_button": "Run wizard",
+      "recommended": "recommended"
     },
     "logs": {
       "log_level_error": "Failed to update log level.",
@@ -1000,6 +1010,30 @@
     "docs": {
       "title": "View Documentation",
       "description": "Need more help? Click the documentation button in the top right corner to view detailed guides and configuration docs."
+    }
+  },
+  "wizard": {
+    "title": "Welcome to PicoClaw 🦞",
+    "pickProvider": "Pick a provider to get started (you can add more later)",
+    "apiKey": "API Key",
+    "apiKeyOptional": "optional for this provider",
+    "getKey": "Get a key →",
+    "modelName": "Model ID (optional)",
+    "security": "Security level",
+    "testAndSave": "Test & Save",
+    "testing": "Testing connection…",
+    "done": "You're all set! Try sending a message.",
+    "startChatting": "Start chatting",
+    "skip": "Skip for now",
+    "profile": {
+      "name": {
+        "open": "Open",
+        "strict": "Strict"
+      },
+      "desc": {
+        "open": "Blocks only destructive commands (recommended)",
+        "strict": "Also blocks sudo, pipes to shell, package managers…"
+      }
     }
   }
 }

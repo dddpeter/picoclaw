@@ -160,7 +160,8 @@
     "restartRequiredTitle": "需要重启服务",
     "restartRequiredDesc": "{{name}} 的最新配置已保存。重启服务后才能正式生效。",
     "fix": "修复",
-    "retry": "重试"
+    "retry": "重试",
+    "back": "返回"
   },
   "labels": {
     "loading": "加载中..."
@@ -949,7 +950,8 @@
         "exec": "运行命令",
         "cron": "定时任务",
         "launcher": "启动器",
-        "devices": "设备"
+        "devices": "设备",
+        "security": "安全"
       },
       "open_raw": "原始配置",
       "back_to_visual": "可视化配置",
@@ -972,7 +974,15 @@
       "factory_reset_success": "配置已重置为出厂默认值。",
       "factory_reset_error": "重置配置失败。",
       "unknown_fields_title": "配置包含未识别字段",
-      "unknown_fields_desc": "以下字段未被当前版本识别，在本页中已忽略：{{fields}}。网关按严格模式加载配置，这些字段存在时网关将无法启动；通过本页保存会将其从配置文件中移除。"
+      "unknown_fields_desc": "以下字段未被当前版本识别，在本页中已忽略：{{fields}}。网关按严格模式加载配置，这些字段存在时网关将无法启动；通过本页保存会将其从配置文件中移除。",
+      "deny_profile": "安全等级",
+      "deny_profile_hint": "open=只拦毁灭性命令（推荐）；strict=上游等价严格集（sudo/管道/包管理器全拦）",
+      "deny_profile_open": "开放（仅拦毁灭性命令）",
+      "deny_profile_strict": "严格（上游等价）",
+      "rerun_wizard": "重新运行设置向导",
+      "rerun_wizard_hint": "重新选择 provider、填 key、配置安全等级",
+      "rerun_wizard_button": "运行向导",
+      "recommended": "推荐"
     },
     "logs": {
       "log_level_error": "更新日志等级失败。",
@@ -1000,6 +1010,30 @@
     "docs": {
       "title": "查看文档",
       "description": "需要更多帮助？点击右上角的文档按钮，查看详细的使用文档和配置指南。"
+    }
+  },
+  "wizard": {
+    "title": "欢迎使用 PicoClaw 🦞",
+    "pickProvider": "选一个 provider 开始（之后可以加更多）",
+    "apiKey": "API Key",
+    "apiKeyOptional": "此 provider 可不填",
+    "getKey": "获取 key →",
+    "modelName": "模型 ID（可选）",
+    "security": "安全等级",
+    "testAndSave": "测试并保存",
+    "testing": "正在测试连接…",
+    "done": "配置完成！试着发条消息吧。",
+    "startChatting": "开始聊天",
+    "skip": "暂时跳过",
+    "profile": {
+      "name": {
+        "open": "开放",
+        "strict": "严格"
+      },
+      "desc": {
+        "open": "只拦毁灭性命令（推荐）",
+        "strict": "同时拦 sudo、管道、包管理器…"
+      }
     }
   }
 }

@@ -129,6 +129,66 @@ var (
 		regexp.MustCompile(`^\s*\^[^\s|;&]+\^[^\s|;&]+`),
 	}
 
+	// strictDenyPatterns is the "strict" security-profile pattern set — the
+	// upstream defaultDenyPatterns (as of upstream bbf6893c), preserved so
+	// users can opt into upstream-equivalent strictness via
+	// tools.exec.deny_profile: "strict". Beyond the fork's destructive-only
+	// guard it also blocks everyday-but-powerful commands: sudo, command
+	// substitution, pipes to shell, chmod/chown, kill, package managers,
+	// docker, git push, ssh, eval, heredocs.
+	strictDenyPatterns = []*regexp.Regexp{
+		regexp.MustCompile(`\brm\s+-[rf]{1,2}\b`),
+		regexp.MustCompile(`\bdel\s+/[fq]\b`),
+		regexp.MustCompile(`\brmdir\s+/s\b`),
+		// Match disk wiping commands (must be followed by space/args)
+		regexp.MustCompile(`(^|[^-\w])\b(format|mkfs|diskpart)\b\s`),
+		regexp.MustCompile(`\bdd\s+if=`),
+		// Block writes to block devices (all common naming schemes).
+		regexp.MustCompile(
+			`>\s*/dev/(sd[a-z]|hd[a-z]|vd[a-z]|xvd[a-z]|nvme\d|mmcblk\d|loop\d|dm-\d|md\d|sr\d|nbd\d)`,
+		),
+		regexp.MustCompile(`\b(shutdown|reboot|poweroff)\b`),
+		regexp.MustCompile(`:\(\)\s*\{.*\};\s*:`),
+		regexp.MustCompile(`\$\([^)]+\)`),
+		regexp.MustCompile(`\$\{[^}]+\}`),
+		regexp.MustCompile("`[^`]+`"),
+		regexp.MustCompile(`\|\s*sh\b`),
+		regexp.MustCompile(`\|\s*bash\b`),
+		regexp.MustCompile(`;\s*rm\s+-[rf]`),
+		regexp.MustCompile(`&&\s*rm\s+-[rf]`),
+		regexp.MustCompile(`\|\|\s*rm\s+-[rf]`),
+		regexp.MustCompile(`(?i:<<\s*EOF)`),
+		regexp.MustCompile(`\$\(\s*cat\s+`),
+		regexp.MustCompile(`\$\(\s*curl\s+`),
+		regexp.MustCompile(`\$\(\s*wget\s+`),
+		regexp.MustCompile(`\$\(\s*which\s+`),
+		regexp.MustCompile(`\bsudo\b`),
+		regexp.MustCompile(`\bchmod\s+[0-7]{3,4}\b`),
+		regexp.MustCompile(`\bchown\b`),
+		regexp.MustCompile(`\bpkill\b`),
+		regexp.MustCompile(`\bkillall\b`),
+		regexp.MustCompile(`\bkill\b`),
+		regexp.MustCompile(`\bcurl\b.*\|\s*(sh|bash)`),
+		regexp.MustCompile(`\bwget\b.*\|\s*(sh|bash)`),
+		regexp.MustCompile(`\bnpm\s+install\s+-g\b`),
+		regexp.MustCompile(`\bpip\s+install\s+--user\b`),
+		regexp.MustCompile(`\bapt\s+(install|remove|purge)\b`),
+		regexp.MustCompile(`\byum\s+(install|remove)\b`),
+		regexp.MustCompile(`\bdnf\s+(install|remove)\b`),
+		regexp.MustCompile(`\bdocker\s+run\b`),
+		regexp.MustCompile(`\bdocker\s+exec\b`),
+		regexp.MustCompile(`\bgit\s+push\b`),
+		regexp.MustCompile(`\bgit\s+force\b`),
+		regexp.MustCompile(`\bssh\b.*@`),
+		regexp.MustCompile(`\beval\b`),
+		regexp.MustCompile(`\bsource\s+.*\.sh\b`),
+	}
+
+	// DenyProfileOpen is the fork's destructive-only guard ("open" profile).
+	DenyProfileOpen = "open"
+	// DenyProfileStrict is upstream-equivalent strictness.
+	DenyProfileStrict = "strict"
+
 	// windowsDenyPatterns was a PowerShell obfuscation guard (encoded
 	// commands, [Text.Encoding] chains). Removed from the fork defaults: the
 	// `-e` pattern false-positives on everyday flags (`pip install -e .`) and
@@ -174,8 +234,27 @@ func NewExecToolWithConfig(
 		execConfig := cfg.Tools.Exec
 		enableDenyPatterns := execConfig.EnableDenyPatterns
 		allowRemote = execConfig.AllowRemote
+		// Security profile selection: "strict" layers the upstream-
+		// equivalent pattern set ON TOP of the fork's destructive-only
+		// guard, so switching profiles can never reduce protection.
+		// "open" (or unset) keeps the fork default.
+		profile := strings.TrimSpace(execConfig.DenyProfile)
+		if profile != "" &&
+			!strings.EqualFold(profile, DenyProfileStrict) &&
+			!strings.EqualFold(profile, DenyProfileOpen) {
+			logger.WarnCF("tools", "unknown deny_profile value; falling back to open", map[string]any{
+				"deny_profile": execConfig.DenyProfile,
+			})
+		}
+		profilePatterns := defaultDenyPatterns
+		if strings.EqualFold(profile, DenyProfileStrict) {
+			strict := make([]*regexp.Regexp, 0, len(defaultDenyPatterns)+len(strictDenyPatterns))
+			strict = append(strict, defaultDenyPatterns...)
+			strict = append(strict, strictDenyPatterns...)
+			profilePatterns = strict
+		}
 		if enableDenyPatterns {
-			denyPatterns = append(denyPatterns, defaultDenyPatterns...)
+			denyPatterns = append(denyPatterns, profilePatterns...)
 			if len(execConfig.CustomDenyPatterns) > 0 {
 				logger.InfoCF("tools", "using custom deny patterns", map[string]any{
 					"patterns": execConfig.CustomDenyPatterns,

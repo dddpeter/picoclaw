@@ -2103,3 +2103,106 @@ func TestForkDenyDefaults(t *testing.T) {
 		}
 	}
 }
+
+// TestShellTool_StrictProfileLayersOnTopOfForkDefaults verifies the strict
+// profile is a UNION of upstream patterns and the fork's destructive-only
+// guard — switching profiles must never reduce protection (regression guard
+// for the review finding that strict used to replace, not layer).
+func TestShellTool_StrictProfileLayersOnTopOfForkDefaults(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping shell exec test in short mode")
+	}
+	for _, tc := range []struct {
+		name    string
+		command string
+	}{
+		// fork destructive-only core must still be blocked under strict:
+		{name: "trailing rm -rf flags", command: "rm file.txt -rf"},
+		{name: "separated rm flags", command: "rm -i -r -f dir"},
+		{name: "long-option rm", command: "rm --recursive --force dir"},
+		{name: "append to ssh authorized_keys", command: "echo key >> ~/.ssh/authorized_keys"},
+		{name: "write into /etc", command: "echo x > /etc/passwd"},
+		// upstream-only patterns must be blocked under strict:
+		{name: "uppercase heredoc EOF", command: "cat << EOF"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Tools.Exec.ToolConfig.Enabled = true
+			cfg.Tools.Exec.EnableDenyPatterns = true
+			cfg.Tools.Exec.DenyProfile = "strict"
+			cfg.Agents.Defaults.Workspace = t.TempDir()
+			tool, err := NewExecToolWithConfig("", false, cfg)
+			if err != nil {
+				t.Fatalf("NewExecToolWithConfig() error: %v", err)
+			}
+			result := tool.Execute(context.Background(), map[string]any{
+				"action":  "run",
+				"command": tc.command,
+			})
+			if !result.IsError {
+				t.Fatalf("strict profile should block %q", tc.command)
+			}
+		})
+	}
+}
+
+// TestShellTool_DenyProfileOpenKeepsForkDefaults verifies the open (default)
+// profile keeps the fork's destructive-only guard: everyday commands like
+// sudo/git push pass, rm -rf stays blocked.
+func TestShellTool_DenyProfileOpenKeepsForkDefaults(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Tools.Exec.EnableDenyPatterns = true
+	cfg.Tools.Exec.DenyProfile = "open"
+
+	tool, err := NewExecToolWithConfig("", false, cfg)
+	if err != nil {
+		t.Fatalf("NewExecToolWithConfig() error: %v", err)
+	}
+	ctx := WithToolContext(context.Background(), "cli", "direct")
+
+	// Everyday commands must pass under open.
+	for _, cmd := range []string{"git push --dry-run origin main", "cat /etc/hostname"} {
+		result := tool.Execute(ctx, map[string]any{"action": "run", "command": cmd})
+		if result.IsError && strings.Contains(result.ForLLM, "deny pattern") {
+			t.Errorf("open profile: expected %q to be allowed, got: %s", cmd, result.ForLLM)
+		}
+	}
+	// Destructive commands stay blocked even under open.
+	result := tool.Execute(ctx, map[string]any{"action": "run", "command": "rm -rf /tmp/definitely-nonexistent-picoclaw-test"})
+	if !result.IsError {
+		t.Error("open profile: expected rm -rf to be blocked")
+	}
+}
+
+// TestShellTool_DenyProfileStrictAppliesUpstreamSet verifies the strict
+// profile applies the upstream-equivalent pattern set: sudo/git push/chmod/
+// docker/eval blocked, destructive commands still blocked.
+func TestShellTool_DenyProfileStrictAppliesUpstreamSet(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Tools.Exec.EnableDenyPatterns = true
+	cfg.Tools.Exec.DenyProfile = "strict"
+
+	tool, err := NewExecToolWithConfig("", false, cfg)
+	if err != nil {
+		t.Fatalf("NewExecToolWithConfig() error: %v", err)
+	}
+	ctx := WithToolContext(context.Background(), "cli", "direct")
+
+	for _, cmd := range []string{
+		"sudo systemctl status nginx",
+		"git push origin main",
+		"chmod 755 /tmp/picoclaw-test.sh",
+		"kill 12345678",
+		"docker run -it ubuntu bash",
+		"eval echo hi",
+	} {
+		result := tool.Execute(ctx, map[string]any{"action": "run", "command": cmd})
+		if !result.IsError {
+			t.Errorf("strict profile: expected %q to be blocked", cmd)
+		}
+	}
+	result := tool.Execute(ctx, map[string]any{"action": "run", "command": "rm -rf /tmp/definitely-nonexistent-picoclaw-test"})
+	if !result.IsError {
+		t.Error("strict profile: expected rm -rf to be blocked")
+	}
+}
