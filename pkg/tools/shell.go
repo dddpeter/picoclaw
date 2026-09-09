@@ -178,7 +178,8 @@ var (
 		regexp.MustCompile(`\bdocker\s+run\b`),
 		regexp.MustCompile(`\bdocker\s+exec\b`),
 		regexp.MustCompile(`\bgit\s+push\b`),
-		regexp.MustCompile(`\bgit\s+force\b`),
+		regexp.MustCompile(`\bgit\s+reset\s+--hard\b`),
+		regexp.MustCompile(`\bgit\s+clean\b[^|;&]*\s-[a-zA-Z]*f`),
 		regexp.MustCompile(`\bssh\b.*@`),
 		regexp.MustCompile(`\beval\b`),
 		regexp.MustCompile(`\bsource\s+.*\.sh\b`),
@@ -242,9 +243,13 @@ func NewExecToolWithConfig(
 		if profile != "" &&
 			!strings.EqualFold(profile, DenyProfileStrict) &&
 			!strings.EqualFold(profile, DenyProfileOpen) {
-			logger.WarnCF("tools", "unknown deny_profile value; falling back to open", map[string]any{
-				"deny_profile": execConfig.DenyProfile,
-			})
+			// Security controls must fail closed: an invalid profile (typo
+			// or not-yet-implemented value) is a hard error, never a
+			// silent downgrade to the weaker set.
+			return nil, fmt.Errorf(
+				"invalid tools.exec.deny_profile %q: must be %q or %q",
+				execConfig.DenyProfile, DenyProfileOpen, DenyProfileStrict,
+			)
 		}
 		profilePatterns := defaultDenyPatterns
 		if strings.EqualFold(profile, DenyProfileStrict) {

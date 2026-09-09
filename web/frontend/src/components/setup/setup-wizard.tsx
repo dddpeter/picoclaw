@@ -9,6 +9,7 @@ import {
   addModel,
   getModels,
   setDefaultModel,
+  testModelInline,
   type ModelInfo,
   type ModelProviderOption,
 } from "@/api/models"
@@ -109,17 +110,39 @@ export function SetupWizard({ open, onClose }: SetupWizardProps) {
     try {
       const entryName = modelName || `${selected.id}-default`
       setSavedEntryName(entryName)
-      // 1) add the model entry (backend probes availability on add)
-      await addModel({
-        model_name: entryName,
+      // 0) REAL connectivity probe first — nothing is persisted until the
+      // key is proven to work (review #12: addModel does NOT probe).
+      const probe = await testModelInline({
         provider: selected.id,
         model: modelName || "",
         api_base: selected.default_api_base,
         api_key: apiKey || undefined,
-        enabled: true,
       })
-      // 2) set as default
-      await setDefaultModel(entryName)
+      if (!probe.success) {
+        throw new Error(
+          probe.error || `connectivity test failed (${probe.status})`,
+        )
+      }
+      // 1) add the model entry — idempotent: skip if the name already
+      // exists (review #11: retry after a later-step failure used to
+      // create duplicate entries).
+      const existing = (await getModels()).models.find(
+        (m) => m.model_name === entryName,
+      )
+      if (!existing) {
+        await addModel({
+          model_name: entryName,
+          provider: selected.id,
+          model: modelName || "",
+          api_base: selected.default_api_base,
+api_key: apiKey || undefined,
+          enabled: true,
+        })
+      }
+      // 2) set as default (only when the provider permits it)
+      if (selected.default_model_allowed !== false) {
+        await setDefaultModel(entryName)
+      }
       // 3) persist the chosen security profile (RFC 7396 merge-patch)
       await patchAppConfig({
         tools: { exec: { deny_profile: denyProfile } },

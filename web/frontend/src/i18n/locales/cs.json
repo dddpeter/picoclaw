@@ -975,7 +975,8 @@
       "rerun_wizard": "Znovu spustit průvodce",
       "rerun_wizard_hint": "Znovu vyberte poskytovatele, klíč a úroveň zabezpečení",
       "rerun_wizard_button": "Spustit průvodce",
-      "recommended": "doporučeno"
+      "recommended": "doporučeno",
+      "save_failed": "Uložení se nezdařilo"
     },
     "logs": {
       "log_level_error": "Aktualizace úrovně logování selhala.",

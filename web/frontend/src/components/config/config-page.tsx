@@ -1,7 +1,7 @@
 import { IconCode, IconDeviceFloppy, IconTag } from "@tabler/icons-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
@@ -235,6 +235,9 @@ export function ConfigPage() {
   // Unset means "open" (fork default). Saved via dedicated merge-patch.
   const [denyProfile, setDenyProfile] = useState("open")
   const [denyProfileBaseline, setDenyProfileBaseline] = useState("open")
+  // Mirror of the last-known server baseline for dirty-detection inside
+  // state updaters (review #13).
+  const serverBaselineRef = useRef("open")
   useEffect(() => {
     if (!data) return
     const rawTools = (cleanConfig as Record<string, unknown> | undefined)?.tools
@@ -248,9 +251,21 @@ export function ConfigPage() {
         : undefined
     const next =
       typeof rawProfile === "string" && rawProfile ? rawProfile : "open"
-    setDenyProfile(next)
+    // Review #13: only reset when the value actually changed server-side.
+    // cleanConfig is a fresh object every render and react-query refetches
+    // on focus — keying the reset on those references silently reverted
+    // the user's un-persisted selection mid-edit. The effect body is
+    // guarded below, so we can safely run on every data identity change;
+    // state updaters keep referential stability.
+    if (serverBaselineRef.current === next) return
     setDenyProfileBaseline(next)
-  }, [data, cleanConfig])
+    setDenyProfile((user) => {
+      // Keep the user's dirty selection; adopt the server value only when
+      // the local state still mirrors the previous server baseline.
+      return user === serverBaselineRef.current ? next : user
+    })
+    serverBaselineRef.current = next
+  }, [data])
   const denyProfileDirty = denyProfile !== denyProfileBaseline
   const saveDenyProfile = useCallback(async () => {
     await patchAppConfig({
@@ -984,7 +999,18 @@ export function ConfigPage() {
 
       <SetupWizard
         open={wizardOpen}
-        onClose={() => setWizardOpen(false)}
+        onClose={(result) => {
+          setWizardOpen(false)
+          // Review #14: the wizard may have persisted a new deny_profile
+          // server-side. Refetch and resync so a subsequent main-form Save
+          // cannot overwrite it with a stale value.
+          if (result?.denyProfile) {
+            setDenyProfile(result.denyProfile)
+            setDenyProfileBaseline(result.denyProfile)
+            serverBaselineRef.current = result.denyProfile
+          }
+          void queryClient.invalidateQueries({ queryKey: ["config"] })
+        }}
       />
     </div>
   )

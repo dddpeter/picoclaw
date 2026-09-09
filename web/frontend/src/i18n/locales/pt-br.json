@@ -977,7 +977,8 @@
       "rerun_wizard": "Executar assistente novamente",
       "rerun_wizard_hint": "Escolha provedor, chave e nível de segurança novamente",
       "rerun_wizard_button": "Executar assistente",
-      "recommended": "recomendado"
+      "recommended": "recomendado",
+      "save_failed": "Falha ao salvar"
     },
     "logs": {
       "log_level_error": "Falha ao atualizar nível de log.",

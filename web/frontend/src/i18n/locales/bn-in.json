@@ -976,7 +976,8 @@
       "rerun_wizard": "সেটআপ উইজার্ড আবার চালান",
       "rerun_wizard_hint": "আবার প্রোভাইডার, কী এবং নিরাপত্তা স্তর বেছে নিন",
       "rerun_wizard_button": "উইজার্ড চালান",
-      "recommended": "প্রস্তাবিত"
+      "recommended": "প্রস্তাবিত",
+      "save_failed": "সংরক্ষণ ব্যর্থ হয়েছে"
     },
     "logs": {
       "log_level_error": "লগ লেভেল আপডেট করতে ব্যর্থ।",

@@ -982,7 +982,8 @@
       "rerun_wizard": "重新运行设置向导",
       "rerun_wizard_hint": "重新选择 provider、填 key、配置安全等级",
       "rerun_wizard_button": "运行向导",
-      "recommended": "推荐"
+      "recommended": "推荐",
+      "save_failed": "保存失败"
     },
     "logs": {
       "log_level_error": "更新日志等级失败。",

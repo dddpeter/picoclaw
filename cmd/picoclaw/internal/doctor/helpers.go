@@ -8,12 +8,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal"
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/picoclaw/pkg/tools"
 )
 
 // checkState is the outcome of a single check.
@@ -49,10 +51,24 @@ type checkResult struct {
 func doctorCmd(out io.Writer) error {
 	var results []checkResult
 
-	cfg, cfgErr := internal.LoadConfig()
 	configPath := internal.GetConfigPath()
 
 	// --- Check 1: config exists & parses ---------------------------------
+	// config.LoadConfig silently falls back to DefaultConfig() when the
+	// file is missing, so "loaded fine" must not be read as "exists"
+	// (review: a fresh install would otherwise get a green config check).
+	_, statErr := os.Stat(configPath)
+	cfg, cfgErr := internal.LoadConfig()
+	if statErr != nil {
+		results = append(results, checkResult{
+			name:    "config",
+			state:   stateFail,
+			detail:  fmt.Sprintf("%s: not found", configPath),
+			fixHint: "run `picoclaw onboard` to generate a fresh config",
+		})
+		printReport(out, results)
+		return errCriticalFailures
+	}
 	if cfgErr != nil {
 		results = append(results, checkResult{
 			name:    "config",
@@ -149,8 +165,14 @@ func checkDirWritable(dir string) error {
 	return nil
 }
 
-// findModelConfig locates a model entry by display name.
+// findModelConfig resolves the default model through the same pipeline the
+// runtime uses (exact model_name match first, then provider-ref resolution
+// such as "openrouter/deepseek-chat"). A plain list scan would misreport
+// valid composite references as missing entries.
 func findModelConfig(cfg *config.Config, modelName string) *config.ModelConfig {
+	if mc, err := providers.ResolveModelConfig(cfg, modelName); err == nil {
+		return mc
+	}
 	for _, m := range cfg.ModelList {
 		if m != nil && m.ModelName == modelName {
 			return m
@@ -159,22 +181,24 @@ func findModelConfig(cfg *config.Config, modelName string) *config.ModelConfig {
 	return nil
 }
 
-// providerAllowsEmptyKey is true for providers that use ambient/local auth
-// (ollama, lmstudio, vllm, claude-cli, codex-cli, github-copilot).
+// providerAllowsEmptyKey delegates to the provider registry so the check
+// cannot drift from runtime behavior (e.g. bedrock / antigravity OAuth
+// providers also legitimately run without an api_key).
 func providerAllowsEmptyKey(m *config.ModelConfig) bool {
 	protocol, _ := providers.ExtractProtocol(m)
-	switch protocol {
-	case "ollama", "lmstudio", "vllm", "gpt4free", "claude-cli", "codex-cli", "github-copilot":
-		return true
-	}
-	return false
+	return providers.IsEmptyAPIKeyAllowedForProtocol(protocol)
 }
 
 // probeDefaultModel performs a bounded network probe against the default
 // model's endpoint. Kept intentionally simple: one GET /models with a short
 // timeout, mirroring the WebUI's probe semantics.
 func probeDefaultModel(m *config.ModelConfig) bool {
-	apiBase := m.APIBase
+	protocol, _ := providers.ExtractProtocol(m)
+	if !providers.IsHTTPAPIProtocol(protocol) {
+		// CLI-bridge / OAuth-only provider: no HTTP endpoint to probe.
+		return true
+	}
+	apiBase := providers.ResolveAPIBase(m)
 	if apiBase == "" {
 		return false
 	}
@@ -210,14 +234,21 @@ func checkChannelCredentials(cfg *config.Config) []checkResult {
 		"dingtalk": {"client_secret"},
 		"slack":    {"bot_token"},
 	}
+	// Deterministic report order: Go map iteration is randomized, which
+	// would make multi-channel warnings jitter between runs.
+	enabled := make([]string, 0, len(cfg.Channels))
 	for name, ch := range cfg.Channels {
 		if ch == nil || !ch.Enabled {
 			continue
 		}
-		fields, known := required[name]
-		if !known {
-			continue
+		if _, known := required[name]; known {
+			enabled = append(enabled, name)
 		}
+	}
+	sort.Strings(enabled)
+	for _, name := range enabled {
+		ch := cfg.Channels[name]
+		fields := required[name]
 		settings := decodeChannelSettings(ch)
 		if len(settings) == 0 {
 			continue // enabled but unconfigured — the channel registry skips these anyway
@@ -266,7 +297,7 @@ func securityProfileCheck(cfg *config.Config) checkResult {
 }
 
 func configDefaultDenyProfile() string {
-	return "open"
+	return tools.DenyProfileOpen
 }
 
 func maxParallelTurnsOr1(cfg *config.Config) int {

@@ -982,7 +982,8 @@
       "rerun_wizard": "Re-run setup wizard",
       "rerun_wizard_hint": "Pick provider, key, and security level again",
       "rerun_wizard_button": "Run wizard",
-      "recommended": "recommended"
+      "recommended": "recommended",
+      "save_failed": "Save failed"
     },
     "logs": {
       "log_level_error": "Failed to update log level.",

@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { Toaster } from "sonner"
 
 import { AppHeader } from "@/components/app-header"
@@ -40,12 +41,17 @@ function SetupWizardHost() {
     }
   }, [])
 
+  const queryClient = useQueryClient()
   const handleClose = (result?: SetupWizardResult) => {
     setOpen(false)
     setWizardDismissed(true)
     if (result?.providerAdded) {
-      // reload so all pages pick up the new model + default
-      window.location.reload()
+      // Review #16: a full reload loses route state and drafts. Broadcast
+      // for non-react-query pages (models page refetches on this event)
+      // and invalidate server-config caches for the rest.
+      window.dispatchEvent(new CustomEvent("picoclaw:models-changed"))
+      void queryClient.invalidateQueries({ queryKey: ["config"] })
+      void queryClient.invalidateQueries({ queryKey: ["tools"] })
     }
   }
 

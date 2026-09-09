@@ -694,6 +694,17 @@ export function ModelsPage() {
     })
   }, [refreshAfterModelChange])
 
+  // Wizard-driven model changes: app-layout broadcasts this instead of a
+  // full page reload (review #16) so route state and drafts survive.
+  useEffect(() => {
+    const onModelsChanged = () => {
+      void refreshAfterModelChange()
+    }
+    window.addEventListener("picoclaw:models-changed", onModelsChanged)
+    return () =>
+      window.removeEventListener("picoclaw:models-changed", onModelsChanged)
+  }, [refreshAfterModelChange])
+
   useEffect(() => {
     if (savingChain || !refreshQueuedDuringSave.current) return
     refreshQueuedDuringSave.current = false
