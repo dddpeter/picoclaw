@@ -31,16 +31,20 @@ func rxp(r string) errorPattern    { return errorPattern{regex: regexp.MustCompi
 // Error patterns organized by FailoverReason, matching OpenClaw production (~40 patterns).
 var (
 	rateLimitPatterns = []errorPattern{
-		rxp(`rate[_ ]limit`),
+		rxp(`rate[_ -]?limit`),
 		substr("too many requests"),
 		substr("429"),
-		substr("exceeded your current quota"),
-		rxp(`exceeded.*quota`),
+		// Explicit per-minute/per-second throttles: the quota recovers by
+		// itself within a minute, so these must stay RateLimit even when the
+		// body carries quota-flavoured wording (e.g. Zhipu's
+		// "rpm exhausted" + type quota_exceeded_error).
+		substr("rpm exhausted"),
+		substr("tpm exhausted"),
+		substr("requests per minute"),
+		substr("tokens per minute"),
+		substr("resource_exhausted"),
 		rxp(`resource has been exhausted`),
 		rxp(`resource.*exhausted`),
-		substr("resource_exhausted"),
-		substr("quota exceeded"),
-		substr("usage limit"),
 	}
 
 	overloadedPatterns = []errorPattern{
@@ -87,6 +91,17 @@ var (
 		substr("credit balance"),
 		substr("plans & billing"),
 		substr("insufficient balance"),
+		// Quota/budget exhaustion: unlike per-minute throttles these do not
+		// recover within a minute, so they must not take the RateLimit path
+		// (which would re-hit the dead quota every cooldown expiry).
+		substr("insufficient_quota"),
+		substr("quota exceeded"),
+		substr("exceeded your current quota"),
+		rxp(`exceeded.*quota`),
+		substr("out of budget"),
+		substr("usage limit"),
+		substr("monthly usage limit"),
+		substr("available balance"),
 	}
 
 	authPatterns = []errorPattern{
@@ -204,18 +219,30 @@ func ClassifyError(err error, provider, model string) *FailoverError {
 	// Try HTTP status code extraction first.
 	var httpErr *common.HTTPError
 	if errors.As(err, &httpErr) && httpErr != nil {
-		if reason := classifyByStatus(httpErr.StatusCode); reason != "" {
+		// A 429 whose body says the account quota/budget is exhausted is a
+		// billing-class outage, not a transient per-minute throttle: routing
+		// it to RateLimit would re-hit a dead quota every minute.
+		reason := classifyByStatus(httpErr.StatusCode)
+		if reason == FailoverRateLimit && matchesAny(msg, billingPatterns) {
+			reason = FailoverBilling
+		}
+		if reason != "" {
 			return &FailoverError{
-				Reason:   reason,
-				Provider: provider,
-				Model:    model,
-				Status:   httpErr.StatusCode,
-				Wrapped:  err,
+				Reason:     reason,
+				Provider:   provider,
+				Model:      model,
+				Status:     httpErr.StatusCode,
+				RetryAfter: httpErr.RetryAfter,
+				Wrapped:    err,
 			}
 		}
 	}
 	if status := extractHTTPStatus(msg); status > 0 {
-		if reason := classifyByStatus(status); reason != "" {
+		reason := classifyByStatus(status)
+		if reason == FailoverRateLimit && matchesAny(msg, billingPatterns) {
+			reason = FailoverBilling
+		}
+		if reason != "" {
 			return &FailoverError{
 				Reason:   reason,
 				Provider: provider,

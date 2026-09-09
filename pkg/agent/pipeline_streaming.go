@@ -30,8 +30,30 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 	// new one takes over — the live card must stay reachable for the
 	// coordinator's abort/cleanup paths even when this iteration turns out
 	// ineligible for streaming.
-	exec.streamingFallback = false
+	if exec.streamingDegraded {
+		logger.DebugCF("agent", "configured streaming not used", map[string]any{
+			"agent_id": ts.agent.ID,
+			"channel":  ts.channel,
+			"model":    exec.activeModel,
+			"reason":   "degraded_after_stream_failure",
+		})
+		return nil, false, nil
+	}
 	if !p.configuredStreamingEligible(ts, exec) {
+		return nil, false, nil
+	}
+	// The streaming first hop always targets the primary model; unlike the
+	// fallback chain it does not consult cooldown on its own. Skip it when
+	// the primary is cooling down (e.g. after a recent 429) and let the
+	// chain rotate straight to an available candidate.
+	if p.Fallback != nil && len(exec.activeCandidates) > 0 &&
+		!p.Fallback.Available(exec.activeCandidates[0].StableKey()) {
+		logger.DebugCF("agent", "configured streaming not used", map[string]any{
+			"agent_id": ts.agent.ID,
+			"channel":  ts.channel,
+			"model":    exec.activeModel,
+			"reason":   "primary_in_cooldown",
+		})
 		return nil, false, nil
 	}
 	streamProvider, ok := exec.activeProvider.(providers.StreamingProvider)
@@ -136,17 +158,12 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 				return nil, true, configuredStreamingVisibleError{err: updateErr}
 			}
 			logger.WarnCF("agent", "ChatStream update failed before visible output; falling back to chain", logFields)
-			// Seal with a detached context: the turn context may already be
-			// canceled (e.g. /stop mid-call), which would silently turn this
-			// Cancel into a no-op and strand the live card.
-			sealCtx, sealCancel := context.WithTimeout(context.Background(), streamingSealTimeout)
-			publisher.Cancel(sealCtx)
-			sealCancel()
-			exec.streamingPublisher = nil // sealed above; answer goes legacy
-			// Mark so finalize keeps the legacy interim publish path: the
-			// fallback chain's Chat answer must still be delivered even with
-			// SendResponse disabled.
-			exec.streamingFallback = true
+			// Keep the live card: the fallback chain's answer is finalized
+			// INTO the card at turn end (hermes-style) instead of degrading
+			// to a plain-text reply. Only the streaming first hop is disabled
+			// for the rest of the turn; abort/error paths still seal the
+			// card through the coordinator's cancel cleanup.
+			exec.streamingDegraded = true
 			// Hand the turn back: the caller's fallback chain (cooldown, rate
 			// limit, media awareness) retries with Chat across all candidates.
 			return nil, false, nil
@@ -161,15 +178,9 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 				"model":    exec.llmModel,
 				"error":    streamErr.Error(),
 			})
-			// Seal with a detached context: the turn context may already be
-			// canceled (e.g. /stop mid-call), which would silently turn this
-			// Cancel into a no-op and strand the live card.
-			sealCtx, sealCancel := context.WithTimeout(context.Background(), streamingSealTimeout)
-			publisher.Cancel(sealCtx)
-			sealCancel()
-			exec.streamingPublisher = nil // sealed above; answer goes legacy
-			// Same legacy-delivery marker as the update-failure path above.
-			exec.streamingFallback = true
+			// Same as the update-failure path above: keep the live card so
+			// the chain's answer lands in it at finalize.
+			exec.streamingDegraded = true
 			// Hand the turn back so the fallback chain retries with Chat.
 			return nil, false, nil
 		}
@@ -249,7 +260,14 @@ func finalizeConfiguredStreamingLLM(
 			})
 			return configuredStreamingVisibleError{err: err}
 		}
-		publisher.Cancel(ctx)
+		// Cancel on a detached context: the turn context may already be
+		// canceled (e.g. /stop racing the final flush), which would make the
+		// channel API calls fail and strand the card in streaming mode. The
+		// coordinator's last-resort defer no longer helps here — Finalize
+		// already nilled the publisher.
+		sealCtx, sealCancel := context.WithTimeout(context.Background(), streamingSealTimeout)
+		defer sealCancel()
+		publisher.Cancel(sealCtx)
 		logger.WarnCF("agent", "stream final flush failed", map[string]any{
 			"agent_id": ts.agent.ID,
 			"channel":  ts.channel,

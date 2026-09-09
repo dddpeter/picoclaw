@@ -11,7 +11,7 @@ import (
 )
 
 func TestBuildFeishuStreamingCardStructure(t *testing.T) {
-	card := buildFeishuStreamingCard("chat-t")
+	card := buildFeishuStreamingCard()
 	if card["schema"] != "2.0" {
 		t.Fatalf("schema = %v, want 2.0", card["schema"])
 	}
@@ -20,8 +20,8 @@ func TestBuildFeishuStreamingCardStructure(t *testing.T) {
 		t.Fatal("streaming_mode should be true")
 	}
 	elements := card["body"].(map[string]any)["elements"].([]any)
-	if len(elements) != 4 {
-		t.Fatalf("initial card should have panel/answer/loading/stop elements, got %d", len(elements))
+	if len(elements) != 3 {
+		t.Fatalf("initial card should have panel/answer/loading elements, got %d", len(elements))
 	}
 	ids := map[string]bool{}
 	for _, e := range elements {

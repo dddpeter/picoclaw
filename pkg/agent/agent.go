@@ -586,6 +586,11 @@ func (al *AgentLoop) runAgentLoop(
 	pipeline := NewPipeline(al)
 	result, err := al.runTurn(ctx, ts, pipeline)
 	if err != nil {
+		if al.publishTurnError(ctx, ts, err) {
+			// The user already saw this failure; mark it so legacy error
+			// paths (maybePublishError) do not send a duplicate message.
+			err = &turnErrorNotifiedError{err: err}
+		}
 		return "", err
 	}
 	if result.status == TurnEndStatusAborted {
@@ -643,6 +648,52 @@ func (al *AgentLoop) runAgentLoop(
 	}
 
 	return result.finalContent, nil
+}
+
+// turnErrorNotifiedError marks a turn error whose user-facing notification was
+// already published by publishTurnError. Legacy error paths (maybePublishError)
+// consult it via errors.As to avoid sending a duplicate message for the same
+// failure. Unwraps to the original error so classification keeps working.
+type turnErrorNotifiedError struct {
+	err error
+}
+
+func (e *turnErrorNotifiedError) Error() string { return e.err.Error() }
+func (e *turnErrorNotifiedError) Unwrap() error { return e.err }
+
+// publishTurnError surfaces a failed turn to the user's chat. Without it a
+// turn that dies mid-flight (e.g. all fallback models rate-limited) leaves
+// nothing but a sealed streaming card, and the user cannot tell a model
+// outage from a silent hang. Best effort: publishing failures are logged
+// only. Returns true when the notification actually went out, so the caller
+// can suppress duplicate legacy error messages.
+func (al *AgentLoop) publishTurnError(ctx context.Context, ts *turnState, err error) bool {
+	if ts == nil || err == nil || constants.IsInternalChannel(ts.channel) {
+		return false
+	}
+	// A visible-output stream failure already sealed the live card (with the
+	// partial answer and an interrupt status) — an extra plain-text error
+	// would duplicate what the user just watched.
+	if isConfiguredStreamingVisibleError(err) {
+		return false
+	}
+	if ctx.Err() != nil {
+		// The turn context (and maybe the whole request) is already gone;
+		// deliver on a bounded detached context like the stream seal does.
+		detached, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		ctx = detached
+	}
+	text := fmt.Sprintf("⚠ 模型调用失败，本轮已中止：%s", utils.Truncate(err.Error(), 200))
+	if pubErr := al.bus.PublishOutbound(ctx, outboundMessageForTurn(ts, text)); pubErr != nil {
+		logger.WarnCF("agent", "Failed to publish turn error to user",
+			map[string]any{
+				"turn_id": ts.turnID,
+				"error":   pubErr.Error(),
+			})
+		return false
+	}
+	return true
 }
 
 // selectCandidates returns the model candidates and resolved model name to use

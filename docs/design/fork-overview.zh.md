@@ -14,11 +14,12 @@
 | 工具输出处理 | `a5b71f89` / `3fce044b` | `pkg/tools/truncate.go`、`pkg/tools/output_clean.go` | 本文 §4 |
 | 可靠性加固 | `9bab2b25`…`3fce044b` | `pkg/agent/turn_health.go` 等 | 本文 §5 |
 | exec 安全加固 | `9cc5a3b1` | `pkg/tools/shell.go`、`pkg/config/config.go` | 本文 §6、`docs/security-exec-hardening.md` |
-| 卡片停止按钮（CardKit 回调） | `fc18f452` | `pkg/channels/feishu/` | 本文 §7 |
+| 卡片停止按钮（已移除渲染） | `fc18f452` | `pkg/channels/feishu/` | 本文 §7 |
 | Web launcher 主题 | `5d3ad431` | `web/frontend/src/index.css` | 本文 §8 |
 | 运维禁令 | `23b1275d` | `AGENTS.md` | 本文 §9 |
 | 技能目录扩展与项目文档注入 | `<本次>` | `pkg/skills/loader.go`、`pkg/agent/project_docs.go` | 本文 §10 |
 | 会话标题两阶段生成 | `48bf141f` | `pkg/agent/session_title.go`、`pkg/memory/jsonl.go` | `docs/design/hermes-borrowing-analysis.zh.md` §二 |
+| Turn 韧性（429/LLM 失败） | `<2026-09-09>` | `pkg/agent/pipeline_streaming.go`、`pkg/providers/error_classifier.go`、`pkg/providers/cooldown.go` | 本文 §5、`docs/design/turn-llm-failure-resilience.zh.md` |
 
 ## 1. 飞书 CardKit v2 流式卡片
 
@@ -61,6 +62,12 @@
 - 流式响应头超时（`03471ee6`）：ChatStream 使用克隆 Transport 并设 `ResponseHeaderTimeout`（默认 90 秒，`WithStreamResponseHeaderTimeout` 可覆盖），覆盖"请求发出→等响应头"这个原本无超时的窗口——中台网关挂起时 turn 不会再永久卡死。
 - 低收益循环检测（`3fce044b`，借鉴 MiMo-Code Try-Best 最小版）：per-turn 检测两类信号——`bash_retry`（归一化后同一命令连续失败且输出无变化，默认 3 次）与 `edit_streak`（连续编辑类调用无其他动作穿插，默认 4 次）。命中后在工具结果前注入重规划警示，**不终止 turn**；检测器随即重置。配置见 `agents.defaults.loop_detection`（`enabled` 未配置视为开启）。
 - LLM 重试与摘要加固：`4c0640c8`（工具摘要 + light model + fail-fast 重试）、`af8975b2`（工具循环加固）。
+- **Turn 韧性（429 风暴与 LLM 失败处理，2026-09-09，详见 `docs/design/turn-llm-failure-resilience.zh.md`）**：
+  - **流式失败保卡承接（对齐 hermes-lark-streaming）**：ChatStream 出字前失败（429 等）不再封"已中断"卡，卡片保持存活，fallback 链的答案在 finalize 时写入同一张卡；纯文本消息只是卡片 finalize 也失败时的最后兜底。turn 内一次流式失败后 sticky 降级（后续迭代不再试流式）；流式首跳前检查主候选冷却，限流模型直接跳过。
+  - **回合失败必通知**：fallback 链打穿、turn 以 error 结束时向用户发"⚠ 模型调用失败，本轮已中止：<原因>"，不再沉默；可见输出后的流式失败不重复通知（卡片已说明）。
+  - **feishu 空卡删除**：从未展示内容的流式卡在取消时删消息而非封中断标记。
+  - **Retry-After 尊重**：`HTTPError`/`FailoverError` 携带 429 响应的 `Retry-After`（解析上限 10 分钟），冷却取 `max(指数退避, hint)`——候选不会被早于服务器允许的时间重试。
+  - **配额错误归 Billing**：`exceeded your current quota`/`quota exceeded`/`usage limit`/`insufficient_quota`/`out of budget` 等**账户级配额耗尽**从 RateLimit（1min 冷却反复撞）迁到 Billing（5h 起长冷却，快速 failover 换渠道）；`rpm/tpm exhausted` 等明确按分钟限流的保持 RateLimit；429 状态码 + 配额语义 body 时消息语义优先。
 
 ## 6. exec 安全加固（custom-only 拦截模式）
 
@@ -71,14 +78,14 @@
 - 测试锚点：`TestShellTool_CustomDenyOnly*`、`TestShellTool_CustomDenyInactive*`（同步上游后必须通过）。
 - 设计与部署细节：`docs/security-exec-hardening.md`。
 
-## 7. 卡片停止按钮（card.action.trigger 回调）
+## 7. 卡片停止按钮（已移除渲染，回调保留）
 
-流式卡片（初始卡与刷新卡）带「⏹ 停止」按钮，点击即停当前回合——替代打字 `/stop`（`fc18f452`，2026-09-07）。
+流式卡片（初始卡与刷新卡）曾带「⏹ 停止」按钮，点击即停当前回合（`fc18f452`，2026-09-07；1:2 分栏收窄 `46ffec17`）。**2026-09-09 按用户要求移除按钮渲染**（视觉干扰）：`buildFeishuStreamingCard`/`buildFeishuRefreshCard` 不再输出按钮元素（两函数的 chatID 参数随之删除）。
 
-- **回调链路**：ws 长连接可收 `card.action.trigger`（spike 实测三次点击均到达，SDK v3.9.4 走 `message_type=event` 路径）；**schema 2.0 不支持旧 `action` 标签（错误码 200861），按钮必须是独立 `button` 元素 + `behaviors` 回调**——这是硬约束，上游同步或改造时不要改回 action 写法。
-- **上下文嵌入**：回调事件不含 chat 上下文，按钮渲染时把 `chat_id` 嵌进 callback value；handler 校验 allowlist + 该 chat 存在未封口流式卡后，合成 `/stop` 入站消息走既有命令管道（确认回复、卡片「⚠ 已中断 · 用户停止」封口全部复用）。
-- 测试锚点：`TestStreamingCardsCarryStopButtonWithChatContext`、`TestHandleCardActionStop*`。
-- 停止按钮经 1:2 分栏收窄到约 1/3 行宽（`46ffec17`；schema 2.0 按钮是块级元素，裸按钮满行宽易误点）。
+- **回调 handler 保留**（`feishu_stream.go` `handleCardAction` + `feishuStopCmd`）：移除前已送达聊天的历史流式卡仍带按钮，点击后 allowlist 校验、/stop 合成、toast 反馈的链路照常工作；注释已注明渲染移除。
+- 停止能力不受影响：`/stop` 命令与 turn 中止路径完整保留。
+- 回调链路要点（schema 2.0 不支持旧 `action` 标签，错误码 200861；按钮必须是独立 `button` 元素 + `behaviors` 回调）如未来恢复按钮渲染仍是硬约束。
+- 测试锚点：`TestStreamingCardsOmitStopButton`（钉住"不带按钮"）、`TestHandleCardActionStop*`（回调链路）。
 - 后续候选：报告翻页。（危险命令「批准/拒绝」审批门禁曾于 `cf9731fc` 实现后按用户决定整体移除，含配置项 `tools.exec.approval_patterns`；如需恢复查该提交。）
 
 ## 8. Web launcher 主题（深空紫青科技风）
@@ -123,8 +130,12 @@
 | 死循环防护 | 仅 MaxToolIterations | 迭代上限 + 低收益检测注入警示 |
 | 记忆 | workspace 文件 | 附加 OpenViking recall/commit（可配置关闭） |
 | exec deny（`enable_deny_patterns=false`） | `custom_deny_patterns` 一并失效 | 新增 `enable_custom_deny_patterns`，可只加载自定义规则 |
-| 卡片交互 | 仅消息文本 | 流式卡「停止」按钮（card.action.trigger 回调，1/3 行宽） |
+| 卡片交互 | 仅消息文本 | 流式卡「停止」按钮已移除（2026-09-09）；回调 handler 保留兼容历史卡片 |
 | 长无写入期间流式卡超时（200850） | 元素写入持续报错 | 自动重开，失败降级全卡更新，turn 不中断 |
+| LLM 429（出字前流式失败） | 封"已中断"卡 + fallback 答案降级为纯文本消息 | 卡片保持存活承接 fallback 答案（一张卡到底）；sticky 降级 + 冷却门控防反复开卡 |
+| 回合失败（链打穿） | 静默（仅内部事件） | 向用户发明确报错"⚠ 模型调用失败，本轮已中止：<原因>" |
+| 429 Retry-After 头 | 忽略 | 解析并作为冷却下限（上限 10 分钟），不早于服务器允许的时间重试 |
+| 账户配额耗尽（quota/usage limit） | RateLimit（1min 冷却反复撞死配额） | Billing（5h 起长冷却，快速 failover 换渠道）；`rpm/tpm exhausted` 仍按 RateLimit |
 | 技能来源 | 3 级（workspace/global/builtin） | 5 级（+`<ws>/.skills`、`~/.agents/skills`），restrict 下技能根只读放行 |
 | 项目文档 | 无（README/CLAUDE.md 完全忽略） | `project_docs` 自动注入（AGENTS.md/README.md/CLAUDE.md，截断保护） |
 | 会话标题 | 无（launcher 列表显示首条消息截断） | 两阶段自动命名（派生→轻模型升级）+ `/title` 手动，user>llm>derived 优先级 |
@@ -137,4 +148,5 @@
 - `pkg/providers/openai_compat/provider.go` 的流式超时如与上游改动冲突，保留 `streamRoundTripper` 语义优先。
 - `pkg/config/config.go` 的 `ModelStreamingConfig.Enabled` 是 `*bool`（nil=开启，fork 默认开流式）；上游若改回值 bool，同步时保留 `*bool` + `EffectiveEnabled()` 语义，消费点走 `EffectiveEnabled()` 而非直接读字段。`defaults.go` 里 feishu 渠道出厂带 `streaming.enabled: true`。
 - 开放默认三件套（不要"加固"回去）：`restrict_to_workspace` 默认 `false`；`pkg/tools/fs/system_paths.go` 的系统目录保护（`tools.protect_system_paths` nil=开，校验入口在 `validatePathWithAllowPaths` 最前）；`defaultDenyPatterns` 为毁灭性+系统目录写入集（一般命令/脚本/$()/管道/heredoc 放行，windowsDenyPatterns 已删除）。同步上游时若上游改动这三处，保留 fork 语义优先。
+- Turn 韧性（2026-09-09，详见 `docs/design/turn-llm-failure-resilience.zh.md`）：`pkg/agent/pipeline_streaming.go` 的出字前失败**保卡承接 + sticky 降级 + 冷却门控**、`pkg/agent/pipeline_finalize.go` 的纯文本兜底条件、`pkg/agent/agent.go` 的 `publishTurnError`、`pkg/providers/error_classifier.go` 的**配额→Billing 模式迁移与 429+配额 body 判定**、`pkg/providers/cooldown.go` 的 `MarkFailureWithHint`、`pkg/providers/common/common.go` 的 `HTTPError.RetryAfter`——均为 fork 行为，上游同步时保留 fork 语义。turn 重试边界是结构性保证（无预算机制），不要重新引入"失败计数预算"类加固。
 - 合并后跑 `go test ./pkg/agent/ ./pkg/tools/ ./pkg/providers/... ./pkg/commands/` 验证 fork 测试（文件名含 `_test.go` 且测试名带 `NewResets`/`NeverBlocks`/`ResponseHeaderTimeout`/`CleanCommandOutput` 的均为 fork 独有）；前端改动需另跑 `pnpm build` 验证。

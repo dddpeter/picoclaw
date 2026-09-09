@@ -21,6 +21,7 @@ type configuredStreamingProvider struct {
 	chatModels   []string
 	streamModels []string
 
+	chatErr      error
 	chatResponse *providers.LLMResponse
 	streamPlan   []configuredStreamingCall
 	eventPlan    []configuredStreamingEventCall
@@ -47,6 +48,9 @@ func (p *configuredStreamingProvider) Chat(
 ) (*providers.LLMResponse, error) {
 	p.chatCalls++
 	p.chatModels = append(p.chatModels, model)
+	if p.chatErr != nil {
+		return nil, p.chatErr
+	}
 	if p.chatResponse != nil {
 		return p.chatResponse, nil
 	}
@@ -401,7 +405,8 @@ func TestConfiguredStreamingEligibilityGates(t *testing.T) {
 func TestConfiguredStreamingPreChunkFailureFallsBackToChat(t *testing.T) {
 	cfg := newConfiguredStreamingTestConfig(t, true, true, nil)
 	msgBus := bus.NewMessageBus()
-	msgBus.SetStreamDelegate(configuredStreamingDelegate{streamer: &recordingStreamer{}})
+	streamer := &recordingStreamer{}
+	msgBus.SetStreamDelegate(configuredStreamingDelegate{streamer: streamer})
 	provider := &configuredStreamingProvider{
 		streamPlan: []configuredStreamingCall{{
 			err: errors.New("stream setup failed"),
@@ -418,13 +423,19 @@ func TestConfiguredStreamingPreChunkFailureFallsBackToChat(t *testing.T) {
 	if provider.streamCalls != 1 || provider.chatCalls != 1 {
 		t.Fatalf("calls = stream:%d chat:%d, want stream:1 chat:1", provider.streamCalls, provider.chatCalls)
 	}
+	// The live card survives the pre-output failure and the chain's answer
+	// is finalized INTO it (hermes-style) — no plain-text fallback outbound,
+	// no interrupt-seal.
+	if len(streamer.finalized) != 1 || streamer.finalized[0] != "chat after stream failure" {
+		t.Fatalf("streamer finalized = %v, want [chat after stream failure]", streamer.finalized)
+	}
+	if streamer.canceled != 0 {
+		t.Fatalf("streamer canceled = %d, want 0 (card must stay alive)", streamer.canceled)
+	}
 	select {
 	case outbound := <-msgBus.OutboundChan():
-		if outbound.Content != "chat after stream failure" {
-			t.Fatalf("fallback outbound content = %q, want chat after stream failure", outbound.Content)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("expected fallback outbound after pre-chunk stream failure")
+		t.Fatalf("unexpected plain-text outbound (card carries the answer): %q", outbound.Content)
+	case <-time.After(200 * time.Millisecond):
 	}
 }
 
@@ -691,16 +702,16 @@ func TestConfiguredStreamingUpdateFailureThenStreamErrorFallsBackToChat(t *testi
 	if provider.streamCalls != 1 || provider.chatCalls != 1 {
 		t.Fatalf("calls = stream:%d chat:%d, want stream:1 chat:1", provider.streamCalls, provider.chatCalls)
 	}
-	if streamer.canceled != 1 {
-		t.Fatalf("streamer canceled = %d, want 1", streamer.canceled)
+	if streamer.canceled != 0 {
+		t.Fatalf("streamer canceled = %d, want 0 (card must stay alive for the chain answer)", streamer.canceled)
+	}
+	if len(streamer.finalized) != 1 || streamer.finalized[0] != "chat fallback after invisible update" {
+		t.Fatalf("streamer finalized = %v, want [chat fallback after invisible update]", streamer.finalized)
 	}
 	select {
 	case outbound := <-msgBus.OutboundChan():
-		if outbound.Content != "chat fallback after invisible update" {
-			t.Fatalf("fallback outbound content = %q, want chat fallback after invisible update", outbound.Content)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("expected fallback outbound after update failure and stream error")
+		t.Fatalf("unexpected plain-text outbound (card carries the answer): %q", outbound.Content)
+	case <-time.After(200 * time.Millisecond):
 	}
 }
 
@@ -726,16 +737,16 @@ func TestConfiguredStreamingUpdateFailureThenStreamSuccessFallsBackToChat(t *tes
 	if provider.streamCalls != 1 || provider.chatCalls != 1 {
 		t.Fatalf("calls = stream:%d chat:%d, want stream:1 chat:1", provider.streamCalls, provider.chatCalls)
 	}
-	if len(streamer.finalized) != 0 {
-		t.Fatalf("stream finalized = %v, want none", streamer.finalized)
+	if len(streamer.finalized) != 1 || streamer.finalized[0] != "chat fallback after invisible update" {
+		t.Fatalf("streamer finalized = %v, want [chat fallback after invisible update]", streamer.finalized)
+	}
+	if streamer.canceled != 0 {
+		t.Fatalf("streamer canceled = %d, want 0 (card must stay alive)", streamer.canceled)
 	}
 	select {
 	case outbound := <-msgBus.OutboundChan():
-		if outbound.Content != "chat fallback after invisible update" {
-			t.Fatalf("fallback outbound content = %q, want chat fallback after invisible update", outbound.Content)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("expected fallback outbound after update failure and stream success")
+		t.Fatalf("unexpected plain-text outbound (card carries the answer): %q", outbound.Content)
+	case <-time.After(200 * time.Millisecond):
 	}
 }
 

@@ -40,6 +40,17 @@ func NewCooldownTracker() *CooldownTracker {
 // MarkFailure records a failure for a provider and sets appropriate cooldown.
 // Resets error counts if last failure was more than failureWindow ago.
 func (ct *CooldownTracker) MarkFailure(provider string, reason FailoverReason) {
+	ct.MarkFailureWithHint(provider, reason, 0)
+}
+
+// MarkFailureWithHint records a failure with an optional server-suggested
+// minimum retry delay (from the Retry-After header). The hint acts as a
+// floor: the effective cooldown is max(standard exponential backoff, hint)
+// for non-billing reasons, so a candidate is never retried before the server
+// allows it. Hints only apply to rate-limit class failures — billing
+// outages have their own (much longer) disable schedule and auth/format
+// errors are not retryable at all.
+func (ct *CooldownTracker) MarkFailureWithHint(provider string, reason FailoverReason, hint time.Duration) {
 	ct.mu.Lock()
 	defer ct.mu.Unlock()
 
@@ -60,9 +71,14 @@ func (ct *CooldownTracker) MarkFailure(provider string, reason FailoverReason) {
 		billingCount := entry.FailureCounts[FailoverBilling]
 		entry.DisabledUntil = now.Add(calculateBillingCooldown(billingCount))
 		entry.DisabledReason = FailoverBilling
-	} else {
-		entry.CooldownEnd = now.Add(calculateStandardCooldown(entry.ErrorCount))
+		return
 	}
+
+	cooldown := calculateStandardCooldown(entry.ErrorCount)
+	if reason == FailoverRateLimit && hint > cooldown {
+		cooldown = hint
+	}
+	entry.CooldownEnd = now.Add(cooldown)
 }
 
 // MarkSuccess resets all counters and cooldowns for a provider.

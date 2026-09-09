@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/sipeed/picoclaw/pkg/providers/protocoltypes"
 )
@@ -101,7 +102,12 @@ type FailoverError struct {
 	Provider string
 	Model    string
 	Status   int
-	Wrapped  error
+	// RetryAfter is the server-suggested earliest retry time from the
+	// Retry-After header (rate-limit responses). Zero when absent. The
+	// cooldown tracker uses it as a floor so a candidate is not retried
+	// before the server allows it.
+	RetryAfter time.Duration
+	Wrapped    error
 }
 
 func (e *FailoverError) Error() string {

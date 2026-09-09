@@ -19,6 +19,12 @@ import (
 // CallLLM performs an LLM call with fallback support, hook invocation, and retry logic.
 // It handles PreLLM setup, the actual LLM invocation with retry, and AfterLLM processing.
 // Returns Control indicating what the coordinator should do next.
+//
+// Turn-level retry bounds are structural, not budgeted: each CallLLM burns at
+// most (1+MaxLLMRetries)×len(candidates) real upstream calls, and a fully
+// failed call terminates the turn immediately (turn_coord.go). Exponential
+// cooldowns (providers/cooldown.go) keep repeated real failures per candidate
+// bounded within long turns. See docs/design/turn-llm-failure-resilience.zh.md.
 func (p *Pipeline) CallLLM(
 	ctx context.Context,
 	turnCtx context.Context,

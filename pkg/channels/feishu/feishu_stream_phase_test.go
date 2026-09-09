@@ -61,14 +61,14 @@ func TestBuildFeishuLoadingElementPhases(t *testing.T) {
 // seal), but the panel never auto-expands — not on the initial card, not on
 // mid-stream refreshes, whatever the answer state.
 func TestFeishuPanelCollapsedByDefault(t *testing.T) {
-	initial := buildFeishuStreamingCard("chat-t")
+	initial := buildFeishuStreamingCard()
 	els := initial["body"].(map[string]any)["elements"].([]any)
 	if panel, ok := els[0].(map[string]any); !ok || panel["expanded"] != false {
 		t.Errorf("initial card panel should be collapsed by default, got %v", els[0])
 	}
 	for _, answer := range []string{"", "   ", "partial answer"} {
 		state := &feishuStreamState{CurReasoning: "thinking"}
-		card := buildFeishuRefreshCard(state, answer, feishuPhaseThinking, feishuPanelTextBudget, "", "chat-t")
+		card := buildFeishuRefreshCard(state, answer, feishuPhaseThinking, feishuPanelTextBudget, "")
 		elements := card["body"].(map[string]any)["elements"].([]any)
 		if panel := elements[0].(map[string]any); panel["expanded"] != false {
 			t.Errorf("refresh card with answer %q should keep the panel collapsed, got %v", answer, panel["expanded"])
@@ -86,7 +86,7 @@ func TestFeishuRefreshCardKeepsStreamingConfig(t *testing.T) {
 		Rounds: []feishuReasoningRound{{Text: "thinking"}},
 		Tools:  []bus.ToolStep{{Tool: "shell", Result: "ok"}},
 	}
-	card := buildFeishuRefreshCard(state, "partial answer", feishuPhaseAnswer, feishuPanelTextBudget, "", "chat-t")
+	card := buildFeishuRefreshCard(state, "partial answer", feishuPhaseAnswer, feishuPanelTextBudget, "")
 
 	cfg, ok := card["config"].(map[string]any)
 	if !ok || cfg["streaming_mode"] != true {
@@ -142,7 +142,7 @@ func TestBuildFeishuLoadingElementSpinnerFallback(t *testing.T) {
 
 	// The initial streaming card must never carry the custom icon: a bad
 	// img_key there would break card creation and the whole streaming reply.
-	initial := buildFeishuStreamingCard("chat-t")
+	initial := buildFeishuStreamingCard()
 	els := initial["body"].(map[string]any)["elements"].([]any)
 	for _, el := range els {
 		div, ok := el.(map[string]any)

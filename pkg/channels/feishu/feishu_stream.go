@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -53,6 +54,10 @@ type feishuCardStreamer struct {
 	ch     *FeishuChannel
 	chatID string
 	cardID string
+	// msgID is the message that delivered the card into the chat. Cancelling
+	// a card that never showed content deletes this message instead of
+	// sealing an "interrupted" marker.
+	msgID string
 
 	mu      sync.Mutex
 	seq     int
@@ -94,6 +99,7 @@ type feishuCardStreamer struct {
 	updateCard      func(ctx context.Context, cardID string, card map[string]any, sequence int) error
 	reopenStreaming func(ctx context.Context, cardID string, sequence int) error
 	closeStreaming  func(ctx context.Context, cardID string, summary map[string]any, sequence int) error
+	deleteMessage   func(ctx context.Context, chatID, messageID string) error
 
 	// spinnerKey is the uploaded amber spinner image_key for the status
 	// line's custom icon (empty = standard icon). Snapshot per streamer so
@@ -120,6 +126,7 @@ func newFeishuCardStreamer(ch *FeishuChannel, chatID, cardID, spinnerKey string)
 		updateCard:      ch.cardkitUpdateCard,
 		reopenStreaming: ch.cardkitReopenStreaming,
 		closeStreaming:  ch.cardkitCloseStreaming,
+		deleteMessage:   ch.DeleteMessage,
 	}
 }
 
@@ -170,7 +177,7 @@ func (c *FeishuChannel) BeginStream(ctx context.Context, chatID string) (channel
 		}
 	}
 
-	cardJSON, err := json.Marshal(buildFeishuStreamingCard(chatID))
+	cardJSON, err := json.Marshal(buildFeishuStreamingCard())
 	if err != nil {
 		return nil, fmt.Errorf("feishu stream: build card: %w", err)
 	}
@@ -198,11 +205,13 @@ func (c *FeishuChannel) BeginStream(ctx context.Context, chatID string) (channel
 		"type": "card",
 		"data": map[string]any{"card_id": cardID},
 	})
-	if _, err := c.sendCard(ctx, chatID, string(msgContent)); err != nil {
+	msgID, err := c.sendCard(ctx, chatID, string(msgContent))
+	if err != nil {
 		return nil, fmt.Errorf("feishu stream: send streaming card: %w", err)
 	}
 
 	s := newFeishuCardStreamer(c, chatID, cardID, c.spinnerIconKey(ctx))
+	s.msgID = msgID
 	s.state.LLMCalls = 1
 	c.streams.Store(chatID, s)
 	logger.DebugCF("feishu", "streaming card created", map[string]any{
@@ -264,11 +273,13 @@ func (s *feishuCardStreamer) streamerActiveLocked() bool {
 
 // handleCardAction implements the CardKit v2 button callback
 // (card.action.trigger, delivered over the websocket long connection). The
-// streaming card's stop button routes here: it synthesizes the "/stop"
+// streaming card's stop button used to route here: it synthesizes the "/stop"
 // command as a regular inbound message so the existing command pipeline runs
 // unchanged — including the confirmation reply and the card sealing with the
 // "用户停止" verdict. Card callbacks carry no chat context, so the button
-// embeds its chat_id in the callback value at render time.
+// embedded its chat_id in the callback value at render time.
+// Button rendering was removed (2026-09-09, visual clutter); the handler
+// stays so buttons on cards already sitting in chats still work.
 func (c *FeishuChannel) handleCardAction(_ context.Context, event *callback.CardActionTriggerEvent) (*callback.CardActionTriggerResponse, error) {
 	toast := func(typ, text string) *callback.CardActionTriggerResponse {
 		return &callback.CardActionTriggerResponse{Toast: &callback.Toast{Type: typ, Content: text}}
@@ -582,7 +593,7 @@ func (s *feishuCardStreamer) refreshPanelLocked(ctx context.Context) error {
 func (s *feishuCardStreamer) flushPanelLocked(ctx context.Context) error {
 	spinnerKey := s.spinnerKey
 	card := buildFeishuCardWithinSize(func(panelBudget int) map[string]any {
-		return buildFeishuRefreshCard(&s.state, s.answer, s.phase, panelBudget, spinnerKey, s.chatID)
+		return buildFeishuRefreshCard(&s.state, s.answer, s.phase, panelBudget, spinnerKey)
 	})
 	if s.streamingLost {
 		// The card is out of streaming mode server-side; carrying the
@@ -659,6 +670,13 @@ func (s *feishuCardStreamer) Cancel(ctx context.Context) {
 
 // CancelWithReason implements bus.CancelReasonStreamer: the cause is shown on
 // the sealed card's status line so users know why the reply stopped.
+//
+// A card that never showed any content (no answer text, no reasoning/tool
+// panel, no narration) only ever rendered a spinner. Cancelling such a card
+// deletes its message instead of sealing an "⚠ 已中断" marker: transient
+// pre-output failures (e.g. upstream 429 followed by a fallback) would
+// otherwise litter the chat with interrupt cards the user never watched
+// stream. If deletion fails, fall back to the normal seal.
 func (s *feishuCardStreamer) CancelWithReason(ctx context.Context, reason string) {
 	s.mu.Lock()
 	if s.done {
@@ -675,6 +693,9 @@ func (s *feishuCardStreamer) CancelWithReason(ctx context.Context, reason string
 	answer := sanitizeFeishuMarkdownImages(s.answer)
 	elapsed := time.Since(s.startAt)
 	cardID := s.cardID
+	msgID := s.msgID
+	emptyCard := strings.TrimSpace(answer) == "" &&
+		!state.hasPanelContent() && len(state.Narration) == 0
 	seq := s.nextSeqLocked()
 	seqClose := s.nextSeqLocked()
 	streamingLost := s.streamingLost
@@ -686,6 +707,21 @@ func (s *feishuCardStreamer) CancelWithReason(ctx context.Context, reason string
 	s.done = true
 	s.mu.Unlock()
 	defer s.ch.streams.Delete(s.chatID)
+
+	if emptyCard && msgID != "" {
+		derr := s.deleteMessage(ctx, s.chatID, msgID)
+		if derr == nil {
+			logger.DebugCF("feishu", "empty streaming card deleted instead of sealed", map[string]any{
+				"chat_id": s.chatID,
+				"reason":  reason,
+			})
+			return
+		}
+		logger.WarnCF("feishu", "empty streaming card delete failed; sealing instead", map[string]any{
+			"chat_id": s.chatID,
+			"error":   derr.Error(),
+		})
+	}
 
 	card := buildFeishuFinalCard(&state, answer, true, elapsed, reason)
 	if err := s.updateCard(ctx, cardID, card, seq); err != nil {

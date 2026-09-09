@@ -7,8 +7,11 @@ import (
 	"io"
 	"net"
 	"net/url"
+	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/sipeed/picoclaw/pkg/providers/common"
 )
 
 type stubNetError struct {
@@ -82,12 +85,17 @@ func TestClassifyError_RateLimitPatterns(t *testing.T) {
 	patterns := []string{
 		"rate limit exceeded",
 		"rate_limit reached",
+		"rate-limit hit",
 		"too many requests",
-		"exceeded your current quota",
 		"resource has been exhausted",
 		"resource_exhausted",
-		"quota exceeded",
-		"usage limit reached",
+		// Explicit per-minute throttles stay RateLimit even when the body
+		// carries quota-flavoured wording (Zhipu's rpm exhausted + type
+		// quota_exceeded_error): the quota recovers within a minute.
+		"rpm exhausted",
+		`{"error":{"message":"rpm exhausted","type":"quota_exceeded_error","code":"8"}}`,
+		"tpm exhausted",
+		"requests per minute exceeded",
 	}
 
 	for _, msg := range patterns {
@@ -100,6 +108,71 @@ func TestClassifyError_RateLimitPatterns(t *testing.T) {
 		if result.Reason != FailoverRateLimit {
 			t.Errorf("pattern %q: reason = %q, want rate_limit", msg, result.Reason)
 		}
+	}
+}
+
+// TestClassifyError_QuotaExhaustionIsBilling pins the quota/billing split:
+// account-level quota exhaustion does not recover within a minute, so it
+// must take the Billing path (long disable) instead of RateLimit (which
+// would re-hit the dead quota every cooldown expiry).
+func TestClassifyError_QuotaExhaustionIsBilling(t *testing.T) {
+	patterns := []string{
+		"exceeded your current quota",
+		"quota exceeded",
+		"usage limit reached",
+		"insufficient_quota",
+		"out of budget",
+		"monthly usage limit reached",
+		"available balance",
+	}
+
+	for _, msg := range patterns {
+		err := errors.New(msg)
+		result := ClassifyError(err, "openai", "gpt-4")
+		if result == nil {
+			t.Errorf("pattern %q: expected non-nil", msg)
+			continue
+		}
+		if result.Reason != FailoverBilling {
+			t.Errorf("pattern %q: reason = %q, want billing", msg, result.Reason)
+		}
+	}
+}
+
+// TestClassifyError_429WithQuotaBodyIsBilling: OpenAI-style quota exhaustion
+// arrives as HTTP 429 with a quota message — the body semantics must win
+// over the status code, otherwise the candidate is retried every minute
+// against a dead quota.
+func TestClassifyError_429WithQuotaBodyIsBilling(t *testing.T) {
+	httpErr := &common.HTTPError{
+		StatusCode:  429,
+		BodyPreview: `{"error":{"message":"You exceeded your current quota, please check your plan and billing details.","type":"insufficient_quota"}}`,
+	}
+	result := ClassifyError(httpErr, "openai", "gpt-4")
+	if result == nil {
+		t.Fatal("expected non-nil")
+	}
+	if result.Reason != FailoverBilling {
+		t.Fatalf("reason = %q, want billing", result.Reason)
+	}
+	if !strings.Contains(result.Error(), "429") && result.Status != 429 {
+		t.Fatalf("expected status 429 preserved, got %d", result.Status)
+	}
+}
+
+// TestClassifyError_429PlainIsRateLimit: a plain 429 without quota semantics
+// stays RateLimit.
+func TestClassifyError_429PlainIsRateLimit(t *testing.T) {
+	httpErr := &common.HTTPError{
+		StatusCode:  429,
+		BodyPreview: `{"error":{"message":"Too many requests. Please try again in a moment."}}`,
+	}
+	result := ClassifyError(httpErr, "openai", "gpt-4")
+	if result == nil {
+		t.Fatal("expected non-nil")
+	}
+	if result.Reason != FailoverRateLimit {
+		t.Fatalf("reason = %q, want rate_limit", result.Reason)
 	}
 }
 

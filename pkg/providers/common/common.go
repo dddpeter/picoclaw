@@ -16,6 +16,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,7 +37,18 @@ type (
 	ReasoningDetail        = protocoltypes.ReasoningDetail
 )
 
-const DefaultRequestTimeout = 120 * time.Second
+// DefaultRequestTimeout bounds one non-streaming HTTP LLM call. For
+// OpenAI-compatible chat completions the response headers arrive only after
+// the model finishes generating, so this must cover full generation time:
+// thinking models on large agentic contexts measured 15s→55s→>120s across
+// consecutive iterations (glm-5.3-flash, 2026-09-09) — the old 2-minute cap
+// killed exactly those fallback calls while the primary was rate-limited.
+// It is also the only hang detector for non-streaming calls (no intermediate
+// signal until headers), so it must stay low enough that a black-holed
+// upstream fails over in minutes. Streaming requests are unaffected
+// (dedicated transport with a 90s response-header timeout). Per-model
+// override: model_list request_timeout.
+const DefaultRequestTimeout = 10 * time.Minute
 
 // NewHTTPClient creates an *http.Client with an optional proxy and the default timeout.
 func NewHTTPClient(proxy string) *http.Client {
@@ -379,6 +391,9 @@ type HTTPError struct {
 	ContentType string
 	APIBase     string
 	IsHTML      bool
+	// RetryAfter is the server-suggested earliest retry time parsed from the
+	// Retry-After header (429/503 responses). Zero when absent or unparseable.
+	RetryAfter time.Duration
 }
 
 func (e *HTTPError) Error() string {
@@ -401,6 +416,42 @@ func (e *HTTPError) Error() string {
 	)
 }
 
+// retryAfterCeiling caps server-suggested retry delays: a pathological header
+// must never put a candidate out of circulation for hours (billing-class
+// outages have their own classification and cooldown path).
+const retryAfterCeiling = 10 * time.Minute
+
+// ParseRetryAfterHeader parses a Retry-After header value, which per RFC 7231
+// is either delay-seconds or an HTTP-date. Returns 0 for absent/invalid values
+// and for dates already in the past. The result is clamped to [0, 10m].
+func ParseRetryAfterHeader(value string, now time.Time) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	if seconds, err := strconv.Atoi(value); err == nil {
+		if seconds <= 0 {
+			return 0
+		}
+		d := time.Duration(seconds) * time.Second
+		if d > retryAfterCeiling {
+			return retryAfterCeiling
+		}
+		return d
+	}
+	if when, err := http.ParseTime(value); err == nil {
+		d := when.Sub(now)
+		if d <= 0 {
+			return 0
+		}
+		if d > retryAfterCeiling {
+			return retryAfterCeiling
+		}
+		return d
+	}
+	return 0
+}
+
 // HandleErrorResponse reads a non-200 response body and returns an appropriate error.
 func HandleErrorResponse(resp *http.Response, apiBase string) error {
 	contentType := resp.Header.Get("Content-Type")
@@ -416,6 +467,7 @@ func HandleErrorResponse(resp *http.Response, apiBase string) error {
 		BodyPreview: ResponsePreview(body, 128),
 		ContentType: contentType,
 		APIBase:     apiBase,
+		RetryAfter:  ParseRetryAfterHeader(resp.Header.Get("Retry-After"), time.Now()),
 	}
 }
 

@@ -138,7 +138,6 @@ type turnExecution struct {
 	normalizedToolCalls []providers.ToolCall
 	allResponsesHandled bool
 	streamingPublisher  *streamingChunkPublisher
-	streamingFallback   bool
 	suppressReasoning   bool
 	callMessages        []providers.Message
 	providerToolDefs    []providers.ToolDefinition
@@ -152,6 +151,12 @@ type turnExecution struct {
 	// surfaced on the streaming panel, so per-iteration publisher creation
 	// does not duplicate the entry.
 	skillPanelSeeded bool
+
+	// streamingDegraded is set when a ChatStream attempt failed before any
+	// visible output (e.g. upstream 429). The rest of the turn skips the
+	// streaming first hop entirely so iterations do not open — and then
+	// interrupt-seal — one live card after another.
+	streamingDegraded bool
 
 	// Phase tracking
 	phase LLMPhase

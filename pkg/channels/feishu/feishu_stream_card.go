@@ -218,8 +218,10 @@ func (s *feishuStreamState) reasoningTotal() time.Duration {
 
 // buildFeishuStreamingCard builds the initial CardKit v2 streaming card: a
 // collapsible process panel placeholder, the answer element that receives
-// streamed content, a loading spinner, and the stop button.
-func buildFeishuStreamingCard(chatID string) map[string]any {
+// streamed content, and a loading spinner. The stop button was removed
+// (2026-09-09, visual clutter) — the card.action.trigger handler is kept so
+// buttons on cards already delivered to chats still respond.
+func buildFeishuStreamingCard() map[string]any {
 	elements := []any{
 		buildFeishuPanelPlaceholder(),
 		map[string]any{
@@ -231,7 +233,6 @@ func buildFeishuStreamingCard(chatID string) map[string]any {
 			"element_id": feishuAnswerElementID,
 		},
 		buildFeishuLoadingElement(feishuPhaseLoading, ""),
-		feishuStopButtonRow(chatID),
 	}
 	return map[string]any{
 		"schema": "2.0",
@@ -242,49 +243,8 @@ func buildFeishuStreamingCard(chatID string) map[string]any {
 
 // feishuStopCmd is the callback command carried by the streaming card's stop
 // button; card.action.trigger callbacks arrive with no chat context, so the
-// button also embeds the chat it was rendered for.
+// button also embedded the chat it was rendered for.
 const feishuStopCmd = "stop"
-
-// feishuStopButtonElement is the schema-2.0 stop button shown while the card
-// streams. Schema V2 rejects the classic "action" wrapper (code 200861) —
-// buttons are standalone elements with behaviors.
-func feishuStopButtonElement(chatID string) map[string]any {
-	return map[string]any{
-		"tag":  "button",
-		"text": map[string]any{"tag": "plain_text", "content": "⏹ 停止"},
-		"type": "danger",
-		"behaviors": []any{map[string]any{
-			"type":  "callback",
-			"value": map[string]any{"cmd": feishuStopCmd, "chat_id": chatID},
-		}},
-	}
-}
-
-// feishuStopButtonRow narrows the stop button to ~1/3 of the row: a
-// standalone button is block-level and spans the full card width, which
-// invites accidental taps while scrolling. A 1:2 weighted column set keeps
-// the button left-aligned and short (the empty filler column is officially
-// supported).
-func feishuStopButtonRow(chatID string) map[string]any {
-	return map[string]any{
-		"tag":       "column_set",
-		"flex_mode": "none",
-		"columns": []any{
-			map[string]any{
-				"tag":      "column",
-				"width":    "weighted",
-				"weight":   1,
-				"elements": []any{feishuStopButtonElement(chatID)},
-			},
-			map[string]any{
-				"tag":      "column",
-				"width":    "weighted",
-				"weight":   2,
-				"elements": []any{},
-			},
-		},
-	}
-}
 
 // feishuStreamingCardConfig is the card config every mid-stream card update
 // must carry: dropping it (e.g. a panel refresh without config) silently
@@ -322,7 +282,7 @@ func degradeFeishuCardConfig(card map[string]any) {
 // line, while keeping the streaming config so the answer element's typewriter
 // survives the replacement. spinnerKey, when non-empty, swaps the status line
 // icon for the animated amber spinner.
-func buildFeishuRefreshCard(state *feishuStreamState, answer, phase string, panelBudget int, spinnerKey, chatID string) map[string]any {
+func buildFeishuRefreshCard(state *feishuStreamState, answer, phase string, panelBudget int, spinnerKey string) map[string]any {
 	card := map[string]any{
 		"schema": "2.0",
 		"config": feishuStreamingCardConfig(),
@@ -337,7 +297,6 @@ func buildFeishuRefreshCard(state *feishuStreamState, answer, phase string, pane
 					"element_id": feishuAnswerElementID,
 				},
 				buildFeishuLoadingElement(phase, spinnerKey),
-				feishuStopButtonRow(chatID),
 			},
 		},
 	}

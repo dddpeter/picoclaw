@@ -31,9 +31,12 @@ type (
 )
 
 const (
-	defaultAPIVersion     = "2023-06-01"
-	defaultBaseURL        = "https://api.anthropic.com/v1"
-	defaultRequestTimeout = 120 * time.Second
+	defaultAPIVersion = "2023-06-01"
+	defaultBaseURL    = "https://api.anthropic.com/v1"
+	// Same non-streaming semantics as the OpenAI-compatible chain: the
+	// timeout must cover full generation (thinking + large context), so it
+	// shares the global default rather than hardcoding its own.
+	defaultRequestTimeout = common.DefaultRequestTimeout
 )
 
 // Provider implements Anthropic Messages API via HTTP (without SDK).

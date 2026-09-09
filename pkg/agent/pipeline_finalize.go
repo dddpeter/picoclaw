@@ -106,9 +106,10 @@ func (p *Pipeline) Finalize(
 
 	contextUsage := computeContextUsage(ts.agent, ts.sessionKey)
 	streamErr := finalizeConfiguredStreamingLLM(turnCtx, ts, exec, finalContent, contextUsage)
-	// If streaming never became visible, keep the legacy Pico interim publish path
-	// so the final answer is still delivered outside normal SendResponse.
-	if ((streamErr != nil && !isConfiguredStreamingVisibleError(streamErr)) || exec.streamingFallback) &&
+	// Text fallback (hermes-style last resort): when the card could not be
+	// finalized — finalize errored on a card that never showed output — the
+	// answer must still reach the user as a plain message.
+	if streamErr != nil && !isConfiguredStreamingVisibleError(streamErr) &&
 		!ts.opts.SendResponse && ts.opts.AllowInterimPicoPublish && finalContent != "" {
 		msg := outboundMessageForTurnWithOptions(ts, finalContent, outboundTurnMessageOptions{
 			modelName: exec.llmModelName,

@@ -55,13 +55,27 @@ type FallbackAttempt struct {
 	Error    error
 	Reason   FailoverReason
 	Duration time.Duration
-	Skipped  bool // true if skipped due to cooldown
+	Skipped  bool // true if skipped due to cooldown or local rate limiting
+	// CooldownRemaining is set when Skipped is due to cooldown: how long
+	// until the candidate becomes available again. Zero for other skips.
+	CooldownRemaining time.Duration
 }
 
 // NewFallbackChain creates a new fallback chain with the given cooldown tracker
 // and rate limiter registry.
 func NewFallbackChain(cooldown *CooldownTracker, rl *RateLimiterRegistry) *FallbackChain {
 	return &FallbackChain{cooldown: cooldown, rl: rl}
+}
+
+// Available reports whether the candidate identified by stableKey is currently
+// out of cooldown. Callers that bypass ExecuteCandidate (e.g. the agent's
+// streaming first hop, which always targets the primary model) consult this to
+// avoid hammering a candidate that just failed with a retriable error.
+func (fc *FallbackChain) Available(stableKey string) bool {
+	if fc == nil || fc.cooldown == nil {
+		return true
+	}
+	return fc.cooldown.IsAvailable(stableKey)
 }
 
 // ResolveCandidates parses model config into a deduplicated candidate list.
@@ -163,10 +177,11 @@ func (fc *FallbackChain) ExecuteCandidate(
 		if !fc.cooldown.IsAvailable(cooldownKey) {
 			remaining := fc.cooldown.CooldownRemaining(cooldownKey)
 			result.Attempts = append(result.Attempts, FallbackAttempt{
-				Provider: candidate.Provider,
-				Model:    candidate.Model,
-				Skipped:  true,
-				Reason:   FailoverRateLimit,
+				Provider:          candidate.Provider,
+				Model:             candidate.Model,
+				Skipped:           true,
+				Reason:            FailoverRateLimit,
+				CooldownRemaining: remaining,
 				Error: fmt.Errorf(
 					"%s in cooldown (%s remaining)",
 					cooldownKey,
@@ -257,7 +272,7 @@ func (fc *FallbackChain) ExecuteCandidate(
 		}
 
 		// Retriable error: mark failure and continue to next candidate.
-		fc.cooldown.MarkFailure(cooldownKey, failErr.Reason)
+		fc.cooldown.MarkFailureWithHint(cooldownKey, failErr.Reason, failErr.RetryAfter)
 		result.Attempts = append(result.Attempts, FallbackAttempt{
 			Provider: candidate.Provider,
 			Model:    candidate.Model,
@@ -403,12 +418,31 @@ type FallbackExhaustedError struct {
 }
 
 func (e *FallbackExhaustedError) Error() string {
+	allSkipped := true
+	for _, a := range e.Attempts {
+		if !a.Skipped {
+			allSkipped = false
+			break
+		}
+	}
+	// "unavailable" (all candidates were skipped, e.g. in cooldown) reads
+	// very differently from "failed" (real upstream errors): the chain is
+	// protecting known-bad candidates and may recover on its own.
+	header := fmt.Sprintf("fallback: all %d candidates failed:", len(e.Attempts))
+	if allSkipped {
+		header = fmt.Sprintf("fallback: all %d candidates unavailable:", len(e.Attempts))
+	}
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("fallback: all %d candidates failed:", len(e.Attempts)))
+	sb.WriteString(header)
 	for i, a := range e.Attempts {
-		if a.Skipped {
-			sb.WriteString(fmt.Sprintf("\n  [%d] %s/%s: skipped (cooldown)", i+1, a.Provider, a.Model))
-		} else {
+		switch {
+		case a.Skipped && a.CooldownRemaining > 0:
+			sb.WriteString(fmt.Sprintf("\n  [%d] %s/%s: skipped (cooldown, %s remaining)",
+				i+1, a.Provider, a.Model, a.CooldownRemaining.Round(time.Second)))
+		case a.Skipped:
+			sb.WriteString(fmt.Sprintf("\n  [%d] %s/%s: skipped (%v)",
+				i+1, a.Provider, a.Model, a.Error))
+		default:
 			sb.WriteString(fmt.Sprintf("\n  [%d] %s/%s: %v (reason=%s, %s)",
 				i+1, a.Provider, a.Model, a.Error, a.Reason, a.Duration.Round(time.Millisecond)))
 		}
