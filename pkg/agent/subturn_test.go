@@ -565,10 +565,16 @@ func TestHardAbortSessionRollback(t *testing.T) {
 	sess.AddMessage("", "user", "new user message")
 	sess.AddMessage("", "assistant", "new assistant response")
 
-	// Verify history grew to 4 messages
-	if len(sess.GetHistory("")) != 4 {
-		t.Fatalf("expected 4 messages before abort, got %d", len(sess.GetHistory("")))
-	}
+	// Simulate a turn interrupted mid-tool-loop: an assistant tool call that
+	// never received its result.
+	sess.AddFullMessage("", providers.Message{
+		Role: "assistant",
+		ToolCalls: []providers.ToolCall{{
+			ID:       "call-dangling",
+			Type:     "function",
+			Function: &providers.FunctionCall{Name: "exec"},
+		}},
+	})
 
 	// Trigger HardAbort
 	err := al.HardAbort("test-session")
@@ -576,15 +582,20 @@ func TestHardAbortSessionRollback(t *testing.T) {
 		t.Fatalf("HardAbort failed: %v", err)
 	}
 
-	// Verify history rolled back to initial 2 messages
+	// History is preserved (the old rollback-to-snapshot wiped a fresh
+	// session's whole record on /stop — data loss surfaced after restart)…
 	finalHistory := sess.GetHistory("")
-	if len(finalHistory) != 2 {
-		t.Errorf("expected history to rollback to 2 messages, got %d", len(finalHistory))
+	if len(finalHistory) != 6 {
+		t.Errorf("expected history preserved (5 messages + 1 sealed tool result), got %d", len(finalHistory))
+	}
+	if finalHistory[0].Content != "initial message 1" || finalHistory[1].Content != "initial response 1" {
+		t.Error("initial history content must survive the abort")
 	}
 
-	// Verify the content matches the initial state
-	if finalHistory[0].Content != "initial message 1" || finalHistory[1].Content != "initial response 1" {
-		t.Error("history content does not match initial state after rollback")
+	// …and the dangling tool call is sealed so the next request stays valid.
+	last := finalHistory[len(finalHistory)-1]
+	if last.Role != "tool" || last.ToolCallID != "call-dangling" || strings.TrimSpace(last.Content) == "" {
+		t.Errorf("expected synthetic tool result sealing call-dangling, got role=%s id=%s", last.Role, last.ToolCallID)
 	}
 }
 
@@ -759,14 +770,15 @@ func TestHardAbortOrderOfOperations(t *testing.T) {
 		t.Error("expected context to be canceled after HardAbort")
 	}
 
-	// Verify history was rolled back
+	// Verify history was preserved (abort seals dangling tool calls instead
+	// of erasing the turn — rolling back wiped fresh sessions on /stop)
 	finalHistory := sess.GetHistory("")
-	if len(finalHistory) != 1 {
-		t.Errorf("expected history to rollback to 1 message, got %d", len(finalHistory))
+	if len(finalHistory) != 3 {
+		t.Errorf("expected history preserved at 3 messages, got %d", len(finalHistory))
 	}
 
 	if finalHistory[0].Content != "initial message" {
-		t.Error("history content does not match initial state after rollback")
+		t.Error("history content does not match pre-abort state")
 	}
 }
 

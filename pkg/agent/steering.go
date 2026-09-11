@@ -540,13 +540,24 @@ func (al *AgentLoop) HardAbort(sessionKey string) error {
 	// Use isHardAbort=true for hard abort to immediately cancel all children.
 	ts.Finish(true)
 
-	// Roll back session history to the state before the turn started.
+	// Seal the aborted turn's dangling tool calls instead of erasing the
+	// turn. The old rollback-to-initialHistoryLength kept history valid for
+	// the next request but wiped the records: on a fresh session (a web
+	// chat's first turn) /stop erased everything, and the loss only became
+	// visible after a gateway restart. Synthetic results keep the
+	// assistant/tool pairing valid while preserving what actually happened.
 	if ts.session != nil {
 		history := ts.session.GetHistory(sessionKey)
-		if ts.initialHistoryLength < len(history) {
-			ts.session.SetHistory(sessionKey, history[:ts.initialHistoryLength])
+		if sealed := sealDanglingToolCalls(history); len(sealed) != len(history) {
+			ts.session.SetHistory(sessionKey, sealed)
 		}
 	}
+
+	// A wedged turn goroutine (e.g. blocked in a tool call on I/O that
+	// ignores cancellation) never returns to run its deferred
+	// clearActiveTurn; the watchdog force-releases the registration after a
+	// grace period so the session keeps accepting new turns.
+	go al.watchHardAbortUnwind(sessionKey, ts)
 
 	return nil
 }
