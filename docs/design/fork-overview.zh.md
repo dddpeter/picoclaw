@@ -20,6 +20,7 @@
 | 技能目录扩展与项目文档注入 | `<本次>` | `pkg/skills/loader.go`、`pkg/agent/project_docs.go` | 本文 §10 |
 | 会话标题两阶段生成 | `48bf141f` | `pkg/agent/session_title.go`、`pkg/memory/jsonl.go` | `docs/design/hermes-borrowing-analysis.zh.md` §二 |
 | Turn 韧性（429/LLM 失败） | `<2026-09-09>` | `pkg/agent/pipeline_streaming.go`、`pkg/providers/error_classifier.go`、`pkg/providers/cooldown.go` | 本文 §5、`docs/design/turn-llm-failure-resilience.zh.md` |
+| Windows exec 卡死与会话丢失三连修 | `<2026-09-11>` | `pkg/tools/shell.go`、`pkg/tools/shell_process_windows.go`、`pkg/agent/steering_abort.go` | 本文 §4、§5 |
 
 ## 1. 飞书 CardKit v2 流式卡片
 
@@ -55,6 +56,7 @@
 
 - 结构化 head/tail 截断（`a5b71f89`）：超限输出保头保尾并附明确提示，完整原文落盘供模型回读。
 - inline 清理管线（`3fce044b`，借鉴 MiMo-Code token-efficient 设计）：进度条折叠（`\r` 重绘只留末帧）→ ANSI 转义剥离 → 超长行压缩（>500 字符压为头部 160 字符 + 省略提示）；never-worse 守门（清理不缩小即回吐原文）；命令含 `--json` / `-o json` / `| tee` / `# nofilter` 时整路放行。**落盘与截断提示措辞不受影响**。
+- **CRLF 行尾修复（2026-09-11）**：进度条折叠此前把行尾 `\r`（Windows CRLF 行尾）也当重绘、只保留"最后一个 `\r` 之后的内容"（=空），Windows 下命令输出几乎全部被清成空行。现先剥离行尾 CR 再匹配行中重绘。测试锚点：`TestCleanCommandOutput_PreservesCRLFLineContent`。
 - 背景调研与取舍：`docs/design/mimo-code-borrowing-analysis.zh.md`。
 
 ## 5. 可靠性加固
@@ -68,6 +70,12 @@
   - **feishu 空卡删除**：从未展示内容的流式卡在取消时删消息而非封中断标记。
   - **Retry-After 尊重**：`HTTPError`/`FailoverError` 携带 429 响应的 `Retry-After`（解析上限 10 分钟），冷却取 `max(指数退避, hint)`——候选不会被早于服务器允许的时间重试。
   - **配额错误归 Billing**：`exceeded your current quota`/`quota exceeded`/`usage limit`/`insufficient_quota`/`out of budget` 等**账户级配额耗尽**从 RateLimit（1min 冷却反复撞）迁到 Billing（5h 起长冷却，快速 failover 换渠道）；`rpm/tpm exhausted` 等明确按分钟限流的保持 RateLimit；429 状态码 + 配额语义 body 时消息语义优先。
+- **Windows exec 卡死与会话丢失三连修（2026-09-11，agent-browser 验证事故驱动）**：
+  - **exec 层有界 io 等待**（`pkg/tools/shell.go` `runSync`）：`cmd.WaitDelay = execIOWaitDelay`（5s）+ 识别 `exec.ErrWaitDelay`——进程退出/被杀后输出管道最多再等 5 秒即放弃并返回已收集输出。消灭两处挂死：①`/stop` 取消（或超时击杀）后 `err = <-done` 无界等待（buffer stdout 下 `cmd.Wait` 要等管道 EOF，Windows 需所有继承写句柄的进程退出，taskkill /T 的 PPID 走查够不着孤儿）；②命令正常退出但长驻子进程（daemon/浏览器）持有管道导致 exec 假挂到子进程死——现以"成功 + 附注"及时返回。
+  - **Windows Job Object 整树击杀**（`pkg/tools/shell_process_windows.go`）：启动后 `trackProcessTree` 把命令挂进 job（**不带** KILL_ON_JOB_CLOSE），`terminateProcessTree` 优先 `TerminateJobObject` 一次杀全树（不依赖 PPID 链），失败降级 taskkill；正常完成 `releaseProcessTree` 只关句柄，**有意存活的 daemon 不被误杀**。挂 job 失败为非致命（保留 taskkill 路径）。
+  - **HardAbort 看门狗**（`pkg/agent/steering_abort.go` `watchHardAbortUnwind`）：abort 后宽限 `hardAbortUnwindGrace`（10s，包级 var）等 turn goroutine 自行收尾，超时强制 `releaseSessionTurnState` + zombie 日志——turn 卡死在任何工具/钩子上时会话不再永久 busy（此前唯一恢复手段是重启网关）。
+  - **/stop 语义：回滚抹除 → 封口保留**：旧 HardAbort 回滚 `SetHistory(history[:initialHistoryLength])` 对新会话（起点 0）等于把 JSONL 整文件重写为空（实测 0 字节文件 + meta count=0，重启后"会话记录丢失"）；现 `sealDanglingToolCalls` 给末尾悬空 tool_calls 补合成结果（`abortedToolResultNote`），历史对下次请求有效且记录保留。`TestHardAbortSessionRollback`/`TestHardAbortOrderOfOperations` 已改为断言新语义。
+  - 测试锚点：`TestShellTool_CancelReturnsDespiteOrphanedPipeHolder`、`TestShellTool_DaemonHoldingPipesReturnsPromptly`（tools，Windows-only）；`TestSealDanglingToolCalls`、`TestHardAbort_ForceReleasesWedgedTurnRegistration`（agent）。
 
 ## 6. exec 安全加固（custom-only 拦截模式）
 
@@ -139,6 +147,8 @@
 | 技能来源 | 3 级（workspace/global/builtin） | 5 级（+`<ws>/.skills`、`~/.agents/skills`），restrict 下技能根只读放行 |
 | 项目文档 | 无（README/CLAUDE.md 完全忽略） | `project_docs` 自动注入（AGENTS.md/README.md/CLAUDE.md，截断保护） |
 | 会话标题 | 无（launcher 列表显示首条消息截断） | 两阶段自动命名（派生→轻模型升级）+ `/title` 手动，user>llm>derived 优先级 |
+| `/stop` 中止的会话历史 | 回滚到 turn 前（新会话=整文件清空） | 封口悬空 tool_calls 并保留记录；turn 卡死 10s 后看门狗强制释放会话注册 |
+| exec 子进程击杀（Windows） | taskkill /T（孤儿逃逸→管道挂死→会话卡死） | Job Object 整树击杀 + 5s WaitDelay 有界 io 等待；干净退出的存活 daemon 不误杀 |
 | Web launcher 外观 | 上游默认主题 | 深空紫青主题（仅改 index.css，升级时留意该文件冲突） |
 | systemd 部署 | 官方 unit | 禁 sandbox 指令（见 §9），unit 变更时不得带回 |
 
@@ -148,5 +158,6 @@
 - `pkg/providers/openai_compat/provider.go` 的流式超时如与上游改动冲突，保留 `streamRoundTripper` 语义优先。
 - `pkg/config/config.go` 的 `ModelStreamingConfig.Enabled` 是 `*bool`（nil=开启，fork 默认开流式）；上游若改回值 bool，同步时保留 `*bool` + `EffectiveEnabled()` 语义，消费点走 `EffectiveEnabled()` 而非直接读字段。`defaults.go` 里 feishu 渠道出厂带 `streaming.enabled: true`。
 - 开放默认三件套（不要"加固"回去）：`restrict_to_workspace` 默认 `false`；`pkg/tools/fs/system_paths.go` 的系统目录保护（`tools.protect_system_paths` nil=开，校验入口在 `validatePathWithAllowPaths` 最前）；`defaultDenyPatterns` 为毁灭性+系统目录写入集（一般命令/脚本/$()/管道/heredoc 放行，windowsDenyPatterns 已删除）。同步上游时若上游改动这三处，保留 fork 语义优先。
+- exec 卡死三连修（2026-09-11）：`pkg/tools/shell.go` 的 `execIOWaitDelay`/`ErrWaitDelay` 处理、`pkg/tools/shell_process_windows.go` 的 Job Object 击杀（`trackProcessTree`/`terminateProcessTree`）、`pkg/tools/output_clean.go` 的 CRLF 折叠修复、`pkg/agent/steering_abort.go` 的封口（`sealDanglingToolCalls`）+ 看门狗（`watchHardAbortUnwind`）、`pkg/agent/steering.go` HardAbort 的"封口不抹除"——均为 fork 行为，上游同步时保留 fork 语义；`subturn_test.go` 的 `TestHardAbortSessionRollback`/`TestHardAbortOrderOfOperations` 断言的是封口语义，不要按上游回滚语义"修"回去。
 - Turn 韧性（2026-09-09，详见 `docs/design/turn-llm-failure-resilience.zh.md`）：`pkg/agent/pipeline_streaming.go` 的出字前失败**保卡承接 + sticky 降级 + 冷却门控**、`pkg/agent/pipeline_finalize.go` 的纯文本兜底条件、`pkg/agent/agent.go` 的 `publishTurnError`、`pkg/providers/error_classifier.go` 的**配额→Billing 模式迁移与 429+配额 body 判定**、`pkg/providers/cooldown.go` 的 `MarkFailureWithHint`、`pkg/providers/common/common.go` 的 `HTTPError.RetryAfter`——均为 fork 行为，上游同步时保留 fork 语义。turn 重试边界是结构性保证（无预算机制），不要重新引入"失败计数预算"类加固。
 - 合并后跑 `go test ./pkg/agent/ ./pkg/tools/ ./pkg/providers/... ./pkg/commands/` 验证 fork 测试（文件名含 `_test.go` 且测试名带 `NewResets`/`NeverBlocks`/`ResponseHeaderTimeout`/`CleanCommandOutput` 的均为 fork 独有）；前端改动需另跑 `pnpm build` 验证。
