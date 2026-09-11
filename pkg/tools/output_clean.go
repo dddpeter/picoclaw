@@ -67,9 +67,17 @@ func collapseProgressLines(s string) string {
 	}
 	lines := strings.Split(s, "\n")
 	for i, line := range lines {
-		if idx := strings.LastIndexByte(line, '\r'); idx >= 0 {
-			lines[i] = line[idx+1:]
+		// A \r at the very end of the segment is the CR of a CRLF line
+		// ending (every Windows shell), not a redraw — keep the content.
+		// Only a \r with content after it inside the segment moves the
+		// cursor back for a redraw.
+		if strings.HasSuffix(line, "\r") {
+			line = line[:len(line)-1]
 		}
+		if idx := strings.LastIndexByte(line, '\r'); idx >= 0 {
+			line = line[idx+1:]
+		}
+		lines[i] = line
 	}
 	return strings.Join(lines, "\n")
 }

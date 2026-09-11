@@ -493,6 +493,13 @@ func (t *ExecTool) executeRun(ctx context.Context, args map[string]any) *ToolRes
 	return t.runSync(ctx, command, cwd)
 }
 
+// execIOWaitDelay bounds how long runSync waits for the command's output
+// pipes to close after the process exits or is killed. Children that inherit
+// the pipe write handles (daemons, browsers, npm shim chains) can keep them
+// open indefinitely; past this delay Wait abandons the pipes
+// (exec.ErrWaitDelay) and the call returns the output collected so far.
+const execIOWaitDelay = 5 * time.Second
+
 func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult {
 	// timeout == 0 means no timeout
 	var cmdCtx context.Context
@@ -516,6 +523,15 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult
 
 	prepareCommandForTermination(cmd)
 
+	// Bound the io wait after the process exits or is canceled: when a
+	// surviving child (daemon, browser, npm shim chain) inherits the output
+	// pipe write handles, cmd.Wait() would otherwise block until every
+	// holder exits — on Windows potentially forever, because taskkill /T
+	// cannot reach orphans outside the live PPID chain. WaitDelay makes Wait
+	// abandon the pipes after the delay and return exec.ErrWaitDelay
+	// alongside the output collected so far.
+	cmd.WaitDelay = execIOWaitDelay
+
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -525,6 +541,8 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult
 	if err := isolation.Start(cmd); err != nil {
 		return ErrorResult(fmt.Sprintf("failed to start command: %v", err))
 	}
+	trackProcessTree(cmd)
+	defer releaseProcessTree(cmd)
 
 	done := make(chan error, 1)
 	go func() {
@@ -575,9 +593,15 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult
 			}
 		}
 
-		// Extract detailed exit information
+		// Wait can return ErrWaitDelay when background children kept the
+		// output pipes open past the bounded io wait: the command itself may
+		// still have exited cleanly (daemon-start pattern), so report a note
+		// instead of a failure in that case.
+		waitAbandoned := errors.Is(err, exec.ErrWaitDelay)
 		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		hasExitErr := errors.As(err, &exitErr)
+
+		if hasExitErr {
 			exitCode := exitErr.ExitCode()
 			output += fmt.Sprintf("\n\n[Command exited with code %d]", exitCode)
 
@@ -585,8 +609,16 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult
 			if exitCode == -1 {
 				output += " (killed by signal)"
 			}
-		} else {
+		} else if !waitAbandoned {
 			output += fmt.Sprintf("\n\n[Command failed: %v]", err)
+		}
+		if waitAbandoned {
+			output += fmt.Sprintf("\n\n[Note: background processes still hold the command's output pipes; waited %s and returned the output collected so far.]", execIOWaitDelay)
+			// A clean process exit whose io wait was abandoned is a success
+			// with a note; killed + abandoned stays an error via err.
+			if !hasExitErr {
+				err = nil
+			}
 		}
 	}
 

@@ -87,3 +87,14 @@ func TestCleanCommandOutput_MultilinePipelineOrdering(t *testing.T) {
 		t.Fatalf("last frame must survive, got %q", got)
 	}
 }
+
+func TestCleanCommandOutput_PreservesCRLFLineContent(t *testing.T) {
+	// Windows shells emit CRLF line endings; a trailing \r before \n is the
+	// line ending, not a progress redraw — collapsing it must not blank the
+	// line's content.
+	in := "hello world\r\nsecond line\r\n"
+	got := CleanCommandOutput("Write-Output 'hello world'", in)
+	if !strings.Contains(got, "hello world") || !strings.Contains(got, "second line") {
+		t.Fatalf("CRLF line endings must not be treated as progress redraws, got %q", got)
+	}
+}

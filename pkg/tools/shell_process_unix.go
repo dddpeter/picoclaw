@@ -14,6 +14,13 @@ func prepareCommandForTermination(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
+// trackProcessTree is a Windows-only hook (job object assignment after
+// Start); the Unix kill path uses the process group set above.
+func trackProcessTree(cmd *exec.Cmd) {}
+
+// releaseProcessTree mirrors trackProcessTree: nothing to release on Unix.
+func releaseProcessTree(cmd *exec.Cmd) {}
+
 func terminateProcessTree(cmd *exec.Cmd) error {
 	if cmd == nil || cmd.Process == nil {
 		return nil
