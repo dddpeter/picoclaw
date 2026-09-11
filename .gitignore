@@ -75,3 +75,10 @@ docker/data
 .omc/
 .worktrees/
 .playwright-mcp/
+
+# Local scratch & tool state
+.workbuddy/
+.zcode/
+/count.ps1
+/count_chars.py
+/wc.ps1
