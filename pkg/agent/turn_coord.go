@@ -307,19 +307,21 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 
 func (al *AgentLoop) abortTurn(ts *turnState) (turnResult, error) {
 	ts.setPhase(TurnPhaseAborted)
-	if !ts.opts.NoHistory {
-		if err := ts.restoreSession(ts.agent); err != nil {
-			al.emitEvent(
-				runtimeevents.KindAgentError,
-				ts.eventMeta("abortTurn", "turn.error"),
-				ErrorPayload{
-					Stage:   "session_restore",
-					Message: err.Error(),
-				},
-			)
-			return turnResult{}, err
-		}
+	if ts.opts.NoHistory {
+		return turnResult{status: TurnEndStatusAborted}, nil
 	}
+	// A registration force-released by the abort watchdog means this turn
+	// unwound late — a new turn may already own the session and be writing
+	// history. Mutating the session now would wipe the new turn's records.
+	if ts.zombieReleased.Load() {
+		logger.WarnCF("agent", "late zombie turn unwind: skipping session seal, registration already force-released",
+			map[string]any{
+				"session_key": ts.sessionKey,
+				"turn_id":     ts.snapshot().TurnID,
+			})
+		return turnResult{status: TurnEndStatusAborted}, nil
+	}
+	al.sealAbortedTurnSession(ts)
 	return turnResult{status: TurnEndStatusAborted}, nil
 }
 

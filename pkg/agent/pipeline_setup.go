@@ -29,7 +29,6 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 			summary = resp.Summary
 		}
 	}
-	ts.captureRestorePoint(history, summary)
 
 	contextualSkills := ts.activeSkills
 	if ts.agent.ContextBuilder != nil {
@@ -61,7 +60,6 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 					"error":       err.Error(),
 				})
 			}
-			ts.refreshRestorePointFromSession(ts.agent)
 			if resp, err := p.ContextManager.Assemble(ctx, &AssembleRequest{
 				SessionKey: ts.sessionKey,
 				Budget:     ts.agent.ContextWindow,

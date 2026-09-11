@@ -181,7 +181,7 @@ toolLoop:
 				ToolCallID: tc.ID,
 			}
 			messages = append(messages, deniedMsg)
-			if !ts.opts.NoHistory {
+			if !ts.opts.NoHistory && ts.persistsToolMessages() {
 				ts.agent.Sessions.AddFullMessage(ts.sessionKey, deniedMsg)
 				ts.recordPersistedMessage(deniedMsg)
 			}
@@ -208,7 +208,7 @@ toolLoop:
 				ToolCallID: tc.ID,
 			}
 			messages = append(messages, deniedMsg)
-			if !ts.opts.NoHistory {
+			if !ts.opts.NoHistory && ts.persistsToolMessages() {
 				ts.agent.Sessions.AddFullMessage(ts.sessionKey, deniedMsg)
 				ts.recordPersistedMessage(deniedMsg)
 			}
@@ -385,7 +385,7 @@ toolLoop:
 					)
 
 					messages = append(messages, toolResultMsg)
-					if !ts.opts.NoHistory {
+					if !ts.opts.NoHistory && ts.persistsToolMessages() {
 						ts.agent.Sessions.AddFullMessage(ts.sessionKey, toolResultMsg)
 						ts.recordPersistedMessage(toolResultMsg)
 						ts.ingestMessage(turnCtx, al, toolResultMsg)
@@ -431,7 +431,7 @@ toolLoop:
 									ToolCallID: skippedTC.ID,
 								}
 								messages = append(messages, skippedMsg)
-								if !ts.opts.NoHistory {
+								if !ts.opts.NoHistory && ts.persistsToolMessages() {
 									ts.agent.Sessions.AddFullMessage(ts.sessionKey, skippedMsg)
 									ts.recordPersistedMessage(skippedMsg)
 								}
@@ -447,7 +447,7 @@ toolLoop:
 								content := al.cfg.FilterSensitiveData(result.ForLLM)
 								msg := subTurnResultPromptMessage(content)
 								messages = append(messages, msg)
-								if !ts.opts.NoHistory {
+								if !ts.opts.NoHistory && ts.persistsToolMessages() {
 									ts.agent.Sessions.AddFullMessage(ts.sessionKey, msg)
 								}
 							}
@@ -480,7 +480,7 @@ toolLoop:
 					ToolCallID: tc.ID,
 				}
 				messages = append(messages, deniedMsg)
-				if !ts.opts.NoHistory {
+				if !ts.opts.NoHistory && ts.persistsToolMessages() {
 					ts.agent.Sessions.AddFullMessage(ts.sessionKey, deniedMsg)
 					ts.recordPersistedMessage(deniedMsg)
 				}
@@ -519,7 +519,7 @@ toolLoop:
 					ToolCallID: tc.ID,
 				}
 				messages = append(messages, deniedMsg)
-				if !ts.opts.NoHistory {
+				if !ts.opts.NoHistory && ts.persistsToolMessages() {
 					ts.agent.Sessions.AddFullMessage(ts.sessionKey, deniedMsg)
 					ts.recordPersistedMessage(deniedMsg)
 				}
@@ -813,7 +813,7 @@ toolLoop:
 			inferSkillNamesFromToolCall(ts, toolName, toolArgs),
 		)
 		messages = append(messages, toolResultMsg)
-		if !ts.opts.NoHistory {
+		if !ts.opts.NoHistory && ts.persistsToolMessages() {
 			ts.agent.Sessions.AddFullMessage(ts.sessionKey, toolResultMsg)
 			ts.recordPersistedMessage(toolResultMsg)
 			ts.ingestMessage(turnCtx, al, toolResultMsg)

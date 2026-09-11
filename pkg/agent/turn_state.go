@@ -237,9 +237,7 @@ type turnState struct {
 	providerCancel        context.CancelFunc
 	turnCancel            context.CancelFunc
 
-	restorePointHistory []providers.Message
-	restorePointSummary string
-	persistedMessages   []providers.Message
+	persistedMessages []providers.Message
 
 	// SubTurn support (from HEAD)
 	depth                int                    // SubTurn depth (0 for root turn)
@@ -248,6 +246,7 @@ type turnState struct {
 	pendingResults       chan *tools.ToolResult // Channel for SubTurn results
 	concurrencySem       chan struct{}          // Semaphore for limiting concurrent SubTurns
 	isFinished           atomic.Bool            // Whether this turn has finished
+	zombieReleased        atomic.Bool            // Abort watchdog force-released this turn's session registration
 	session              session.SessionStore   // Session store reference
 	initialHistoryLength int                    // Snapshot of history length at turn start
 
@@ -294,13 +293,10 @@ func newTurnState(agent *AgentInstance, opts processOptions, scope turnEventScop
 		health:       newTurnHealth(agent.LoopDetection),
 	}
 
-	// Bind session store and capture initial history length for rollback logic
+	// Bind session store and snapshot the history length for diagnostics.
 	if agent != nil && agent.Sessions != nil {
 		ts.session = agent.Sessions
-		history := agent.Sessions.GetHistory(opts.Dispatch.SessionKey)
-		ts.initialHistoryLength = len(history)
-		ts.restorePointHistory = append([]providers.Message(nil), history...)
-		ts.restorePointSummary = agent.Sessions.GetSummary(opts.Dispatch.SessionKey)
+		ts.initialHistoryLength = len(agent.Sessions.GetHistory(opts.Dispatch.SessionKey))
 	}
 
 	return ts
@@ -650,6 +646,14 @@ func (ts *turnState) hardAbortRequested() bool {
 	return ts.hardAbort
 }
 
+// persistsToolMessages reports whether tool results and denials should still
+// be written to the session store. Once a hard abort sealed the turn's
+// dangling tool calls, appending further tool messages would duplicate
+// tool_call_ids and break the next LLM request.
+func (ts *turnState) persistsToolMessages() bool {
+	return !ts.hardAbortRequested()
+}
+
 // setAbortReason records why the turn is being aborted (stable code, e.g.
 // "stop_command") so streaming surfaces can show the cause when sealing.
 func (ts *turnState) setAbortReason(reason string) {
@@ -677,13 +681,6 @@ func (ts *turnState) eventMeta(source, tracePath string) HookMeta {
 	}
 }
 
-func (ts *turnState) captureRestorePoint(history []providers.Message, summary string) {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	ts.restorePointHistory = append([]providers.Message(nil), history...)
-	ts.restorePointSummary = summary
-}
-
 func (ts *turnState) recordPersistedMessage(msg providers.Message) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
@@ -694,19 +691,6 @@ func (ts *turnState) persistedMessagesSnapshot() []providers.Message {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 	return append([]providers.Message(nil), ts.persistedMessages...)
-}
-
-func (ts *turnState) refreshRestorePointFromSession(agent *AgentInstance) {
-	history := agent.Sessions.GetHistory(ts.sessionKey)
-	summary := agent.Sessions.GetSummary(ts.sessionKey)
-
-	persisted := ts.persistedMessagesSnapshot()
-
-	if matched := matchingTurnMessageTail(history, persisted); matched > 0 {
-		history = append([]providers.Message(nil), history[:len(history)-matched]...)
-	}
-
-	ts.captureRestorePoint(history, summary)
 }
 
 // ingestMessage calls the ContextManager's Ingest method for a persisted message.
@@ -724,17 +708,6 @@ func (ts *turnState) ingestMessage(ctx context.Context, al *AgentLoop, msg provi
 			"error":       err.Error(),
 		})
 	}
-}
-
-func (ts *turnState) restoreSession(agent *AgentInstance) error {
-	ts.mu.RLock()
-	history := append([]providers.Message(nil), ts.restorePointHistory...)
-	summary := ts.restorePointSummary
-	ts.mu.RUnlock()
-
-	agent.Sessions.SetHistory(ts.sessionKey, history)
-	agent.Sessions.SetSummary(ts.sessionKey, summary)
-	return agent.Sessions.Save(ts.sessionKey)
 }
 
 func matchingTurnMessageTail(history, persisted []providers.Message) int {

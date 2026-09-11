@@ -20,6 +20,20 @@ const abortedToolResultNote = "[tool execution aborted: the task was stopped bef
 // sealDanglingToolCalls returns history with synthetic tool results appended
 // for trailing assistant tool calls that never received a result — the shape
 // a hard abort leaves behind when it interrupts a turn mid-tool-loop.
+// sealAbortedTurnSession seals the aborted turn's dangling tool calls,
+// keeping the assistant/tool pairing valid for the next request while
+// preserving the records. Idempotent: a history already sealed is returned
+// unchanged.
+func (al *AgentLoop) sealAbortedTurnSession(ts *turnState) {
+	if ts.session == nil {
+		return
+	}
+	history := ts.session.GetHistory(ts.sessionKey)
+	if sealed := sealDanglingToolCalls(history); len(sealed) != len(history) {
+		ts.session.SetHistory(ts.sessionKey, sealed)
+	}
+}
+
 func sealDanglingToolCalls(history []providers.Message) []providers.Message {
 	if len(history) == 0 {
 		return history
@@ -75,6 +89,9 @@ func (al *AgentLoop) watchHardAbortUnwind(sessionKey string, ts *turnState) {
 		time.Sleep(200 * time.Millisecond)
 	}
 	if al.getActiveTurnState(sessionKey) == ts {
+		// Flag first: the turn's goroutine may unwind at any moment and
+		// abortTurn must observe the release before it touches the session.
+		ts.zombieReleased.Store(true)
 		al.releaseSessionTurnState(sessionKey, ts)
 		logger.ErrorCF("agent", "hard abort watchdog: turn goroutine failed to unwind; force-released session registration",
 			map[string]any{

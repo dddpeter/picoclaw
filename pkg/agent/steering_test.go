@@ -1575,7 +1575,7 @@ func TestAgentLoop_InterruptGraceful_UsesTerminalNoToolCall(t *testing.T) {
 	}
 }
 
-func TestAgentLoop_InterruptHard_RestoresSession(t *testing.T) {
+func TestAgentLoop_InterruptHard_SealsAndPreservesSession(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "agent-test-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -1683,9 +1683,28 @@ func TestAgentLoop_InterruptHard_RestoresSession(t *testing.T) {
 		t.Fatalf("expected no active turn after hard abort, got %#v", active)
 	}
 
+	// Seal-and-preserve semantics: the pre-turn history must survive, the
+	// aborted turn's records stay (the old rollback wiped fresh sessions on
+	// /stop), and the dangling tool call is sealed with a synthetic result.
 	finalHistory := defaultAgent.Sessions.GetHistory(sessionKey)
-	if !reflect.DeepEqual(finalHistory, originalHistory) {
-		t.Fatalf("expected history rollback after hard abort, got %#v", finalHistory)
+	if len(finalHistory) < len(originalHistory) || !reflect.DeepEqual(finalHistory[:len(originalHistory)], originalHistory) {
+		t.Fatalf("expected pre-turn history preserved after hard abort, got %#v", finalHistory)
+	}
+	userMsgKept := false
+	sealed := false
+	for _, msg := range finalHistory {
+		if msg.Role == "user" && msg.Content == "do work" {
+			userMsgKept = true
+		}
+		if msg.Role == "tool" && msg.ToolCallID == "call_1" && msg.Content == abortedToolResultNote {
+			sealed = true
+		}
+	}
+	if !userMsgKept {
+		t.Fatal("expected the aborted turn's user message to survive the hard abort")
+	}
+	if !sealed {
+		t.Fatal("expected dangling tool call call_1 to be sealed with a synthetic result")
 	}
 
 	events := collectRuntimeEventStream(runtimeCh)

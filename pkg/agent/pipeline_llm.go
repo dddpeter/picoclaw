@@ -409,7 +409,6 @@ func (p *Pipeline) CallLLM(
 					"error":       compactErr.Error(),
 				})
 			}
-			ts.refreshRestorePointFromSession(ts.agent)
 			if asmResp, asmErr := p.ContextManager.Assemble(ctx, &AssembleRequest{
 				SessionKey: ts.sessionKey,
 				Budget:     ts.agent.ContextWindow,
