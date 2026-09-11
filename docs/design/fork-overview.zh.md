@@ -75,7 +75,8 @@
   - **Windows Job Object 整树击杀**（`pkg/tools/shell_process_windows.go`）：启动后 `trackProcessTree` 把命令挂进 job（**不带** KILL_ON_JOB_CLOSE），`terminateProcessTree` 优先 `TerminateJobObject` 一次杀全树（不依赖 PPID 链），失败降级 taskkill；正常完成 `releaseProcessTree` 只关句柄，**有意存活的 daemon 不被误杀**。挂 job 失败为非致命（保留 taskkill 路径）。
   - **HardAbort 看门狗**（`pkg/agent/steering_abort.go` `watchHardAbortUnwind`）：abort 后宽限 `hardAbortUnwindGrace`（10s，包级 var）等 turn goroutine 自行收尾，超时强制 `releaseSessionTurnState` + zombie 日志——turn 卡死在任何工具/钩子上时会话不再永久 busy（此前唯一恢复手段是重启网关）。
   - **/stop 语义：回滚抹除 → 封口保留**：旧 HardAbort 回滚 `SetHistory(history[:initialHistoryLength])` 对新会话（起点 0）等于把 JSONL 整文件重写为空（实测 0 字节文件 + meta count=0，重启后"会话记录丢失"）；现 `sealDanglingToolCalls` 给末尾悬空 tool_calls 补合成结果（`abortedToolResultNote`），历史对下次请求有效且记录保留。`TestHardAbortSessionRollback`/`TestHardAbortOrderOfOperations` 已改为断言新语义。
-  - 测试锚点：`TestShellTool_CancelReturnsDespiteOrphanedPipeHolder`、`TestShellTool_DaemonHoldingPipesReturnsPromptly`（tools，Windows-only）；`TestSealDanglingToolCalls`、`TestHardAbort_ForceReleasesWedgedTurnRegistration`（agent）。
+  - **评审加固（同日）**：中止语义统一——`abortTurn` 同样走封口（旧 `restoreSession` 按 turn 前快照整段回滚，快照在用户消息落盘前捕获，**响应式 /stop（流式中按停止）依然清空新会话**）；看门狗强制释放时置 `zombieReleased`，迟到解退的 turn 跳过一切会话写入（防清掉新 turn 的记录）；ExecuteTools 全部工具消息落盘点（主结果/hook 供结果/deny/skip 共 8 处）加 hardAbort 守卫——封口后迟到的真实结果不再落盘，避免同 tool_call_id 出现双 tool 消息使下次请求 400；restore point 机制（captureRestorePoint/refreshRestorePointFromSession/restoreSession）整体删除。
+  - 测试锚点：`TestShellTool_CancelReturnsDespiteOrphanedPipeHolder`、`TestShellTool_DaemonHoldingPipesReturnsPromptly`（tools，Windows-only）；`TestSealDanglingToolCalls`、`TestHardAbort_ForceReleasesWedgedTurnRegistration`、`TestRunTurn_HardAbortDuringLLMCall_PreservesHistory`、`TestZombieTurn_LateUnwindPreservesNewTurnHistory`、`TestRunTurn_HardAbortMidTool_LateResultNotDuplicated`、`TestAgentLoop_InterruptHard_SealsAndPreservesSession`（agent）。
 
 ## 6. exec 安全加固（custom-only 拦截模式）
 
