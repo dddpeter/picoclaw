@@ -60,6 +60,7 @@ export function usePicoChat() {
     connectionState,
     isTyping,
     activeSessionId,
+    activeSessionChannel,
     contextUsage,
     turnStartedAt,
   } = useAtomValue(chatAtom)
@@ -69,6 +70,7 @@ export function usePicoChat() {
     connectionState,
     isTyping,
     activeSessionId,
+    activeSessionChannel,
     contextUsage,
     turnStartedAt,
     sendMessage: sendChatMessage,

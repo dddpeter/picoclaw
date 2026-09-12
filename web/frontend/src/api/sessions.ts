@@ -5,12 +5,15 @@ export interface SessionSummary {
   title: string
   preview: string
   message_count: number
+  /** Originating chat channel; "pico" for web chat, omitted/unknown for legacy sessions. */
+  channel?: string
   created: string
   updated: string
 }
 
 export interface SessionDetail {
   id: string
+  channel?: string
   messages: {
     role: "user" | "assistant"
     content: string
@@ -57,18 +60,37 @@ export async function getSessions(
   return res.json()
 }
 
-export async function getSessionHistory(id: string): Promise<SessionDetail> {
-  const res = await launcherFetch(`/api/sessions/${encodeURIComponent(id)}`)
+export async function getSessionHistory(
+  id: string,
+  channel?: string,
+): Promise<SessionDetail> {
+  const params = new URLSearchParams()
+  if (channel) {
+    params.set("channel", channel)
+  }
+  const query = params.toString()
+  const res = await launcherFetch(
+    `/api/sessions/${encodeURIComponent(id)}${query ? `?${query}` : ""}`,
+  )
   if (!res.ok) {
     throw new Error(`Failed to fetch session ${id}: ${res.status}`)
   }
   return res.json()
 }
 
-export async function deleteSession(id: string): Promise<void> {
-  const res = await launcherFetch(`/api/sessions/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-  })
+export async function deleteSession(
+  id: string,
+  channel?: string,
+): Promise<void> {
+  const params = new URLSearchParams()
+  if (channel) {
+    params.set("channel", channel)
+  }
+  const query = params.toString()
+  const res = await launcherFetch(
+    `/api/sessions/${encodeURIComponent(id)}${query ? `?${query}` : ""}`,
+    { method: "DELETE" },
+  )
   if (!res.ok) {
     throw new Error(`Failed to delete session ${id}: ${res.status}`)
   }

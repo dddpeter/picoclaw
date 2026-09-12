@@ -65,6 +65,24 @@ export function useSessionHistory({
     [offset],
   )
 
+  // Merge-style refresh for polling/focus: fetch the first page and merge it
+  // into the loaded list without collapsing pagination progress.
+  const refreshSessions = useCallback(async () => {
+    try {
+      const data = await getSessions(0, LIMIT)
+      setLoadError(false)
+      setSessions((prev) => {
+        const byId = new Map(prev.map((session) => [session.id, session]))
+        for (const item of data) {
+          byId.set(item.id, item)
+        }
+        return [...byId.values()].sort((a, b) => (a.updated < b.updated ? 1 : -1))
+      })
+    } catch (err) {
+      console.error("Failed to refresh session history:", err)
+    }
+  }, [])
+
   useEffect(() => {
     if (!observerRef.current || !hasMore || isLoadingMore || loadError) return
 
@@ -88,12 +106,12 @@ export function useSessionHistory({
   }, [hasMore, isLoadingMore, loadError, loadSessions])
 
   const handleDeleteSession = useCallback(
-    async (id: string) => {
+    async (id: string, channel?: string) => {
       try {
         const deletedLoadedSession = sessions.some(
           (session) => session.id === id,
         )
-        await deleteSession(id)
+        await deleteSession(id, channel)
         setSessions((prev) => prev.filter((s) => s.id !== id))
         if (deletedLoadedSession) {
           setOffset((prev) => Math.max(prev - 1, 0))
@@ -116,6 +134,7 @@ export function useSessionHistory({
     loadErrorMessage: t("chat.historyLoadFailed"),
     observerRef,
     loadSessions,
+    refreshSessions,
     handleDeleteSession,
   }
 }

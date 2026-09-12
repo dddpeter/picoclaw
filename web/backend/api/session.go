@@ -45,8 +45,12 @@ type sessionListItem struct {
 	Title        string `json:"title"`
 	Preview      string `json:"preview"`
 	MessageCount int    `json:"message_count"`
-	Created      string `json:"created"`
-	Updated      string `json:"updated"`
+	// Channel is the originating chat channel ("pico" for web chat sessions,
+	// "feishu"/"telegram"/... for other channels, "unknown" when the scope
+	// metadata did not record one).
+	Channel string `json:"channel,omitempty"`
+	Created string `json:"created"`
+	Updated string `json:"updated"`
 }
 
 type sessionChatMessage struct {
@@ -210,9 +214,11 @@ func (h *Handler) readJSONLSession(dir, sessionKey string) (sessionFile, error) 
 	}, nil
 }
 
-type picoJSONLSessionRef struct {
+type jsonlSessionRef struct {
 	ID  string
 	Key string
+	// Channel is the normalized originating channel; empty when unknown.
+	Channel string
 }
 
 type picoLegacySessionRef struct {
@@ -243,45 +249,67 @@ func extractPicoSessionIDFromScope(scope session.SessionScope) (string, bool) {
 	return "", false
 }
 
-func sessionRefFromMeta(meta memory.SessionMeta) (picoJSONLSessionRef, bool) {
+// sessionRefFromMeta resolves a .meta.json entry into a listable session ref.
+// Pico sessions keep their UUID as ID; other channels use the opaque session
+// key as ID since the web chat can only address pico sessions by UUID.
+func sessionRefFromMeta(meta memory.SessionMeta, base string) (jsonlSessionRef, bool) {
+	key := meta.Key
+	if key == "" {
+		key = base
+	}
 	if len(meta.Scope) == 0 {
 		if sessionID, ok := extractLegacyPicoSessionID(meta.Key); ok {
-			return picoJSONLSessionRef{ID: sessionID, Key: meta.Key}, true
+			return jsonlSessionRef{ID: sessionID, Key: key, Channel: "pico"}, true
 		}
 		for _, alias := range meta.Aliases {
 			if sessionID, ok := extractLegacyPicoSessionID(alias); ok {
-				return picoJSONLSessionRef{ID: sessionID, Key: meta.Key}, true
+				return jsonlSessionRef{ID: sessionID, Key: key, Channel: "pico"}, true
 			}
 		}
-		return picoJSONLSessionRef{}, false
+		if session.IsOpaqueSessionKey(key) {
+			return jsonlSessionRef{ID: key, Key: key}, true
+		}
+		return jsonlSessionRef{}, false
 	}
 	var scope session.SessionScope
 	if err := json.Unmarshal(meta.Scope, &scope); err != nil {
-		return picoJSONLSessionRef{}, false
+		return jsonlSessionRef{}, false
 	}
 	sessionID, ok := extractPicoSessionIDFromScope(scope)
 	if !ok {
 		if legacySessionID, ok := extractLegacyPicoSessionID(meta.Key); ok {
-			return picoJSONLSessionRef{ID: legacySessionID, Key: meta.Key}, true
+			return jsonlSessionRef{ID: legacySessionID, Key: key, Channel: "pico"}, true
 		}
 		for _, alias := range meta.Aliases {
 			if legacySessionID, ok := extractLegacyPicoSessionID(alias); ok {
-				return picoJSONLSessionRef{ID: legacySessionID, Key: meta.Key}, true
+				return jsonlSessionRef{ID: legacySessionID, Key: key, Channel: "pico"}, true
 			}
 		}
-		return picoJSONLSessionRef{}, false
+		// Non-pico channel (or unparseable pico scope): the opaque session key
+		// itself is the only stable identifier.
+		if session.IsOpaqueSessionKey(key) {
+			channel := strings.ToLower(strings.TrimSpace(scope.Channel))
+			if channel == "" {
+				channel = "unknown"
+			}
+			return jsonlSessionRef{ID: key, Key: key, Channel: channel}, true
+		}
+		return jsonlSessionRef{}, false
 	}
-	return picoJSONLSessionRef{ID: sessionID, Key: meta.Key}, true
+	return jsonlSessionRef{ID: sessionID, Key: key, Channel: "pico"}, true
 }
 
-func (h *Handler) findPicoJSONLSessions(dir string) ([]picoJSONLSessionRef, error) {
+func (h *Handler) findJSONLSessions(dir string) ([]jsonlSessionRef, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
 
-	refs := make([]picoJSONLSessionRef, 0)
+	refs := make([]jsonlSessionRef, 0)
+	// Dedup per (channel, id): a legacy pico session whose UUID happens to
+	// equal another channel's opaque key must not shadow that session.
 	seen := make(map[string]struct{})
+	seenKeys := make(map[string]struct{})
 	metaBackedBases := make(map[string]struct{})
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".meta.json") {
@@ -293,15 +321,20 @@ func (h *Handler) findPicoJSONLSessions(dir string) ([]picoJSONLSessionRef, erro
 		if err != nil {
 			continue
 		}
-		ref, ok := sessionRefFromMeta(meta)
+		ref, ok := sessionRefFromMeta(meta, strings.TrimSuffix(name, ".meta.json"))
 		if !ok || ref.Key == "" || ref.ID == "" {
 			continue
 		}
 		metaBackedBases[strings.TrimSuffix(name, ".meta.json")] = struct{}{}
-		if _, exists := seen[ref.ID]; exists {
+		idKey := ref.Channel + "\x00" + ref.ID
+		if _, exists := seen[idKey]; exists {
 			continue
 		}
-		seen[ref.ID] = struct{}{}
+		if _, exists := seenKeys[ref.Key]; exists {
+			continue
+		}
+		seen[idKey] = struct{}{}
+		seenKeys[ref.Key] = struct{}{}
 		refs = append(refs, ref)
 	}
 
@@ -318,26 +351,41 @@ func (h *Handler) findPicoJSONLSessions(dir string) ([]picoJSONLSessionRef, erro
 		if !ok || ref.Key == "" || ref.ID == "" {
 			continue
 		}
-		if _, exists := seen[ref.ID]; exists {
+		idKey := ref.Channel + "\x00" + ref.ID
+		if _, exists := seen[idKey]; exists {
 			continue
 		}
-		seen[ref.ID] = struct{}{}
+		if _, exists := seenKeys[ref.Key]; exists {
+			continue
+		}
+		seen[idKey] = struct{}{}
+		seenKeys[ref.Key] = struct{}{}
 		refs = append(refs, ref)
 	}
 	return refs, nil
 }
 
-func (h *Handler) findPicoJSONLSession(dir, sessionID string) (picoJSONLSessionRef, error) {
-	refs, err := h.findPicoJSONLSessions(dir)
+// findJSONLSession resolves a session by ID, optionally narrowed to a
+// channel. The channel hint disambiguates legacy pico sessions whose UUID
+// equals another channel's opaque session key (web-UI ghost sessions).
+func (h *Handler) findJSONLSession(dir, sessionID, channel string) (jsonlSessionRef, error) {
+	refs, err := h.findJSONLSessions(dir)
 	if err != nil {
-		return picoJSONLSessionRef{}, err
+		return jsonlSessionRef{}, err
+	}
+	if strings.TrimSpace(channel) != "" {
+		for _, ref := range refs {
+			if ref.ID == sessionID && strings.EqualFold(ref.Channel, channel) {
+				return ref, nil
+			}
+		}
 	}
 	for _, ref := range refs {
 		if ref.ID == sessionID {
 			return ref, nil
 		}
 	}
-	return picoJSONLSessionRef{}, os.ErrNotExist
+	return jsonlSessionRef{}, os.ErrNotExist
 }
 
 func (h *Handler) findLegacyPicoSessions(dir string) ([]picoLegacySessionRef, error) {
@@ -373,35 +421,36 @@ func (h *Handler) findLegacyPicoSessions(dir string) ([]picoLegacySessionRef, er
 	return refs, nil
 }
 
-func jsonlSessionRefFromFilename(name string) (picoJSONLSessionRef, bool) {
+func jsonlSessionRefFromFilename(name string) (jsonlSessionRef, bool) {
 	if !strings.HasSuffix(name, ".jsonl") {
-		return picoJSONLSessionRef{}, false
+		return jsonlSessionRef{}, false
 	}
 	base := strings.TrimSuffix(name, ".jsonl")
 	if base == "" {
-		return picoJSONLSessionRef{}, false
+		return jsonlSessionRef{}, false
 	}
 
 	legacyPrefix := sanitizeSessionKey(legacyPicoSessionPrefix)
 	if strings.HasPrefix(base, legacyPrefix) {
 		sessionID := strings.TrimPrefix(base, legacyPrefix)
 		if sessionID == "" {
-			return picoJSONLSessionRef{}, false
+			return jsonlSessionRef{}, false
 		}
-		return picoJSONLSessionRef{
-			ID:  sessionID,
-			Key: legacyPicoSessionPrefix + sessionID,
+		return jsonlSessionRef{
+			ID:      sessionID,
+			Key:     legacyPicoSessionPrefix + sessionID,
+			Channel: "pico",
 		}, true
 	}
 
 	if session.IsOpaqueSessionKey(base) {
-		return picoJSONLSessionRef{
+		return jsonlSessionRef{
 			ID:  base,
 			Key: base,
 		}, true
 	}
 
-	return picoJSONLSessionRef{}, false
+	return jsonlSessionRef{}, false
 }
 
 func (h *Handler) findLegacyPicoSession(dir, sessionID string) (picoLegacySessionRef, error) {
@@ -417,7 +466,7 @@ func (h *Handler) findLegacyPicoSession(dir, sessionID string) (picoLegacySessio
 	return picoLegacySessionRef{}, os.ErrNotExist
 }
 
-func buildSessionListItem(sessionID string, sess sessionFile, toolFeedbackMaxArgsLength int) sessionListItem {
+func buildSessionListItem(sessionID string, sess sessionFile, channel string, toolFeedbackMaxArgsLength int) sessionListItem {
 	transcript := visibleSessionMessages(sess.Messages, toolFeedbackMaxArgsLength)
 
 	preview := ""
@@ -446,6 +495,7 @@ func buildSessionListItem(sessionID string, sess sessionFile, toolFeedbackMaxArg
 		Title:        title,
 		Preview:      preview,
 		MessageCount: len(transcript),
+		Channel:      channel,
 		Created:      sess.Created.Format(time.RFC3339),
 		Updated:      sess.Updated.Format(time.RFC3339),
 	}
@@ -823,7 +873,9 @@ func resolveSessionsDir(workspace string) string {
 	return filepath.Join(workspace, "sessions")
 }
 
-// handleListSessions returns a list of Pico session summaries.
+// handleListSessions returns a list of session summaries across all chat
+// channels (web chat keeps its UUID ids; other channels are keyed by their
+// opaque session key and reported with a "channel" marker).
 //
 //	GET /api/sessions
 func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
@@ -843,14 +895,14 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	items := []sessionListItem{}
 	seen := make(map[string]struct{})
 
-	if refs, findErr := h.findPicoJSONLSessions(dir); findErr == nil {
+	if refs, findErr := h.findJSONLSessions(dir); findErr == nil {
 		for _, ref := range refs {
 			sess, loadErr := h.readJSONLSession(dir, ref.Key)
 			if loadErr != nil || isEmptySession(sess) {
 				continue
 			}
 			seen[ref.ID] = struct{}{}
-			items = append(items, buildSessionListItem(ref.ID, sess, toolFeedbackMaxArgsLength))
+			items = append(items, buildSessionListItem(ref.ID, sess, ref.Channel, toolFeedbackMaxArgsLength))
 		}
 	}
 
@@ -864,7 +916,7 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			seen[ref.ID] = struct{}{}
-			items = append(items, buildSessionListItem(ref.ID, sess, toolFeedbackMaxArgsLength))
+			items = append(items, buildSessionListItem(ref.ID, sess, "pico", toolFeedbackMaxArgsLength))
 		}
 	}
 
@@ -919,11 +971,17 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ref, refErr := h.findPicoJSONLSession(dir, sessionID)
+	ref, refErr := h.findJSONLSession(dir, sessionID, r.URL.Query().Get("channel"))
 	var sess sessionFile
+	sessionChannel := "pico"
 	err = refErr
 	if refErr == nil {
 		sess, err = h.readJSONLSession(dir, ref.Key)
+		if ref.Channel == "" {
+			sessionChannel = "unknown"
+		} else {
+			sessionChannel = ref.Channel
+		}
 	}
 	if err == nil && isEmptySession(sess) {
 		err = os.ErrNotExist
@@ -957,6 +1015,7 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"id":       sessionID,
+		"channel":  sessionChannel,
 		"messages": messages,
 		"summary":  sess.Summary,
 		"created":  sess.Created.Format(time.RFC3339),
@@ -981,7 +1040,14 @@ func (h *Handler) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	removed := false
-	if ref, err := h.findPicoJSONLSession(dir, sessionID); err == nil {
+	// Deletion is allowed for any listed session regardless of channel: the id
+	// resolves through the same discovery pass as the list endpoint, so only
+	// keys present under the sessions directory (path-sanitized) can be hit.
+	// The channel query param disambiguates legacy pico ghost sessions whose
+	// UUID equals another channel's opaque key. Note the gateway may hold the
+	// session in memory and rewrite files on a later turn, same caveat as
+	// pico sessions today.
+	if ref, err := h.findJSONLSession(dir, sessionID, r.URL.Query().Get("channel")); err == nil {
 		base := filepath.Join(dir, sanitizeSessionKey(ref.Key))
 		for _, path := range []string{base + ".jsonl", base + ".meta.json"} {
 			if err := os.Remove(path); err != nil {

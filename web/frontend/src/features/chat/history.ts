@@ -41,9 +41,10 @@ function toChatAttachments({
 
 export async function loadSessionMessages(
   sessionId: string,
-): Promise<ChatMessage[]> {
-  const detail = await getSessionHistory(sessionId)
-  return detail.messages.map((message, index) => ({
+  channel?: string,
+): Promise<{ messages: ChatMessage[]; channel?: string }> {
+  const detail = await getSessionHistory(sessionId, channel)
+  const messages = detail.messages.map((message, index) => ({
     id: `hist-${index}-${Date.now()}`,
     role: message.role,
     content: message.content,
@@ -59,6 +60,7 @@ export async function loadSessionMessages(
     }),
     timestamp: message.created_at ?? detail.updated,
   }))
+  return { messages, channel: detail.channel }
 }
 
 function normalizeMessageTimestamp(timestamp: number | string): string {

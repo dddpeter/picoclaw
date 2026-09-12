@@ -71,6 +71,8 @@ export interface ChatStoreState {
   connectionState: ConnectionState
   isTyping: boolean
   activeSessionId: string
+  /** Originating channel of the active session ("pico" for web chat); undefined until known. */
+  activeSessionChannel?: string
   hasHydratedActiveSession: boolean
   contextUsage?: ContextUsage
   /** When the current assistant turn started (ms epoch); undefined when idle. */

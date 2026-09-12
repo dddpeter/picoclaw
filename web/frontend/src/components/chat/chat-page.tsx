@@ -52,11 +52,20 @@ function resolveChatInputDisabledReason({
   hasDefaultModel,
   connectionState,
   gatewayState,
+  activeSessionChannel,
 }: {
   hasDefaultModel: boolean
   connectionState: ConnectionState
   gatewayState: GatewayState
+  activeSessionChannel?: string
 }): ChatInputDisabledReason | null {
+  // Sessions from other channels (feishu, telegram, ...) are read-only here:
+  // the web chat can only write into pico-scoped sessions, so composing would
+  // fork a ghost pico session detached from the real conversation.
+  if (activeSessionChannel && activeSessionChannel !== "pico") {
+    return "nonPicoSession"
+  }
+
   if (gatewayState === "unknown") {
     return "gatewayUnknown"
   }
@@ -132,6 +141,7 @@ export function ChatPage() {
     connectionState,
     isTyping,
     activeSessionId,
+    activeSessionChannel,
     contextUsage,
     turnStartedAt,
     sendMessage,
@@ -156,6 +166,7 @@ export function ChatPage() {
     hasDefaultModel,
     connectionState,
     gatewayState: gwState,
+    activeSessionChannel,
   })
   const canInput = inputDisabledReason === null
 
@@ -167,6 +178,7 @@ export function ChatPage() {
     loadErrorMessage,
     observerRef,
     loadSessions,
+    refreshSessions,
     handleDeleteSession,
   } = useSessionHistory({
     activeSessionId,
@@ -316,6 +328,7 @@ export function ChatPage() {
       <SessionHistorySidebar
         sessions={sessions}
         activeSessionId={activeSessionId}
+        activeSessionBusy={isTyping}
         hasMore={hasMore}
         isLoading={isLoading}
         loadError={loadError}
@@ -324,6 +337,7 @@ export function ChatPage() {
         onSwitchSession={switchSession}
         onDeleteSession={handleDeleteSession}
         onRefresh={() => void loadSessions(true)}
+        onAutoRefresh={() => void refreshSessions()}
       />
 
       <div className="flex min-w-0 flex-1 flex-col">

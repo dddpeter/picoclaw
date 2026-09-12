@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils"
 import type { ChatAttachment, ContextUsage } from "@/store/chat"
 
 export type ChatInputDisabledReason =
+  | "nonPicoSession"
   | "gatewayUnknown"
   | "gatewayStarting"
   | "gatewayRestarting"

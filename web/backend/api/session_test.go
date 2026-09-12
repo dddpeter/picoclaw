@@ -1762,3 +1762,179 @@ func TestHandleSessions_IgnoresMetaJSONInLegacyFallback(t *testing.T) {
 		t.Fatalf("len(items) = %d, want 0", len(items))
 	}
 }
+
+func TestHandleSessions_NonPicoChannelListed(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	dir := sessionsTestDir(t, configPath)
+	store, storeErr := memory.NewJSONLStore(dir)
+	if storeErr != nil {
+		t.Fatalf("NewJSONLStore() error = %v", storeErr)
+	}
+
+	sessionKey := "sk_v1_feishu_direct_chat"
+	if err := store.AddFullMessage(nil, sessionKey, providers.Message{
+		Role:    "user",
+		Content: "feishu hello",
+	}); err != nil {
+		t.Fatalf("AddFullMessage() error = %v", err)
+	}
+
+	scopeData, err := json.Marshal(session.SessionScope{
+		Version:    session.ScopeVersionV1,
+		AgentID:    "main",
+		Channel:    "Feishu",
+		Account:    "default",
+		Dimensions: []string{"chat"},
+		Values: map[string]string{
+			"chat": "direct:ou_123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Marshal(scope) error = %v", err)
+	}
+	if err := store.UpsertSessionMeta(nil, sessionKey, scopeData, nil); err != nil {
+		t.Fatalf("UpsertSessionMeta() error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	listRec := httptest.NewRecorder()
+	listReq := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
+	mux.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("list status = %d, want %d, body=%s", listRec.Code, http.StatusOK, listRec.Body.String())
+	}
+
+	var items []sessionListItem
+	if err := json.Unmarshal(listRec.Body.Bytes(), &items); err != nil {
+		t.Fatalf("Unmarshal(list) error = %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want 1, body=%s", len(items), listRec.Body.String())
+	}
+	if items[0].ID != sessionKey {
+		t.Fatalf("items[0].ID = %q, want %q", items[0].ID, sessionKey)
+	}
+	if items[0].Channel != "feishu" {
+		t.Fatalf("items[0].Channel = %q, want %q", items[0].Channel, "feishu")
+	}
+
+	detailRec := httptest.NewRecorder()
+	detailReq := httptest.NewRequest(http.MethodGet, "/api/sessions/"+sessionKey, nil)
+	mux.ServeHTTP(detailRec, detailReq)
+	if detailRec.Code != http.StatusOK {
+		t.Fatalf("detail status = %d, want %d, body=%s", detailRec.Code, http.StatusOK, detailRec.Body.String())
+	}
+
+	deleteRec := httptest.NewRecorder()
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/sessions/"+sessionKey, nil)
+	mux.ServeHTTP(deleteRec, deleteReq)
+	if deleteRec.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, want %d, body=%s", deleteRec.Code, http.StatusNoContent, deleteRec.Body.String())
+	}
+}
+
+// A legacy pico "ghost" session (web chat once used another channel's opaque
+// key as its session UUID) must not shadow that channel's session: both stay
+// listed, and detail/delete disambiguate via the channel query param.
+func TestHandleSessions_ChannelQualifiedIDDedup(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	dir := sessionsTestDir(t, configPath)
+	store, storeErr := memory.NewJSONLStore(dir)
+	if storeErr != nil {
+		t.Fatalf("NewJSONLStore() error = %v", storeErr)
+	}
+
+	const liveKey = "sk_v1_feishu_live_key"
+	if err := store.AddFullMessage(nil, liveKey, providers.Message{
+		Role:    "user",
+		Content: "feishu conversation about vLLM",
+	}); err != nil {
+		t.Fatalf("AddFullMessage(feishu) error = %v", err)
+	}
+	feishuScope, err := json.Marshal(session.SessionScope{
+		Version: session.ScopeVersionV1, AgentID: "main", Channel: "feishu",
+		Account: "default", Dimensions: []string{"chat"},
+		Values: map[string]string{"chat": "direct:oc_collision"},
+	})
+	if err != nil {
+		t.Fatalf("marshal feishu scope: %v", err)
+	}
+	if err := store.UpsertSessionMeta(nil, liveKey, feishuScope, nil); err != nil {
+		t.Fatalf("UpsertSessionMeta(feishu) error = %v", err)
+	}
+
+	const ghostKey = "sk_v1_ghost_session_key"
+	if err := store.AddFullMessage(nil, ghostKey, providers.Message{
+		Role:    "user",
+		Content: "ghost pico conversation",
+	}); err != nil {
+		t.Fatalf("AddFullMessage(ghost) error = %v", err)
+	}
+	ghostScope, err := json.Marshal(session.SessionScope{
+		Version: session.ScopeVersionV1, AgentID: "main", Channel: "pico",
+		Account: "default", Dimensions: []string{"chat"},
+		Values: map[string]string{"chat": "direct:pico:" + liveKey},
+	})
+	if err != nil {
+		t.Fatalf("marshal ghost scope: %v", err)
+	}
+	if err := store.UpsertSessionMeta(nil, ghostKey, ghostScope, nil); err != nil {
+		t.Fatalf("UpsertSessionMeta(ghost) error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	listRec := httptest.NewRecorder()
+	mux.ServeHTTP(listRec, httptest.NewRequest(http.MethodGet, "/api/sessions", nil))
+	var items []sessionListItem
+	if err := json.Unmarshal(listRec.Body.Bytes(), &items); err != nil {
+		t.Fatalf("Unmarshal(list) error = %v", err)
+	}
+	channels := map[string]string{}
+	for _, item := range items {
+		if item.ID == liveKey {
+			channels[item.Channel] = item.Title
+		}
+	}
+	if len(channels) != 2 || channels["feishu"] == "" || channels["pico"] == "" {
+		t.Fatalf("both channels must stay listed for id %q, got %v", liveKey, channels)
+	}
+
+	detailRec := httptest.NewRecorder()
+	mux.ServeHTTP(detailRec, httptest.NewRequest(http.MethodGet,
+		"/api/sessions/"+liveKey+"?channel=feishu", nil))
+	if detailRec.Code != http.StatusOK {
+		t.Fatalf("detail(feishu) status = %d", detailRec.Code)
+	}
+	var detail struct {
+		Messages []struct{ Content string } `json:"messages"`
+	}
+	if err := json.Unmarshal(detailRec.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("Unmarshal(detail) error = %v", err)
+	}
+	if len(detail.Messages) == 0 || detail.Messages[0].Content != "feishu conversation about vLLM" {
+		t.Fatalf("detail(feishu) returned wrong session: %+v", detail.Messages)
+	}
+
+	deleteRec := httptest.NewRecorder()
+	mux.ServeHTTP(deleteRec, httptest.NewRequest(http.MethodDelete,
+		"/api/sessions/"+liveKey+"?channel=feishu", nil))
+	if deleteRec.Code != http.StatusNoContent {
+		t.Fatalf("delete(feishu) status = %d", deleteRec.Code)
+	}
+	if _, err := os.Stat(filepath.Join(dir, liveKey+".jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("feishu session files should be deleted, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ghostKey+".jsonl")); err != nil {
+		t.Fatalf("ghost session must survive, stat err = %v", err)
+	}
+}

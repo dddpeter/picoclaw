@@ -49,7 +49,8 @@
       "websocketConnecting": "Connecting to chat service... Please wait.",
       "websocketDisconnected": "Unable to chat: WebSocket connection is disconnected. Check network and gateway status, then refresh the page or restart Launcher.",
       "websocketError": "Unable to chat: WebSocket connection failed. Check network and gateway status, then retry.",
-      "noDefaultModel": "Unable to chat: No default model is selected. Set a default model on the Models page."
+      "noDefaultModel": "Unable to chat: No default model is selected. Set a default model on the Models page.",
+      "nonPicoSession": "Read-only session: this conversation belongs to another channel (e.g. Feishu) and can only be viewed here."
     },
     "newChat": "New Chat",
     "notConnected": "Gateway is not running. Start it to chat.",

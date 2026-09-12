@@ -18,7 +18,7 @@ func TestBuildSessionListItemPrefersStoredTitle(t *testing.T) {
 		Created: time.Now(),
 		Updated: time.Now(),
 	}
-	item := buildSessionListItem("id", sess, 200)
+	item := buildSessionListItem("id", sess, "pico", 200)
 	if item.Title != "存储的标题" {
 		t.Fatalf("title = %q, want stored title", item.Title)
 	}
@@ -36,7 +36,7 @@ func TestBuildSessionListItemFallsBackToPreview(t *testing.T) {
 		Created: time.Now(),
 		Updated: time.Now(),
 	}
-	item := buildSessionListItem("id", sess, 200)
+	item := buildSessionListItem("id", sess, "pico", 200)
 	if item.Title != "没有标题时的预览来源" {
 		t.Fatalf("title fallback = %q", item.Title)
 	}

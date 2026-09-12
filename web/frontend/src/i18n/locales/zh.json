@@ -49,7 +49,8 @@
       "websocketConnecting": "正在连接聊天服务，请稍候。",
       "websocketDisconnected": "无法对话：WebSocket 连接已断开。请检查网络与服务状态，然后刷新页面或重启 Launcher。",
       "websocketError": "无法对话：WebSocket 连接失败。请检查网络与服务状态后重试。",
-      "noDefaultModel": "无法对话：尚未设置默认模型。请前往模型页面设置默认模型。"
+      "noDefaultModel": "无法对话：尚未设置默认模型。请前往模型页面设置默认模型。",
+      "nonPicoSession": "只读会话：当前查看的是其他渠道（如飞书）的会话，网页端仅支持查看历史记录。"
     },
     "newChat": "新建对话",
     "notConnected": "服务未运行，请先启动以进行对话。",

@@ -265,7 +265,7 @@ export async function hydrateActiveSession() {
   }
 
   hydratePromise = loadSessionMessages(storedSessionId)
-    .then((historyMessages) => {
+    .then(({ messages: historyMessages, channel }) => {
       const currentState = getChatState()
       if (currentState.activeSessionId !== storedSessionId) {
         return
@@ -277,6 +277,7 @@ export async function hydrateActiveSession() {
             historyMessages,
             currentState.messages,
           ),
+          activeSessionChannel: channel,
           hasHydratedActiveSession: true,
         })
         return
@@ -285,6 +286,7 @@ export async function hydrateActiveSession() {
       updateChatStore({
         messages: historyMessages,
         isTyping: false,
+        activeSessionChannel: channel,
         hasHydratedActiveSession: true,
       })
     })
@@ -385,19 +387,21 @@ export function sendChatMessage({
   }
 }
 
-export async function switchChatSession(sessionId: string) {
+export async function switchChatSession(sessionId: string, channel?: string) {
   if (sessionId === activeSessionIdRef) {
     return
   }
 
   try {
-    const historyMessages = await loadSessionMessages(sessionId)
+    const { messages: historyMessages, channel: detailChannel } =
+      await loadSessionMessages(sessionId, channel)
 
     disconnectChatInternal({ clearDesiredConnection: false })
     setActiveSessionId(sessionId)
     updateChatStore({
       messages: historyMessages,
       isTyping: false,
+      activeSessionChannel: detailChannel ?? channel,
       hasHydratedActiveSession: true,
       contextUsage: undefined,
     })
@@ -422,6 +426,7 @@ export async function newChatSession() {
   updateChatStore({
     messages: [],
     isTyping: false,
+    activeSessionChannel: "pico",
     hasHydratedActiveSession: true,
     contextUsage: undefined,
   })
