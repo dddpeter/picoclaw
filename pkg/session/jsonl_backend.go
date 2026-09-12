@@ -129,6 +129,10 @@ type titleAwareStore interface {
 	SetSessionTitle(ctx context.Context, sessionKey, title, source string) (bool, error)
 }
 
+type titleClearingStore interface {
+	ClearSessionTitle(ctx context.Context, sessionKey string) error
+}
+
 // SetSessionTitle stores a session title honoring source priority
 // (user > llm > derived); returns false when the store does not support
 // titles or the existing title outranks the incoming one.
@@ -143,6 +147,45 @@ func (b *JSONLBackend) SetSessionTitle(sessionKey, title, source string) bool {
 		return false
 	}
 	return applied
+}
+
+// ClearSessionTitle removes the stored title so the next turn re-derives one
+// (used by /new session rotation). No-op when the store lacks title support.
+func (b *JSONLBackend) ClearSessionTitle(sessionKey string) {
+	ts, ok := b.store.(titleClearingStore)
+	if !ok {
+		return
+	}
+	if err := ts.ClearSessionTitle(context.Background(), b.resolveSessionKey(sessionKey)); err != nil {
+		log.Printf("session: clear session title: %v", err)
+	}
+}
+
+// ArchiveSessionMetadata copies scope metadata and the stored title from the
+// live session onto the archive session (best-effort; used by /new rotation,
+// see pkg/agent/session_rotate.go).
+func (b *JSONLBackend) ArchiveSessionMetadata(liveKey, archiveKey string) {
+	metaStore, ok := b.store.(metaAwareStore)
+	if !ok {
+		return
+	}
+	ctx := context.Background()
+	meta, err := metaStore.GetSessionMeta(ctx, b.resolveSessionKey(liveKey))
+	if err != nil {
+		log.Printf("session: read session metadata for archive: %v", err)
+		return
+	}
+	if err := metaStore.UpsertSessionMeta(ctx, archiveKey, meta.Scope, nil); err != nil {
+		log.Printf("session: write archive session metadata: %v", err)
+		return
+	}
+	if title := strings.TrimSpace(meta.Title); title != "" {
+		if ts, ok := b.store.(titleAwareStore); ok {
+			if _, err := ts.SetSessionTitle(ctx, archiveKey, title, meta.TitleSource); err != nil {
+				log.Printf("session: set archive session title: %v", err)
+			}
+		}
+	}
 }
 
 // GetSessionTitle returns the stored title and its source for a session.

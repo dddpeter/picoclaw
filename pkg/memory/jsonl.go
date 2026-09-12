@@ -290,6 +290,27 @@ func (s *JSONLStore) SetSessionTitle(
 	return true, nil
 }
 
+// ClearSessionTitle removes a stored title and its source so the next turn
+// re-derives one from scratch. Used by /new session rotation: the previous
+// title moves to the archive session and the live session must not keep it.
+func (s *JSONLStore) ClearSessionTitle(_ context.Context, sessionKey string) error {
+	l := s.sessionLock(sessionKey)
+	l.Lock()
+	defer l.Unlock()
+
+	meta, err := s.readMeta(sessionKey)
+	if err != nil {
+		return err
+	}
+	if meta.Title == "" && meta.TitleSource == "" {
+		return nil
+	}
+	meta.Title = ""
+	meta.TitleSource = ""
+	meta.UpdatedAt = time.Now()
+	return s.writeMeta(sessionKey, meta)
+}
+
 // PromoteAliasHistory atomically promotes the first non-empty alias session
 // into the canonical session when the canonical session is still empty.
 //

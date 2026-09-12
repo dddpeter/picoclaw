@@ -66,6 +66,10 @@ type Runtime struct {
 	GetSessionTitle    func() (title, source string, ok bool)
 	SwitchChannel      func(value string) error
 	ClearHistory       func() error
-	ReloadConfig       func() error
+	// NewSession archives the current conversation into a fresh session and
+	// clears the live one; archived reports whether anything was preserved.
+	// When nil, /new falls back to ClearHistory (plain in-place wipe).
+	NewSession     func() (archived bool, err error)
+	ReloadConfig   func() error
 	StopActiveTurn     func() (StopResult, error)
 }

@@ -393,6 +393,23 @@ func (al *AgentLoop) buildCommandsRuntime(
 			return al.contextManager.Clear(ctx, opts.SessionKey)
 		}
 
+		// /new archives the previous conversation into its own session and
+		// clears the live one, so history views keep the old chat.
+		rt.NewSession = func() (bool, error) {
+			if opts == nil {
+				return false, fmt.Errorf("process options not available")
+			}
+			// Same reasoning as /clear above: record scope metadata before the
+			// rotation resolves the owning agent's store.
+			ensureSessionMetadata(
+				agent.Sessions,
+				opts.Dispatch.SessionKey,
+				opts.Dispatch.SessionScope,
+				opts.Dispatch.SessionAliases,
+			)
+			return al.rotateSession(ctx, agent, opts)
+		}
+
 		// /title: manual session titles outrank derived and light-model ones.
 		rt.SetSessionTitle = func(title string) bool {
 			if opts == nil {
