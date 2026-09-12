@@ -47,7 +47,7 @@
 
 ## 3. 命令增强与语义差异
 
-- `/new`（`125b3287` + `9bab2b25` + `d349a638`）：开新会话——清历史，并把模型重置为**配置文件里当前定义的默认模型**（重新读取磁盘配置，优先级 AGENT.md frontmatter > agents.list > defaults）。回复中携带当前模型名。
+- `/new`（`125b3287` + `9bab2b25` + `d349a638`；**2026-09-12 改为归档轮换**）：开新会话——把当前对话**归档**为独立会话（历史/摘要/标题/scope 元数据迁入新归档 key，`pkg/agent/session_rotate.go`），活会话原地清空并清掉标题（下轮重新起名），模型重置为**配置文件里当前定义的默认模型**（重新读取磁盘配置，优先级 AGENT.md frontmatter > agents.list > defaults）。回复中携带归档提示与当前模型名；空会话无可归档时跳过归档。`/clear` 仍是纯清空（`Runtime.ClearHistory`），`/new` 走 `Runtime.NewSession`（nil 时回退 ClearHistory）。
 - `/status`（`125b3287`）：运行状态总览（版本、模型、通道、活跃任务）。
 - **Busy 语义**（`d349a638` / `03471ee6`）：`/switch model` 与 `/new` 的模型重置在 turn 活跃期间**不排队等待**，通过 TryLock 立即返回 skipped 提示。设计动机：turn 全程持有模型状态读锁，阻塞式写锁会在 LLM 调用挂起时死锁命令。
 - 未促使内容处理（`8e077180`）：agent 对未被提示的内容做实质性分析而非简单确认。
@@ -130,7 +130,7 @@
 | 场景 | 上游 | 本 fork |
 |---|---|---|
 | 飞书回复 | 文本消息 | CardKit 流式卡片（过程面板时间线交错 + 工具运行中条目 + 标题实际总数 + 面板默认折叠 + 中途说明灰字轨迹） |
-| `/new` | 无此命令 | 清历史 + 重置为配置默认模型（重读磁盘） |
+| `/new` | 无此命令 | 归档旧对话（历史/标题迁入归档会话）+ 清空活会话 + 重置为配置默认模型（重读磁盘） |
 | `/switch model`（turn 活跃时） | 阻塞等待 | 立即返回 busy 提示 |
 | 流式 LLM 请求 | 无响应头超时 | 90 秒响应头超时后快速失败 |
 | 流式默认值 | 双开关默认关（省略=关） | 模型侧 `*bool` **省略=开**；安装默认 pico+feishu 渠道出厂开（`TestModelStreamingConfigDefaultOn`、"model omitted still streams" 钉住） |
@@ -148,6 +148,7 @@
 | 技能来源 | 3 级（workspace/global/builtin） | 5 级（+`<ws>/.skills`、`~/.agents/skills`），restrict 下技能根只读放行 |
 | 项目文档 | 无（README/CLAUDE.md 完全忽略） | `project_docs` 自动注入（AGENTS.md/README.md/CLAUDE.md，截断保护） |
 | 会话标题 | 无（launcher 列表显示首条消息截断） | 两阶段自动命名（派生→轻模型升级）+ `/title` 手动，user>llm>derived 优先级 |
+| Web 会话列表 | 仅 pico（web 聊天）会话 | 全渠道会话（带 `channel` 徽标，如 feishu）；非 pico 会话只读查看（输入框禁用 `nonPicoSession`），删除跨渠道放行（`web/backend/api/session.go`） |
 | `/stop` 中止的会话历史 | 回滚到 turn 前（新会话=整文件清空） | 封口悬空 tool_calls 并保留记录；turn 卡死 10s 后看门狗强制释放会话注册 |
 | exec 子进程击杀（Windows） | taskkill /T（孤儿逃逸→管道挂死→会话卡死） | Job Object 整树击杀 + 5s WaitDelay 有界 io 等待；干净退出的存活 daemon 不误杀 |
 | Web launcher 外观 | 上游默认主题 | 深空紫青主题（仅改 index.css，升级时留意该文件冲突） |
@@ -161,4 +162,4 @@
 - 开放默认三件套（不要"加固"回去）：`restrict_to_workspace` 默认 `false`；`pkg/tools/fs/system_paths.go` 的系统目录保护（`tools.protect_system_paths` nil=开，校验入口在 `validatePathWithAllowPaths` 最前）；`defaultDenyPatterns` 为毁灭性+系统目录写入集（一般命令/脚本/$()/管道/heredoc 放行，windowsDenyPatterns 已删除）。同步上游时若上游改动这三处，保留 fork 语义优先。
 - exec 卡死三连修（2026-09-11）：`pkg/tools/shell.go` 的 `execIOWaitDelay`/`ErrWaitDelay` 处理、`pkg/tools/shell_process_windows.go` 的 Job Object 击杀（`trackProcessTree`/`terminateProcessTree`）、`pkg/tools/output_clean.go` 的 CRLF 折叠修复、`pkg/agent/steering_abort.go` 的封口（`sealDanglingToolCalls`）+ 看门狗（`watchHardAbortUnwind`）、`pkg/agent/steering.go` HardAbort 的"封口不抹除"——均为 fork 行为，上游同步时保留 fork 语义；`subturn_test.go` 的 `TestHardAbortSessionRollback`/`TestHardAbortOrderOfOperations` 断言的是封口语义，不要按上游回滚语义"修"回去。
 - Turn 韧性（2026-09-09，详见 `docs/design/turn-llm-failure-resilience.zh.md`）：`pkg/agent/pipeline_streaming.go` 的出字前失败**保卡承接 + sticky 降级 + 冷却门控**、`pkg/agent/pipeline_finalize.go` 的纯文本兜底条件、`pkg/agent/agent.go` 的 `publishTurnError`、`pkg/providers/error_classifier.go` 的**配额→Billing 模式迁移与 429+配额 body 判定**、`pkg/providers/cooldown.go` 的 `MarkFailureWithHint`、`pkg/providers/common/common.go` 的 `HTTPError.RetryAfter`——均为 fork 行为，上游同步时保留 fork 语义。turn 重试边界是结构性保证（无预算机制），不要重新引入"失败计数预算"类加固。
-- 合并后跑 `go test ./pkg/agent/ ./pkg/tools/ ./pkg/providers/... ./pkg/commands/` 验证 fork 测试（文件名含 `_test.go` 且测试名带 `NewResets`/`NeverBlocks`/`ResponseHeaderTimeout`/`CleanCommandOutput` 的均为 fork 独有）；前端改动需另跑 `pnpm build` 验证。
+- 合并后跑 `go test ./pkg/agent/ ./pkg/tools/ ./pkg/providers/... ./pkg/commands/` 验证 fork 测试（文件名含 `_test.go` 且测试名带 `NewResets`/`NewArchives`/`NeverBlocks`/`ResponseHeaderTimeout`/`CleanCommandOutput` 的均为 fork 独有）；前端改动需另跑 `pnpm build` 验证。
