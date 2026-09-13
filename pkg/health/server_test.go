@@ -356,3 +356,54 @@ func TestStatusString(t *testing.T) {
 		}
 	}
 }
+
+func TestMCPStatusHandler_ReturnsSnapshot(t *testing.T) {
+	s := newTestServer()
+	s.SetMCPStatusFunc(func() any {
+		return map[string]any{"initialized": true, "enabled": true, "servers": map[string]any{}}
+	})
+
+	// 无 token → 401
+	req := httptest.NewRequest(http.MethodGet, "/mcp/status", nil)
+	w := httptest.NewRecorder()
+	s.mcpStatusHandler(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("no-token status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+
+	// 带 token → 200 + 透传快照
+	req = httptest.NewRequest(http.MethodGet, "/mcp/status", nil)
+	req.Header.Set("Authorization", "Bearer test")
+	w = httptest.NewRecorder()
+	s.mcpStatusHandler(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp["initialized"] != true {
+		t.Errorf("initialized = %v, want true", resp["initialized"])
+	}
+}
+
+func TestMCPStatusHandler_MethodAndNotConfigured(t *testing.T) {
+	s := newTestServer()
+
+	req := httptest.NewRequest(http.MethodPost, "/mcp/status", nil)
+	req.Header.Set("Authorization", "Bearer test")
+	w := httptest.NewRecorder()
+	s.mcpStatusHandler(w, req)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST status = %d, want %d", w.Code, http.StatusMethodNotAllowed)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/mcp/status", nil)
+	req.Header.Set("Authorization", "Bearer test")
+	w = httptest.NewRecorder()
+	s.mcpStatusHandler(w, req)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("nil-func status = %d, want %d", w.Code, http.StatusServiceUnavailable)
+	}
+}

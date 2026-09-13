@@ -14,13 +14,14 @@ import (
 )
 
 type Server struct {
-	server     *http.Server
-	mu         sync.RWMutex
-	ready      bool
-	checks     map[string]Check
-	startTime  time.Time
-	reloadFunc func() error
-	authToken  string // optional bearer token for protected endpoints
+	server        *http.Server
+	mu            sync.RWMutex
+	ready         bool
+	checks        map[string]Check
+	startTime     time.Time
+	reloadFunc    func() error
+	mcpStatusFunc func() any
+	authToken     string // optional bearer token for protected endpoints
 }
 
 type Check struct {
@@ -49,6 +50,7 @@ func NewServer(host string, port int, token string) *Server {
 	mux.HandleFunc("/health", s.healthHandler)
 	mux.HandleFunc("/ready", s.readyHandler)
 	mux.HandleFunc("/reload", s.reloadHandler)
+	mux.HandleFunc("/mcp/status", s.mcpStatusHandler)
 
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	s.server = &http.Server{
@@ -117,6 +119,50 @@ func (s *Server) SetReloadFunc(fn func() error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.reloadFunc = fn
+}
+
+// SetMCPStatusFunc sets the callback that produces the MCP status snapshot
+// served by GET /mcp/status. The returned value is JSON-serialized as-is.
+func (s *Server) SetMCPStatusFunc(fn func() any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.mcpStatusFunc = fn
+}
+
+func (s *Server) mcpStatusHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed, use GET"})
+		return
+	}
+
+	// Token check
+	s.mu.RLock()
+	requiredToken := s.authToken
+	statusFunc := s.mcpStatusFunc
+	s.mu.RUnlock()
+
+	if requiredToken != "" {
+		given := extractBearerToken(r.Header.Get("Authorization"))
+		if given == "" || subtle.ConstantTimeCompare([]byte(given), []byte(requiredToken)) != 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+			return
+		}
+	}
+
+	if statusFunc == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"error": "mcp status not configured"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(statusFunc())
 }
 
 func (s *Server) reloadHandler(w http.ResponseWriter, r *http.Request) {
@@ -231,6 +277,7 @@ func (s *Server) RegisterOnMux(mux HandlerMux) {
 	mux.HandleFunc("/health", s.healthHandler)
 	mux.HandleFunc("/ready", s.readyHandler)
 	mux.HandleFunc("/reload", s.reloadHandler)
+	mux.HandleFunc("/mcp/status", s.mcpStatusHandler)
 }
 
 func statusString(ok bool) string {
