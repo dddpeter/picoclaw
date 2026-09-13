@@ -16,6 +16,7 @@
     "hub": "Hub",
     "skills": "技能",
     "tools": "工具",
+    "mcp": "MCP",
     "services": "服务",
     "channels_group": "频道",
     "show_more_channels": "更多",
@@ -998,6 +999,90 @@
       "log_level_error": "更新日志等级失败。",
       "clear": "清空日志",
       "empty": "等待日志中..."
+    },
+    "mcp": {
+      "placeholder": "MCP 设置页面",
+      "tabs": {
+        "servers": "服务器",
+        "settings": "发现与高级"
+      },
+      "global": {
+        "enabled": "启用 MCP",
+        "enabled_hint": "关闭后 agent 不加载任何 MCP 服务器"
+      },
+      "banner": {
+        "offline": "Gateway 未运行，以下为配置值",
+        "not_initialized": "Gateway 尚未加载 MCP（将在下一次对话时加载）",
+        "summary": "在线 {connected}/{total} 台服务器 · 共 {tools} 个工具",
+        "refresh": "刷新状态"
+      },
+      "servers": {
+        "add": "添加服务器",
+        "empty": "还没有 MCP 服务器。添加一个以扩展 agent 的工具能力。",
+        "remove": "删除",
+        "remove_confirm": "确定删除服务器「{name}」？点击保存后生效。"
+      },
+      "server": {
+        "name": "名称",
+        "name_placeholder": "例如 openviking",
+        "type": "类型",
+        "enabled": "启用此服务器",
+        "deferred": "工具发现模式",
+        "deferred_inherit": "跟随全局设置",
+        "deferred_deferred": "延迟发现（按需搜索）",
+        "deferred_eager": "即时注册（全部暴露给模型）",
+        "url": "URL",
+        "url_placeholder": "https://example.com/mcp",
+        "headers": "请求头（JSON）",
+        "headers_hint": "JSON 对象，例如 {\"Authorization\": \"Bearer …\"}",
+        "command": "命令",
+        "command_placeholder": "例如 npx",
+        "args": "参数（每行一个）",
+        "env": "环境变量（每行 KEY=VALUE）",
+        "env_file": "环境变量文件路径",
+        "env_file_placeholder": "相对于 workspace，例如 .env.mcp",
+        "status_connected": "在线",
+        "status_error": "错误",
+        "status_not_loaded": "未加载",
+        "status_offline": "未知（gateway 离线）",
+        "status_not_initialized": "未加载",
+        "tools_title": "注册的工具",
+        "tools_count": "{count} 个工具",
+        "error_label": "错误信息"
+      },
+      "test": {
+        "run": "测试连接",
+        "running": "测试中…",
+        "success": "连接成功 · {latency} ms · {count} 个工具",
+        "failed": "连接失败"
+      },
+      "save": "保存",
+      "discard": "放弃修改",
+      "discard_confirm": "确认放弃？",
+      "discard_hint": "有未保存的修改",
+      "save_failed": "保存失败：{message}",
+      "invalid_json": "「{field}」不是合法的 JSON 对象",
+      "discovery": {
+        "enabled": "启用工具发现",
+        "enabled_hint": "工具按需以正则/语义搜索发现，而不是全部注册",
+        "ttl": "发现结果缓存（秒）",
+        "ttl_hint": "搜索结果缓存时间",
+        "max_results": "搜索结果数上限",
+        "max_results_hint": "单次工具搜索返回的最大数量",
+        "use_bm25": "语义排序（BM25）",
+        "use_bm25_hint": "按相关性对隐藏工具排序",
+        "use_regex": "正则搜索",
+        "use_regex_hint": "按正则匹配隐藏工具（与 BM25 至少启用一个）"
+      },
+      "advanced": {
+        "max_inline": "工具输出内联上限（字符）",
+        "max_inline_hint": "超过此长度的 MCP 文本输出将落盘为附件",
+        "min_one": "至少为 1"
+      },
+      "config_page": {
+        "notice": "MCP 设置已独立为专门页面",
+        "link": "前往 MCP 页面"
+      }
     }
   },
   "tour": {

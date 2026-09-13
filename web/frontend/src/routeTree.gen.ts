@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ModelsRouteImport } from './routes/models'
+import { Route as McpRouteImport } from './routes/mcp'
 import { Route as LogsRouteImport } from './routes/logs'
 import { Route as LauncherSetupRouteImport } from './routes/launcher-setup'
 import { Route as LauncherLoginRouteImport } from './routes/launcher-login'
@@ -27,6 +28,11 @@ import { Route as AgentHubRouteImport } from './routes/agent/hub'
 const ModelsRoute = ModelsRouteImport.update({
   id: '/models',
   path: '/models',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const McpRoute = McpRouteImport.update({
+  id: '/mcp',
+  path: '/mcp',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LogsRoute = LogsRouteImport.update({
@@ -104,6 +110,7 @@ export interface FileRoutesByFullPath {
   '/launcher-login': typeof LauncherLoginRoute
   '/launcher-setup': typeof LauncherSetupRoute
   '/logs': typeof LogsRoute
+  '/mcp': typeof McpRoute
   '/models': typeof ModelsRoute
   '/agent/hub': typeof AgentHubRoute
   '/agent/skills': typeof AgentSkillsRoute
@@ -120,6 +127,7 @@ export interface FileRoutesByTo {
   '/launcher-login': typeof LauncherLoginRoute
   '/launcher-setup': typeof LauncherSetupRoute
   '/logs': typeof LogsRoute
+  '/mcp': typeof McpRoute
   '/models': typeof ModelsRoute
   '/agent/hub': typeof AgentHubRoute
   '/agent/skills': typeof AgentSkillsRoute
@@ -137,6 +145,7 @@ export interface FileRoutesById {
   '/launcher-login': typeof LauncherLoginRoute
   '/launcher-setup': typeof LauncherSetupRoute
   '/logs': typeof LogsRoute
+  '/mcp': typeof McpRoute
   '/models': typeof ModelsRoute
   '/agent/hub': typeof AgentHubRoute
   '/agent/skills': typeof AgentSkillsRoute
@@ -155,6 +164,7 @@ export interface FileRouteTypes {
     | '/launcher-login'
     | '/launcher-setup'
     | '/logs'
+    | '/mcp'
     | '/models'
     | '/agent/hub'
     | '/agent/skills'
@@ -171,6 +181,7 @@ export interface FileRouteTypes {
     | '/launcher-login'
     | '/launcher-setup'
     | '/logs'
+    | '/mcp'
     | '/models'
     | '/agent/hub'
     | '/agent/skills'
@@ -187,6 +198,7 @@ export interface FileRouteTypes {
     | '/launcher-login'
     | '/launcher-setup'
     | '/logs'
+    | '/mcp'
     | '/models'
     | '/agent/hub'
     | '/agent/skills'
@@ -204,6 +216,7 @@ export interface RootRouteChildren {
   LauncherLoginRoute: typeof LauncherLoginRoute
   LauncherSetupRoute: typeof LauncherSetupRoute
   LogsRoute: typeof LogsRoute
+  McpRoute: typeof McpRoute
   ModelsRoute: typeof ModelsRoute
 }
 
@@ -214,6 +227,13 @@ declare module '@tanstack/react-router' {
       path: '/models'
       fullPath: '/models'
       preLoaderRoute: typeof ModelsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mcp': {
+      id: '/mcp'
+      path: '/mcp'
+      fullPath: '/mcp'
+      preLoaderRoute: typeof McpRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/logs': {
@@ -356,6 +376,7 @@ const rootRouteChildren: RootRouteChildren = {
   LauncherLoginRoute: LauncherLoginRoute,
   LauncherSetupRoute: LauncherSetupRoute,
   LogsRoute: LogsRoute,
+  McpRoute: McpRoute,
   ModelsRoute: ModelsRoute,
 }
 export const routeTree = rootRouteImport

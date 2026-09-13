@@ -16,6 +16,7 @@
     "hub": "Hub",
     "skills": "Skills",
     "tools": "Ferramentas",
+    "mcp": "MCP",
     "services": "Serviços",
     "channels_group": "Canais",
     "show_more_channels": "Mais",
@@ -992,6 +993,90 @@
       "log_level_error": "Falha ao atualizar nível de log.",
       "clear": "Limpar logs",
       "empty": "Aguardando logs..."
+    },
+    "mcp": {
+      "placeholder": "MCP settings page",
+      "tabs": {
+        "servers": "Servers",
+        "settings": "Discovery & Advanced"
+      },
+      "global": {
+        "enabled": "Enable MCP",
+        "enabled_hint": "When off, the agent loads no MCP servers"
+      },
+      "banner": {
+        "offline": "Gateway is not running; showing configured values",
+        "not_initialized": "Gateway has not loaded MCP yet (loads on next conversation)",
+        "summary": "{connected}/{total} servers online · {tools} tools",
+        "refresh": "Refresh status"
+      },
+      "servers": {
+        "add": "Add server",
+        "empty": "No MCP servers yet. Add one to extend the agent's toolset.",
+        "remove": "Remove",
+        "remove_confirm": "Remove server \"{name}\"? Takes effect on save."
+      },
+      "server": {
+        "name": "Name",
+        "name_placeholder": "e.g. openviking",
+        "type": "Type",
+        "enabled": "Enable this server",
+        "deferred": "Tool discovery mode",
+        "deferred_inherit": "Follow global setting",
+        "deferred_deferred": "Deferred (discover on demand)",
+        "deferred_eager": "Eager (register all tools)",
+        "url": "URL",
+        "url_placeholder": "https://example.com/mcp",
+        "headers": "Headers (JSON)",
+        "headers_hint": "JSON object, e.g. {\"Authorization\": \"Bearer …\"}",
+        "command": "Command",
+        "command_placeholder": "e.g. npx",
+        "args": "Arguments (one per line)",
+        "env": "Environment (KEY=VALUE per line)",
+        "env_file": "Env file path",
+        "env_file_placeholder": "Relative to workspace, e.g. .env.mcp",
+        "status_connected": "Online",
+        "status_error": "Error",
+        "status_not_loaded": "Not loaded",
+        "status_offline": "Unknown (gateway offline)",
+        "status_not_initialized": "Not loaded",
+        "tools_title": "Registered tools",
+        "tools_count": "{count} tools",
+        "error_label": "Error"
+      },
+      "test": {
+        "run": "Test connection",
+        "running": "Testing…",
+        "success": "Connected · {latency} ms · {count} tools",
+        "failed": "Connection failed"
+      },
+      "save": "Save",
+      "discard": "Discard changes",
+      "discard_confirm": "Confirm discard?",
+      "discard_hint": "You have unsaved changes",
+      "save_failed": "Save failed: {message}",
+      "invalid_json": "\"{field}\" is not a valid JSON object",
+      "discovery": {
+        "enabled": "Enable tool discovery",
+        "enabled_hint": "Tools are discovered on demand via regex/semantic search instead of being all registered",
+        "ttl": "Discovery cache (seconds)",
+        "ttl_hint": "How long search results are cached",
+        "max_results": "Max search results",
+        "max_results_hint": "Maximum tools returned per search",
+        "use_bm25": "Semantic ranking (BM25)",
+        "use_bm25_hint": "Rank hidden tools by relevance",
+        "use_regex": "Regex search",
+        "use_regex_hint": "Match hidden tools by regex (keep at least one of BM25/regex on)"
+      },
+      "advanced": {
+        "max_inline": "Inline output limit (chars)",
+        "max_inline_hint": "MCP text output beyond this length is saved as an artifact",
+        "min_one": "Must be at least 1"
+      },
+      "config_page": {
+        "notice": "MCP settings moved to a dedicated page",
+        "link": "Open MCP page"
+      }
     }
   },
   "tour": {
