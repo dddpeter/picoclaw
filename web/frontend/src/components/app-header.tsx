@@ -4,11 +4,9 @@ import {
   IconLoader2,
   IconLogout,
   IconMenu2,
-  IconMoon,
   IconPlayerPlay,
   IconPower,
   IconRefresh,
-  IconSun,
 } from "@tabler/icons-react"
 import { Link } from "@tanstack/react-router"
 import * as React from "react"
@@ -39,12 +37,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { ThemeSwitcher } from "@/components/theme-switcher.tsx"
 import { useGateway } from "@/hooks/use-gateway.ts"
-import { useTheme } from "@/hooks/use-theme.ts"
 
 export function AppHeader() {
   const { i18n, t } = useTranslation()
-  const { theme, toggleTheme } = useTheme()
   const {
     state: gwState,
     loading: gwLoading,
@@ -303,19 +300,8 @@ export function AppHeader() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Theme Toggle */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8"
-          onClick={toggleTheme}
-        >
-          {theme === "dark" ? (
-            <IconSun className="size-4.5" />
-          ) : (
-            <IconMoon className="size-4.5" />
-          )}
-        </Button>
+        {/* Theme Switcher */}
+        <ThemeSwitcher />
 
         <Separator className="mx-2 my-2" orientation="vertical" />
 

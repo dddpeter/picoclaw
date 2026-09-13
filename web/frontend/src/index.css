@@ -49,6 +49,11 @@
 
 :root {
   --radius: 0.625rem;
+  /* Signature gradient blend colors (see .bg-primary / active sidebar pill
+     below). Themes override these so gradients follow each palette. */
+  --primary-glow: oklch(0.72 0.16 85);
+  --primary-deep: oklch(0.62 0.2 25);
+  --primary-alt: oklch(0.7 0.16 40);
   /* Aurora / grid ambient backdrop layers (see body rule below). */
   --aurora-1: oklch(0.75 0.16 70 / 11%);
   --aurora-2: oklch(0.72 0.13 25 / 9%);
@@ -128,6 +133,145 @@
   --sidebar-accent-foreground: oklch(0.96 0.012 80);
   --sidebar-border: oklch(0.72 0.09 70 / 18%);
   --sidebar-ring: oklch(0.72 0.17 60);
+}
+
+/* ---------------------------------------------------------------------------
+ * Named themes (metacubexd-style palette list). Each block is a complete
+ * variable set applied via <html data-theme="...">. Dark themes also carry
+ * the .dark class (dark: variants + highlight.js); these blocks are declared
+ * AFTER .dark so they win the equal-specificity cascade when both match.
+ * ------------------------------------------------------------------------- */
+
+/* Ocean — cool blue/teal dark. */
+[data-theme="ocean"] {
+  --primary-glow: oklch(0.78 0.1 190);
+  --primary-deep: oklch(0.6 0.14 250);
+  --primary-alt: oklch(0.68 0.12 250);
+  --aurora-1: oklch(0.58 0.13 210 / 34%);
+  --aurora-2: oklch(0.55 0.12 250 / 28%);
+  --aurora-3: oklch(0.5 0.11 180 / 22%);
+  --aurora-4: oklch(0.52 0.12 280 / 16%);
+  --aurora-5: oklch(0.5 0.1 160 / 12%);
+  --grid-line: oklch(0.72 0.08 215 / 7%);
+  --background: oklch(0.16 0.028 230);
+  --foreground: oklch(0.94 0.015 220);
+  --card: oklch(0.26 0.032 230 / 96%);
+  --card-foreground: oklch(0.94 0.015 220);
+  --popover: oklch(0.21 0.028 230 / 97%);
+  --popover-foreground: oklch(0.94 0.015 220);
+  --primary: oklch(0.74 0.12 210);
+  --primary-foreground: oklch(0.16 0.04 230);
+  --secondary: oklch(0.27 0.032 230);
+  --secondary-foreground: oklch(0.93 0.015 220);
+  --muted: oklch(0.25 0.028 230);
+  --muted-foreground: oklch(0.73 0.035 220);
+  --accent: oklch(0.3 0.048 225);
+  --accent-foreground: oklch(0.95 0.015 220);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(0.72 0.08 215 / 15%);
+  --input: oklch(0.72 0.08 215 / 24%);
+  --ring: oklch(0.74 0.12 210);
+  --chart-1: oklch(0.74 0.12 210);
+  --chart-2: oklch(0.7 0.13 260);
+  --chart-3: oklch(0.72 0.11 180);
+  --chart-4: oklch(0.78 0.13 70);
+  --chart-5: oklch(0.7 0.12 320);
+  --sidebar: oklch(0.24 0.03 230);
+  --sidebar-foreground: oklch(0.94 0.015 220);
+  --sidebar-primary: oklch(0.74 0.12 210);
+  --sidebar-primary-foreground: oklch(0.16 0.04 230);
+  --sidebar-accent: oklch(0.33 0.05 225);
+  --sidebar-accent-foreground: oklch(0.95 0.015 220);
+  --sidebar-border: oklch(0.72 0.08 215 / 18%);
+  --sidebar-ring: oklch(0.74 0.12 210);
+}
+
+/* Forest — calm emerald dark. */
+[data-theme="forest"] {
+  --primary-glow: oklch(0.78 0.12 120);
+  --primary-deep: oklch(0.58 0.13 165);
+  --primary-alt: oklch(0.68 0.13 170);
+  --aurora-1: oklch(0.58 0.14 150 / 32%);
+  --aurora-2: oklch(0.55 0.11 110 / 26%);
+  --aurora-3: oklch(0.5 0.11 180 / 20%);
+  --aurora-4: oklch(0.52 0.1 130 / 16%);
+  --aurora-5: oklch(0.5 0.1 200 / 10%);
+  --grid-line: oklch(0.72 0.09 150 / 7%);
+  --background: oklch(0.155 0.02 150);
+  --foreground: oklch(0.94 0.015 135);
+  --card: oklch(0.25 0.026 150 / 96%);
+  --card-foreground: oklch(0.94 0.015 135);
+  --popover: oklch(0.21 0.024 150 / 97%);
+  --popover-foreground: oklch(0.94 0.015 135);
+  --primary: oklch(0.72 0.15 155);
+  --primary-foreground: oklch(0.15 0.04 150);
+  --secondary: oklch(0.26 0.028 150);
+  --secondary-foreground: oklch(0.93 0.015 135);
+  --muted: oklch(0.24 0.026 150);
+  --muted-foreground: oklch(0.72 0.035 140);
+  --accent: oklch(0.29 0.045 150);
+  --accent-foreground: oklch(0.95 0.015 135);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(0.72 0.09 150 / 15%);
+  --input: oklch(0.72 0.09 150 / 24%);
+  --ring: oklch(0.72 0.15 155);
+  --chart-1: oklch(0.72 0.15 155);
+  --chart-2: oklch(0.75 0.13 120);
+  --chart-3: oklch(0.7 0.11 185);
+  --chart-4: oklch(0.78 0.13 80);
+  --chart-5: oklch(0.68 0.13 300);
+  --sidebar: oklch(0.23 0.026 150);
+  --sidebar-foreground: oklch(0.94 0.015 135);
+  --sidebar-primary: oklch(0.72 0.15 155);
+  --sidebar-primary-foreground: oklch(0.15 0.04 150);
+  --sidebar-accent: oklch(0.32 0.042 150);
+  --sidebar-accent-foreground: oklch(0.95 0.015 135);
+  --sidebar-border: oklch(0.72 0.09 150 / 18%);
+  --sidebar-ring: oklch(0.72 0.15 155);
+}
+
+/* Sakura — soft pink light. */
+[data-theme="sakura"] {
+  --primary-glow: oklch(0.76 0.13 330);
+  --primary-deep: oklch(0.6 0.18 365);
+  --primary-alt: oklch(0.66 0.16 320);
+  --aurora-1: oklch(0.75 0.14 350 / 12%);
+  --aurora-2: oklch(0.72 0.12 320 / 10%);
+  --aurora-3: oklch(0.7 0.1 200 / 8%);
+  --aurora-4: oklch(0.72 0.12 30 / 7%);
+  --aurora-5: oklch(0.74 0.1 280 / 6%);
+  --grid-line: oklch(0.68 0.12 350 / 5%);
+  --background: oklch(0.965 0.014 350);
+  --foreground: oklch(0.28 0.035 350);
+  --card: oklch(1 0.005 350 / 96%);
+  --card-foreground: oklch(0.28 0.035 350);
+  --popover: oklch(1 0.008 350 / 98%);
+  --popover-foreground: oklch(0.28 0.035 350);
+  --primary: oklch(0.68 0.17 355);
+  --primary-foreground: oklch(0.99 0.005 350);
+  --secondary: oklch(0.955 0.018 350);
+  --secondary-foreground: oklch(0.38 0.07 350);
+  --muted: oklch(0.95 0.014 350);
+  --muted-foreground: oklch(0.52 0.05 350);
+  --accent: oklch(0.94 0.032 355);
+  --accent-foreground: oklch(0.38 0.08 350);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.89 0.03 350);
+  --input: oklch(0.89 0.03 350);
+  --ring: oklch(0.68 0.17 355);
+  --chart-1: oklch(0.68 0.17 355);
+  --chart-2: oklch(0.66 0.15 320);
+  --chart-3: oklch(0.64 0.16 10);
+  --chart-4: oklch(0.72 0.13 280);
+  --chart-5: oklch(0.66 0.11 200);
+  --sidebar: oklch(0.975 0.012 350);
+  --sidebar-foreground: oklch(0.28 0.035 350);
+  --sidebar-primary: oklch(0.68 0.17 355);
+  --sidebar-primary-foreground: oklch(0.99 0.005 350);
+  --sidebar-accent: oklch(0.94 0.035 355);
+  --sidebar-accent-foreground: oklch(0.38 0.08 350);
+  --sidebar-border: oklch(0.89 0.03 350);
+  --sidebar-ring: oklch(0.68 0.17 355);
 }
 
 @layer base {
@@ -231,13 +375,14 @@ header.sticky {
   transform: translateY(-2px);
 }
 
-/* Primary surfaces carry the signature amber→coral gradient. */
+/* Primary surfaces carry the signature primary gradient (blend colors are
+   theme variables so each palette gets its own hue pairing). */
 .bg-primary {
   background-image: linear-gradient(
     135deg,
-    color-mix(in oklab, var(--primary) 90%, oklch(0.72 0.16 85)) 0%,
+    color-mix(in oklab, var(--primary) 90%, var(--primary-glow)) 0%,
     var(--primary) 45%,
-    color-mix(in oklab, var(--primary) 78%, oklch(0.62 0.2 25)) 100%
+    color-mix(in oklab, var(--primary) 78%, var(--primary-deep)) 100%
   );
 }
 
@@ -257,7 +402,7 @@ header.sticky {
   background: linear-gradient(
     120deg,
     color-mix(in oklab, var(--primary) 88%, transparent),
-    color-mix(in oklab, oklch(0.7 0.16 40) 72%, transparent)
+    color-mix(in oklab, var(--primary-alt) 72%, transparent)
   );
   color: var(--primary-foreground);
   box-shadow:

@@ -1,4 +1,12 @@
 {
+  "theme": {
+    "label": "Motiv",
+    "light": "Světlý",
+    "dark": "Tmavý",
+    "ocean": "Oceán",
+    "forest": "Les",
+    "sakura": "Sakura"
+  },
   "navigation": {
     "chat": "Chat",
     "model_group": "Modely",

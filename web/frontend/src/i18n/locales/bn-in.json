@@ -1,4 +1,12 @@
 {
+  "theme": {
+    "label": "থিম",
+    "light": "হালকা",
+    "dark": "গাঢ়",
+    "ocean": "মহাসাগর",
+    "forest": "বন",
+    "sakura": "সাকুরা"
+  },
   "navigation": {
     "chat": "চ্যাট",
     "model_group": "মডেল",

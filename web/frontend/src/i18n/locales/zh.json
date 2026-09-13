@@ -1,4 +1,12 @@
 {
+  "theme": {
+    "label": "主题",
+    "light": "浅色",
+    "dark": "深色",
+    "ocean": "海洋",
+    "forest": "森林",
+    "sakura": "樱花"
+  },
   "navigation": {
     "chat": "对话",
     "model_group": "模型",

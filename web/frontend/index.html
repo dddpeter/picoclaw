@@ -9,6 +9,23 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PicoClaw</title>
+    <script>
+      // Apply the stored theme before first paint to avoid a flash of the
+      // default dark palette. Mirrors the id set in hooks/use-theme.ts.
+      ;(function () {
+        try {
+          var VALID = ["light", "dark", "ocean", "forest", "sakura"]
+          var DARK = { dark: 1, ocean: 1, forest: 1 }
+          var stored = localStorage.getItem("theme")
+          var theme = VALID.indexOf(stored) >= 0 ? stored : "dark"
+          var root = document.documentElement
+          root.setAttribute("data-theme", theme)
+          if (DARK[theme]) root.classList.add("dark")
+        } catch (e) {
+          /* storage unavailable — keep the default dark palette */
+        }
+      })()
+    </script>
   </head>
 
   <body>

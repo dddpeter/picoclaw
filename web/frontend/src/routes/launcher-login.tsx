@@ -1,4 +1,4 @@
-import { IconLanguage, IconMoon, IconSun } from "@tabler/icons-react"
+import { IconLanguage } from "@tabler/icons-react"
 import { createFileRoute } from "@tanstack/react-router"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
@@ -23,11 +23,10 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { useTheme } from "@/hooks/use-theme"
+import { ThemeSwitcher } from "@/components/theme-switcher.tsx"
 
 function LauncherLoginPage() {
   const { t, i18n } = useTranslation()
-  const { theme, toggleTheme } = useTheme()
   const [password, setPassword] = React.useState("")
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState("")
@@ -96,19 +95,7 @@ function LauncherLoginPage() {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <Button
-          variant="outline"
-          size="icon"
-          type="button"
-          onClick={() => toggleTheme()}
-          aria-label={theme === "dark" ? "Light mode" : "Dark mode"}
-        >
-          {theme === "dark" ? (
-            <IconSun className="size-4" />
-          ) : (
-            <IconMoon className="size-4" />
-          )}
-        </Button>
+        <ThemeSwitcher variant="outline" className="size-9" />
       </header>
 
       <div className="flex flex-1 items-center justify-center p-4">

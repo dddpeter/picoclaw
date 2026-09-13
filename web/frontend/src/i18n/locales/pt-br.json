@@ -1,4 +1,12 @@
 {
+  "theme": {
+    "label": "Tema",
+    "light": "Claro",
+    "dark": "Escuro",
+    "ocean": "Oceano",
+    "forest": "Floresta",
+    "sakura": "Sakura"
+  },
   "navigation": {
     "chat": "Chat",
     "model_group": "Modelos",
