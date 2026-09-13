@@ -5,7 +5,9 @@ import { PageHeader } from "@/components/page-header"
 import { ServerCard } from "@/components/mcp/server-card"
 import { useMCPPage, type MCPPageTab } from "@/components/mcp/use-mcp-page"
 import type { MCPConfigForm } from "@/components/mcp/types"
+import { Field, SwitchCardField } from "@/components/shared-form"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 
@@ -147,11 +149,82 @@ export function MCPPage() {
   )
 }
 
-// Task 8 将替换为完整实现
-function DiscoverySettings(props: {
+function DiscoverySettings({
+  form,
+  onChange,
+}: {
   form: MCPConfigForm
   onChange: (patch: Partial<Omit<MCPConfigForm, "servers">>) => void
 }) {
-  void props
-  return null
+  const { t } = useTranslation()
+
+  return (
+    <div className="mx-auto flex max-w-3xl flex-col gap-1">
+      <SwitchCardField
+        label={t("pages.mcp.discovery.enabled")}
+        hint={t("pages.mcp.discovery.enabled_hint")}
+        layout="setting-row"
+        checked={form.discoveryEnabled}
+        onCheckedChange={(checked) => onChange({ discoveryEnabled: checked })}
+      />
+
+      {form.discoveryEnabled && (
+        <>
+          <Field
+            label={t("pages.mcp.discovery.ttl")}
+            hint={t("pages.mcp.discovery.ttl_hint")}
+            layout="setting-row"
+          >
+            <Input
+              type="number"
+              min={1}
+              value={form.discoveryTTL}
+              onChange={(e) => onChange({ discoveryTTL: e.target.value })}
+            />
+          </Field>
+          <Field
+            label={t("pages.mcp.discovery.max_results")}
+            hint={t("pages.mcp.discovery.max_results_hint")}
+            layout="setting-row"
+          >
+            <Input
+              type="number"
+              min={1}
+              value={form.discoveryMaxResults}
+              onChange={(e) => onChange({ discoveryMaxResults: e.target.value })}
+            />
+          </Field>
+          <SwitchCardField
+            label={t("pages.mcp.discovery.use_bm25")}
+            hint={t("pages.mcp.discovery.use_bm25_hint")}
+            layout="setting-row"
+            checked={form.discoveryUseBM25}
+            disabled={form.discoveryUseBM25 && !form.discoveryUseRegex}
+            onCheckedChange={(checked) => onChange({ discoveryUseBM25: checked })}
+          />
+          <SwitchCardField
+            label={t("pages.mcp.discovery.use_regex")}
+            hint={t("pages.mcp.discovery.use_regex_hint")}
+            layout="setting-row"
+            checked={form.discoveryUseRegex}
+            disabled={form.discoveryUseRegex && !form.discoveryUseBM25}
+            onCheckedChange={(checked) => onChange({ discoveryUseRegex: checked })}
+          />
+        </>
+      )}
+
+      <Field
+        label={t("pages.mcp.advanced.max_inline")}
+        hint={t("pages.mcp.advanced.max_inline_hint")}
+        layout="setting-row"
+      >
+        <Input
+          type="number"
+          min={1}
+          value={form.maxInlineTextChars}
+          onChange={(e) => onChange({ maxInlineTextChars: e.target.value })}
+        />
+      </Field>
+    </div>
+  )
 }
