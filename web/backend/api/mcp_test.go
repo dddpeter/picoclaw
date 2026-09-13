@@ -317,3 +317,40 @@ func TestHandleGetMCPStatus_OfflineWhenUnreachable(t *testing.T) {
 		t.Fatalf("body = %s, want offline", rec.Body.String())
 	}
 }
+
+// TestMCPConfigSurvivesConfigPagePatch 钉住 /config 页迁移的安全前提：
+// config 页保存走 PATCH /api/config（RFC 7396 merge patch），其载荷不再包含
+// tools.mcp 子树，磁盘上的 MCP 配置必须原样保留。
+func TestMCPConfigSurvivesConfigPagePatch(t *testing.T) {
+	configPath, mux := newMCPTestServer(t)
+
+	// 先通过 MCP 端点写入一份 MCP 配置
+	rec := doJSON(t, mux, http.MethodPut, "/api/mcp/config", mcpConfigRequest{
+		Enabled: true,
+		Servers: []mcpServerDTO{
+			{Name: "keepme", Type: "http", Enabled: true, URL: "https://example.com/mcp"},
+		},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("mcp put status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	// 模拟 config 页保存：一处无关字段的 merge patch（无 tools.mcp）
+	rec = doJSON(t, mux, http.MethodPatch, "/api/config", map[string]any{
+		"agents": map[string]any{"defaults": map[string]any{"max_tokens": 4096}},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("config patch status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	disk, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("disk load: %v", err)
+	}
+	if !disk.Tools.MCP.Enabled {
+		t.Fatal("tools.mcp.enabled cleared by unrelated config-page patch")
+	}
+	if got, ok := disk.Tools.MCP.Servers["keepme"]; !ok || got.URL != "https://example.com/mcp" {
+		t.Fatalf("tools.mcp.servers = %+v, want keepme preserved", disk.Tools.MCP.Servers)
+	}
+}
