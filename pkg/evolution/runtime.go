@@ -34,6 +34,9 @@ type RuntimeOptions struct {
 	SuccessJudgeFactory func(workspace string) SuccessJudge
 	Applier             *Applier
 	ApplierFactory      func(workspace string) *Applier
+	// CronSuggester proposes scheduled automations from recurring patterns.
+	// Optional; nil disables suggestion generation.
+	CronSuggester CronSuggester
 }
 
 type Runtime struct {
@@ -51,6 +54,7 @@ type Runtime struct {
 	successJudgeFactory func(workspace string) SuccessJudge
 	applier             *Applier
 	applierFactory      func(workspace string) *Applier
+	cronSuggester       CronSuggester
 }
 
 type TurnCaseInput struct {
@@ -103,7 +107,17 @@ func NewRuntime(opts RuntimeOptions) (*Runtime, error) {
 		successJudgeFactory: opts.SuccessJudgeFactory,
 		applier:             opts.Applier,
 		applierFactory:      opts.ApplierFactory,
+		cronSuggester:       opts.CronSuggester,
 	}, nil
+}
+
+func (rt *Runtime) SetCronSuggester(suggester CronSuggester) {
+	if rt == nil {
+		return
+	}
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	rt.cronSuggester = suggester
 }
 
 func (rt *Runtime) FinalizeTurn(ctx context.Context, input TurnCaseInput) error {
@@ -340,6 +354,19 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 		if len(clusteredTaskIDs) > 0 {
 			if markErr := markTaskRecordsClustered(store, clusteredTaskIDs); markErr != nil {
 				return markErr
+			}
+		}
+
+		// Automation proposals ride on the freshly clustered patterns. The
+		// suggester is consent-first (store-side dedup + explicit accept);
+		// failures never break the cold path.
+		if rt.cfg.EffectiveSuggestionsEnabled() && rt.cronSuggester != nil {
+			if err := rt.cronSuggester.SuggestCronJobs(ctx, workspace, patternRecords); err != nil {
+				logger.WarnCF("evolution", "Automation suggestion pass failed", map[string]any{
+					"workspace": workspace,
+					"run_id":    runID,
+					"error":     err.Error(),
+				})
 			}
 		}
 	}

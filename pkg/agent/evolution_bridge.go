@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/cron"
 	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
 	"github.com/sipeed/picoclaw/pkg/evolution"
 	"github.com/sipeed/picoclaw/pkg/logger"
@@ -65,6 +67,22 @@ func newEvolutionBridge(
 	})
 	if err != nil {
 		return nil, err
+	}
+	if cfg.Evolution.EffectiveSuggestionsEnabled() {
+		runtime.SetCronSuggester(evolution.NewLLMCronSuggester(
+			provider,
+			modelID,
+			func(workspace string) evolution.SuggestionAdder {
+				if strings.TrimSpace(workspace) == "" {
+					return nil
+				}
+				// Suggestions live beside the job store so the /cron command
+				// and the cron tool see the same list.
+				return cron.NewSuggestionManager(filepath.Join(workspace, "cron", "jobs.json"))
+			},
+			cfg.Evolution.EffectiveMinTaskCount(),
+			cfg.Evolution.EffectiveMinSuccessRatio(),
+		))
 	}
 	bgCtx, cancel := context.WithCancel(context.Background())
 

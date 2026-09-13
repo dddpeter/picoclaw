@@ -99,4 +99,6 @@ Hermes 与 picoclaw 是同一定位（个人部署、IM 通道、cron 自动化�
 
 - 2026-09-08：调研完成，本文档存档。
 - 2026-09-08：**第一项（会话标题两阶段生成）已实施**。分层：`pkg/memory/jsonl.go`（SessionMeta 增 title/title_source + SetSessionTitle CAS 优先级 user>llm>derived）、`pkg/session/jsonl_backend.go`（TitleAwareSessionStore 可选能力）、`pkg/agent/session_title.go`（两阶段核心：turn 开始派生标题 + 后台轻模型升级，answer-shaped guard、机器消息黑名单、进程内单次升级去重）、`/title` 手动命令、launcher `GET /api/sessions` 优先返回存储标题。配置 `agents.defaults.session_titles.enabled`（未配置=开启）。测试锚点：`TestSetSessionTitlePriorityMatrix`、`TestMaybeTitleSession*`、`TestTitleCommand*`。
-- 第二项（脚本 RPC）、第三项（技能闭环）未实施。
+- 第二项（脚本 RPC）未实施。
+- 2026-09-13：**第三项（技能闭环）以另一形态落地**：上游已有 `pkg/evolution` 学习闭环（task/pattern 记录 → LLM 聚类 → 技能草稿 → 生命周期），fork 在其上叠加自动化建议（§三 spirit：轮末采集 + LLM 提议 + 用户显式接受），详见 fork-overview §11。
+- 2026-09-13：**第五节两个概念已落地**：① cron 唤醒门（`pkg/tools/cron.go` payload `script` + `parseWakeGate`，fail-open）；② cron 与 gateway 进程关系（`pkg/cron/service.go` mtime 热重载 + due-job-only 落盘，CLI 改动不再需要重启；顺带用 `ValidateSchedule` 根治了残缺表达式静默永不匹配）。delegate 结果预算化回传、JSONL 修复账本仍未实施。

@@ -24,7 +24,7 @@
 - 配置在 `~/.picoclaw/config.json`（version 3），workspace 在 `~/.picoclaw/workspace/`。热重载 `gateway.hot_reload` 只在进程启动时读取；改默认模型后可用聊天命令 `/reload` 或重启服务。
 - 排查运行时挂起：`kill -QUIT <pid>` 触发 goroutine dump（写入 `~/.picoclaw/logs/gateway_panic.log`），systemd 自动拉起服务。
 - **禁止给 picoclaw.service 加任何 sandbox 指令**（RestrictAddressFamilies / ReadWritePaths / ProtectSystem 等）——user 服务里 systemd 会以受限上下文应用它们，setuid 提权被永久禁用，agent 的所有 `sudo` 会报 "sudo must be owned by uid 0 and have the setuid bit set"（2026-09-07 实测）。unit 的 sandbox 段已全部移除，不要"加固"回去。
-- `picoclaw cron add/remove`（CLI）只写 jobs.json，**运行中的网关不感知**（启动时才读）——改完必须重启服务；另外 cron 表达式必须 5 字段，残缺表达式（如 "45 16"）会被静默接受但永不匹配。
+- cron 热重载（2026-09-13，fork）：网关内 cron 服务每分钟探测 jobs.json mtime，CLI 改动自动生效，**不再需要重启服务**；cron 表达式在 AddJob/UpdateJob 时校验（`cron.ValidateSchedule`），残缺表达式（如 "45 16"）现在会被**立即拒绝**。仍需注意：外部编辑写入期间网关恰好在保存任务状态时可能互斥失败（Windows rename 竞争），重要变更后可用 `/status` 或 `picoclaw cron list` 确认。
 
 ## 协作规范
 

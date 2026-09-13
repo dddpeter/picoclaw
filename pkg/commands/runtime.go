@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/cron"
 )
 
 type MCPServerInfo struct {
@@ -71,5 +72,11 @@ type Runtime struct {
 	// When nil, /new falls back to ClearHistory (plain in-place wipe).
 	NewSession     func() (archived bool, err error)
 	ReloadConfig   func() error
-	StopActiveTurn     func() (StopResult, error)
+	StopActiveTurn func() (StopResult, error)
+	// Cron automation surface (all optional; nil entries make /cron
+	// sub-commands reply with unavailableMsg).
+	CronJobs              func() []cron.CronJob
+	CronSuggestions       func() []cron.Suggestion
+	AcceptCronSuggestion  func(channel, chatID, id string) (jobID string, err error)
+	DismissCronSuggestion func(id string) error
 }

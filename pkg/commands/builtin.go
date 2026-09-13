@@ -12,6 +12,7 @@ func BuiltinDefinitions() []Definition {
 		showCommand(),
 		listCommand(),
 		useCommand(),
+		learnCommand(),
 		btwCommand(),
 		switchCommand(),
 		checkCommand(),
@@ -22,5 +23,6 @@ func BuiltinDefinitions() []Definition {
 		statusCommand(),
 		subagentsCommand(),
 		reloadCommand(),
+		cronCommand(),
 	}
 }

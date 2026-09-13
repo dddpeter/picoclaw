@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,6 +30,11 @@ type CronPayload struct {
 	Command string `json:"command,omitempty"`
 	Channel string `json:"channel,omitempty"`
 	To      string `json:"to,omitempty"`
+	// Script runs before the agent turn. Its stdout is injected into the
+	// prompt as context; when the last non-empty stdout line is JSON
+	// {"wakeAgent": false} the whole run is skipped (no agent turn, no
+	// delivery). See tools.CronTool.ExecuteJob for the consumer side.
+	Script string `json:"script,omitempty"`
 }
 
 type CronJobState struct {
@@ -57,6 +63,11 @@ type CronStore struct {
 
 type JobHandler func(job *CronJob) (string, error)
 
+// storePollInterval caps how long the run loop sleeps without re-checking
+// the store file for external edits (CLI writes jobs.json behind our back).
+// Package-level so tests can shrink it.
+var storePollInterval = time.Minute
+
 type CronService struct {
 	storePath string
 	store     *CronStore
@@ -66,6 +77,10 @@ type CronService struct {
 	stopChan  chan struct{}
 	wakeChan  chan struct{}
 	gronx     *gronx.Gronx
+	// storeMod is the mtime we believe the store file has. External writes
+	// change it; saveStoreUnsafe refreshes it so our own writes never
+	// trigger a spurious reload.
+	storeMod time.Time
 }
 
 func NewCronService(storePath string, onJob JobHandler) *CronService {
@@ -130,6 +145,10 @@ func (cs *CronService) runLoop(stopChan chan struct{}) {
 	defer timer.Stop()
 
 	for {
+		// Pick up edits made behind our back (picoclaw cron CLI writes
+		// jobs.json directly). Cheap mtime probe each iteration.
+		cs.reloadStoreIfChanged()
+
 		// every loop, recalculate the next wake time
 		cs.mu.RLock()
 		nextWake := cs.getNextWakeMS()
@@ -139,8 +158,9 @@ func (cs *CronService) runLoop(stopChan chan struct{}) {
 		now := time.Now().UnixMilli()
 
 		if nextWake == nil {
-			// no jobs, sleep for a long time (or until a new job is added)
-			delay = time.Hour
+			// no jobs — sleep until the poll interval so external store
+			// edits are still noticed, or until a new job is added
+			delay = storePollInterval
 		} else {
 			diff := *nextWake - now
 			if diff <= 0 {
@@ -148,6 +168,9 @@ func (cs *CronService) runLoop(stopChan chan struct{}) {
 			} else {
 				delay = time.Duration(diff) * time.Millisecond
 			}
+		}
+		if delay > storePollInterval {
+			delay = storePollInterval
 		}
 
 		timer.Reset(delay)
@@ -189,18 +212,24 @@ func (cs *CronService) checkJobs() {
 	}
 
 	// Reset next run for due jobs before unlocking to avoid duplicate execution.
-	dueMap := make(map[string]bool, len(dueJobIDs))
-	for _, jobID := range dueJobIDs {
-		dueMap[jobID] = true
-	}
-	for i := range cs.store.Jobs {
-		if dueMap[cs.store.Jobs[i].ID] {
-			cs.store.Jobs[i].State.NextRunAtMS = nil
+	if len(dueJobIDs) > 0 {
+		dueMap := make(map[string]bool, len(dueJobIDs))
+		for _, jobID := range dueJobIDs {
+			dueMap[jobID] = true
 		}
-	}
+		for i := range cs.store.Jobs {
+			if dueMap[cs.store.Jobs[i].ID] {
+				cs.store.Jobs[i].State.NextRunAtMS = nil
+			}
+		}
 
-	if err := cs.saveStoreUnsafe(); err != nil {
-		log.Printf("[cron] failed to save store: %v", err)
+		// Persist only when state actually changed. An unconditional save here
+		// would (a) burn flash write cycles every tick and (b) clobber external
+		// jobs.json edits (e.g. the picoclaw cron CLI) with our in-memory view
+		// before the run-loop mtime probe ever gets a chance to reload them.
+		if err := cs.saveStoreUnsafe(); err != nil {
+			log.Printf("[cron] failed to save store: %v", err)
+		}
 	}
 
 	cs.mu.Unlock()
@@ -365,10 +394,53 @@ func (cs *CronService) getNextWakeMS() *int64 {
 	return nextWake
 }
 
+func (cs *CronService) validateSchedule(schedule CronSchedule) error {
+	return ValidateSchedule(schedule)
+}
+
 func (cs *CronService) Load() error {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
-	return cs.loadStore()
+	if err := cs.loadStore(); err != nil {
+		return err
+	}
+	cs.recomputeNextRuns()
+	return nil
+}
+
+// reloadStoreIfChanged re-reads the store when the file's mtime moved since
+// we last read or wrote it. Called from the run loop so `picoclaw cron add`
+// and friends take effect without restarting the gateway.
+func (cs *CronService) reloadStoreIfChanged() {
+	mod, ok := cs.statStoreModTime()
+	if !ok || mod.Equal(cs.storeMod) {
+		return
+	}
+
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	// Re-check under the lock: a concurrent save may have already refreshed
+	// storeMod, or replaced the file we are about to read.
+	mod, ok = cs.statStoreModTime()
+	if !ok || mod.Equal(cs.storeMod) {
+		return
+	}
+
+	if err := cs.loadStore(); err != nil {
+		log.Printf("[cron] failed to reload store after external change: %v", err)
+		return
+	}
+	cs.recomputeNextRuns()
+	log.Printf("[cron] reloaded store from disk (external change detected)")
+}
+
+func (cs *CronService) statStoreModTime() (time.Time, bool) {
+	info, err := os.Stat(cs.storePath)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return info.ModTime(), true
 }
 
 func (cs *CronService) SetOnJob(handler JobHandler) {
@@ -386,12 +458,18 @@ func (cs *CronService) loadStore() error {
 	data, err := os.ReadFile(cs.storePath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			cs.storeMod = time.Time{}
 			return nil
 		}
 		return err
 	}
-
-	return json.Unmarshal(data, cs.store)
+	if err := json.Unmarshal(data, cs.store); err != nil {
+		return err
+	}
+	if mod, ok := cs.statStoreModTime(); ok {
+		cs.storeMod = mod
+	}
+	return nil
 }
 
 func (cs *CronService) saveStoreUnsafe() error {
@@ -401,7 +479,56 @@ func (cs *CronService) saveStoreUnsafe() error {
 	}
 
 	// Use unified atomic write utility with explicit sync for flash storage reliability.
-	return fileutil.WriteFileAtomic(cs.storePath, data, 0o600)
+	if err := fileutil.WriteFileAtomic(cs.storePath, data, 0o600); err != nil {
+		return err
+	}
+	// Remember our own write so the run-loop mtime probe does not mistake it
+	// for an external edit.
+	if mod, ok := cs.statStoreModTime(); ok {
+		cs.storeMod = mod
+	}
+	return nil
+}
+
+// StorePath returns the path of the underlying jobs.json file.
+func (cs *CronService) StorePath() string {
+	return cs.storePath
+}
+
+// ValidateSchedule rejects schedules that would silently never fire: unknown
+// kinds, non-positive intervals, past one-shot times, and malformed cron
+// expressions (a残缺表达式 like "45 16" used to be accepted and then never
+// matched — see AGENTS.md 运维禁令).
+func ValidateSchedule(schedule CronSchedule) error {
+	switch schedule.Kind {
+	case "at":
+		if schedule.AtMS == nil || *schedule.AtMS <= 0 {
+			return fmt.Errorf("schedule kind %q requires a positive at_ms", schedule.Kind)
+		}
+		if *schedule.AtMS <= time.Now().UnixMilli() {
+			return fmt.Errorf("at_ms is in the past; one-shot jobs must be scheduled in the future")
+		}
+		return nil
+	case "every":
+		if schedule.EveryMS == nil || *schedule.EveryMS <= 0 {
+			return fmt.Errorf("schedule kind %q requires a positive every_ms", schedule.Kind)
+		}
+		return nil
+	case "cron":
+		expr := strings.TrimSpace(schedule.Expr)
+		if expr == "" {
+			return fmt.Errorf("schedule kind %q requires a cron expression", schedule.Kind)
+		}
+		if !gronx.IsValid(expr) {
+			return fmt.Errorf("invalid cron expression %q: expected 5 fields (e.g. \"0 9 * * *\")", expr)
+		}
+		schedule.Expr = expr
+		return nil
+	case "":
+		return fmt.Errorf("schedule kind is required (at, every, or cron)")
+	default:
+		return fmt.Errorf("unknown schedule kind %q (expected at, every, or cron)", schedule.Kind)
+	}
 }
 
 func (cs *CronService) AddJob(
@@ -414,6 +541,10 @@ func (cs *CronService) AddJob(
 	defer cs.mu.Unlock()
 
 	now := time.Now().UnixMilli()
+
+	if err := cs.validateSchedule(schedule); err != nil {
+		return nil, err
+	}
 
 	// One-time tasks (at) should be deleted after execution
 	deleteAfterRun := (schedule.Kind == "at")
@@ -469,6 +600,15 @@ func (cs *CronService) UpdateJob(job *CronJob) error {
 			previous := cs.store.Jobs[i]
 			updated := cloneCronJob(*job)
 			now := time.Now().UnixMilli()
+			// Only validate when the schedule itself changes: a legacy store
+			// may hold pre-validation jobs with malformed expressions, and an
+			// unrelated rename/enable must not be held hostage by those.
+			if !sameSchedule(previous.Schedule, updated.Schedule) {
+				if err := cs.validateSchedule(updated.Schedule); err != nil {
+					return err
+				}
+			}
+			updated.UpdatedAtMS = now
 			updated.UpdatedAtMS = now
 			if updated.Enabled {
 				if previous.Enabled != updated.Enabled || !sameSchedule(previous.Schedule, updated.Schedule) {

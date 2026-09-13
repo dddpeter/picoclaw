@@ -3270,3 +3270,28 @@ func testChannelsConfigWithTokens() ChannelsConfig {
 	}
 	return channels
 }
+
+func TestEvolutionConfig_EffectiveSuggestionsEnabled(t *testing.T) {
+	// nil + observe (default) → off
+	cfg := EvolutionConfig{Enabled: true, Mode: "observe"}
+	if cfg.EffectiveSuggestionsEnabled() {
+		t.Fatal("observe mode must default suggestions to off")
+	}
+	// nil + draft → on
+	cfg.Mode = "draft"
+	if !cfg.EffectiveSuggestionsEnabled() {
+		t.Fatal("draft mode must default suggestions to on")
+	}
+	// explicit override wins over mode.
+	off := false
+	cfg.AutomationSuggestionsEnabled = &off
+	if cfg.EffectiveSuggestionsEnabled() {
+		t.Fatal("explicit false must disable suggestions even in draft mode")
+	}
+	on := true
+	cfg.Mode = "observe"
+	cfg.AutomationSuggestionsEnabled = &on
+	if !cfg.EffectiveSuggestionsEnabled() {
+		t.Fatal("explicit true must enable suggestions even in observe mode")
+	}
+}

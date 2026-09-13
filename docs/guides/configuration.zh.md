@@ -112,6 +112,7 @@ PicoClaw 将数据存储在您配置的工作区中（默认：`~/.picoclaw/work
 | `min_success_ratio` | `0.7` | 任务聚类所需的最小成功率，取值需大于 `0`，且不超过 `1`。 |
 | `cold_path_trigger` | `after_turn` | 草稿生成可在 `after_turn` 后运行、按 `scheduled` 定时运行；设置为 `manual` 时会关闭自动冷路径运行。目前还没有用户可用的手动触发入口。仅在 `draft` 和 `apply` 模式下生效。 |
 | `cold_path_times` | `[]` | 当 `cold_path_trigger` 为 `scheduled` 时使用的运行时间，格式为 `HH:MM` 字符串。 |
+| `suggestions_enabled` | 未配置（mode ≥ `draft` 时开启） | 是否从重复模式生成定时任务提案（写入 `cron/suggestions.json`，`/cron accept` 显式接受后才创建任务，见「定时任务」一节的蓝图与建议说明）。设为 `false` 可在 `draft`/`apply` 模式下关闭提案。 |
 
 如果你只想先检查学习记录，建议从 `observe` 开始。需要生成可审查改进时使用 `draft`。只有在你接受让已通过的草稿更新工作区技能时，才使用 `apply`。
 
@@ -1081,6 +1082,43 @@ PicoClaw 通过 `cron` 工具支持 cron 风格的定时任务。Agent 可以设
 ```
 
 定时任务在重启后持久保存，存储于 `~/.picoclaw/workspace/cron/`。
+
+#### 运行时热重载（fork）
+
+网关内的 cron 服务每分钟检查一次 `jobs.json` 的修改时间，检测到外部变更（如 `picoclaw cron add/remove` CLI 写入）后自动重载，**无需重启服务**。服务自身写入 store 不会触发误重载，且仅在任务状态实际变化时才落盘（避免每 tick 空写并覆盖外部编辑）。
+
+#### cron 表达式校验（fork）
+
+`AddJob`/`UpdateJob`（工具与 CLI 两条路径都）会校验 schedule：残缺表达式（如 `45 16`，只有 4 个字段）现在会被**立即拒绝**并返回明确错误，不再被静默接受后永不匹配。存量 store 里已存在的坏表达式 job 不受影响（更新其 schedule 时才校验新值）。
+
+#### 预执行脚本与唤醒门（fork，借鉴 hermes-agent）
+
+任务可携带 `script` 字段（工具参数 `script`）：每次触发时先执行脚本，脚本的 stdout 会作为「Pre-run script output」上下文块注入 agent 回合的提示词。**唤醒门**：当脚本输出的最后一个非空行是 JSON `{"wakeAgent": false}` 时，本次运行整体跳过——不跑 LLM、不执行 command、不投递，用于巡检类任务“无事不做”省钱。解析为 fail-open：非 JSON、缺字段、无输出都正常唤醒。脚本需要 `tools.exec.enabled`，并受与 `command` 相同的通道安全约束（内部通道 / `command_allowed_remotes` / `allow_command=false` 时需 `command_confirm=true`）。
+
+#### 蓝图与自动化建议（fork，借鉴 hermes-agent）
+
+- **蓝图（blueprints）**：`cron` 工具新增 `action=blueprints`（列出目录）与 `blueprint` + `blueprint_values` 参数（如 `{"time": "09:30", "text": "..."}`）。循环周期由蓝图固定，用户只需填时间等人类槽位，永远不会写 cron 表达式。内置目录：`daily_report`、`weekday_report`、`weekly_summary`、`interval_check`、`heartbeat_patrol`。
+- **自动化建议（suggestions）**：evolution 学习闭环发现重复出现的成功模式后，可用轻量 LLM 调用生成 ready-to-run 的定时任务提案，写入 `workspace/cron/suggestions.json`（上限 5 条 pending；按 dedup key 去重，**dismiss 后永久不再提出**）。**consent-first：提案绝不自动创建任务**，必须由用户通过 `/cron accept <id>` 或模型的 `accept_suggestion` 动作显式接受；接受时任务绑定到接受发生的通道。查看：`/cron suggest`；放弃：`/cron dismiss <id>`；列表：`/cron list`；蓝图目录：`/cron blueprint`。
+
+建议生成受 `agents.defaults.evolution.suggestions_enabled` 门控（`*bool`，未配置时 mode 达到 `draft`/`apply` 即开启）：
+
+```json
+{
+  "evolution": {
+    "enabled": true,
+    "mode": "draft",
+    "suggestions_enabled": true
+  }
+}
+```
+
+#### 跨会话回溯（seahorse）
+
+将 `agents.defaults.context_manager` 设为 `"seahorse"` 后，上下文管理切换到 FTS5 引擎，模型获得 `short_grep` / `short_expand` 工具：`short_grep` 支持 `all_conversations=true` 跨会话检索历史（BM25 相关度排序、`last=7d` 等时间过滤）。忘记“上次怎么做”时先搜旧会话。
+
+### /learn：把做过的事固化成技能（fork，借鉴 hermes-agent）
+
+`/learn <主题 | 文档 | 刚做完的事>` 会把输入改写成一个完整的技能编写回合：agent 自主收集来源 → 检查既有技能（优先更新而非新建）→ 按 hardline 规范写入 `<workspace>/skills/<name>/SKILL.md`（frontmatter name/description 约束、When to Use / Procedure / Pitfalls / Verification 等章节、~100-200 行上限）→ 复读文件验证后汇报。没有任何新工具面——纯提示词改写 + 既有文件工具。
 
 ### 进阶主题
 

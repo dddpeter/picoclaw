@@ -104,29 +104,44 @@ type EvolutionConfig struct {
 	ColdAfterDays    int `json:"cold_after_days,omitempty"`
 	ArchiveAfterDays int `json:"archive_after_days,omitempty"`
 	DeleteAfterDays  int `json:"delete_after_days,omitempty"`
+	// AutomationSuggestionsEnabled gates the cron-automation suggestion
+	// generator (evolution proposes; the user always accepts explicitly).
+	// Nil means enabled whenever the mode reaches draft.
+	AutomationSuggestionsEnabled *bool `json:"suggestions_enabled,omitempty"`
 	// Deprecated: use MinTaskCount.
 	MinCaseCount int `json:"min_case_count,omitempty"`
 	// Deprecated: use MinSuccessRatio.
 	MinSuccessRate float64 `json:"min_success_rate,omitempty"`
 }
 
+// EffectiveSuggestionsEnabled resolves the automation-suggestion gate.
+func (c EvolutionConfig) EffectiveSuggestionsEnabled() bool {
+	if c.AutomationSuggestionsEnabled != nil {
+		return *c.AutomationSuggestionsEnabled
+	}
+	mode := c.EffectiveMode()
+	return mode == "draft" || mode == "apply"
+}
+
 func (c EvolutionConfig) MarshalJSON() ([]byte, error) {
 	out := struct {
-		Enabled         bool     `json:"enabled,omitempty"`
-		Mode            string   `json:"mode,omitempty"`
-		StateDir        string   `json:"state_dir,omitempty"`
-		MinTaskCount    int      `json:"min_task_count,omitempty"`
-		MinSuccessRatio float64  `json:"min_success_ratio,omitempty"`
-		ColdPathTrigger string   `json:"cold_path_trigger,omitempty"`
-		ColdPathTimes   []string `json:"cold_path_times,omitempty"`
+		Enabled                      bool     `json:"enabled,omitempty"`
+		Mode                         string   `json:"mode,omitempty"`
+		StateDir                     string   `json:"state_dir,omitempty"`
+		MinTaskCount                 int      `json:"min_task_count,omitempty"`
+		MinSuccessRatio              float64  `json:"min_success_ratio,omitempty"`
+		ColdPathTrigger              string   `json:"cold_path_trigger,omitempty"`
+		ColdPathTimes                []string `json:"cold_path_times,omitempty"`
+		AutomationSuggestionsEnabled *bool    `json:"suggestions_enabled,omitempty"`
 	}{
-		Enabled:         c.Enabled,
-		Mode:            c.Mode,
-		StateDir:        c.StateDir,
-		MinTaskCount:    c.EffectiveMinTaskCount(),
-		MinSuccessRatio: c.EffectiveMinSuccessRatio(),
-		ColdPathTrigger: strings.TrimSpace(c.ColdPathTrigger),
-		ColdPathTimes:   c.EffectiveColdPathTimes(),
+		Enabled:                      c.Enabled,
+		Mode:                         c.Mode,
+		StateDir:                     c.StateDir,
+		MinTaskCount:                 c.EffectiveMinTaskCount(),
+		MinSuccessRatio:              c.EffectiveMinSuccessRatio(),
+		ColdPathTrigger:              strings.TrimSpace(c.ColdPathTrigger),
+		ColdPathTimes:                c.EffectiveColdPathTimes(),
+		AutomationSuggestionsEnabled: c.AutomationSuggestionsEnabled,
 	}
 	if !out.Enabled {
 		out.Mode = ""

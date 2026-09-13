@@ -4,18 +4,20 @@ package agent
 
 import (
 	"context"
-	"time"
 	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/commands"
 	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/cron"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/picoclaw/pkg/tools"
 )
 
 func (al *AgentLoop) handleCommand(
@@ -31,6 +33,10 @@ func (al *AgentLoop) handleCommand(
 	}
 
 	if matched, handled, reply := al.applyExplicitSkillCommand(msg.Content, agent, opts); matched {
+		return reply, handled
+	}
+
+	if matched, handled, reply := al.applyLearnCommand(msg.Content, agent, opts); matched {
 		return reply, handled
 	}
 
@@ -65,6 +71,40 @@ func (al *AgentLoop) handleCommand(
 	default: // OutcomePassthrough — let the message fall through to LLM
 		return "", false
 	}
+}
+
+// applyLearnCommand rewrites "/learn <source>" into a full skill-authoring
+// turn (borrowed from hermes-agent's /learn; see docs/design/
+// hermes-borrowing-analysis.zh.md §三). Like /use, it intercepts before the
+// registry because it needs the pending dispatch, and falls through to the
+// normal agent flow with the rewritten message.
+func (al *AgentLoop) applyLearnCommand(
+	raw string,
+	agent *AgentInstance,
+	opts *processOptions,
+) (matched bool, handled bool, reply string) {
+	normalizeProcessOptionsInPlace(opts)
+
+	cmdName, ok := commands.CommandName(raw)
+	if !ok || cmdName != "learn" {
+		return false, false, ""
+	}
+
+	source := commands.ParseLearnSource(raw)
+	if source == "" {
+		return true, true, commands.FormatLearnUsage()
+	}
+
+	if agent == nil {
+		return true, true, commandsUnavailableSkillMessage()
+	}
+
+	prompt := strings.ReplaceAll(commands.BuildLearnPrompt(source), "<workspace>", agent.Workspace)
+	if opts != nil {
+		opts.Dispatch.UserMessage = prompt
+		opts.UserMessage = prompt
+	}
+	return true, false, ""
 }
 
 func (al *AgentLoop) applyExplicitSkillCommand(
@@ -428,6 +468,25 @@ func (al *AgentLoop) buildCommandsRuntime(
 			return al.askSideQuestion(ctx, agent, opts, question)
 		}
 
+		// /cron: scheduling surface (jobs, automation suggestions, blueprints).
+		// The cron tool is optional — /cron replies with unavailableMsg when
+		// the tool is disabled via tools.cron.
+		if cronTool := cronToolFromRegistry(agent); cronTool != nil {
+			ct := cronTool
+			rt.CronJobs = func() []cron.CronJob {
+				return ct.Service().ListJobs(false)
+			}
+			rt.CronSuggestions = func() []cron.Suggestion {
+				return ct.PendingSuggestions()
+			}
+			rt.AcceptCronSuggestion = func(channel, chatID, id string) (string, error) {
+				return ct.AcceptSuggestion(channel, chatID, id)
+			}
+			rt.DismissCronSuggestion = func(id string) error {
+				return ct.DismissSuggestion(id)
+			}
+		}
+
 		rt.GetStatusOverview = func() *commands.StatusOverview {
 			overview := &commands.StatusOverview{
 				Version: config.FormatVersion(),
@@ -718,4 +777,21 @@ func (al *AgentLoop) clearPendingSkills(sessionKey string) {
 		return
 	}
 	al.pendingSkills.Delete(sessionKey)
+}
+
+// cronToolFromRegistry returns the registered cron tool, or nil when the
+// tool is disabled (tools.cron off) — /cron degrades gracefully in that case.
+func cronToolFromRegistry(agent *AgentInstance) *tools.CronTool {
+	if agent == nil || agent.Tools == nil {
+		return nil
+	}
+	tool, ok := agent.Tools.Get("cron")
+	if !ok {
+		return nil
+	}
+	cronTool, ok := tool.(*tools.CronTool)
+	if !ok {
+		return nil
+	}
+	return cronTool
 }

@@ -18,6 +18,7 @@
 | Web launcher 主题 | `5d3ad431` | `web/frontend/src/index.css`、`web/frontend/src/hooks/use-theme.ts`、`web/frontend/src/components/theme-switcher.tsx` | 本文 §8 |
 | 运维禁令 | `23b1275d` | `AGENTS.md` | 本文 §9 |
 | 技能目录扩展与项目文档注入 | `<本次>` | `pkg/skills/loader.go`、`pkg/agent/project_docs.go` | 本文 §10 |
+| cron 增强 + 自动化建议 + /learn | `<2026-09-13>` | `pkg/cron/service.go`、`pkg/cron/suggestions.go`、`pkg/cron/blueprints.go`、`pkg/tools/cron.go`、`pkg/evolution/cron_suggester.go`、`pkg/commands/cmd_cron.go`、`pkg/commands/cmd_learn.go` | 本文 §11、`docs/guides/configuration.zh.md` 定时任务/学习章节 |
 | 会话标题两阶段生成 | `48bf141f` | `pkg/agent/session_title.go`、`pkg/memory/jsonl.go` | `docs/design/hermes-borrowing-analysis.zh.md` §二 |
 | Turn 韧性（429/LLM 失败） | `<2026-09-09>` | `pkg/agent/pipeline_streaming.go`、`pkg/providers/error_classifier.go`、`pkg/providers/cooldown.go` | 本文 §5、`docs/design/turn-llm-failure-resilience.zh.md` |
 | Windows exec 卡死与会话丢失三连修 | `<2026-09-11>` | `pkg/tools/shell.go`、`pkg/tools/shell_process_windows.go`、`pkg/agent/steering_abort.go` | 本文 §4、§5 |
@@ -127,6 +128,18 @@
 - 测试锚点：`TestListSkillsProjectDotSkillsDir`、`TestListSkillsHomeDotAgentsDir`、`TestListSkillsClampsLongDescription`、`TestSkillRootsTrimsWhitespaceAndDedups`（更新）、`TestProjectDocs*`、`TestAppendSkillRootReadPatternsAllowsOutsideRoots`；`pkg/skills` 与 `web/backend/api` 测试用 `TestMain`/setup helper 隔离 HOME+USERPROFILE，防止开发者真实的 `~/.agents/skills` 泄入断言。
 - 配置文档：`docs/guides/configuration.zh.md` 的"技能来源"与"项目文档注入"两节。
 
+## 11. cron 增强 + 自动化建议 + /learn（2026-09-13，借鉴 hermes-agent 第二/三梯队）
+
+对应调研文档：`docs/design/hermes-borrowing-analysis.zh.md`（第一梯队=evolution 打开；本节=第二/三梯队落地）。四块能力全部可选、不影响上游默认行为：
+
+- **cron 热重载**：`CronService.runLoop` 每次迭代探测 jobs.json mtime（`reloadStoreIfChanged`），外部 CLI 写入自动生效；sleep 上限 `storePollInterval`（包级 var，默认 1 分钟）。配套修复：`checkJobs` 只在有 due job 时落盘（原实现每 tick 无条件 save，既烧 flash 又会在高频轮询下用旧内存态覆盖外部编辑——Windows 下 rename 竞争实测复现）。`loadStore`/`saveStoreUnsafe` 维护 `storeMod` 防自身写入误触发。
+- **表达式校验**：`cron.ValidateSchedule`（包级函数）在 `AddJob`/`UpdateJob`（schedule 变更时才校验，存量坏 job 不被无关改名押持）拒绝残缺 cron 表达式/过去时间/非法 kind；工具与 CLI 两条路径同时受益。`UpdateJob` 仅在 schedule 实际变化时校验，防存量坏表达式押持无关更新。
+- **唤醒门 + 蓝图 + 建议**（`pkg/tools/cron.go`）：payload 新增 `script`（预执行脚本 + `wakeAgent` 唤醒门，fail-open，解析在 `parseWakeGate`；执行复用 exec 工具，与 `command` 同一套 GHSA 通道安全约束）；`action=blueprints` 与 `blueprint`/`blueprint_values` 参数（目录在 `pkg/cron/blueprints.go`，槽位校验+模板展开，让用户永不写 cron 表达式）；`action=suggestions`/`accept_suggestion`/`dismiss_suggestion`（存储在 `pkg/cron/suggestions.go`：pending 上限 5、总上限 100、dedup key 永久门锁、atomic 0600）。**consent-first：建议绝不自动建任务**。
+- **evolution → 建议**：`Runtime.CronSuggester`（可选接口）挂入冷路径 pattern 聚类后，`LLMCronSuggester` 对合格模式（EventCount ≥ min_task_count 且成功率达标、有摘要）逐个提议；单个失败不断链。配置门 `evolution.suggestions_enabled`（`*bool`，nil=mode≥draft 开启）。bridge 按 workspace 惰性解析 suggestion store（`cron.NewSuggestionManager(filepath.Join(workspace,"cron","jobs.json"))`）。
+- **/cron 命令**（`pkg/commands/cmd_cron.go`）：list/suggest/accept/dismiss/blueprint 子命令；Runtime 新增 `CronJobs`/`CronSuggestions`/`AcceptCronSuggestion`/`DismissCronSuggestion` 回调，`agent_command.go` 经 `cronToolFromRegistry`（agent.Tools 找 `*tools.CronTool`）接线；工具未启用时优雅降级为 unavailableMsg。接受的任务绑定到接受发生的通道。
+- **/learn 命令**（`pkg/commands/cmd_learn.go` + `agent_command.go` `applyLearnCommand`）：仿 `/use` 在 registry 之前拦截，把 `/learn <来源>` 改写为完整技能编写回合（`BuildLearnPrompt`：CHECK FIRST/来源逐字原则/hardline 章节规范/Verification），落盘路径 `<workspace>/skills/<name>/SKILL.md`；纯提示词改写，无新工具面。
+- 测试锚点：`pkg/cron/hot_reload_test.go`、`pkg/cron/suggestions_test.go`、`pkg/tools/cron_wakegate_test.go`、`pkg/tools/cron_suggestions_test.go`、`pkg/evolution/cron_suggester_test.go`、`pkg/commands/cmd_cron_test.go`、`pkg/agent/learn_command_test.go`、`config_test.go` `TestEvolutionConfig_EffectiveSuggestionsEnabled`。
+- 配置文档：`docs/guides/configuration.zh.md` 定时任务/evolution 章节。
 
 
 | 场景 | 上游 | 本 fork |
@@ -155,13 +168,19 @@
 | exec 子进程击杀（Windows） | taskkill /T（孤儿逃逸→管道挂死→会话卡死） | Job Object 整树击杀 + 5s WaitDelay 有界 io 等待；干净退出的存活 daemon 不误杀 |
 | Web launcher 外观 | 上游默认主题 | 五套命名主题（`data-theme` + `.dark` 联动，见 §8；`index.css`/`use-theme.ts`/`theme-switcher.tsx`/`index.html` 升级时留意冲突） |
 | systemd 部署 | 官方 unit | 禁 sandbox 指令（见 §9），unit 变更时不得带回 |
+| cron 外部编辑感知 | 启动时读一次 jobs.json，CLI 改动需重启 | 运行循环每分钟 mtime 探测自动重载（§11），且仅在有 due job 时落盘 |
+| cron 残缺表达式 | 静默接受，永不匹配 | `ValidateSchedule` 在 AddJob/UpdateJob 立即拒绝（AGENTS.md 运维禁令已相应改写） |
+| 定时任务预检查 | 每次触发都烧完整 LLM 回合 | payload `script` 唤醒门：脚本输出 `{"wakeAgent": false}` 整体跳过（借鉴 hermes wakeAgent 门） |
+| 自动化建议 | 无 | evolution 重复模式 → suggestions.json 提案 → `/cron accept` 显式接受（consent-first，借鉴 hermes suggestions） |
+| 技能固化 | 无（只有 hub 安装） | `/learn <来源>` 把做过的事/文档改写为技能编写回合（借鉴 hermes /learn） |
 
 ## 同步上游注意事项
 
-- 主要冲突面：`pkg/commands/`、`pkg/agent/pipeline_execute.go`、`pkg/tools/shell.go`、`pkg/channels/feishu/`、`pkg/config/config.go`（AgentDefaults）、`pkg/skills/loader.go`（§10 五级根目录）、`web/frontend/src/index.css`（§8 主题）、`web/frontend/src/hooks/use-theme.ts`、`web/frontend/src/components/theme-switcher.tsx`、`web/frontend/index.html`（防闪烁脚本）。
+- 主要冲突面：`pkg/commands/`、`pkg/agent/pipeline_execute.go`、`pkg/agent/agent_command.go`（/learn 拦截 + /cron Runtime 回调）、`pkg/tools/shell.go`、`pkg/tools/cron.go`（§11 script/蓝图/建议动作）、`pkg/channels/feishu/`、`pkg/config/config.go`（AgentDefaults + EvolutionConfig.SuggestionsEnabled）、`pkg/skills/loader.go`（§10 五级根目录）、`web/frontend/src/index.css`（§8 主题）、`web/frontend/src/hooks/use-theme.ts`、`web/frontend/src/components/theme-switcher.tsx`、`web/frontend/index.html`（防闪烁脚本）。
 - `pkg/providers/openai_compat/provider.go` 的流式超时如与上游改动冲突，保留 `streamRoundTripper` 语义优先。
 - `pkg/config/config.go` 的 `ModelStreamingConfig.Enabled` 是 `*bool`（nil=开启，fork 默认开流式）；上游若改回值 bool，同步时保留 `*bool` + `EffectiveEnabled()` 语义，消费点走 `EffectiveEnabled()` 而非直接读字段。`defaults.go` 里 feishu 渠道出厂带 `streaming.enabled: true`。
 - 开放默认三件套（不要"加固"回去）：`restrict_to_workspace` 默认 `false`；`pkg/tools/fs/system_paths.go` 的系统目录保护（`tools.protect_system_paths` nil=开，校验入口在 `validatePathWithAllowPaths` 最前）；`defaultDenyPatterns` 为毁灭性+系统目录写入集（一般命令/脚本/$()/管道/heredoc 放行，windowsDenyPatterns 已删除）。同步上游时若上游改动这三处，保留 fork 语义优先。
 - exec 卡死三连修（2026-09-11）：`pkg/tools/shell.go` 的 `execIOWaitDelay`/`ErrWaitDelay` 处理、`pkg/tools/shell_process_windows.go` 的 Job Object 击杀（`trackProcessTree`/`terminateProcessTree`）、`pkg/tools/output_clean.go` 的 CRLF 折叠修复、`pkg/agent/steering_abort.go` 的封口（`sealDanglingToolCalls`）+ 看门狗（`watchHardAbortUnwind`）、`pkg/agent/steering.go` HardAbort 的"封口不抹除"——均为 fork 行为，上游同步时保留 fork 语义；`subturn_test.go` 的 `TestHardAbortSessionRollback`/`TestHardAbortOrderOfOperations` 断言的是封口语义，不要按上游回滚语义"修"回去。
 - Turn 韧性（2026-09-09，详见 `docs/design/turn-llm-failure-resilience.zh.md`）：`pkg/agent/pipeline_streaming.go` 的出字前失败**保卡承接 + sticky 降级 + 冷却门控**、`pkg/agent/pipeline_finalize.go` 的纯文本兜底条件、`pkg/agent/agent.go` 的 `publishTurnError`、`pkg/providers/error_classifier.go` 的**配额→Billing 模式迁移与 429+配额 body 判定**、`pkg/providers/cooldown.go` 的 `MarkFailureWithHint`、`pkg/providers/common/common.go` 的 `HTTPError.RetryAfter`——均为 fork 行为，上游同步时保留 fork 语义。turn 重试边界是结构性保证（无预算机制），不要重新引入"失败计数预算"类加固。
-- 合并后跑 `go test ./pkg/agent/ ./pkg/tools/ ./pkg/providers/... ./pkg/commands/` 验证 fork 测试（文件名含 `_test.go` 且测试名带 `NewResets`/`NewArchives`/`NeverBlocks`/`ResponseHeaderTimeout`/`CleanCommandOutput` 的均为 fork 独有）；前端改动需另跑 `pnpm build` 验证。
+- cron 增强三件套（2026-09-13，§11）：`pkg/cron/service.go` 的 mtime 热重载（`reloadStoreIfChanged`/`storePollInterval`）+ due-job-only 落盘 + `ValidateSchedule`、`pkg/cron/suggestions.go`（consent-first 提案存储）、`pkg/cron/blueprints.go`、`pkg/tools/cron.go` 的 `script` 唤醒门与 `suggestions`/`blueprints` 动作、`pkg/evolution/cron_suggester.go` + `Runtime.SetCronSuggester`、`pkg/commands/cmd_cron.go`/`cmd_learn.go`、`pkg/agent/agent_command.go` 的 `applyLearnCommand`——均为 fork 行为，上游同步时保留 fork 语义；`hot_reload_test.go`/`cron_wakegate_test.go`/`cron_suggestions_test.go`/`learn_command_test.go` 钉住行为。
+- 合并后跑 `go test ./pkg/agent/ ./pkg/tools/ ./pkg/providers/... ./pkg/commands/ ./pkg/cron/ ./pkg/evolution/` 验证 fork 测试（文件名含 `_test.go` 且测试名带 `NewResets`/`NewArchives`/`NeverBlocks`/`ResponseHeaderTimeout`/`CleanCommandOutput`/`ReloadsStore`/`WakeGate`/`ApplyLearn`/`Suggest` 的均为 fork 独有）；前端改动需另跑 `pnpm build` 验证。
