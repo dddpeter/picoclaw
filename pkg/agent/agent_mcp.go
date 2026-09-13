@@ -366,3 +366,98 @@ func serverIsDeferred(discoveryEnabled bool, serverCfg config.MCPServerConfig) b
 	}
 	return true
 }
+
+// MCPToolStatus describes a single tool exposed by a connected MCP server.
+type MCPToolStatus struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// MCPServerStatus is the runtime status of one MCP server as seen by the manager.
+type MCPServerStatus struct {
+	Connected bool            `json:"connected"`
+	ToolCount int             `json:"toolCount"`
+	Tools     []MCPToolStatus `json:"tools"`
+	Error     string          `json:"error,omitempty"`
+}
+
+// MCPStatusSnapshot is the payload served by the gateway /mcp/status endpoint.
+type MCPStatusSnapshot struct {
+	Initialized bool                       `json:"initialized"`
+	Enabled     bool                       `json:"enabled"`
+	Servers     map[string]MCPServerStatus `json:"servers,omitempty"`
+}
+
+const mcpStatusDescriptionLimit = 200
+
+func truncateMCPDescription(s string) string {
+	runes := []rune(s)
+	if len(runes) <= mcpStatusDescriptionLimit {
+		return s
+	}
+	return string(runes[:mcpStatusDescriptionLimit]) + "…"
+}
+
+// buildMCPStatusSnapshot merges configured servers with live manager state.
+// initialized=false (manager not yet created — MCP loads lazily on first turn)
+// yields an empty server map so the frontend renders every server as
+// "not loaded", never as an error. Servers that are enabled in config but
+// absent from the manager are reported as not connected: the manager does not
+// retain failed connections, and per-agent allowlists can also filter them.
+func buildMCPStatusSnapshot(
+	cfg *config.Config,
+	servers map[string]*mcp.ServerConnection,
+	initialized bool,
+) MCPStatusSnapshot {
+	snapshot := MCPStatusSnapshot{Servers: map[string]MCPServerStatus{}}
+	if cfg == nil {
+		return snapshot
+	}
+	snapshot.Enabled = cfg.Tools.IsToolEnabled("mcp")
+	if !initialized {
+		return snapshot
+	}
+	snapshot.Initialized = true
+
+	seen := make(map[string]bool, len(servers))
+	for name, conn := range servers {
+		status := MCPServerStatus{Connected: true, Tools: []MCPToolStatus{}}
+		if conn != nil {
+			for _, tool := range conn.Tools {
+				if tool == nil {
+					continue
+				}
+				status.Tools = append(status.Tools, MCPToolStatus{
+					Name:        tool.Name,
+					Description: truncateMCPDescription(tool.Description),
+				})
+			}
+		}
+		status.ToolCount = len(status.Tools)
+		snapshot.Servers[name] = status
+		seen[name] = true
+	}
+
+	for name, serverCfg := range cfg.Tools.MCP.Servers {
+		if seen[name] || !serverCfg.Enabled {
+			continue
+		}
+		snapshot.Servers[name] = MCPServerStatus{
+			Connected: false,
+			Tools:     []MCPToolStatus{},
+			Error:     "not loaded (connection failed or filtered by per-agent allowlist)",
+		}
+	}
+	return snapshot
+}
+
+// MCPStatusSnapshot returns the current MCP runtime status for the health endpoint.
+func (al *AgentLoop) MCPStatusSnapshot() any {
+	manager := al.mcp.getManager()
+	initialized := manager != nil
+	var servers map[string]*mcp.ServerConnection
+	if initialized {
+		servers = manager.GetServers()
+	}
+	return buildMCPStatusSnapshot(al.cfg, servers, initialized)
+}
