@@ -118,13 +118,25 @@ var gatewayProcessMatcher = isLikelyGatewayProcess
 // getGatewayHealth checks the gateway health endpoint and returns the status response.
 // Returns (*health.StatusResponse, statusCode, error). If error is not nil, the other values are not valid.
 func (h *Handler) getGatewayHealth(cfg *config.Config, timeout time.Duration) (*health.StatusResponse, int, error) {
-	// Prefer port/host from pidData when available.
+	baseURL, _ := h.gatewayProbeBaseURL(cfg)
+	url := baseURL + "/health"
+
+	return getGatewayHealthByURL(url, timeout)
+}
+
+// gatewayProbeBaseURL resolves the gateway health endpoint base URL the same
+// way getGatewayHealth does: pidData host/port first, then config, then the
+// default port. It also returns the pid-file bearer token used by protected
+// gateway endpoints (/reload, /mcp/status); /health itself needs no token.
+func (h *Handler) gatewayProbeBaseURL(cfg *config.Config) (string, string) {
 	var port int
 	var host string
+	token := ""
 	gateway.mu.Lock()
 	if d := gateway.pidData; d != nil && d.Port > 0 {
 		port = d.Port
 		host = gatewayProbeHost(d.Host)
+		token = d.Token
 	}
 	gateway.mu.Unlock()
 	if port == 0 {
@@ -137,9 +149,7 @@ func (h *Handler) getGatewayHealth(cfg *config.Config, timeout time.Duration) (*
 		host = gatewayProbeHost(h.effectiveGatewayBindHost(cfg))
 	}
 
-	url := "http://" + net.JoinHostPort(host, strconv.Itoa(port)) + "/health"
-
-	return getGatewayHealthByURL(url, timeout)
+	return "http://" + net.JoinHostPort(host, strconv.Itoa(port)), token
 }
 
 func getGatewayHealthByURL(url string, timeout time.Duration) (*health.StatusResponse, int, error) {

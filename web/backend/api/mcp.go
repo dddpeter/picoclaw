@@ -1,14 +1,18 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/logger"
+	mcp "github.com/sipeed/picoclaw/pkg/mcp"
 )
 
 // ---- MCP DTOs（camelCase，与 web 前端共享形状；见 docs/design/web-mcp-page-design.zh.md §4）----
@@ -52,8 +56,8 @@ type mcpConfigRequest struct {
 func (h *Handler) registerMCPRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/mcp/config", h.handleGetMCPConfig)
 	mux.HandleFunc("PUT /api/mcp/config", h.handlePutMCPConfig)
-	// Task 5: mux.HandleFunc("POST /api/mcp/servers/test", h.handleTestMCPServer)
-	// Task 5: mux.HandleFunc("GET /api/mcp/status", h.handleGetMCPStatus)
+	mux.HandleFunc("POST /api/mcp/servers/test", h.handleTestMCPServer)
+	mux.HandleFunc("GET /api/mcp/status", h.handleGetMCPStatus)
 }
 
 // normalizeMCPServerDisplayType maps stored server type to the UI-facing
@@ -249,4 +253,115 @@ func (h *Handler) handlePutMCPConfig(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// mcpProbeFunc is injectable for tests (same pattern as gatewayHealthGet).
+var mcpProbeFunc = func(ctx context.Context, name string, cfg config.MCPServerConfig, workspace string, timeout time.Duration) (*mcp.ProbeResult, error) {
+	return mcp.ProbeServer(ctx, name, cfg, workspace, timeout)
+}
+
+type mcpToolInfoDTO struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type mcpServerTestResponse struct {
+	OK        bool             `json:"ok"`
+	LatencyMS int64            `json:"latencyMs"`
+	ToolCount int              `json:"toolCount"`
+	Tools     []mcpToolInfoDTO `json:"tools"`
+	Error     string           `json:"error,omitempty"`
+}
+
+// handleTestMCPServer dials a single not-yet-saved MCP server and reports the
+// outcome. Probe failures are a 200 with ok:false — the test result is the
+// payload; only malformed requests are HTTP errors.
+//
+//	POST /api/mcp/servers/test
+func (h *Handler) handleTestMCPServer(w http.ResponseWriter, r *http.Request) {
+	var req mcpServerDTO
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if err := validateMCPServers([]mcpServerDTO{req}); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	cfg, _, err := config.LoadConfigLenient(h.configPath)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to load config: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+
+	res, probeErr := mcpProbeFunc(ctx, strings.TrimSpace(req.Name), mcpServerDTOToConfig(req), cfg.WorkspacePath(), 15*time.Second)
+
+	resp := mcpServerTestResponse{Tools: []mcpToolInfoDTO{}}
+	if probeErr != nil {
+		resp.Error = probeErr.Error()
+	} else {
+		resp.OK = true
+		resp.LatencyMS = res.LatencyMS
+		resp.ToolCount = res.ToolCount
+		for _, tool := range res.Tools {
+			if tool == nil {
+				continue
+			}
+			resp.Tools = append(resp.Tools, mcpToolInfoDTO{Name: tool.Name, Description: tool.Description})
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// handleGetMCPStatus proxies the gateway's protected /mcp/status endpoint.
+// The bearer token comes from the pid file (the same source the gateway used
+// to configure its health server). Any failure to reach or authenticate maps
+// to {"gateway":"offline"} — the UI renders configured values with an offline
+// banner, per spec §3.
+//
+//	GET /api/mcp/status
+func (h *Handler) handleGetMCPStatus(w http.ResponseWriter, r *http.Request) {
+	cfg, _, err := config.LoadConfigLenient(h.configPath)
+	if err != nil {
+		cfg = nil
+	}
+	baseURL, token := h.gatewayProbeBaseURL(cfg)
+
+	offline := func() {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"gateway": "offline"})
+	}
+
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, baseURL+"/mcp/status", nil)
+	if err != nil {
+		offline()
+		return
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		offline()
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		offline()
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, resp.Body)
 }

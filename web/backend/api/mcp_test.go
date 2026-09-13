@@ -2,15 +2,25 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/sipeed/picoclaw/pkg/config"
+	ppid "github.com/sipeed/picoclaw/pkg/pid"
+
+	mcp "github.com/sipeed/picoclaw/pkg/mcp"
 )
 
 func newMCPTestServer(t *testing.T) (string, *http.ServeMux) {
@@ -186,5 +196,124 @@ func TestMCPConfigGet_LenientOnUnknownFields(t *testing.T) {
 	rec := doJSON(t, mux, http.MethodGet, "/api/mcp/config", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleTestMCPServer_Success(t *testing.T) {
+	_, mux := newMCPTestServer(t)
+
+	old := mcpProbeFunc
+	mcpProbeFunc = func(ctx context.Context, name string, cfg config.MCPServerConfig, workspace string, timeout time.Duration) (*mcp.ProbeResult, error) {
+		if name != "ov" || cfg.URL != "https://example.com/mcp" || cfg.Type != "http" {
+			t.Errorf("probe args = %q %+v", name, cfg)
+		}
+		return &mcp.ProbeResult{
+			LatencyMS: 42,
+			ToolCount: 1,
+			Tools:     []*sdkmcp.Tool{{Name: "t1", Description: "d1"}},
+		}, nil
+	}
+	defer func() { mcpProbeFunc = old }()
+
+	rec := doJSON(t, mux, http.MethodPost, "/api/mcp/servers/test", mcpServerDTO{
+		Name: "ov", Type: "http", URL: "https://example.com/mcp", Enabled: true,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var resp mcpServerTestResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !resp.OK || resp.LatencyMS != 42 || resp.ToolCount != 1 || len(resp.Tools) != 1 || resp.Tools[0].Name != "t1" {
+		t.Fatalf("resp = %+v", resp)
+	}
+}
+
+func TestHandleTestMCPServer_ProbeErrorAndValidation(t *testing.T) {
+	_, mux := newMCPTestServer(t)
+
+	old := mcpProbeFunc
+	mcpProbeFunc = func(ctx context.Context, name string, cfg config.MCPServerConfig, workspace string, timeout time.Duration) (*mcp.ProbeResult, error) {
+		return nil, fmt.Errorf("dial timeout")
+	}
+	defer func() { mcpProbeFunc = old }()
+
+	rec := doJSON(t, mux, http.MethodPost, "/api/mcp/servers/test", mcpServerDTO{
+		Name: "bad", Type: "http", URL: "http://127.0.0.1:1", Enabled: true,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("probe-failure status = %d, want 200 (ok:false payload)", rec.Code)
+	}
+	var resp mcpServerTestResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.OK || !strings.Contains(resp.Error, "dial timeout") {
+		t.Fatalf("resp = %+v", resp)
+	}
+
+	// 校验失败 → 400
+	rec = doJSON(t, mux, http.MethodPost, "/api/mcp/servers/test", mcpServerDTO{Name: "x", Type: "http"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing-url status = %d, want 400", rec.Code)
+	}
+}
+
+func TestHandleGetMCPStatus_ProxiesWithBearerToken(t *testing.T) {
+	_, mux := newMCPTestServer(t)
+
+	var gotAuth, gotPath string
+	gw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"initialized":true,"enabled":true,"servers":{}}`))
+	}))
+	defer gw.Close()
+
+	u, err := url.Parse(gw.URL)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	port, _ := strconv.Atoi(u.Port())
+	oldPID := gateway.pidData
+	gateway.pidData = &ppid.PidFileData{Host: u.Hostname(), Port: port, Token: "secret-token"}
+	defer func() { gateway.pidData = oldPID }()
+
+	rec := doJSON(t, mux, http.MethodGet, "/api/mcp/status", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if gotPath != "/mcp/status" {
+		t.Fatalf("gateway path = %q", gotPath)
+	}
+	if gotAuth != "Bearer secret-token" {
+		t.Fatalf("authorization = %q", gotAuth)
+	}
+	if !strings.Contains(rec.Body.String(), `"initialized":true`) {
+		t.Fatalf("body not proxied: %s", rec.Body.String())
+	}
+}
+
+func TestHandleGetMCPStatus_OfflineWhenUnreachable(t *testing.T) {
+	_, mux := newMCPTestServer(t)
+
+	// 拿一个确定无人监听的端口
+	dead := httptest.NewServer(nil)
+	deadURL, _ := url.Parse(dead.URL)
+	deadPort, _ := strconv.Atoi(deadURL.Port())
+	dead.Close()
+
+	oldPID := gateway.pidData
+	gateway.pidData = &ppid.PidFileData{Host: "127.0.0.1", Port: deadPort, Token: "t"}
+	defer func() { gateway.pidData = oldPID }()
+
+	rec := doJSON(t, mux, http.MethodGet, "/api/mcp/status", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"offline"`) {
+		t.Fatalf("body = %s, want offline", rec.Body.String())
 	}
 }
