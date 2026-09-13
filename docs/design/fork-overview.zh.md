@@ -21,6 +21,7 @@
 | 会话标题两阶段生成 | `48bf141f` | `pkg/agent/session_title.go`、`pkg/memory/jsonl.go` | `docs/design/hermes-borrowing-analysis.zh.md` §二 |
 | Turn 韧性（429/LLM 失败） | `<2026-09-09>` | `pkg/agent/pipeline_streaming.go`、`pkg/providers/error_classifier.go`、`pkg/providers/cooldown.go` | 本文 §5、`docs/design/turn-llm-failure-resilience.zh.md` |
 | Windows exec 卡死与会话丢失三连修 | `<2026-09-11>` | `pkg/tools/shell.go`、`pkg/tools/shell_process_windows.go`、`pkg/agent/steering_abort.go` | 本文 §4、§5 |
+| Web MCP 独立页面 | `<2026-09-13>` | `web/backend/api/mcp.go`、`pkg/health/server.go`、`pkg/agent/agent_mcp.go`、`web/frontend/src/components/mcp/` | `docs/design/web-mcp-page-design.zh.md` |
 
 ## 1. 飞书 CardKit v2 流式卡片
 
