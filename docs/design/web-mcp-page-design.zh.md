@@ -91,7 +91,11 @@ gateway（主进程）
 
 // PUT /api/mcp/config ← 同结构
 // 校验：名称非空且唯一；type ∈ {stdio, sse, http}；stdio 必填 command；sse/http 必填 url
-// 写回：lenient load → mutate cfg.Tools.MCP → save（未知字段天然保留，与现有保存路径一致）
+// 写回：lenient load → mutate cfg.Tools.MCP → validate → SaveConfig，
+//   与 PATCH /api/config 共用同一套 merge-validate-save 语义（configWriteMu 串行化）。
+//   注意：仓库既定行为是保存时按已知结构重写、丢弃未知字段（healing 语义，
+//   见 web/backend/api/config.go applyConfigPatch 注释），本端点遵循同一语义，
+//   不另行实现保留逻辑。
 
 // POST /api/mcp/servers/test ← 单个 server 对象（不落盘）
 // → { "ok": true, "latencyMs": 342, "toolCount": 8,
@@ -229,7 +233,8 @@ func ProbeServer(ctx context.Context, cfg config.MCPServerConfig, workspacePath 
 3. 校验：重名 / 空名 / stdio 无 command / http 无 url，保存被拦截并提示。
 4. gateway 运行时：跑过一次对话后刷新状态 → 在线徽章 + 工具 chips；
    gateway 停止 → offline 提示 + 徽章置灰。
-5. 保存后 `config.json` 中未知字段未被破坏（与保存前 diff 确认）。
+5. 含未知字段的配置在 `/mcp` 页加载时出现 warning 提示；保存后文件按已知结构重写
+   （仓库既定 healing 语义，与 PATCH /api/config 一致）。
 6. i18n：zh / en 切换无缺 key。
 
 ## 8. 设计决策记录
