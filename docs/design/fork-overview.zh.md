@@ -15,7 +15,7 @@
 | 可靠性加固 | `9bab2b25`…`3fce044b` | `pkg/agent/turn_health.go` 等 | 本文 §5 |
 | exec 安全加固 | `9cc5a3b1` | `pkg/tools/shell.go`、`pkg/config/config.go` | 本文 §6、`docs/security-exec-hardening.md` |
 | 卡片停止按钮（已移除渲染） | `fc18f452` | `pkg/channels/feishu/` | 本文 §7 |
-| Web launcher 主题 | `5d3ad431` | `web/frontend/src/index.css` | 本文 §8 |
+| Web launcher 主题 | `5d3ad431` | `web/frontend/src/index.css`、`web/frontend/src/hooks/use-theme.ts`、`web/frontend/src/components/theme-switcher.tsx` | 本文 §8 |
 | 运维禁令 | `23b1275d` | `AGENTS.md` | 本文 §9 |
 | 技能目录扩展与项目文档注入 | `<本次>` | `pkg/skills/loader.go`、`pkg/agent/project_docs.go` | 本文 §10 |
 | 会话标题两阶段生成 | `48bf141f` | `pkg/agent/session_title.go`、`pkg/memory/jsonl.go` | `docs/design/hermes-borrowing-analysis.zh.md` §二 |
@@ -97,15 +97,16 @@
 - 测试锚点：`TestStreamingCardsOmitStopButton`（钉住"不带按钮"）、`TestHandleCardActionStop*`（回调链路）。
 - 后续候选：报告翻页。（危险命令「批准/拒绝」审批门禁曾于 `cf9731fc` 实现后按用户决定整体移除，含配置项 `tools.exec.approval_patterns`；如需恢复查该提交。）
 
-## 8. Web launcher 主题（深空紫青科技风）
+## 8. Web launcher 主题（五套命名主题）
 
-`5d3ad431`..`24ee54f8`（2026-09-07）。按「全局改一处」原则，**只重写 `web/frontend/src/index.css` 的主题变量与全局特效层，不触碰任何组件**：
+演变：`5d3ad431`..`24ee54f8`（2026-09-07）深空紫青科技风 → `30bc9da6` 暖琥珀极光改版 → `31ed68fc`（2026-09-13）**五套命名主题**（参考 metacubexd 的调色板切换模型，适配本仓库 shadcn/Tailwind v4 变量体系）：
 
-- 配色：AI 紫 `#7C3AED`（oklch 0.541/0.606）主色贯穿明暗两态，边框、焦点环、选中态统一带紫；图表 5 色换成紫→青→品红→蓝→teal 渐变族。
-- 氛围背景：body 固定三层极光径向光晕（暗态 40%/32%/28% 透明度）+ 44px 网格线，纯 CSS 零开销。
-- 玻璃拟态：卡片磨砂 + 悬浮上浮 + 紫色辉光 hover；侧栏与顶栏半透明 + backdrop-blur。
-- 对比度三连修（`9ad61051`→`24ee54f8`）：卡片不透明度提到 88%、再提亮至 96% 不透明 + 紫色描边，最终侧栏/顶栏/弹窗/输入框/toast 全部收敛进统一的「面板体系」，避免背景极光吃掉前景内容。
-- 附带 `a42971e8`：修复 pnpm-lock.yaml 重复键。
+- **机制**：`<html data-theme="...">` 属性驱动完整 shadcn 变量组（含 aurora 背景、chart 5 色、sidebar 全家）；深色主题同时保留 `.dark` 类，`dark:` 变体与 highlight.js 联动（`use-highlight-theme.ts` 读类名）不受影响。命名主题块声明在 `.dark` 之后，靠同特异性后者胜出完成覆盖。
+- **主题清单**：`light` 浅色 / `dark` 深色（默认）/ `ocean` 海洋（青蓝深色）/ `forest` 森林（翠绿深色）/ `sakura` 樱花（粉调浅色）。
+- **渐变变量化**：`.bg-primary` 与激活侧栏项渐变里的琥珀混入色抽为 `--primary-glow/deep/alt`，各主题独立覆盖，避免新主题主按钮残留琥珀渐变。
+- **切换 UI**：`ThemeSwitcher` 组件（调色板按钮 + 色板圆点下拉），替换 `app-header` 与 launcher 登录/设置页的日/月切换按钮；localStorage `theme` 键不变，旧值 `light`/`dark` 仍是合法主题 id，存量用户无感。
+- **防闪烁**：`index.html` 内联引导脚本在首帧前恢复存储的主题（id 集合与 `use-theme.ts` 保持同步，改主题清单时两处都要动）。
+- i18n 五个 locale 的 `theme.*` 标签。
 
 ## 9. 运维禁令（AGENTS.md）
 
@@ -151,12 +152,12 @@
 | Web 会话列表 | 仅 pico（web 聊天）会话 | 全渠道会话（带 `channel` 徽标，如 feishu）；非 pico 会话只读查看（输入框禁用 `nonPicoSession`），删除跨渠道放行（`web/backend/api/session.go`） |
 | `/stop` 中止的会话历史 | 回滚到 turn 前（新会话=整文件清空） | 封口悬空 tool_calls 并保留记录；turn 卡死 10s 后看门狗强制释放会话注册 |
 | exec 子进程击杀（Windows） | taskkill /T（孤儿逃逸→管道挂死→会话卡死） | Job Object 整树击杀 + 5s WaitDelay 有界 io 等待；干净退出的存活 daemon 不误杀 |
-| Web launcher 外观 | 上游默认主题 | 深空紫青主题（仅改 index.css，升级时留意该文件冲突） |
+| Web launcher 外观 | 上游默认主题 | 五套命名主题（`data-theme` + `.dark` 联动，见 §8；`index.css`/`use-theme.ts`/`theme-switcher.tsx`/`index.html` 升级时留意冲突） |
 | systemd 部署 | 官方 unit | 禁 sandbox 指令（见 §9），unit 变更时不得带回 |
 
 ## 同步上游注意事项
 
-- 主要冲突面：`pkg/commands/`、`pkg/agent/pipeline_execute.go`、`pkg/tools/shell.go`、`pkg/channels/feishu/`、`pkg/config/config.go`（AgentDefaults）、`pkg/skills/loader.go`（§10 五级根目录）、`web/frontend/src/index.css`（§8 主题）。
+- 主要冲突面：`pkg/commands/`、`pkg/agent/pipeline_execute.go`、`pkg/tools/shell.go`、`pkg/channels/feishu/`、`pkg/config/config.go`（AgentDefaults）、`pkg/skills/loader.go`（§10 五级根目录）、`web/frontend/src/index.css`（§8 主题）、`web/frontend/src/hooks/use-theme.ts`、`web/frontend/src/components/theme-switcher.tsx`、`web/frontend/index.html`（防闪烁脚本）。
 - `pkg/providers/openai_compat/provider.go` 的流式超时如与上游改动冲突，保留 `streamRoundTripper` 语义优先。
 - `pkg/config/config.go` 的 `ModelStreamingConfig.Enabled` 是 `*bool`（nil=开启，fork 默认开流式）；上游若改回值 bool，同步时保留 `*bool` + `EffectiveEnabled()` 语义，消费点走 `EffectiveEnabled()` 而非直接读字段。`defaults.go` 里 feishu 渠道出厂带 `streaming.enabled: true`。
 - 开放默认三件套（不要"加固"回去）：`restrict_to_workspace` 默认 `false`；`pkg/tools/fs/system_paths.go` 的系统目录保护（`tools.protect_system_paths` nil=开，校验入口在 `validatePathWithAllowPaths` 最前）；`defaultDenyPatterns` 为毁灭性+系统目录写入集（一般命令/脚本/$()/管道/heredoc 放行，windowsDenyPatterns 已删除）。同步上游时若上游改动这三处，保留 fork 语义优先。
