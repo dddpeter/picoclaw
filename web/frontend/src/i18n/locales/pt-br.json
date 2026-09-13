@@ -1027,6 +1027,7 @@
       "discard_hint": "You have unsaved changes",
       "save_failed": "Save failed: {message}",
       "invalid_json": "\"{field}\" is not a valid JSON object",
+      "invalid_number": "\"{field}\" must be an integer >= 1",
       "discovery": {
         "enabled": "Enable tool discovery",
         "enabled_hint": "Tools are discovered on demand via regex/semantic search instead of being all registered",

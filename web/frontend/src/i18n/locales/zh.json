@@ -1033,6 +1033,7 @@
       "discard_hint": "有未保存的修改",
       "save_failed": "保存失败：{message}",
       "invalid_json": "「{field}」不是合法的 JSON 对象",
+      "invalid_number": "「{field}」必须是大于等于 1 的整数",
       "discovery": {
         "enabled": "启用工具发现",
         "enabled_hint": "工具按需以正则/语义搜索发现，而不是全部注册",

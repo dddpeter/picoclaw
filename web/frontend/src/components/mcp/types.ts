@@ -111,22 +111,32 @@ export function draftToServerPayload(
   }
 }
 
-function parseIntStrict(value: string): number {
+function parseIntStrict(value: string, label: string): number {
   const n = Number.parseInt(value, 10)
-  return Number.isFinite(n) && n > 0 ? n : 0
+  if (!Number.isFinite(n) || n < 1) {
+    throw new Error(`INVALID_NUMBER:${label}`)
+  }
+  return n
 }
 
 export function formToPayload(
   form: MCPConfigForm,
   invalidJSONLabel: string,
+  invalidNumberLabel: (field: string) => string,
 ): MCPConfigPayload {
   return {
     enabled: form.enabled,
-    maxInlineTextChars: parseIntStrict(form.maxInlineTextChars),
+    maxInlineTextChars: parseIntStrict(
+      form.maxInlineTextChars,
+      invalidNumberLabel("max_inline"),
+    ),
     discovery: {
       enabled: form.discoveryEnabled,
-      ttlSeconds: parseIntStrict(form.discoveryTTL),
-      maxSearchResults: parseIntStrict(form.discoveryMaxResults),
+      ttlSeconds: parseIntStrict(form.discoveryTTL, invalidNumberLabel("ttl")),
+      maxSearchResults: parseIntStrict(
+        form.discoveryMaxResults,
+        invalidNumberLabel("max_results"),
+      ),
       useBM25: form.discoveryUseBM25,
       useRegex: form.discoveryUseRegex,
     },

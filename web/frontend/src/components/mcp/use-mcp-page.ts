@@ -125,7 +125,11 @@ export function useMCPPage() {
     if (!form) return
     setSaving(true)
     try {
-      const payload = formToPayload(form, t("pages.mcp.invalid_json", { field: "headers" }))
+      const payload = formToPayload(
+        form,
+        t("pages.mcp.invalid_json", { field: "headers" }),
+        (field) => t("pages.mcp.invalid_number", { field }),
+      )
       // 至少一个发现方式
       if (
         payload.enabled &&
@@ -153,6 +157,10 @@ export function useMCPPage() {
       const message = err instanceof Error ? err.message : String(err)
       if (message.startsWith("INVALID_JSON:")) {
         toast.error(t("pages.mcp.invalid_json", { field: message.slice("INVALID_JSON:".length) }))
+      } else if (message.startsWith("INVALID_NUMBER:")) {
+        toast.error(
+          t("pages.mcp.invalid_number", { field: message.slice("INVALID_NUMBER:".length) }),
+        )
       } else {
         toast.error(t("pages.mcp.save_failed", { message }))
       }
