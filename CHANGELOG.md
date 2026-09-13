@@ -7,6 +7,9 @@
 
 ## [Unreleased]
 
+### Added
+- web 控制台五套主题切换（参考 metacubexd 调色板模型）：浅色/深色（默认）/海洋/森林/樱花，`data-theme` + 完整 shadcn 变量组驱动，深色主题保留 `.dark` 类兼容 `dark:` 变体与代码高亮联动；调色板下拉（色板圆点预览）替换原日/月切换按钮；localStorage `theme` 键不变，旧值 `light`/`dark` 仍合法；`index.html` 防闪烁引导脚本首帧前恢复主题
+
 ## [0.4.0] - 2026-09-11
 
 ### Added
