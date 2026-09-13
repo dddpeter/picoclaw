@@ -1051,6 +1051,7 @@
         "failed": "Connection failed"
       },
       "save": "Save",
+      "save_success": "Saved",
       "discard": "Discard changes",
       "discard_confirm": "Confirm discard?",
       "discard_hint": "You have unsaved changes",

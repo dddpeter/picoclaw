@@ -1057,6 +1057,7 @@
         "failed": "连接失败"
       },
       "save": "保存",
+      "save_success": "已保存",
       "discard": "放弃修改",
       "discard_confirm": "确认放弃？",
       "discard_hint": "有未保存的修改",
