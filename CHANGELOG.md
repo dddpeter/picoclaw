@@ -10,6 +10,9 @@
 ### Added
 - web 控制台五套主题切换（参考 metacubexd 调色板模型）：浅色/深色（默认）/海洋/森林/樱花，`data-theme` + 完整 shadcn 变量组驱动，深色主题保留 `.dark` 类兼容 `dark:` 变体与代码高亮联动；调色板下拉（色板圆点预览）替换原日/月切换按钮；localStorage `theme` 键不变，旧值 `light`/`dark` 仍合法；`index.html` 防闪烁引导脚本首帧前恢复主题
 
+### Fixed
+- 首次安装按示例模板填写配置即报 "config.json contains unknown field(s)"：① 未知字段诊断白名单 `_comment` 键（注释约定， decoder 本就忽略、下次保存自然消失，真实拼写错误仍拒收）；② brave/tavily/kagi/perplexity 四个搜索 provider 兼容弃用的单数 `api_key`（仅加载期折叠进 `api_keys`，`api_keys` 优先，序列化永不回写）；③ `config/config.example.json` 模板清洗（删除冗余单数 `api_key` 行，tavily 改用 `api_keys`），新增 `TestExampleTemplateLoadsStrict` 钉死模板必须通过严格加载
+
 ## [0.4.0] - 2026-09-11
 
 ### Added
@@ -22,7 +25,8 @@
 - exec 输出等待有界化（cmd.WaitDelay 5s + exec.ErrWaitDelay 识别）：/stop 或超时击杀进程后不再永久阻塞在管道 EOF 等待；命令正常退出但 daemon 持有输出管道时立即以成功+附注返回（此前 exec 假挂到 daemon 退出，agent-browser 场景"卡住只能重启"的根源）
 - 响应式 /stop（LLM 流式中按停止）不再清空新会话历史：abortTurn 与 HardAbort 统一封口语义，删除 restore point 回滚机制（快照在用户消息落盘前捕获，回滚=清空）
 - 僵尸 turn 迟到解退不再清掉新 turn 的记录（zombieReleased 守卫）；封口后迟到的真实工具结果不再落盘（8 处工具消息落盘点统一守卫，杜绝同 tool_call_id 双 tool 消息）
-- 输出清理管线 CRLF bug：Windows 下 CRLF 行尾的  被当进度条重绘，命令输出整行被清空（inline 送模型路径几乎全空）
+- 输出清理管线 CRLF bug：Windows 下 CRLF 行尾的 
+ 被当进度条重绘，命令输出整行被清空（inline 送模型路径几乎全空）
 - turn LLM 失败韧性：429 风暴 UX、错误双发去重、非流式超时校准
 
 ### Notes

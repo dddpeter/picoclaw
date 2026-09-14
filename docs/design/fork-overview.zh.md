@@ -23,6 +23,7 @@
 | Turn 韧性（429/LLM 失败） | `<2026-09-09>` | `pkg/agent/pipeline_streaming.go`、`pkg/providers/error_classifier.go`、`pkg/providers/cooldown.go` | 本文 §5、`docs/design/turn-llm-failure-resilience.zh.md` |
 | Windows exec 卡死与会话丢失三连修 | `<2026-09-11>` | `pkg/tools/shell.go`、`pkg/tools/shell_process_windows.go`、`pkg/agent/steering_abort.go` | 本文 §4、§5 |
 | Web MCP 独立页面 | `<2026-09-13>` | `web/backend/api/mcp.go`、`pkg/health/server.go`、`pkg/agent/agent_mcp.go`、`web/frontend/src/components/mcp/` | `docs/design/web-mcp-page-design.zh.md` |
+| 配置模板兼容（_comment + api_key 别名） | `<2026-09-14>` | `pkg/config/diagnostics.go`、`pkg/config/config.go`（四搜索 provider）、`config/config.example.json` | 本文 §5、同步注意事项 |
 
 ## 1. 飞书 CardKit v2 流式卡片
 
@@ -79,6 +80,7 @@
   - **/stop 语义：回滚抹除 → 封口保留**：旧 HardAbort 回滚 `SetHistory(history[:initialHistoryLength])` 对新会话（起点 0）等于把 JSONL 整文件重写为空（实测 0 字节文件 + meta count=0，重启后"会话记录丢失"）；现 `sealDanglingToolCalls` 给末尾悬空 tool_calls 补合成结果（`abortedToolResultNote`），历史对下次请求有效且记录保留。`TestHardAbortSessionRollback`/`TestHardAbortOrderOfOperations` 已改为断言新语义。
   - **评审加固（同日）**：中止语义统一——`abortTurn` 同样走封口（旧 `restoreSession` 按 turn 前快照整段回滚，快照在用户消息落盘前捕获，**响应式 /stop（流式中按停止）依然清空新会话**）；看门狗强制释放时置 `zombieReleased`，迟到解退的 turn 跳过一切会话写入（防清掉新 turn 的记录）；ExecuteTools 全部工具消息落盘点（主结果/hook 供结果/deny/skip 共 8 处）加 hardAbort 守卫——封口后迟到的真实结果不再落盘，避免同 tool_call_id 出现双 tool 消息使下次请求 400；restore point 机制（captureRestorePoint/refreshRestorePointFromSession/restoreSession）整体删除。
   - 测试锚点：`TestShellTool_CancelReturnsDespiteOrphanedPipeHolder`、`TestShellTool_DaemonHoldingPipesReturnsPromptly`（tools，Windows-only）；`TestSealDanglingToolCalls`、`TestHardAbort_ForceReleasesWedgedTurnRegistration`、`TestRunTurn_HardAbortDuringLLMCall_PreservesHistory`、`TestZombieTurn_LateUnwindPreservesNewTurnHistory`、`TestRunTurn_HardAbortMidTool_LateResultNotDuplicated`、`TestAgentLoop_InterruptHard_SealsAndPreservesSession`（agent）。
+- **首次安装配置模板兼容（2026-09-14）**：上游示例模板 `config.example.json` 自带 `_comment` 键和单数 `api_key` 字段，但结构体均不认识——首次安装照模板填配置即被严格加载拒绝（网关启动失败 + web 端 "Failed to load config"），宽松路径则静默丢弃密钥。fork 三连修：① 未知字段诊断白名单 `_comment`（`pkg/config/diagnostics.go` `collectUnknownJSONFields`，仅跳过不报错；decoder 本就忽略，下次保存自然消失，真实拼写错误仍拒收）；② brave/tavily/kagi/perplexity 的 `LegacyAPIKey`（`json:"api_key"`）字段 + 自定义 `UnmarshalJSON` 折叠进 `APIKeys`（`api_keys` 优先；SecureString `IsZero` 在 JSON 上下文恒真，序列化永不回写）；③ 模板清洗（删冗余单数 `api_key`，tavily 改 `api_keys`）。`TestExampleTemplateLoadsStrict` 钉死模板必须过严格加载，`TestWebSearchLegacyAPIKeyAliasFold` 钉住别名语义。
 
 ## 6. exec 安全加固（custom-only 拦截模式）
 
@@ -184,3 +186,4 @@
 - Turn 韧性（2026-09-09，详见 `docs/design/turn-llm-failure-resilience.zh.md`）：`pkg/agent/pipeline_streaming.go` 的出字前失败**保卡承接 + sticky 降级 + 冷却门控**、`pkg/agent/pipeline_finalize.go` 的纯文本兜底条件、`pkg/agent/agent.go` 的 `publishTurnError`、`pkg/providers/error_classifier.go` 的**配额→Billing 模式迁移与 429+配额 body 判定**、`pkg/providers/cooldown.go` 的 `MarkFailureWithHint`、`pkg/providers/common/common.go` 的 `HTTPError.RetryAfter`——均为 fork 行为，上游同步时保留 fork 语义。turn 重试边界是结构性保证（无预算机制），不要重新引入"失败计数预算"类加固。
 - cron 增强三件套（2026-09-13，§11）：`pkg/cron/service.go` 的 mtime 热重载（`reloadStoreIfChanged`/`storePollInterval`）+ due-job-only 落盘 + `ValidateSchedule`、`pkg/cron/suggestions.go`（consent-first 提案存储）、`pkg/cron/blueprints.go`、`pkg/tools/cron.go` 的 `script` 唤醒门与 `suggestions`/`blueprints` 动作、`pkg/evolution/cron_suggester.go` + `Runtime.SetCronSuggester`、`pkg/commands/cmd_cron.go`/`cmd_learn.go`、`pkg/agent/agent_command.go` 的 `applyLearnCommand`——均为 fork 行为，上游同步时保留 fork 语义；`hot_reload_test.go`/`cron_wakegate_test.go`/`cron_suggestions_test.go`/`learn_command_test.go` 钉住行为。
 - 合并后跑 `go test ./pkg/agent/ ./pkg/tools/ ./pkg/providers/... ./pkg/commands/ ./pkg/cron/ ./pkg/evolution/` 验证 fork 测试（文件名含 `_test.go` 且测试名带 `NewResets`/`NewArchives`/`NeverBlocks`/`ResponseHeaderTimeout`/`CleanCommandOutput`/`ReloadsStore`/`WakeGate`/`ApplyLearn`/`Suggest` 的均为 fork 独有）；前端改动需另跑 `pnpm build` 验证。
+- 配置模板兼容（2026-09-14）是 fork 对上游缺陷的修复：上游结构与模板均未改。同步上游时若 `config.example.json` 被上游改动，同步后必须保证 `TestExampleTemplateLoadsStrict` 仍过（模板不得引入结构体不认识的字段，`_comment` 除外）；`pkg/config/diagnostics.go` 的 `_comment` 白名单与四 provider 的 `LegacyAPIKey` 折叠保留 fork 语义，不要按上游"修"掉。

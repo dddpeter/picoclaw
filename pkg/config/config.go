@@ -1019,9 +1019,26 @@ type MessageToolsConfig struct {
 }
 
 type BraveConfig struct {
-	Enabled    bool          `json:"enabled"           yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_BRAVE_ENABLED"`
-	APIKeys    SecureStrings `json:"api_keys,omitzero" yaml:"api_keys,omitempty" env:"PICOCLAW_TOOLS_WEB_BRAVE_API_KEYS"`
-	MaxResults int           `json:"max_results"       yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_BRAVE_MAX_RESULTS"`
+	Enabled bool         `json:"enabled"           yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_BRAVE_ENABLED"`
+	APIKeys SecureStrings `json:"api_keys,omitzero" yaml:"api_keys,omitempty" env:"PICOCLAW_TOOLS_WEB_BRAVE_API_KEYS"`
+	// LegacyAPIKey tolerates the deprecated singular "api_key" spelling:
+	// sibling providers (gemini/glm_search/baidu_search) use it and older
+	// docs/examples advertised it here too. It is folded into APIKeys on
+	// decode (APIKeys wins when both are set) and never persisted back.
+	LegacyAPIKey SecureString `json:"api_key,omitzero"  yaml:"-"                  env:"-"`
+	MaxResults   int          `json:"max_results"       yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_BRAVE_MAX_RESULTS"`
+}
+
+// UnmarshalJSON folds the deprecated singular "api_key" alias into APIKeys.
+func (c *BraveConfig) UnmarshalJSON(data []byte) error {
+	type braveConfigAlias BraveConfig
+	if err := json.Unmarshal(data, (*braveConfigAlias)(c)); err != nil {
+		return err
+	}
+	if len(c.APIKeys) == 0 && c.LegacyAPIKey.String() != "" {
+		c.APIKeys = SimpleSecureStrings(c.LegacyAPIKey.String())
+	}
+	return nil
 }
 
 // APIKey returns the Brave API key
@@ -1042,10 +1059,25 @@ func (c *BraveConfig) SetAPIKeys(keys []string) {
 }
 
 type TavilyConfig struct {
-	Enabled    bool          `json:"enabled"           yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_TAVILY_ENABLED"`
-	APIKeys    SecureStrings `json:"api_keys,omitzero" yaml:"api_keys,omitempty" env:"PICOCLAW_TOOLS_WEB_TAVILY_API_KEYS"`
-	BaseURL    string        `json:"base_url"          yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_TAVILY_BASE_URL"`
-	MaxResults int           `json:"max_results"       yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_TAVILY_MAX_RESULTS"`
+	Enabled bool         `json:"enabled"           yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_TAVILY_ENABLED"`
+	APIKeys SecureStrings `json:"api_keys,omitzero" yaml:"api_keys,omitempty" env:"PICOCLAW_TOOLS_WEB_TAVILY_API_KEYS"`
+	// LegacyAPIKey tolerates the deprecated singular "api_key" spelling; see
+	// BraveConfig.LegacyAPIKey.
+	LegacyAPIKey SecureString `json:"api_key,omitzero"  yaml:"-"                  env:"-"`
+	BaseURL      string       `json:"base_url"          yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_TAVILY_BASE_URL"`
+	MaxResults   int          `json:"max_results"       yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_TAVILY_MAX_RESULTS"`
+}
+
+// UnmarshalJSON folds the deprecated singular "api_key" alias into APIKeys.
+func (c *TavilyConfig) UnmarshalJSON(data []byte) error {
+	type tavilyConfigAlias TavilyConfig
+	if err := json.Unmarshal(data, (*tavilyConfigAlias)(c)); err != nil {
+		return err
+	}
+	if len(c.APIKeys) == 0 && c.LegacyAPIKey.String() != "" {
+		c.APIKeys = SimpleSecureStrings(c.LegacyAPIKey.String())
+	}
+	return nil
 }
 
 // APIKey returns the Tavily API key
@@ -1070,10 +1102,25 @@ func (c *TavilyConfig) SetAPIKeys(keys []string) {
 }
 
 type KagiConfig struct {
-	Enabled    bool          `json:"enabled"           yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_KAGI_ENABLED"`
-	APIKeys    SecureStrings `json:"api_keys,omitzero" yaml:"api_keys,omitempty" env:"PICOCLAW_TOOLS_WEB_KAGI_API_KEYS"`
-	BaseURL    string        `json:"base_url"          yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_KAGI_BASE_URL"`
-	MaxResults int           `json:"max_results"       yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_KAGI_MAX_RESULTS"`
+	Enabled bool         `json:"enabled"           yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_KAGI_ENABLED"`
+	APIKeys SecureStrings `json:"api_keys,omitzero" yaml:"api_keys,omitempty" env:"PICOCLAW_TOOLS_WEB_KAGI_API_KEYS"`
+	// LegacyAPIKey tolerates the deprecated singular "api_key" spelling; see
+	// BraveConfig.LegacyAPIKey.
+	LegacyAPIKey SecureString `json:"api_key,omitzero"  yaml:"-"                  env:"-"`
+	BaseURL      string       `json:"base_url"          yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_KAGI_BASE_URL"`
+	MaxResults   int          `json:"max_results"       yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_KAGI_MAX_RESULTS"`
+}
+
+// UnmarshalJSON folds the deprecated singular "api_key" alias into APIKeys.
+func (c *KagiConfig) UnmarshalJSON(data []byte) error {
+	type kagiConfigAlias KagiConfig
+	if err := json.Unmarshal(data, (*kagiConfigAlias)(c)); err != nil {
+		return err
+	}
+	if len(c.APIKeys) == 0 && c.LegacyAPIKey.String() != "" {
+		c.APIKeys = SimpleSecureStrings(c.LegacyAPIKey.String())
+	}
+	return nil
 }
 
 // APIKey returns the Kagi API key
@@ -1112,9 +1159,24 @@ type GeminiSearchConfig struct {
 }
 
 type PerplexityConfig struct {
-	Enabled    bool          `json:"enabled"           yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_PERPLEXITY_ENABLED"`
-	APIKeys    SecureStrings `json:"api_keys,omitzero" yaml:"api_keys,omitempty" env:"PICOCLAW_TOOLS_WEB_PERPLEXITY_API_KEYS"`
-	MaxResults int           `json:"max_results"       yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_PERPLEXITY_MAX_RESULTS"`
+	Enabled bool         `json:"enabled"           yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_PERPLEXITY_ENABLED"`
+	APIKeys SecureStrings `json:"api_keys,omitzero" yaml:"api_keys,omitempty" env:"PICOCLAW_TOOLS_WEB_PERPLEXITY_API_KEYS"`
+	// LegacyAPIKey tolerates the deprecated singular "api_key" spelling; see
+	// BraveConfig.LegacyAPIKey.
+	LegacyAPIKey SecureString `json:"api_key,omitzero"  yaml:"-"                  env:"-"`
+	MaxResults   int          `json:"max_results"       yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_PERPLEXITY_MAX_RESULTS"`
+}
+
+// UnmarshalJSON folds the deprecated singular "api_key" alias into APIKeys.
+func (c *PerplexityConfig) UnmarshalJSON(data []byte) error {
+	type perplexityConfigAlias PerplexityConfig
+	if err := json.Unmarshal(data, (*perplexityConfigAlias)(c)); err != nil {
+		return err
+	}
+	if len(c.APIKeys) == 0 && c.LegacyAPIKey.String() != "" {
+		c.APIKeys = SimpleSecureStrings(c.LegacyAPIKey.String())
+	}
+	return nil
 }
 
 // APIKey returns the Perplexity API key

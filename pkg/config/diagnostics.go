@@ -382,6 +382,13 @@ func collectUnknownJSONFields(raw any, targetType reflect.Type, path string) []s
 		fieldMap := jsonFieldTypeMap(targetType)
 		var issues []string
 		for key, value := range obj {
+			// "_comment" is a tolerated documentation convention: the config
+			// example template ships it and users copy it into their configs.
+			// It never maps to a struct field, is dropped by the decoder and
+			// vanishes on the next save, so it must not fail strict loads.
+			if key == "_comment" {
+				continue
+			}
 			fieldType, exists := fieldMap[key]
 			fieldPath := appendJSONPath(path, key)
 			if !exists {
