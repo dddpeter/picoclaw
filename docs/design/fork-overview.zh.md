@@ -24,6 +24,7 @@
 | Windows exec 卡死与会话丢失三连修 | `<2026-09-11>` | `pkg/tools/shell.go`、`pkg/tools/shell_process_windows.go`、`pkg/agent/steering_abort.go` | 本文 §4、§5 |
 | Web MCP 独立页面 | `<2026-09-13>` | `web/backend/api/mcp.go`、`pkg/health/server.go`、`pkg/agent/agent_mcp.go`、`web/frontend/src/components/mcp/` | `docs/design/web-mcp-page-design.zh.md` |
 | 配置模板兼容（_comment + api_key 别名） | `<2026-09-14>` | `pkg/config/diagnostics.go`、`pkg/config/config.go`（四搜索 provider）、`config/config.example.json` | 本文 §5、同步注意事项 |
+| 长任务执行优化四件套 | `<2026-09-18>` | `pkg/tools/shell.go`、`pkg/agent/agent.go`（runAgentLoop 续段）、`pkg/agent/restart_recovery.go`、`pkg/agent/progress_heartbeat.go` | `docs/design/long-task-execution.zh.md`、本文 §12 |
 
 ## 1. 飞书 CardKit v2 流式卡片
 
@@ -176,7 +177,24 @@
 | 自动化建议 | 无 | evolution 重复模式 → suggestions.json 提案 → `/cron accept` 显式接受（consent-first，借鉴 hermes suggestions） |
 | 技能固化 | 无（只有 hub 安装） | `/learn <来源>` 把做过的事/文档改写为技能编写回合（借鉴 hermes /learn） |
 
+## 12. 长任务执行优化四件套（2026-09-18）
+
+设计文档：`docs/design/long-task-execution.zh.md`（含取舍与被否方案）。四项彼此独立、全部可配置关闭：
+
+- **① exec 超时引导 + per-call 超时**：同步 run 超时返回追加 `background=true` / `timeout=<seconds>` 引导（减少模型盲目重试被杀命令）；schema 里声明但从未实现的 `timeout` 参数落地——>0 覆盖本次 runSync 超时，0=无超时，缺省用配置默认（`tools.exec.timeout_seconds`）；`runSync` 超时改为参数传入，cron 的 `SetTimeout` 不受影响。测试锚点：`TestExecTool_TimeoutErrorSuggestsBackground`、`TestExecTool_PerCallTimeout*`、`TestResolveRunTimeout`。
+- **② 迭代到顶自动续 turn**（`agents.defaults.auto_continue_turns`，默认 2，0=关）：`turnResult.endedByIterationLimit` 标记 + `runAgentLoop` 续段循环——段到顶且未超预算时以续段指令再开一个完整 turn（SetupTurn 落续段消息、Assemble 重新压缩上下文、每段独立卡片/事件）；中间段 finalContent 用过渡文案，**末段再触顶回落 `toolLimitResponse`（不谎称继续）**；对外仅发最后一段答复；NoHistory/中止/错误不续。测试锚点：`TestRunAgentLoop_AutoContinue*`、`TestRunTurn_MarksIterationLimitOnTurnResult`。
+- **③ 网关重启恢复**（`agents.defaults.restart_recovery`，enabled 省略=开）：启动后异步扫全部会话，`detectDanglingToolCalls`（从 sealDanglingToolCalls 抽出）命中则以重启语义 note 封口（引导模型复查而非假定失败），24h 活跃窗口内（jsonl mtime，`LastModified`）按 scope 的 channel/chat 直发通知；**未响应重提醒 30 分钟 × 3 次封顶**，任何用户消息即取消（processMessage 钩子 `cancelRecoveryReminder`）。用户回复「继续」即恢复（零新恢复机制）。测试锚点：`TestRunRestartRecovery_*`、`TestDetectDanglingToolCalls`（既有 `TestSealDanglingToolCalls` 回归不变）。
+- **④ 长任务进度心跳**（`agents.defaults.progress_heartbeat_seconds`，默认 180s，0=关）：turnState 活动时间戳（LLM chunk/推理流/迭代推进/工具完成）+ 心跳 goroutine（间隔/4 轮询，最小 100ms），闲置达阈值发「⏱ 进度」KindText 面板归档步骤——**feishu 端零改动**，顺带缓解 200850 流式卡超时；publisher 原子引用 + CAS 清空防跨 turn 竞态，AppendToolStep 加互斥。测试锚点：`TestProgressHeartbeat_*`、`TestTurnState_(ActivityTracking|StreamPublisherAtomicRef)`。
+
+| 场景 | 上游 | 本 fork |
+|---|---|---|
+| exec 同步超时 | 仅 "Command timed out"；timeout 参数死声明 | 返回附 background/timeout 引导；timeout 参数落地（>0 覆盖，0=无） |
+| 步数到顶 | 以 toolLimitResponse 终止 | 自动续段（默认 +2 段），末段触顶才真终止 |
+| 网关重启 | 悬空 tool_calls 致下次请求 400，用户无感 | 封口 + 窗口内通知 + 重提醒，回复「继续」即恢复 |
+| 长静默期间 | 卡片 running 条目静止，无法分辨在干活/卡死 | 闲置 3 分钟发进度归档步骤，兼作流式卡保活 |
+
 ## 同步上游注意事项
+
 
 - 主要冲突面：`pkg/commands/`、`pkg/agent/pipeline_execute.go`、`pkg/agent/agent_command.go`（/learn 拦截 + /cron Runtime 回调）、`pkg/tools/shell.go`、`pkg/tools/cron.go`（§11 script/蓝图/建议动作）、`pkg/channels/feishu/`、`pkg/config/config.go`（AgentDefaults + EvolutionConfig.SuggestionsEnabled）、`pkg/skills/loader.go`（§10 五级根目录）、`web/frontend/src/index.css`（§8 主题）、`web/frontend/src/hooks/use-theme.ts`、`web/frontend/src/components/theme-switcher.tsx`、`web/frontend/index.html`（防闪烁脚本）。
 - `pkg/providers/openai_compat/provider.go` 的流式超时如与上游改动冲突，保留 `streamRoundTripper` 语义优先。
@@ -185,5 +203,6 @@
 - exec 卡死三连修（2026-09-11）：`pkg/tools/shell.go` 的 `execIOWaitDelay`/`ErrWaitDelay` 处理、`pkg/tools/shell_process_windows.go` 的 Job Object 击杀（`trackProcessTree`/`terminateProcessTree`）、`pkg/tools/output_clean.go` 的 CRLF 折叠修复、`pkg/agent/steering_abort.go` 的封口（`sealDanglingToolCalls`）+ 看门狗（`watchHardAbortUnwind`）、`pkg/agent/steering.go` HardAbort 的"封口不抹除"——均为 fork 行为，上游同步时保留 fork 语义；`subturn_test.go` 的 `TestHardAbortSessionRollback`/`TestHardAbortOrderOfOperations` 断言的是封口语义，不要按上游回滚语义"修"回去。
 - Turn 韧性（2026-09-09，详见 `docs/design/turn-llm-failure-resilience.zh.md`）：`pkg/agent/pipeline_streaming.go` 的出字前失败**保卡承接 + sticky 降级 + 冷却门控**、`pkg/agent/pipeline_finalize.go` 的纯文本兜底条件、`pkg/agent/agent.go` 的 `publishTurnError`、`pkg/providers/error_classifier.go` 的**配额→Billing 模式迁移与 429+配额 body 判定**、`pkg/providers/cooldown.go` 的 `MarkFailureWithHint`、`pkg/providers/common/common.go` 的 `HTTPError.RetryAfter`——均为 fork 行为，上游同步时保留 fork 语义。turn 重试边界是结构性保证（无预算机制），不要重新引入"失败计数预算"类加固。
 - cron 增强三件套（2026-09-13，§11）：`pkg/cron/service.go` 的 mtime 热重载（`reloadStoreIfChanged`/`storePollInterval`）+ due-job-only 落盘 + `ValidateSchedule`、`pkg/cron/suggestions.go`（consent-first 提案存储）、`pkg/cron/blueprints.go`、`pkg/tools/cron.go` 的 `script` 唤醒门与 `suggestions`/`blueprints` 动作、`pkg/evolution/cron_suggester.go` + `Runtime.SetCronSuggester`、`pkg/commands/cmd_cron.go`/`cmd_learn.go`、`pkg/agent/agent_command.go` 的 `applyLearnCommand`——均为 fork 行为，上游同步时保留 fork 语义；`hot_reload_test.go`/`cron_wakegate_test.go`/`cron_suggestions_test.go`/`learn_command_test.go` 钉住行为。
-- 合并后跑 `go test ./pkg/agent/ ./pkg/tools/ ./pkg/providers/... ./pkg/commands/ ./pkg/cron/ ./pkg/evolution/` 验证 fork 测试（文件名含 `_test.go` 且测试名带 `NewResets`/`NewArchives`/`NeverBlocks`/`ResponseHeaderTimeout`/`CleanCommandOutput`/`ReloadsStore`/`WakeGate`/`ApplyLearn`/`Suggest` 的均为 fork 独有）；前端改动需另跑 `pnpm build` 验证。
+- 长任务四件套（2026-09-18，§12）：`pkg/tools/shell.go` 的 `resolveRunTimeout`/超时参数化、`pkg/agent/agent.go` runAgentLoop 的**续段循环**、`pkg/agent/turn_coord.go` 的 `IterationLimitResponse` 覆盖与 `startProgressHeartbeat` 挂载、`pkg/agent/steering_abort.go` 的 `detectDanglingToolCalls`/`sealDanglingWith` 抽取（重构后既有 seal 测试必须仍过）、`pkg/agent/restart_recovery.go` 全文件、`pkg/agent/progress_heartbeat.go` 全文件、`pkg/agent/agent_message.go` 的 `cancelRecoveryReminder` 钩子、`pkg/gateway/gateway.go` 的启动挂载、`pkg/memory/jsonl.go`/`pkg/session/jsonl_backend.go` 的 `LastModified`、`pkg/config` 三个新配置项——均为 fork 行为，上游同步时保留 fork 语义；测试锚点见 §12。
+- 合并后跑 `go test ./pkg/agent/ ./pkg/tools/ ./pkg/providers/... ./pkg/commands/ ./pkg/cron/ ./pkg/evolution/` 验证 fork 测试（文件名含 `_test.go` 且测试名带 `NewResets`/`NewArchives`/`NeverBlocks`/`ResponseHeaderTimeout`/`CleanCommandOutput`/`ReloadsStore`/`WakeGate`/`ApplyLearn`/`Suggest`/`AutoContinue`/`RestartRecovery`/`ProgressHeartbeat`/`PerCallTimeout` 的均为 fork 独有）；前端改动需另跑 `pnpm build` 验证。
 - 配置模板兼容（2026-09-14）是 fork 对上游缺陷的修复：上游结构与模板均未改。同步上游时若 `config.example.json` 被上游改动，同步后必须保证 `TestExampleTemplateLoadsStrict` 仍过（模板不得引入结构体不认识的字段，`_comment` 除外）；`pkg/config/diagnostics.go` 的 `_comment` 白名单与四 provider 的 `LegacyAPIKey` 折叠保留 fork 语义，不要按上游"修"掉。
