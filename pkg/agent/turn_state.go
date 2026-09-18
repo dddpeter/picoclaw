@@ -259,7 +259,7 @@ type turnState struct {
 	pendingResults       chan *tools.ToolResult // Channel for SubTurn results
 	concurrencySem       chan struct{}          // Semaphore for limiting concurrent SubTurns
 	isFinished           atomic.Bool            // Whether this turn has finished
-	zombieReleased        atomic.Bool            // Abort watchdog force-released this turn's session registration
+	zombieReleased       atomic.Bool            // Abort watchdog force-released this turn's session registration
 	session              session.SessionStore   // Session store reference
 	initialHistoryLength int                    // Snapshot of history length at turn start
 
@@ -418,6 +418,7 @@ func (ts *turnState) setIteration(iteration int) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 	ts.iteration = iteration
+	ts.touchActivity()
 }
 
 // markIterationLimit records that this turn ended by exhausting
@@ -433,6 +434,36 @@ func (ts *turnState) iterationLimitHit() bool {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 	return ts.iterationLimit
+}
+
+// touchActivity records observable progress (LLM chunk, tool completion,
+// iteration advance) for the progress heartbeat's idle detection.
+func (ts *turnState) touchActivity() {
+	ts.lastActivityNano.Store(time.Now().UnixNano())
+}
+
+// activityIdleFor returns how long the turn has shown no activity.
+func (ts *turnState) activityIdleFor(now time.Time) time.Duration {
+	last := ts.lastActivityNano.Load()
+	if last == 0 {
+		return 0
+	}
+	return now.Sub(time.Unix(0, last))
+}
+
+func (ts *turnState) setStreamPublisher(p *streamingChunkPublisher) {
+	ts.streamPublisher.Store(p)
+	ts.touchActivity()
+}
+
+// clearStreamPublisher clears the reference only if it still points at p,
+// so a stale heartbeat cannot clear a newer publisher set by a later turn.
+func (ts *turnState) clearStreamPublisher(p *streamingChunkPublisher) {
+	ts.streamPublisher.CompareAndSwap(p, nil)
+}
+
+func (ts *turnState) loadStreamPublisher() *streamingChunkPublisher {
+	return ts.streamPublisher.Load()
 }
 
 func (ts *turnState) currentIteration() int {

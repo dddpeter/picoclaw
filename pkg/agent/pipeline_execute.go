@@ -777,6 +777,10 @@ toolLoop:
 				})
 		}
 
+		// Tool completion is observable progress — feeds the heartbeat's
+		// idle detection.
+		ts.touchActivity()
+
 		if exec.streamingPublisher != nil {
 			argsJSON, _ := json.Marshal(toolArgs)
 			exec.streamingPublisher.AppendToolStep(ctx, bus.ToolStep{

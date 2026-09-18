@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
@@ -92,6 +93,7 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 	// the call must still reach the live card through the deferred cleanup —
 	// otherwise the card stays in streaming mode ("正在思考") forever.
 	exec.streamingPublisher = publisher
+	ts.setStreamPublisher(publisher)
 	seedSkillPanelStep(ctx, publisher, ts, exec)
 
 	logger.DebugCF("agent", "configured streaming enabled", map[string]any{
@@ -249,6 +251,7 @@ func finalizeConfiguredStreamingLLM(
 	}
 	publisher := exec.streamingPublisher
 	exec.streamingPublisher = nil
+	ts.clearStreamPublisher(publisher)
 	visibleBeforeFinalize := publisher.Published()
 	if err := publisher.Finalize(ctx, content, contextUsage); err != nil {
 		if visibleBeforeFinalize {
@@ -299,6 +302,9 @@ func cancelConfiguredStreamingLLMWithReason(ctx context.Context, exec *turnExecu
 	}
 	publisher := exec.streamingPublisher
 	exec.streamingPublisher = nil
+	if publisher.ts != nil {
+		publisher.ts.clearStreamPublisher(publisher)
+	}
 	publisher.CancelWithReason(ctx, reason)
 }
 
@@ -426,11 +432,17 @@ type streamingChunkPublisher struct {
 	reasoningPublished bool
 	err                error
 	ts                 *turnState
+	// publishMu serializes panel-step writes between the turn goroutine and
+	// the progress-heartbeat goroutine (fork feature).
+	publishMu sync.Mutex
 }
 
 func (p *streamingChunkPublisher) Update(ctx context.Context, accumulated string) {
 	if p == nil || p.streamer == nil || strings.TrimSpace(accumulated) == "" {
 		return
+	}
+	if p.ts != nil {
+		p.ts.touchActivity()
 	}
 	if setter, ok := p.streamer.(interface{ SetModelName(modelName string) }); ok {
 		setter.SetModelName(p.modelName)
@@ -450,6 +462,9 @@ func (p *streamingChunkPublisher) Update(ctx context.Context, accumulated string
 func (p *streamingChunkPublisher) UpdateReasoning(ctx context.Context, accumulated string) {
 	if p == nil || p.streamer == nil || strings.TrimSpace(accumulated) == "" {
 		return
+	}
+	if p.ts != nil {
+		p.ts.touchActivity()
 	}
 	if setter, ok := p.streamer.(interface{ SetModelName(modelName string) }); ok {
 		setter.SetModelName(p.modelName)
@@ -560,6 +575,8 @@ func (p *streamingChunkPublisher) AppendToolStep(ctx context.Context, step bus.T
 	if !ok {
 		return
 	}
+	p.publishMu.Lock()
+	defer p.publishMu.Unlock()
 	if err := toolStepStreamer.AppendToolStep(ctx, step); err != nil {
 		logger.WarnCF("agent", "stream tool step update failed", map[string]any{
 			"channel": p.channel,

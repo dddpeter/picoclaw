@@ -3,6 +3,7 @@ package agent
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sipeed/picoclaw/pkg/providers"
 )
@@ -108,5 +109,42 @@ func TestTrimHistoryToFitContextWindow_WithProtectedTurnTailKeepsActiveTurn(t *t
 	}
 	if messages[0].Content != current {
 		t.Fatalf("messages[0].Content = %q, want protected current turn", messages[0].Content)
+	}
+}
+
+func TestTurnState_ActivityTracking(t *testing.T) {
+	agent := &AgentInstance{ID: "default"}
+	ts := newTurnState(agent, processOptions{Dispatch: DispatchRequest{SessionKey: "s", UserMessage: "hi"}},
+		turnEventScope{turnID: "t1"})
+	if idle := ts.activityIdleFor(time.Now()); idle < 0 {
+		t.Fatalf("idle duration must be non-negative, got %v", idle)
+	}
+	time.Sleep(5 * time.Millisecond)
+	ts.touchActivity()
+	if idle := ts.activityIdleFor(time.Now()); idle > 5*time.Millisecond {
+		t.Fatalf("touchActivity not reflected, idle=%v", idle)
+	}
+}
+
+func TestTurnState_StreamPublisherAtomicRef(t *testing.T) {
+	agent := &AgentInstance{ID: "default"}
+	ts := newTurnState(agent, processOptions{Dispatch: DispatchRequest{SessionKey: "s", UserMessage: "hi"}},
+		turnEventScope{turnID: "t1"})
+	if ts.loadStreamPublisher() != nil {
+		t.Fatal("publisher should start nil")
+	}
+	p := &streamingChunkPublisher{}
+	ts.setStreamPublisher(p)
+	if ts.loadStreamPublisher() != p {
+		t.Fatal("setStreamPublisher not visible")
+	}
+	// Clearing with the wrong pointer must not drop the live publisher.
+	ts.clearStreamPublisher(&streamingChunkPublisher{})
+	if ts.loadStreamPublisher() != p {
+		t.Fatal("CAS clear with stale pointer must not clear the live publisher")
+	}
+	ts.clearStreamPublisher(p)
+	if ts.loadStreamPublisher() != nil {
+		t.Fatal("clearStreamPublisher failed")
 	}
 }
