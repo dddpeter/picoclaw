@@ -3295,3 +3295,13 @@ func TestEvolutionConfig_EffectiveSuggestionsEnabled(t *testing.T) {
 		t.Fatal("explicit true must enable suggestions even in observe mode")
 	}
 }
+
+// TestDefaultConfig_ExecTimeout verifies the exec default timeout stayed at
+// the fork's relaxed 120s (raised from upstream's 60s in §8.5 — error-path
+// background guidance and per-call timeout make the longer default safe).
+func TestDefaultConfig_ExecTimeout(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.Tools.Exec.TimeoutSeconds != 120 {
+		t.Errorf("default exec timeout = %d, want 120", cfg.Tools.Exec.TimeoutSeconds)
+	}
+}
