@@ -532,6 +532,11 @@ func setupAndStartServices(
 		fmt.Println("✓ Device event service started")
 	}
 
+	// Restart recovery (fork feature): seal sessions interrupted by this
+	// restart, notify + re-remind their users. Async and best effort — never
+	// blocks or fails startup; the goroutine self-loops for reminders.
+	go agentLoop.RunRestartRecovery(context.Background())
+
 	return runningServices, nil
 }
 
