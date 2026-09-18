@@ -144,6 +144,7 @@ const (
 	metadataKeyOutboundKind    = "outbound_kind"
 	messageKindThought         = "thought"
 	messageKindToolFeedback    = "tool_feedback"
+	messageKindProgressNote    = "progress_note"
 	messageKindToolCalls       = "tool_calls"
 	outboundKindFinal          = "final"
 	metadataKeyAccountID       = "account_id"

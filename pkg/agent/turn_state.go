@@ -235,6 +235,7 @@ type turnState struct {
 	iterationLimit bool
 	// Progress heartbeat bookkeeping (fork feature: long-task heartbeat).
 	lastActivityNano atomic.Int64
+	lastBeatNano     atomic.Int64
 	streamPublisher  atomic.Pointer[streamingChunkPublisher]
 	// heartbeatInterval lets tests shrink the progress-heartbeat period
 	// without touching global config (non-exported, zero = use config).
@@ -464,6 +465,26 @@ func (ts *turnState) clearStreamPublisher(p *streamingChunkPublisher) {
 
 func (ts *turnState) loadStreamPublisher() *streamingChunkPublisher {
 	return ts.streamPublisher.Load()
+}
+
+// markHeartbeat records the last progress-beat time (throttle: one beat per
+// interval during sustained silence, not one per poll tick).
+func (ts *turnState) markHeartbeat() {
+	ts.lastBeatNano.Store(time.Now().UnixNano())
+}
+
+// heartbeatDue reports whether a progress beat should fire now: the turn has
+// been idle for the interval AND the previous beat is at least one interval
+// old (a beat itself counts as liveness for throttling purposes).
+func (ts *turnState) heartbeatDue(now time.Time, interval time.Duration) bool {
+	if ts.activityIdleFor(now) < interval {
+		return false
+	}
+	last := ts.lastBeatNano.Load()
+	if last == 0 {
+		return true
+	}
+	return now.Sub(time.Unix(0, last)) >= interval
 }
 
 func (ts *turnState) currentIteration() int {

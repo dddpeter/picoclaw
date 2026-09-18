@@ -134,3 +134,76 @@ func TestProgressHeartbeat_Disabled(t *testing.T) {
 		t.Fatalf("disabled heartbeat should not publish, got %+v", rs.steps)
 	}
 }
+
+func TestProgressHeartbeat_ThrottledToOnePerInterval(t *testing.T) {
+	al, ts, rs := newHeartbeatLoop(t, 80*time.Millisecond)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stop := al.startProgressHeartbeat(ctx, ts)
+	defer stop()
+	defer cancel()
+
+	// Sustained silence for ~2.5 intervals; without throttling the poll
+	// tick (interval/4) would fire ~10 times.
+	time.Sleep(200 * time.Millisecond)
+	n := len(rs.steps)
+	time.Sleep(80 * time.Millisecond)
+	if len(rs.steps) > n+1 {
+		t.Fatalf("beats should arrive ~1 per interval, got %d in 280ms (first count %d)", len(rs.steps), n)
+	}
+	if len(rs.steps) < 2 {
+		t.Fatalf("expected at least 2 beats across 280ms of silence, got %d", len(rs.steps))
+	}
+}
+
+func TestProgressHeartbeat_OutboundFallbackWithoutStreamer(t *testing.T) {
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         t.TempDir(),
+				ModelName:         "test-model",
+				MaxTokens:         64,
+				MaxToolIterations: 3,
+			},
+		},
+	}
+	msgBus := bus.NewMessageBus()
+	t.Cleanup(func() { msgBus.Close() })
+	al := NewAgentLoop(cfg, msgBus, &simpleMockProvider{response: "ok"})
+	agent := al.GetRegistry().GetDefaultAgent()
+	ts := newTurnState(agent, processOptions{
+		Dispatch: DispatchRequest{
+			SessionKey:   "s",
+			UserMessage:  "hi",
+			InboundContext: &bus.InboundContext{Channel: "test", ChatID: "chat9", ChatType: "direct", SenderID: "u1"},
+		},
+	}, turnEventScope{turnID: "t9"})
+	ts.heartbeatInterval = 50 * time.Millisecond
+	ts.touchActivity()
+	// No stream publisher set — heartbeat must fall back to outbound.
+
+	oc := captureOutbound(msgBus)
+	ctx, cancel := context.WithCancel(context.Background())
+	stop := al.startProgressHeartbeat(ctx, ts)
+	defer stop()
+	defer cancel()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(oc.text(), "进度") && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !strings.Contains(oc.text(), "进度") {
+		t.Fatal("expected outbound progress fallback message")
+	}
+	oc.mu.Lock()
+	kind := ""
+	for _, m := range oc.messages {
+		if strings.Contains(m.Content, "进度") {
+			kind = m.Context.Raw["message_kind"]
+		}
+	}
+	oc.mu.Unlock()
+	if kind != messageKindProgressNote {
+		t.Fatalf("outbound message kind = %q, want %q", kind, messageKindProgressNote)
+	}
+}
