@@ -158,6 +158,11 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 	scopeKey := resolveScopeKey(allocation.SessionKey, msg.SessionKey)
 	sessionKey := scopeKey
 
+	// Any user message lands in this session — drop its pending
+	// restart-recovery re-reminder (the user is back; the "继续" resume
+	// is just a normal message).
+	al.cancelRecoveryReminder(sessionKey)
+
 	// Reset message-tool state for this round so we don't skip publishing due to a previous round.
 	if tool, ok := agent.Tools.Get("message"); ok {
 		if resetter, ok := tool.(interface{ ResetSentInRound(sessionKey string) }); ok {

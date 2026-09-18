@@ -17,9 +17,11 @@ var hardAbortUnwindGrace = 10 * time.Second
 // valid for the next LLM request.
 const abortedToolResultNote = "[tool execution aborted: the task was stopped before this call completed]"
 
-// sealDanglingToolCalls returns history with synthetic tool results appended
-// for trailing assistant tool calls that never received a result — the shape
-// a hard abort leaves behind when it interrupts a turn mid-tool-loop.
+// restartToolResultNote seals tool calls interrupted by a gateway restart:
+// unlike an explicit stop, the result is simply unknown — the model should
+// re-check the affected state instead of assuming failure.
+const restartToolResultNote = "[interrupted by gateway restart: this tool call's result is unknown — re-check the affected state before relying on it]"
+
 // sealAbortedTurnSession seals the aborted turn's dangling tool calls,
 // keeping the assistant/tool pairing valid for the next request while
 // preserving the records. Idempotent: a history already sealed is returned
@@ -34,21 +36,24 @@ func (al *AgentLoop) sealAbortedTurnSession(ts *turnState) {
 	}
 }
 
-func sealDanglingToolCalls(history []providers.Message) []providers.Message {
+// detectDanglingToolCalls returns trailing assistant tool calls that never
+// received a result — the shape a hard abort (or a gateway restart) leaves
+// behind. Empty when the history tail is well-formed.
+func detectDanglingToolCalls(history []providers.Message) []providers.ToolCall {
 	if len(history) == 0 {
-		return history
+		return nil
 	}
 
 	// Walk back over trailing tool results to find the final assistant
-	// message with tool calls; earlier history predates the aborted turn's
-	// last exchange and is assumed complete.
+	// message with tool calls; earlier history predates the interrupted
+	// turn's last exchange and is assumed complete.
 	satisfied := make(map[string]bool)
 	i := len(history) - 1
 	for ; i >= 0 && history[i].Role == "tool"; i-- {
 		satisfied[history[i].ToolCallID] = true
 	}
 	if i < 0 || history[i].Role != "assistant" || len(history[i].ToolCalls) == 0 {
-		return history
+		return nil
 	}
 
 	var missing []providers.ToolCall
@@ -57,6 +62,13 @@ func sealDanglingToolCalls(history []providers.Message) []providers.Message {
 			missing = append(missing, call)
 		}
 	}
+	return missing
+}
+
+// sealDanglingWith appends one synthetic tool result per missing call using
+// the given note as content. Returns history unchanged when nothing dangles.
+func sealDanglingWith(history []providers.Message, note string) []providers.Message {
+	missing := detectDanglingToolCalls(history)
 	if len(missing) == 0 {
 		return history
 	}
@@ -67,10 +79,14 @@ func sealDanglingToolCalls(history []providers.Message) []providers.Message {
 		sealed = append(sealed, providers.Message{
 			Role:       "tool",
 			ToolCallID: call.ID,
-			Content:    abortedToolResultNote,
+			Content:    note,
 		})
 	}
 	return sealed
+}
+
+func sealDanglingToolCalls(history []providers.Message) []providers.Message {
+	return sealDanglingWith(history, abortedToolResultNote)
 }
 
 // watchHardAbortUnwind gives the aborted turn's goroutine a grace period to

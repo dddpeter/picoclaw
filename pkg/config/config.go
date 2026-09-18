@@ -508,6 +508,9 @@ type AgentDefaults struct {
 	MaxLLMRetries             int                 `json:"max_llm_retries,omitempty"        env:"PICOCLAW_AGENTS_DEFAULTS_MAX_LLM_RETRIES"`
 	LLMRetryBackoffSecs       int                 `json:"llm_retry_backoff_secs,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_LLM_RETRY_BACKOFF_SECS"`
 	LoopDetection             LoopDetectionConfig `json:"loop_detection,omitempty"`
+	// RestartRecovery controls post-restart sealing/notification for sessions
+	// whose turn was interrupted by a gateway restart (fork feature).
+	RestartRecovery RestartRecoveryConfig `json:"restart_recovery,omitempty"`
 	// SessionTitles controls two-phase session titling (fork feature, see
 	// docs/design/hermes-borrowing-analysis.zh.md §二). Absent block = enabled.
 	SessionTitles SessionTitleConfig `json:"session_titles,omitempty"`
@@ -515,6 +518,31 @@ type AgentDefaults struct {
 	// system prompt (AGENTS.md, README.md, ...). Absent from the config file
 	// means the default list; an explicit empty list disables the section.
 	ProjectDocs []string `json:"project_docs"`
+}
+
+// RestartRecoveryConfig controls post-restart sealing/notification for
+// sessions whose turn was interrupted by a gateway restart (fork feature,
+// pkg/agent/restart_recovery.go).
+type RestartRecoveryConfig struct {
+	// Enabled is nil when unset, which means enabled (fork convention).
+	Enabled *bool `json:"enabled,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_RESTART_RECOVERY_ENABLED"`
+	// NotifyWindowHours limits notifications to sessions whose on-disk record
+	// changed within this window. 0 disables notifications (sealing still
+	// happens). This is a freshness filter, NOT a repeat interval.
+	NotifyWindowHours int `json:"notify_window_hours,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_RESTART_RECOVERY_NOTIFY_WINDOW_HOURS"`
+	// ReminderIntervalMinutes re-notifies sessions that received no user
+	// message after the first notification. 0 disables re-reminders.
+	ReminderIntervalMinutes int `json:"reminder_interval_minutes,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_RESTART_RECOVERY_REMINDER_INTERVAL_MINUTES"`
+	// ReminderMax caps re-reminders per session.
+	ReminderMax int `json:"reminder_max,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_RESTART_RECOVERY_REMINDER_MAX"`
+}
+
+// IsEnabled reports whether restart recovery runs; absent block = enabled.
+func (c RestartRecoveryConfig) IsEnabled() bool {
+	if c.Enabled == nil {
+		return true
+	}
+	return *c.Enabled
 }
 
 // LoopDetectionConfig controls the low-progress loop detector (borrowed from

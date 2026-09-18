@@ -36,12 +36,17 @@ func DefaultConfig() *Config {
 				// protected OS system directories, see tools.protect_system_paths)
 				// and run general commands; upstream defaults to a workspace
 				// sandbox. Set restrict_to_workspace: true to restore it.
-				RestrictToWorkspace:       false,
-				Provider:                  "",
-				MaxTokens:                 32768,
-				Temperature:               nil, // nil means use provider default
-				MaxToolIterations:         50,
-				AutoContinueTurns:         2,
+				RestrictToWorkspace: false,
+				Provider:            "",
+				MaxTokens:           32768,
+				Temperature:         nil, // nil means use provider default
+				MaxToolIterations:   50,
+				AutoContinueTurns:   2,
+				RestartRecovery: RestartRecoveryConfig{
+					NotifyWindowHours:       24,
+					ReminderIntervalMinutes: 30,
+					ReminderMax:             3,
+				},
 				SummarizeMessageThreshold: 20,
 				SummarizeTokenPercent:     75,
 				SteeringMode:              "one-at-a-time",

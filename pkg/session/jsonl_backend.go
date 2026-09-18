@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/sipeed/picoclaw/pkg/memory"
 	"github.com/sipeed/picoclaw/pkg/providers"
@@ -275,4 +276,16 @@ func (b *JSONLBackend) Close() error {
 // ListSessions returns all known session keys.
 func (b *JSONLBackend) ListSessions() []string {
 	return b.store.ListSessions()
+}
+
+// LastModified exposes the underlying store's session-record mtime (used by
+// restart recovery's notification window). Falls back to zero when the store
+// cannot answer.
+func (b *JSONLBackend) LastModified(sessionKey string) (time.Time, bool) {
+	if lm, ok := b.store.(interface {
+		LastModified(key string) (time.Time, bool)
+	}); ok {
+		return lm.LastModified(sessionKey)
+	}
+	return time.Time{}, false
 }

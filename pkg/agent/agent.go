@@ -71,6 +71,10 @@ type AgentLoop struct {
 	activeTurnStates sync.Map
 	subTurnCounter   atomic.Int64
 
+	// recoveryReminders holds pending restart-recovery re-reminders keyed by
+	// session (fork feature, pkg/agent/restart_recovery.go).
+	recoveryReminders sync.Map
+
 	turnSeq atomic.Uint64
 
 	// activeReqMu/activeReqCond/activeReqCount replace sync.WaitGroup to

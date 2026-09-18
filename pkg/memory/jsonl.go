@@ -936,6 +936,17 @@ func (s *JSONLStore) rewriteJSONL(
 }
 
 // ListSessions returns all known session keys by reading .meta.json files.
+// LastModified returns the mtime of the session's jsonl file. It backs the
+// restart-recovery notification window (fresh sessions notify, stale ones
+// seal silently). ok=false when the file does not exist.
+func (s *JSONLStore) LastModified(key string) (time.Time, bool) {
+	info, err := os.Stat(s.jsonlPath(key))
+	if err != nil {
+		return time.Time{}, false
+	}
+	return info.ModTime(), true
+}
+
 func (s *JSONLStore) ListSessions() []string {
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {
