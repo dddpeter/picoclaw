@@ -743,6 +743,14 @@ func (s *feishuCardStreamer) SetModelName(modelName string) {
 	s.mu.Unlock()
 }
 
+// SetSegmentLabel tags this streamer's card as an auto-continue continuation
+// segment; the label renders in the process panel header.
+func (s *feishuCardStreamer) SetSegmentLabel(label string) {
+	s.mu.Lock()
+	s.state.SegmentLabel = label
+	s.mu.Unlock()
+}
+
 func (s *feishuCardStreamer) SetTurnUsage(inputTokens, outputTokens int) {
 	s.mu.Lock()
 	s.state.InputTokens = inputTokens

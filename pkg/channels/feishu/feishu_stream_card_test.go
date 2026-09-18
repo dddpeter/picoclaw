@@ -184,7 +184,7 @@ func buildFeishuPanelRaw(state *feishuStreamState) map[string]any {
 	return map[string]any{
 		"tag":        "collapsible_panel",
 		"expanded":   false,
-		"header":     feishuPanelHeader(0, false, len(state.Tools), 0),
+		"header":     feishuPanelHeader(0, false, len(state.Tools), 0, ""),
 		"elements":   children,
 		"element_id": feishuPanelElementID,
 	}
@@ -435,5 +435,23 @@ func TestPanelShowsSteeringNotice(t *testing.T) {
 	data, _ = json.Marshal(panel["elements"])
 	if !strings.Contains(string(data), "…") {
 		t.Error("long steering preview should be truncated")
+	}
+}
+
+func TestFeishuPanelHeaderShowsSegmentLabel(t *testing.T) {
+	state := &feishuStreamState{
+		Rounds:       []feishuReasoningRound{{Text: "thinking", Seq: 1}},
+		SegmentLabel: "续 2/3",
+	}
+	panel := buildFeishuPanel(state, true)
+	title := panel["header"].(map[string]any)["title"].(map[string]any)["content"].(string)
+	if !strings.Contains(title, "续 2/3") {
+		t.Errorf("header %q should carry the continuation segment label", title)
+	}
+	// Label must not leak into unlabeled (first-segment) cards.
+	plain := buildFeishuPanel(&feishuStreamState{Rounds: state.Rounds}, true)
+	plainTitle := plain["header"].(map[string]any)["title"].(map[string]any)["content"].(string)
+	if strings.Contains(plainTitle, "续") {
+		t.Errorf("header %q must stay unlabeled without a segment", plainTitle)
 	}
 }

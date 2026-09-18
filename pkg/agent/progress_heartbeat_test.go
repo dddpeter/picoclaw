@@ -207,3 +207,30 @@ func TestProgressHeartbeat_OutboundFallbackWithoutStreamer(t *testing.T) {
 		t.Fatalf("outbound message kind = %q, want %q", kind, messageKindProgressNote)
 	}
 }
+
+// segmentLabelRecorder accepts SetSegmentLabel like feishu's streamer does.
+type segmentLabelRecorder struct {
+	heartbeatRecorder
+	label string
+}
+
+func (r *segmentLabelRecorder) SetSegmentLabel(label string) { r.label = label }
+
+func TestStreamingPublisherSetsSegmentLabel(t *testing.T) {
+	_, ts, _ := newHeartbeatLoop(t, 0)
+	rs := &segmentLabelRecorder{}
+	p := &streamingChunkPublisher{streamer: rs, ts: ts}
+	ts.setStreamPublisher(p)
+	ts.setSegmentLabel("续 2/3")
+	// Re-run the publisher-ownership path logic: the setter fires at
+	// publisher creation in tryConfiguredStreamingLLM; emulate that by
+	// invoking the same optional-interface branch directly.
+	if label := ts.getSegmentLabel(); label != "" {
+		if s, ok := p.streamer.(interface{ SetSegmentLabel(string) }); ok {
+			s.SetSegmentLabel(label)
+		}
+	}
+	if rs.label != "续 2/3" {
+		t.Fatalf("streamer label = %q, want %q", rs.label, "续 2/3")
+	}
+}

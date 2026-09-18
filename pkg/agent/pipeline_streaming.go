@@ -94,6 +94,14 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 	// otherwise the card stays in streaming mode ("正在思考") forever.
 	exec.streamingPublisher = publisher
 	ts.setStreamPublisher(publisher)
+	// Continuation segments (§8.3): tag streamers that support it so the
+	// panel header shows "续 k/N". Optional interface — non-feishu channels
+	// simply don't implement it.
+	if label := ts.getSegmentLabel(); label != "" {
+		if s, ok := publisher.streamer.(interface{ SetSegmentLabel(string) }); ok {
+			s.SetSegmentLabel(label)
+		}
+	}
 	seedSkillPanelStep(ctx, publisher, ts, exec)
 
 	logger.DebugCF("agent", "configured streaming enabled", map[string]any{

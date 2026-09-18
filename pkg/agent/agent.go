@@ -610,6 +610,11 @@ func (al *AgentLoop) runAgentLoop(
 			newTurnContext(opts.Dispatch.InboundContext, opts.Dispatch.RouteResult, opts.Dispatch.SessionScope),
 		)
 		ts = newTurnState(agent, opts, turnScope)
+		if segment > 0 {
+			// Continuation segment: tag the turn so streaming panel headers can
+			// render "续 k/N" (§8.3). First segment (0) stays unlabeled.
+			ts.setSegmentLabel(fmt.Sprintf("续 %d/%d", segment, autoContinue))
+		}
 		pipeline := NewPipeline(al)
 		segResult, segErr := al.runTurn(ctx, ts, pipeline)
 		if segErr != nil {

@@ -190,6 +190,10 @@ type feishuStreamState struct {
 	ModelName    string
 	InputTokens  int
 	OutputTokens int
+	// SegmentLabel marks auto-continue continuation segments (e.g. "续 2/3")
+	// so the panel header can distinguish continuation cards from the
+	// original turn's card (fork feature).
+	SegmentLabel string
 
 	// Steering notices: user messages queued for the active turn, surfaced on
 	// the panel so the user sees their mid-turn message was heard.
@@ -310,7 +314,7 @@ func buildFeishuPanelPlaceholder() map[string]any {
 	return map[string]any{
 		"tag":              "collapsible_panel",
 		"expanded":         false,
-		"header":           feishuPanelHeader(0, false, 0, 0),
+		"header":           feishuPanelHeader(0, false, 0, 0, ""),
 		"border":           map[string]any{"color": "grey", "corner_radius": "10px"},
 		"vertical_spacing": "4px",
 		"padding":          "12px 12px 8px 12px",
@@ -380,8 +384,13 @@ func buildFeishuLoadingElement(phase string, spinnerKey string) map[string]any {
 	}
 }
 
-func feishuPanelHeader(rounds int, hasCur bool, tools int, elapsedMs int64) map[string]any {
+func feishuPanelHeader(rounds int, hasCur bool, tools int, elapsedMs int64, segmentLabel string) map[string]any {
 	parts := []string{"Agent 过程"}
+	if segmentLabel != "" {
+		// Auto-continue continuation segments (fork feature): distinguish the
+		// continuation card from the original one at a glance.
+		parts = append(parts, segmentLabel)
+	}
 	n := rounds
 	if hasCur {
 		n++
@@ -529,7 +538,7 @@ func buildFeishuPanelBudget(state *feishuStreamState, expanded bool, textBudget 
 	}
 
 	header := feishuPanelHeader(len(state.Rounds), strings.TrimSpace(state.CurReasoning) != "", totalExecTools,
-		int64((state.reasoningTotal()).Milliseconds())+toolElapsedMs)
+		int64((state.reasoningTotal()).Milliseconds())+toolElapsedMs, state.SegmentLabel)
 	return map[string]any{
 		"tag":              "collapsible_panel",
 		"expanded":         expanded,

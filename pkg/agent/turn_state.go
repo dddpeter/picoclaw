@@ -240,6 +240,9 @@ type turnState struct {
 	// heartbeatInterval lets tests shrink the progress-heartbeat period
 	// without touching global config (non-exported, zero = use config).
 	heartbeatInterval time.Duration
+	// segmentLabel marks auto-continue continuation segments (e.g. "续 2/3"),
+	// surfaced on streaming panel headers (fork feature §8.3).
+	segmentLabel string
 
 	followUps []bus.InboundMessage
 
@@ -465,6 +468,18 @@ func (ts *turnState) clearStreamPublisher(p *streamingChunkPublisher) {
 
 func (ts *turnState) loadStreamPublisher() *streamingChunkPublisher {
 	return ts.streamPublisher.Load()
+}
+
+func (ts *turnState) getSegmentLabel() string {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	return ts.segmentLabel
+}
+
+func (ts *turnState) setSegmentLabel(label string) {
+	ts.mu.Lock()
+	ts.segmentLabel = label
+	ts.mu.Unlock()
 }
 
 // markHeartbeat records the last progress-beat time (throttle: one beat per
