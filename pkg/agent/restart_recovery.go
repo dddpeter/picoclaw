@@ -71,33 +71,60 @@ func (r *recoveryReminder) exhausted() bool {
 	return r.sent >= r.max
 }
 
-// RunRestartRecovery scans all sessions, seals interrupted ones, sends the
-// first notification, then (optionally) loops re-reminding until the user
-// sends any message to a reminded session. Blocks until ctx is done when
-// reminders are enabled; callers run it in a goroutine.
+// RunRestartRecovery scans every agent's sessions (agents.list deployments
+// keep one store per agent — the default agent alone misses the rest), seals
+// interrupted ones, sends the first notification, then (optionally) loops
+// re-reminding until the user sends any message to a reminded session.
+// Blocks until ctx is done when reminders are enabled; callers run it in a
+// goroutine.
 func (al *AgentLoop) RunRestartRecovery(ctx context.Context) {
 	cfg := al.GetConfig().Agents.Defaults.RestartRecovery
 	if !cfg.IsEnabled() {
 		return
 	}
 
-	agent := al.GetRegistry().GetDefaultAgent()
-	if agent == nil || agent.Sessions == nil {
-		return
-	}
-
+	// Dedupe by store instance: agents sharing a workspace hold distinct
+	// store objects over the same directory; the idempotent seal makes the
+	// double scan harmless, but skipping repeats avoids duplicate work.
 	reminderInterval := time.Duration(cfg.ReminderIntervalMinutes) * time.Minute
 	reminderMax := cfg.ReminderMax
-	for _, key := range agent.Sessions.ListSessions() {
-		if ctx.Err() != nil {
-			return
+	seenStores := make(map[any]bool)
+	for _, agent := range al.recoveryAgents() {
+		if agent == nil || agent.Sessions == nil || seenStores[agent.Sessions] {
+			continue
 		}
-		al.recoverOneSession(ctx, agent, key, cfg, reminderInterval, reminderMax)
+		seenStores[agent.Sessions] = true
+		for _, key := range agent.Sessions.ListSessions() {
+			if ctx.Err() != nil {
+				return
+			}
+			al.recoverOneSession(ctx, agent, key, cfg, reminderInterval, reminderMax)
+		}
 	}
 
 	if reminderInterval > 0 && reminderMax > 0 && ctx.Err() == nil {
 		al.runRecoveryReminderLoop(ctx, time.Minute)
 	}
+}
+
+// recoveryAgents returns every registered agent plus the default one
+// (which may be absent from the registry in edge configurations).
+func (al *AgentLoop) recoveryAgents() []*AgentInstance {
+	registry := al.GetRegistry()
+	if registry == nil {
+		return nil
+	}
+	ids := registry.ListAgentIDs()
+	agents := make([]*AgentInstance, 0, len(ids)+1)
+	for _, id := range ids {
+		if agent, ok := registry.GetAgent(id); ok && agent != nil {
+			agents = append(agents, agent)
+		}
+	}
+	if def := registry.GetDefaultAgent(); def != nil {
+		agents = append(agents, def)
+	}
+	return agents
 }
 
 func (al *AgentLoop) recoverOneSession(

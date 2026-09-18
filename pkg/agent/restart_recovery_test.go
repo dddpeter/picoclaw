@@ -240,3 +240,47 @@ func TestRunRestartRecovery_ReminderStopsAfterMax(t *testing.T) {
 	}
 }
 
+
+func TestRunRestartRecovery_ScansAllAgents(t *testing.T) {
+	wsMain, wsHelper := t.TempDir(), t.TempDir()
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			List: []config.AgentConfig{
+				{ID: "main", Default: true, Workspace: wsMain},
+				{ID: "helper", Workspace: wsHelper},
+			},
+			Defaults: config.AgentDefaults{
+				Workspace:         wsMain,
+				ModelName:         "test-model",
+				MaxTokens:         64,
+				MaxToolIterations: 3,
+				RestartRecovery: config.RestartRecoveryConfig{
+					NotifyWindowHours:       24,
+					ReminderIntervalMinutes: 0,
+				},
+			},
+		},
+	}
+	msgBus := bus.NewMessageBus()
+	t.Cleanup(func() { msgBus.Close() })
+	al := NewAgentLoop(cfg, msgBus, &simpleMockProvider{response: "ok"})
+
+	helper, ok := al.GetRegistry().GetAgent("helper")
+	if !ok || helper == nil {
+		t.Fatal("helper agent not registered")
+	}
+	key := "agent_helper:test:restart"
+	helper.Sessions.SetHistory(key, danglingHistory())
+
+	al.RunRestartRecovery(context.Background())
+
+	sealed := false
+	for _, m := range helper.Sessions.GetHistory(key) {
+		if m.Role == "tool" && m.Content == restartToolResultNote {
+			sealed = true
+		}
+	}
+	if !sealed {
+		t.Fatal("non-default agent's interrupted session must also be sealed")
+	}
+}
