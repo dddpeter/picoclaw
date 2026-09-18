@@ -99,8 +99,13 @@ systemd 重启/OOM/断电后，JSONL 历史在磁盘上，但进行中的 turn �
    > ⚠ 检测到上次任务被中断（网关重启）。会话已封口保留，回复"继续"可让模型接着做。
    
    经 `bus.PublishOutbound` 直发（与 heartbeat 通知同模式）。
-5. **恢复**：用户回复"继续"→ 正常 processMessage → 同 session → 历史含封口 note → 模型自然续做。**零新恢复机制**。
-6. **配置**：`agents.defaults.restart_recovery`：`{ enabled *bool（nil=开，fork 惯例）, notify_window_hours int（默认 24，0=只封口不通知）}`。
+5. **未响应重提醒**：首次通知后登记会话级 pending 提醒（内存态，`restart_recovery.go` 内部维护）——
+   - 恢复 goroutine 自身以 1 分钟 ticker 巡检：到期（默认 30 分钟）且该会话**仍无任何用户消息** → 再发一条同样提示；
+   - 最多 3 次（默认），之后转静默（封口仍有效，用户随时可"继续"）；
+   - `processMessage` 路由出 sessionKey 后调用 `al.cancelRecoveryReminder(sessionKey)`，任何用户消息（含"继续"）立即取消；
+   - 再次重启不会重复首通知（已封口的会话检测不命中）；封顶 3 次保证打扰有界。
+6. **恢复**：用户回复"继续"→ 正常 processMessage → 同 session → 历史含封口 note → 模型自然续做。**零新恢复机制**。
+7. **配置**：`agents.defaults.restart_recovery`：`{ enabled *bool（nil=开，fork 惯例）, notify_window_hours int（默认 24，0=只封口不通知）, reminder_interval_minutes int（默认 30，0=关闭重提醒）, reminder_max int（默认 3）}`。
 
 ### 边界
 - 封口幂等（已封口的 history 检测不命中）；
@@ -109,7 +114,7 @@ systemd 重启/OOM/断电后，JSONL 历史在磁盘上，但进行中的 turn �
 - 大历史会话的 GetHistory 成本：启动后异步执行，可接受。
 
 ### 测试锚点
-`TestRestartRecovery_SealsDanglingSessions`、`TestRestartRecovery_SkipsCleanSessions`、`TestRestartRecovery_RespectsNotifyWindow`（窗口外只封口不通知）、`TestRestartRecovery_Disabled`、`TestDetectDanglingToolCalls`（抽函数后 seal 逻辑回归：`TestSealDanglingToolCalls` 既有测试必须仍过）。
+`TestRestartRecovery_SealsDanglingSessions`、`TestRestartRecovery_SkipsCleanSessions`、`TestRestartRecovery_RespectsNotifyWindow`（窗口外只封口不通知）、`TestRestartRecovery_Disabled`、`TestRestartRecovery_ReminderFiresUntilUserActivity`（无用户活动时按间隔重发）、`TestRestartRecovery_ReminderStopsAfterMax`（封顶后静默）、`TestRestartRecovery_ReminderCancelledByUserMessage`（cancelRecoveryReminder 生效）、`TestDetectDanglingToolCalls`（抽函数后 seal 逻辑回归：`TestSealDanglingToolCalls` 既有测试必须仍过）。
 
 ## 4. ④ 长任务进度心跳
 
@@ -143,7 +148,9 @@ systemd 重启/OOM/断电后，JSONL 历史在磁盘上，但进行中的 turn �
     "auto_continue_turns": 2,          // ② 0=关
     "progress_heartbeat_seconds": 180, // ④ 0=关
     "restart_recovery": {              // ③ enabled 省略=开
-      "notify_window_hours": 24        // 0=只封口不通知
+      "notify_window_hours": 24,        // 0=只封口不通知
+      "reminder_interval_minutes": 30,  // 0=关闭重提醒
+      "reminder_max": 3
     }
     // ① 无新配置（per-call timeout 走工具参数）
   }}
