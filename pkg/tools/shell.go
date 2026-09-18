@@ -326,7 +326,7 @@ func (t *ExecTool) Name() string {
 }
 
 func (t *ExecTool) Description() string {
-	return `Execute shell commands. Use background=true for long-running commands (returns sessionId). Use pty=true for interactive commands (can combine with background=true). Use poll/read/write/send-keys/kill with sessionId to manage background sessions. Sessions auto-cleanup 30 minutes after process exits; use kill to terminate early. Output buffer limit: 1MB.`
+	return `Execute shell commands. Use background=true for long-running commands (returns sessionId). Use pty=true for interactive commands (can combine with background=true). Use poll/read/write/send-keys/kill with sessionId to manage background sessions. Pass timeout=<seconds> to extend the wait for a single run (0 = no timeout). Sessions auto-cleanup 30 minutes after process exits; use kill to terminate early. Output buffer limit: 1MB.`
 }
 
 //nolint:dupl // Tool parameter schemas intentionally use similar JSON-schema map literals.
@@ -490,7 +490,34 @@ func (t *ExecTool) executeRun(ctx context.Context, args map[string]any) *ToolRes
 		return t.runBackground(ctx, command, cwd, isPty)
 	}
 
-	return t.runSync(ctx, command, cwd)
+	return t.runSync(ctx, command, cwd, resolveRunTimeout(t.timeout, args))
+}
+
+// resolveRunTimeout returns the effective timeout for one run invocation.
+// An explicit positive `timeout` arg overrides the tool default; `timeout: 0`
+// disables the timeout for this call; absent/invalid falls back to the tool
+// default (0 = no timeout).
+func resolveRunTimeout(toolDefault time.Duration, args map[string]any) time.Duration {
+	raw, ok := args["timeout"]
+	if !ok {
+		return toolDefault
+	}
+	secs := -1.0
+	switch v := raw.(type) {
+	case float64:
+		secs = v
+	case int:
+		secs = float64(v)
+	case int64:
+		secs = float64(v)
+	}
+	if secs < 0 {
+		return toolDefault
+	}
+	if secs == 0 {
+		return 0
+	}
+	return time.Duration(secs * float64(time.Second))
 }
 
 // execIOWaitDelay bounds how long runSync waits for the command's output
@@ -500,12 +527,12 @@ func (t *ExecTool) executeRun(ctx context.Context, args map[string]any) *ToolRes
 // (exec.ErrWaitDelay) and the call returns the output collected so far.
 const execIOWaitDelay = 5 * time.Second
 
-func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult {
+func (t *ExecTool) runSync(ctx context.Context, command, cwd string, timeout time.Duration) *ToolResult {
 	// timeout == 0 means no timeout
 	var cmdCtx context.Context
 	var cancel context.CancelFunc
-	if t.timeout > 0 {
-		cmdCtx, cancel = context.WithTimeout(ctx, t.timeout)
+	if timeout > 0 {
+		cmdCtx, cancel = context.WithTimeout(ctx, timeout)
 	} else {
 		cmdCtx, cancel = context.WithCancel(ctx)
 	}
@@ -581,10 +608,11 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult
 
 	if err != nil {
 		if errors.Is(cmdCtx.Err(), context.DeadlineExceeded) {
-			msg := fmt.Sprintf("Command timed out after %v", t.timeout)
+			msg := fmt.Sprintf("Command timed out after %v", timeout)
 			if output != "" {
 				msg += "\n\nPartial output before timeout:\n" + output
 			}
+			msg += "\n\nTip: if this command needs longer, re-run it with background=true (returns a sessionId) and use poll/read to check progress, or pass timeout=<seconds> to extend this run's wait."
 			return &ToolResult{
 				ForLLM:  msg,
 				ForUser: msg,
