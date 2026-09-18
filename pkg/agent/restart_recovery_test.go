@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -158,19 +160,27 @@ func TestRunRestartRecovery_RespectsNotifyWindow(t *testing.T) {
 		c.Agents.Defaults.RestartRecovery.NotifyWindowHours = 1
 	})
 
-	// Stale session: a store whose LastModified reports an ancient mtime.
-	old := &oldLastModifiedStore{SessionStore: agent.Sessions}
 	key := "agent_default:test:stale"
 	agent.Sessions.SetHistory(key, danglingHistory())
-	seedSessionScope(t, agent, key, "test", "direct:chat1") // seed before wrapping
-	agent.Sessions = old
+	seedSessionScope(t, agent, key, "test", "direct:chat1")
+
+	// Backdate the jsonl file to simulate an interruption outside the
+	// notification window. This exercises the real mtime path (os.Stat on
+	// the jsonl): the window verdict must be captured BEFORE recovery seals,
+	// because SetHistory rewrites the file and refreshes its mtime — a check
+	// made after the write would always report the session as active.
+	jsonl := filepath.Join(agent.Workspace, "sessions", "agent_default_test_stale.jsonl")
+	stale := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(jsonl, stale, stale); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
 
 	al.RunRestartRecovery(context.Background())
 
 	if strings.Contains(oc.text(), "检测到上次任务被中断") {
 		t.Fatal("stale session must be sealed silently, without notification")
 	}
-	if h := old.GetHistory(key); len(h) != 3 {
+	if h := agent.Sessions.GetHistory(key); len(h) != 3 {
 		t.Fatalf("stale session should still be sealed: %d msgs", len(h))
 	}
 }
@@ -230,12 +240,3 @@ func TestRunRestartRecovery_ReminderStopsAfterMax(t *testing.T) {
 	}
 }
 
-// oldLastModifiedStore wraps a SessionStore and reports an ancient mtime,
-// simulating a stale session for window checks.
-type oldLastModifiedStore struct {
-	session.SessionStore
-}
-
-func (s *oldLastModifiedStore) LastModified(string) (time.Time, bool) {
-	return time.Now().Add(-48 * time.Hour), true
-}

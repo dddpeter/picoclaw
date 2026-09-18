@@ -7970,13 +7970,22 @@ func TestRunAgentLoop_AutoContinuesOnIterationLimit(t *testing.T) {
 	key := al.allocateRouteSession(route, bus.InboundMessage{Channel: "test", SenderID: "cron", ChatID: "chat1"}).SessionKey
 	history := agent.Sessions.GetHistory(key)
 	foundContinue := false
+	foundFirstSegmentNote := false
 	for _, m := range history {
 		if m.Role == "user" && strings.Contains(m.Content, "auto-continue segment 1/1") {
 			foundContinue = true
 		}
+		// The first segment must end with the transition note (a continuation
+		// follows), not the raw English toolLimitResponse.
+		if m.Role == "assistant" && strings.Contains(m.Content, "自动继续执行（第 1/1 段）") {
+			foundFirstSegmentNote = true
+		}
 	}
 	if !foundContinue {
 		t.Fatalf("history should contain the auto-continue user message; got %d messages", len(history))
+	}
+	if !foundFirstSegmentNote {
+		t.Fatalf("history should contain the first-segment transition note; got %d messages", len(history))
 	}
 }
 

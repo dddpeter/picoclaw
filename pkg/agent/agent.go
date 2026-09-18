@@ -591,6 +591,14 @@ func (al *AgentLoop) runAgentLoop(
 	// segment is a full turn — SetupTurn persists the directive, Assemble
 	// re-compacts context, and the user sees one card per segment.
 	autoContinue := al.GetConfig().Agents.Defaults.GetAutoContinueTurns()
+	if autoContinue > 0 && !opts.NoHistory {
+		// Arm the transition note for the FIRST segment too: if it hits the
+		// limit, a continuation follows, so the honest card/history message is
+		// the "continuing…" note — not the raw English toolLimitResponse that
+		// tells the user to edit config.json for something about to happen
+		// automatically. The last allowed segment clears this in-loop below.
+		opts.IterationLimitResponse = fmt.Sprintf("⚙ 本轮工具步数达到上限，自动继续执行（第 1/%d 段）", autoContinue)
+	}
 	segment := 0
 	var result turnResult
 	var ts *turnState

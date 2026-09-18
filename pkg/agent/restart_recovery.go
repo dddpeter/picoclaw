@@ -5,6 +5,7 @@ package agent
 import (
 	"context"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
@@ -26,15 +27,48 @@ const restartRecoveryNotice = "⚠ 检测到上次任务被中断（网关重启
 
 // recoveryReminder tracks one session's pending re-reminder. Entries are
 // kept (not deleted) once exhausted so recoveryReminderCount reports the
-// final tally; cancelRecoveryReminder deletes them outright.
+// final tally; cancelRecoveryReminder deletes them outright. The mu-guarded
+// accessors keep the mutable fields race-free: they are written by the
+// reminder-loop goroutine and read from other goroutines.
 type recoveryReminder struct {
+	mu         sync.Mutex
 	sessionKey string
+	agentID    string
 	channel    string
 	chatID     string
-	nextAt     time.Time
 	interval   time.Duration
-	sent       int
 	max        int
+	nextAt     time.Time // guarded by mu
+	sent       int      // guarded by mu
+}
+
+func (r *recoveryReminder) due(now time.Time) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.sent < r.max && !now.Before(r.nextAt)
+}
+
+// fire records a send and schedules the next one; returns the new count.
+func (r *recoveryReminder) fire(now time.Time) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sent++
+	r.nextAt = now.Add(r.interval)
+	return r.sent
+}
+
+func (r *recoveryReminder) sentCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.sent
+}
+
+// exhausted reports whether this reminder will never fire again (used by
+// the loop to decide it can exit once nothing is pending).
+func (r *recoveryReminder) exhausted() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.sent >= r.max
 }
 
 // RunRestartRecovery scans all sessions, seals interrupted ones, sends the
@@ -79,15 +113,18 @@ func (al *AgentLoop) recoverOneSession(
 	if len(sealed) == len(history) {
 		return // clean tail (or already sealed) — nothing to recover
 	}
+	// Decide the notification-window verdict BEFORE sealing: SetHistory
+	// rewrites the jsonl file and refreshes its mtime, so a check made
+	// after the write would see every sealed session as "just active"
+	// and notify_window_hours would never suppress anything.
+	notify := cfg.NotifyWindowHours > 0 && ctx.Err() == nil &&
+		al.sessionActiveWithin(agent, key, time.Duration(cfg.NotifyWindowHours)*time.Hour)
 	agent.Sessions.SetHistory(key, sealed)
 	logger.InfoCF("agent", "restart recovery: sealed interrupted session",
 		map[string]any{"session_key": key, "sealed_calls": len(sealed) - len(history)})
 
-	if cfg.NotifyWindowHours <= 0 || ctx.Err() != nil {
-		return // notifications disabled
-	}
-	if !al.sessionActiveWithin(agent, key, time.Duration(cfg.NotifyWindowHours)*time.Hour) {
-		return // stale interruption — sealed silently
+	if !notify {
+		return // notifications disabled or stale interruption — sealed silently
 	}
 	channel, chatID := outboundTargetForSession(agent, key)
 	if channel == "" || chatID == "" {
@@ -107,6 +144,7 @@ func (al *AgentLoop) recoverOneSession(
 	if reminderInterval > 0 && reminderMax > 0 {
 		al.recoveryReminders.Store(key, &recoveryReminder{
 			sessionKey: key,
+			agentID:    agent.ID,
 			channel:    channel,
 			chatID:     chatID,
 			nextAt:     time.Now().Add(reminderInterval),
@@ -130,18 +168,25 @@ func (al *AgentLoop) runRecoveryReminderLoop(ctx context.Context, tick time.Dura
 		case <-ctx.Done():
 			return
 		case now := <-ticker.C:
+			pending := 0
 			al.recoveryReminders.Range(func(k, v any) bool {
 				reminder, ok := v.(*recoveryReminder)
-				if !ok || reminder.sent >= reminder.max || now.Before(reminder.nextAt) {
+				if !ok {
 					return true
 				}
-				reminder.sent++
-				reminder.nextAt = now.Add(reminder.interval)
+				if !reminder.exhausted() {
+					pending++
+				}
+				if !reminder.due(now) {
+					return true
+				}
+				sent := reminder.fire(now)
 				logger.InfoCF("agent", "restart recovery: re-reminding interrupted session",
-					map[string]any{"session_key": reminder.sessionKey, "sent": reminder.sent, "max": reminder.max})
+					map[string]any{"session_key": reminder.sessionKey, "sent": sent, "max": reminder.max})
 				if err := al.bus.PublishOutbound(ctx, bus.OutboundMessage{
 					Channel:    reminder.channel,
 					ChatID:     reminder.chatID,
+					AgentID:    reminder.agentID,
 					SessionKey: reminder.sessionKey,
 					Content:    restartRecoveryNotice,
 				}); err != nil {
@@ -150,6 +195,12 @@ func (al *AgentLoop) runRecoveryReminderLoop(ctx context.Context, tick time.Dura
 				}
 				return true
 			})
+			// Reminders are only registered before the loop starts; once every
+			// entry is exhausted (or cancelled out of the map) there is nothing
+			// left to wait for — exit instead of ticking forever.
+			if pending == 0 {
+				return
+			}
 		}
 	}
 }
@@ -223,7 +274,7 @@ func (al *AgentLoop) recoveryReminderCount(sessionKey string) int {
 		return 0
 	}
 	if r, ok := v.(*recoveryReminder); ok {
-		return r.sent
+		return r.sentCount()
 	}
 	return 0
 }
