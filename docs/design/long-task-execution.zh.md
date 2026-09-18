@@ -68,7 +68,7 @@
 ### 关键交互（含实现决策表态）
 - **上下文瘦身**：每段 turn 开始时 Assemble 做 proactive 压缩——跨段长任务自动瘦身，这是选 B1（而非抬单 turn 上限）的核心理由。
 - **busy 语义**：段间有短暂 session 空闲窗口，用户消息可插入（模型在续段中会看到，视为转向）；不影响 TryLock busy 语义。
-- **段间竞争（表态：接受现状）**：续段循环在 runTurn 返回后直接 newTurnState，不重查 activeTurn——runTurn 返回到下一段注册之间的间隙极小，此窗口内插入的用户消息与续段并发属既有语义的极端情况，不为它加检查。
+- **段间间隙守卫**：runTurn 返回时注册即释放，段间存在短暂无主窗口——若其他 turn（用户消息/cron/followUp）恰好在此窗口夺注会话，续段的 `registerActiveTurn` 会 Store 覆盖其注册，双 turn 并发写同一会话（/stop、看门狗、steering 对两个 turn 同时失效）。守卫在续开前重查 `getActiveTurnState`，命中则放弃续段且不外发（段 1 卡片已预告续开，新 turn 接管回复流，再发过渡文案只会误导）。检查与下一段注册之间无 I/O，TOCTOU 窗口为纳秒级。测试锚点：`TestRunAgentLoop_AutoContinueDropsWhenSessionReclaimed`。
 - **合成消息可见性（表态：接受可见）**：`[auto-continue segment k/N]` 是普通 user 消息经 SetupTurn 落盘，历史与 web UI 中可见。用户可读、模型衔接自然，不加 hidden 标记。
 - **loop_detection 跨段清零（表态：接受）**：turnHealth 在 newTurnState 每段新建，跨段的重复失败模式在段边界重新计数。段数硬顶是失控兜底，与下条一致。
 - **防失控**：段数硬顶 + 每段 loop_detection 照常 + /stop 随时可杀（kill 的是当前段）。

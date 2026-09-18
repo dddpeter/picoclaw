@@ -8042,3 +8042,81 @@ func TestRunAgentLoop_AutoContinueDisabledByZero(t *testing.T) {
 		t.Fatalf("response = %q, want toolLimitResponse (auto-continue off)", response)
 	}
 }
+
+// gapClaimProvider tool-calls on every invocation; on its LAST call of
+// segment 1 it claims the session with a foreign turnState, exactly like a
+// user message winning the auto-continue segment gap would.
+type gapClaimProvider struct {
+	al        *AgentLoop
+	sessionKey string
+	claimed   atomic.Bool
+	calls     int
+}
+
+func (m *gapClaimProvider) Chat(
+	ctx context.Context,
+	messages []providers.Message,
+	tools []providers.ToolDefinition,
+	model string,
+	opts map[string]any,
+) (*providers.LLMResponse, error) {
+	m.calls++
+	if m.calls == 1 && !m.claimed.Load() {
+		m.claimed.Store(true)
+		foreign := newTurnState(m.al.GetRegistry().GetDefaultAgent(),
+			processOptions{Dispatch: DispatchRequest{SessionKey: m.sessionKey, UserMessage: "user wins the gap"}},
+			turnEventScope{turnID: "foreign-gap-claim"})
+		m.al.registerActiveTurn(foreign)
+	}
+	return &providers.LLMResponse{
+		ToolCalls: []providers.ToolCall{{
+			ID:        fmt.Sprintf("call_gap_%d", m.calls),
+			Type:      "function",
+			Name:      "tool_limit_test_tool",
+			Arguments: map[string]any{"value": "x"},
+		}},
+	}, nil
+}
+
+func (m *gapClaimProvider) GetDefaultModel() string { return "test-model" }
+
+// TestRunAgentLoop_AutoContinueDropsWhenSessionReclaimed pins the segment-gap
+// guard: when another turn claims the session between auto-continue segments,
+// the continuation is dropped with no outbound message instead of racing two
+// turns on one session.
+func TestRunAgentLoop_AutoContinueDropsWhenSessionReclaimed(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				ModelName:         "test-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 1,
+				AutoContinueTurns: 2,
+			},
+		},
+	}
+	msgBus := bus.NewMessageBus()
+	provider := &gapClaimProvider{}
+	al := NewAgentLoop(cfg, msgBus, provider)
+	al.RegisterTool(&toolLimitTestTool{})
+
+	route := al.registry.ResolveRoute(bus.InboundContext{Channel: "test", ChatType: "direct", SenderID: "cron"})
+	key := al.allocateRouteSession(route, bus.InboundMessage{Channel: "test", SenderID: "cron", ChatID: "chat1"}).SessionKey
+	provider.al = al
+	provider.sessionKey = key
+
+	response, err := al.ProcessDirectWithChannel(context.Background(), "hello", "gap-claim", "test", "chat1")
+	if err != nil {
+		t.Fatalf("ProcessDirectWithChannel: %v", err)
+	}
+	// Guard fired: continuation dropped, no misleading outbound content.
+	if response != "" {
+		t.Fatalf("response = %q, want empty (continuation dropped silently)", response)
+	}
+	// Segment 1 ran exactly its iteration budget; segment 2 never started.
+	if provider.calls != 1 {
+		t.Fatalf("provider calls = %d, want 1 (continuation segment must not run)", provider.calls)
+	}
+}

@@ -640,6 +640,25 @@ func (al *AgentLoop) runAgentLoop(
 		if !result.endedByIterationLimit || opts.NoHistory || segment >= autoContinue {
 			break
 		}
+		// Segment-gap guard: runTurn's deferred clearActiveTurn already
+		// released the session claim when the segment returned. If another
+		// turn (user message, cron, followUp) claimed the session in that
+		// gap, continuing would overwrite its registration and race two
+		// turns on one session — bail instead. The task's state lives on in
+		// history; the new turn's owner can ask to resume it.
+		if al.getActiveTurnState(opts.Dispatch.SessionKey) != nil {
+			logger.InfoCF("agent", "Auto-continue: session re-claimed during segment gap, dropping continuation",
+				map[string]any{
+					"agent_id":    agent.ID,
+					"session_key": opts.Dispatch.SessionKey,
+					"segment":     segment + 1,
+				})
+			// No outbound message: the segment-1 card already told the user a
+			// continuation was starting; the claimant's own turn now owns the
+			// reply stream. An extra transition note here would only mislead.
+			result.finalContent = ""
+			break
+		}
 		segment++
 		opts.Dispatch.UserMessage = fmt.Sprintf(
 			"[auto-continue segment %d/%d] The previous round ended because it hit the tool-step limit mid-task. "+
