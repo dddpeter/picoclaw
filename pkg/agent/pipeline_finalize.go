@@ -64,6 +64,7 @@ func (p *Pipeline) Finalize(
 			modelName:    exec.llmModelName,
 			status:       turnStatus,
 			followUps:    append([]bus.InboundMessage(nil), ts.followUps...),
+			endedByIterationLimit: ts.iterationLimitHit(),
 		}, nil
 	}
 
@@ -134,5 +135,6 @@ func (p *Pipeline) Finalize(
 		modelName:    exec.llmModelName,
 		status:       turnStatus,
 		followUps:    append([]bus.InboundMessage(nil), ts.followUps...),
+		endedByIterationLimit: ts.iterationLimitHit(),
 	}, nil
 }

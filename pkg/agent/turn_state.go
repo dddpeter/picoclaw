@@ -87,6 +87,10 @@ type turnResult struct {
 	modelName    string
 	status       TurnEndStatus
 	followUps    []bus.InboundMessage
+	// endedByIterationLimit marks a turn that ran out of max_tool_iterations
+	// before producing a final answer — the signal auto-continue acts on
+	// (docs/design/long-task-execution.zh.md §2).
+	endedByIterationLimit bool
 }
 
 // =============================================================================
@@ -226,6 +230,15 @@ type turnState struct {
 	iteration    int
 	startedAt    time.Time
 	finalContent string
+	// iterationLimit records that this turn ended by exhausting
+	// max_tool_iterations (set in turn_coord before Finalize).
+	iterationLimit bool
+	// Progress heartbeat bookkeeping (fork feature: long-task heartbeat).
+	lastActivityNano atomic.Int64
+	streamPublisher  atomic.Pointer[streamingChunkPublisher]
+	// heartbeatInterval lets tests shrink the progress-heartbeat period
+	// without touching global config (non-exported, zero = use config).
+	heartbeatInterval time.Duration
 
 	followUps []bus.InboundMessage
 
@@ -405,6 +418,21 @@ func (ts *turnState) setIteration(iteration int) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 	ts.iteration = iteration
+}
+
+// markIterationLimit records that this turn ended by exhausting
+// max_tool_iterations; Finalize propagates it into turnResult so the
+// auto-continue loop can act on it.
+func (ts *turnState) markIterationLimit() {
+	ts.mu.Lock()
+	ts.iterationLimit = true
+	ts.mu.Unlock()
+}
+
+func (ts *turnState) iterationLimitHit() bool {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	return ts.iterationLimit
 }
 
 func (ts *turnState) currentIteration() int {

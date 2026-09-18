@@ -7860,3 +7860,49 @@ func TestRunWorkerPanicReleasesSessionTurnState(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// TestRunTurn_MarksIterationLimitOnTurnResult verifies that a turn ending at
+// max_tool_iterations flags turnResult.endedByIterationLimit — the signal the
+// auto-continue loop (docs/design/long-task-execution.zh.md §2) acts on.
+func TestRunTurn_MarksIterationLimitOnTurnResult(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				ModelName:         "test-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 1,
+			},
+		},
+	}
+	msgBus := bus.NewMessageBus()
+	provider := &toolLimitOnlyProvider{}
+	al := NewAgentLoop(cfg, msgBus, provider)
+	al.RegisterTool(&toolLimitTestTool{})
+
+	// Sanity via the public path first: same response as the legacy test.
+	response, err := al.ProcessDirectWithChannel(context.Background(), "hello", "limit-mark", "test", "chat1")
+	if err != nil {
+		t.Fatalf("ProcessDirectWithChannel: %v", err)
+	}
+	if response != toolLimitResponse {
+		t.Fatalf("response = %q, want %q", response, toolLimitResponse)
+	}
+
+	// Structural check: run a raw turn and inspect the result flag.
+	agent := al.GetRegistry().GetDefaultAgent()
+	sessionKey := "agent_default:test:limit-mark-raw"
+	scope := al.newTurnEventScope(agent.ID, sessionKey, newTurnContext(nil, nil, nil))
+	ts := newTurnState(agent, processOptions{
+		Dispatch:        DispatchRequest{SessionKey: sessionKey, UserMessage: "hello"},
+		DefaultResponse: defaultResponse,
+	}, scope)
+	res, rerr := al.runTurn(context.Background(), ts, NewPipeline(al))
+	if rerr != nil {
+		t.Fatalf("runTurn: %v", rerr)
+	}
+	if !res.endedByIterationLimit {
+		t.Fatal("turnResult.endedByIterationLimit should be true on iteration-limit end")
+	}
+}
