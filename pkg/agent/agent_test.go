@@ -7906,3 +7906,130 @@ func TestRunTurn_MarksIterationLimitOnTurnResult(t *testing.T) {
 		t.Fatal("turnResult.endedByIterationLimit should be true on iteration-limit end")
 	}
 }
+
+// continueThenFinishProvider tool-calls for its first segment, then answers.
+type continueThenFinishProvider struct {
+	calls int
+}
+
+func (m *continueThenFinishProvider) Chat(
+	ctx context.Context,
+	messages []providers.Message,
+	tools []providers.ToolDefinition,
+	model string,
+	opts map[string]any,
+) (*providers.LLMResponse, error) {
+	m.calls++
+	if m.calls <= 2 { // segment 1: MaxIterations=2, both iterations tool-call
+		return &providers.LLMResponse{
+			ToolCalls: []providers.ToolCall{{
+				ID:        fmt.Sprintf("call_cont_%d", m.calls),
+				Type:      "function",
+				Name:      "tool_limit_test_tool",
+				Arguments: map[string]any{"value": "x"},
+			}},
+		}, nil
+	}
+	return &providers.LLMResponse{Content: "task finished"}, nil
+}
+
+func (m *continueThenFinishProvider) GetDefaultModel() string {
+	return "test-model"
+}
+
+func TestRunAgentLoop_AutoContinuesOnIterationLimit(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				ModelName:         "test-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 2,
+				AutoContinueTurns: 1,
+			},
+		},
+	}
+	msgBus := bus.NewMessageBus()
+	provider := &continueThenFinishProvider{}
+	al := NewAgentLoop(cfg, msgBus, provider)
+	al.RegisterTool(&toolLimitTestTool{})
+
+	response, err := al.ProcessDirectWithChannel(context.Background(), "do big task", "auto-cont", "test", "chat1")
+	if err != nil {
+		t.Fatalf("ProcessDirectWithChannel: %v", err)
+	}
+	if response != "task finished" {
+		t.Fatalf("response = %q, want final segment answer %q", response, "task finished")
+	}
+	if provider.calls != 3 {
+		t.Fatalf("provider calls = %d, want 3 (2 in segment 1 + 1 in segment 2)", provider.calls)
+	}
+	agent := al.GetRegistry().GetDefaultAgent()
+	route := al.registry.ResolveRoute(bus.InboundContext{Channel: "test", ChatType: "direct", SenderID: "cron"})
+	key := al.allocateRouteSession(route, bus.InboundMessage{Channel: "test", SenderID: "cron", ChatID: "chat1"}).SessionKey
+	history := agent.Sessions.GetHistory(key)
+	foundContinue := false
+	for _, m := range history {
+		if m.Role == "user" && strings.Contains(m.Content, "auto-continue segment 1/1") {
+			foundContinue = true
+		}
+	}
+	if !foundContinue {
+		t.Fatalf("history should contain the auto-continue user message; got %d messages", len(history))
+	}
+}
+
+func TestRunAgentLoop_AutoContinueRespectsBudget(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				ModelName:         "test-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 1,
+				AutoContinueTurns: 1,
+			},
+		},
+	}
+	msgBus := bus.NewMessageBus()
+	provider := &toolLimitOnlyProvider{} // never finishes
+	al := NewAgentLoop(cfg, msgBus, provider)
+	al.RegisterTool(&toolLimitTestTool{})
+
+	response, err := al.ProcessDirectWithChannel(context.Background(), "loop forever", "auto-budget", "test", "chat1")
+	if err != nil {
+		t.Fatalf("ProcessDirectWithChannel: %v", err)
+	}
+	if response != toolLimitResponse {
+		t.Fatalf("response = %q, want toolLimitResponse after budget exhausted", response)
+	}
+}
+
+func TestRunAgentLoop_AutoContinueDisabledByZero(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				ModelName:         "test-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 1,
+				AutoContinueTurns: 0,
+			},
+		},
+	}
+	msgBus := bus.NewMessageBus()
+	provider := &toolLimitOnlyProvider{}
+	al := NewAgentLoop(cfg, msgBus, provider)
+	al.RegisterTool(&toolLimitTestTool{})
+
+	response, err := al.ProcessDirectWithChannel(context.Background(), "hello", "auto-off", "test", "chat1")
+	if err != nil {
+		t.Fatalf("ProcessDirectWithChannel: %v", err)
+	}
+	if response != toolLimitResponse {
+		t.Fatalf("response = %q, want toolLimitResponse (auto-continue off)", response)
+	}
+}

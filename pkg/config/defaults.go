@@ -41,13 +41,14 @@ func DefaultConfig() *Config {
 				MaxTokens:                 32768,
 				Temperature:               nil, // nil means use provider default
 				MaxToolIterations:         50,
+				AutoContinueTurns:         2,
 				SummarizeMessageThreshold: 20,
 				SummarizeTokenPercent:     75,
 				SteeringMode:              "one-at-a-time",
 				// Fork default: allow concurrent turns across sessions out of the
 				// box (same-session messages stay strictly sequential via the
 				// steering queue). Upstream leaves this unset (=1, serial).
-				MaxParallelTurns:          3,
+				MaxParallelTurns: 3,
 				ToolFeedback: ToolFeedbackConfig{
 					Enabled:          false,
 					MaxArgsLength:    300,

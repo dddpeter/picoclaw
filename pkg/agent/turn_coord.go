@@ -287,6 +287,9 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 	if finalContent == "" {
 		if ts.currentIteration() >= ts.agent.MaxIterations && ts.agent.MaxIterations > 0 {
 			finalContent = toolLimitResponse
+			if note := strings.TrimSpace(ts.opts.IterationLimitResponse); note != "" {
+				finalContent = note
+			}
 			ts.markIterationLimit()
 		} else {
 			finalContent = ts.opts.DefaultResponse

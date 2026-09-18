@@ -103,19 +103,23 @@ type processOptions struct {
 	UserMessage             string          // User message content (may include prefix)
 	ForcedSkills            []string        // Skills explicitly requested for this message
 	TurnProfile             config.EffectiveTurnProfile
-	SystemPromptOverride    string                 // Override the default system prompt (Used by SubTurns)
-	Media                   []string               // media:// refs from inbound message
-	InitialSteeringMessages []providers.Message    // Steering messages from refactor/agent
-	DefaultResponse         string                 // Response when LLM returns empty
-	EnableSummary           bool                   // Whether to trigger summarization
-	SendResponse            bool                   // Whether to send response via bus
-	AllowInterimPicoPublish bool                   // Whether pico tool-call interim text can be published when SendResponse is false
-	SuppressToolFeedback    bool                   // Whether to suppress inline tool feedback messages
-	NoHistory               bool                   // If true, don't load session history (for heartbeat)
-	SkipInitialSteeringPoll bool                   // If true, skip the steering poll at loop start (used by Continue)
-	InboundContext          *bus.InboundContext    // Normalized inbound facts for events/hooks
-	RouteResult             *routing.ResolvedRoute // Route decision snapshot for events/hooks
-	SessionScope            *session.SessionScope  // Session scope snapshot for events/hooks
+	SystemPromptOverride    string              // Override the default system prompt (Used by SubTurns)
+	Media                   []string            // media:// refs from inbound message
+	InitialSteeringMessages []providers.Message // Steering messages from refactor/agent
+	DefaultResponse         string              // Response when LLM returns empty
+	EnableSummary           bool                // Whether to trigger summarization
+	SendResponse            bool                // Whether to send response via bus
+	AllowInterimPicoPublish bool                // Whether pico tool-call interim text can be published when SendResponse is false
+	SuppressToolFeedback    bool                // Whether to suppress inline tool feedback messages
+	NoHistory               bool                // If true, don't load session history (for heartbeat)
+	SkipInitialSteeringPoll bool                // If true, skip the steering poll at loop start (used by Continue)
+	// IterationLimitResponse overrides the assistant message persisted when a
+	// turn ends at max_tool_iterations — auto-continue sets a user-facing
+	// transition note for intermediate segments (empty = toolLimitResponse).
+	IterationLimitResponse string
+	InboundContext         *bus.InboundContext    // Normalized inbound facts for events/hooks
+	RouteResult            *routing.ResolvedRoute // Route decision snapshot for events/hooks
+	SessionScope           *session.SessionScope  // Session scope snapshot for events/hooks
 }
 
 type continuationTarget struct {
@@ -577,34 +581,75 @@ func (al *AgentLoop) runAgentLoop(
 	// upgrade armed in the background. Best effort, never blocks the turn.
 	al.maybeTitleSession(agent, &opts)
 
-	turnScope := al.newTurnEventScope(
-		agent.ID,
-		opts.Dispatch.SessionKey,
-		newTurnContext(opts.Dispatch.InboundContext, opts.Dispatch.RouteResult, opts.Dispatch.SessionScope),
-	)
-	ts := newTurnState(agent, opts, turnScope)
-	pipeline := NewPipeline(al)
-	result, err := al.runTurn(ctx, ts, pipeline)
-	if err != nil {
-		if al.publishTurnError(ctx, ts, err) {
-			// The user already saw this failure; mark it so legacy error
-			// paths (maybePublishError) do not send a duplicate message.
-			err = &turnErrorNotifiedError{err: err}
+	// Auto-continue (fork feature, docs/design/long-task-execution.zh.md §2):
+	// when a segment ends by exhausting max_tool_iterations without a final
+	// answer, spawn one more turn seeded with a continuation directive. Each
+	// segment is a full turn — SetupTurn persists the directive, Assemble
+	// re-compacts context, and the user sees one card per segment.
+	autoContinue := al.GetConfig().Agents.Defaults.GetAutoContinueTurns()
+	segment := 0
+	var result turnResult
+	var ts *turnState
+	for {
+		turnScope := al.newTurnEventScope(
+			agent.ID,
+			opts.Dispatch.SessionKey,
+			newTurnContext(opts.Dispatch.InboundContext, opts.Dispatch.RouteResult, opts.Dispatch.SessionScope),
+		)
+		ts = newTurnState(agent, opts, turnScope)
+		pipeline := NewPipeline(al)
+		segResult, segErr := al.runTurn(ctx, ts, pipeline)
+		if segErr != nil {
+			if al.publishTurnError(ctx, ts, segErr) {
+				// The user already saw this failure; mark it so legacy error
+				// paths (maybePublishError) do not send a duplicate message.
+				segErr = &turnErrorNotifiedError{err: segErr}
+			}
+			return "", segErr
 		}
-		return "", err
-	}
-	if result.status == TurnEndStatusAborted {
-		return "", nil
-	}
+		result = segResult
+		if result.status == TurnEndStatusAborted {
+			return "", nil
+		}
 
-	for _, followUp := range result.followUps {
-		if pubErr := al.bus.PublishInbound(ctx, followUp); pubErr != nil {
-			logger.WarnCF("agent", "Failed to publish follow-up after turn",
-				map[string]any{
-					"turn_id": ts.turnID,
-					"error":   pubErr.Error(),
-				})
+		for _, followUp := range result.followUps {
+			if pubErr := al.bus.PublishInbound(ctx, followUp); pubErr != nil {
+				logger.WarnCF("agent", "Failed to publish follow-up after turn",
+					map[string]any{
+						"turn_id": ts.turnID,
+						"error":   pubErr.Error(),
+					})
+			}
 		}
+
+		// Stop unless this segment burned its tool-step budget mid-task and
+		// more segments are allowed. NoHistory turns cannot carry context
+		// forward, so continuing them is pointless.
+		if !result.endedByIterationLimit || opts.NoHistory || segment >= autoContinue {
+			break
+		}
+		segment++
+		opts.Dispatch.UserMessage = fmt.Sprintf(
+			"[auto-continue segment %d/%d] The previous round ended because it hit the tool-step limit mid-task. "+
+				"Continue the original task from where it stopped; do not restart it, do not ask for confirmation, "+
+				"and finish with a final answer when done.",
+			segment, autoContinue,
+		)
+		if segment >= autoContinue {
+			// The upcoming segment is the last allowed one — if it also hits
+			// the limit, the default toolLimitResponse (with its config
+			// guidance) is the honest message, not a "continuing…" note.
+			opts.IterationLimitResponse = ""
+		} else {
+			opts.IterationLimitResponse = fmt.Sprintf("⚙ 本轮工具步数达到上限，自动继续执行（第 %d/%d 段）", segment, autoContinue)
+		}
+		logger.InfoCF("agent", "Auto-continue: iteration limit hit, starting continuation segment",
+			map[string]any{
+				"agent_id":    agent.ID,
+				"session_key": opts.Dispatch.SessionKey,
+				"segment":     segment,
+				"max":         autoContinue,
+			})
 	}
 
 	if opts.SendResponse && result.finalContent != "" {
