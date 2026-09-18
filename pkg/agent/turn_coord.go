@@ -88,6 +88,11 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 		return turnResult{}, err
 	}
 	defer exec.closeOwnedProviders()
+	// Long-task progress heartbeat: publish a KindText panel step when the
+	// turn goes silent past the configured idle interval. turnCtx teardown
+	// stops the goroutine; the deferred stop is a belt-and-braces backstop.
+	stopHeartbeat := al.startProgressHeartbeat(turnCtx, ts)
+	defer stopHeartbeat()
 	// Last-resort stream cleanup: abort/error returns below bypass
 	// pipeline_finalize, which would otherwise leave a streaming card
 	// (and its reusable cache entry) alive forever. No-op after a normal

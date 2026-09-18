@@ -492,7 +492,10 @@ type AgentDefaults struct {
 	// AutoContinueTurns is the number of extra turns spawned after a turn
 	// ends at max_tool_iterations without a final answer (fork feature:
 	// long-task auto-continue). 0 disables it.
-	AutoContinueTurns         int                 `json:"auto_continue_turns,omitempty"     env:"PICOCLAW_AGENTS_DEFAULTS_AUTO_CONTINUE_TURNS"`
+	AutoContinueTurns int `json:"auto_continue_turns,omitempty"     env:"PICOCLAW_AGENTS_DEFAULTS_AUTO_CONTINUE_TURNS"`
+	// ProgressHeartbeatSeconds is the idle interval for the long-task
+	// progress heartbeat on streaming cards (fork feature). 0 disables it.
+	ProgressHeartbeatSeconds  int                 `json:"progress_heartbeat_seconds,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_PROGRESS_HEARTBEAT_SECONDS"`
 	SummarizeMessageThreshold int                 `json:"summarize_message_threshold"      env:"PICOCLAW_AGENTS_DEFAULTS_SUMMARIZE_MESSAGE_THRESHOLD"`
 	SummarizeTokenPercent     int                 `json:"summarize_token_percent"          env:"PICOCLAW_AGENTS_DEFAULTS_SUMMARIZE_TOKEN_PERCENT"`
 	MaxMediaSize              int                 `json:"max_media_size,omitempty"         env:"PICOCLAW_AGENTS_DEFAULTS_MAX_MEDIA_SIZE"`
@@ -604,6 +607,15 @@ func (d *AgentDefaults) GetMaxMediaSize() int {
 		return d.MaxMediaSize
 	}
 	return DefaultMaxMediaSize
+}
+
+// GetProgressHeartbeatSeconds returns the idle progress-heartbeat interval
+// in seconds; <= 0 disables the heartbeat.
+func (d *AgentDefaults) GetProgressHeartbeatSeconds() int {
+	if d.ProgressHeartbeatSeconds < 0 {
+		return 0
+	}
+	return d.ProgressHeartbeatSeconds
 }
 
 // GetAutoContinueTurns clamps negative values to 0 (disabled).
