@@ -169,3 +169,26 @@ systemd 重启/OOM/断电后，JSONL 历史在磁盘上，但进行中的 turn �
 - 不改 `/new`、`/switch` 的 TryLock busy 语义；
 - ④ 不改 feishu 卡片结构（KindText 复用）；
 - ② 不动 `max_tool_iterations` 既有语义与相关测试断言。
+
+## 8. 第二批改进（2026-09-18 晚，评审深挖后）
+
+五项改进 + 一项顺手修复（编号沿用前文语义）：
+
+### 8.1 ③ 多代理恢复扫描
+`RunRestartRecovery` 只扫 `GetDefaultAgent()` 的会话——配了 `agents.list` 时其他 agent 的中断会话漏扫。改为遍历 `ListAgentIDs()` + 默认 agent，对 Sessions store **按实例指针去重**后逐 store 扫描（同 workspace 的多 agent 共享目录但各持 store 实例；封口幂等保证重复扫描安全——第二次读到已封口即跳过）。通知的 `AgentID` 用各会话所属 agent 的 ID。
+
+### 8.2 ④ 心跳非流式降级 + 节流修复
+- **节流缺陷（本轮发现）**：现实现闲置超阈值后**每 interval/4 连发**（条件只查 `idle >= interval`，无上次发送时间）——20 分钟静默工具会以 45 秒间隔刷屏。修复：`turnState.lastHeartbeatNano`，触发条件改为 `idle >= interval && now-lastBeat >= interval`（持续静默期每 interval 一拍，180s 间隔仍优于飞书 200850 窗口，保活语义保留）。
+- **非流式降级**：fire 时 `publisher == nil` 且 `ts.channel` 非空非 internal → 以 `outboundMessageForTurn` 发普通进度消息，`Context.Raw[message_kind] = "progress_note"`（新 kind 常量，通道可识别样式；不识别则按普通文本显示）。流式会话行为不变（面板步骤优先）。无新配置——`progress_heartbeat_seconds` 统一治理两种面。
+
+### 8.3 ② 续段卡面板标题标识
+续段卡与首段卡在面板 header 上无法区分。注入链：`turnState.segmentLabel`（如 `续 2/3`，runAgentLoop 续段分支设置）→ `streamingChunkPublisher` 构造时对实现可选接口 `SetSegmentLabel(string)` 的 streamer 调用 → feishu 流式 state 存储并并入 `feishuPanelHeader` 的 parts（`🧠 Agent 过程 · 续 2/3 · N 轮推理 …`）。非 feishu 通道不实现 setter 即无感知。
+
+### 8.4 ADR 留档
+经 codebase-memory 的 `manage_adr` 把四件套 + 本批改进的架构决策写入图谱 ADR（跨会话可见；仓库内设计文档仍是真源）。
+
+### 8.5 ① exec 默认超时 60s → 120s
+有错误层引导 + per-call 覆盖兜底后，默认值可放宽以减少误杀（`config/defaults.go` `TimeoutSeconds`）。配置显式设置者不受影响。
+
+### 测试锚点
+`TestRunRestartRecovery_ScansAllAgents`、`TestProgressHeartbeat_ThrottledToOnePerInterval`、`TestProgressHeartbeat_OutboundFallbackWithoutStreamer`、`TestFeishuPanelHeaderShowsSegmentLabel`、`TestStreamingPublisherSetsSegmentLabel`、`TestDefaultConfig_ExecTimeout`（更新断言 120）。
