@@ -1551,6 +1551,16 @@ type MCPServerConfig struct {
 	URL string `json:"url,omitempty"`
 	// Headers are HTTP headers to send with requests (sse/http only)
 	Headers map[string]string `json:"headers,omitempty"`
+	// Dir is the working directory for the stdio process. Populated by the
+	// Agent Plugins bridge (resolved plugin root or explicit cwd); empty for
+	// plain user config (current process dir, as before).
+	Dir string `json:"dir,omitempty"`
+	// PluginRoot/PluginData carry the spec §9.1 hidden channel from the
+	// Agent Plugins bridge to the MCP manager: they are injected into the
+	// stdio env AFTER the configured env, overriding any forged entries.
+	// Never serialized.
+	PluginRoot string `json:"-"`
+	PluginData string `json:"-"`
 }
 
 // MCPConfig defines configuration for all MCP servers

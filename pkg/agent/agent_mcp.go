@@ -9,8 +9,11 @@ package agent
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 
+	"github.com/sipeed/picoclaw/pkg/agentplugins"
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/mcp"
@@ -80,12 +83,17 @@ func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
 		return nil
 	}
 
-	if al.cfg.Tools.MCP.Servers == nil || len(al.cfg.Tools.MCP.Servers) == 0 {
+	// Merge Agent Plugins MCP servers into an in-memory copy BEFORE the
+	// empty check: a user with zero configured servers plus a plugin with a
+	// server must still initialize MCP (design D1 — merge, never persist).
+	merged := mergePluginServers(&al.cfg.Tools.MCP)
+
+	if len(merged.Servers) == 0 {
 		logger.WarnCF("agent", "MCP is enabled but no servers are configured, skipping MCP initialization", nil)
 		return nil
 	}
 
-	mcpCfg := filterMCPConfigServers(al.cfg.Tools.MCP, al.registry.allowedMCPServers())
+	mcpCfg := filterMCPConfigServers(*merged, al.registry.allowedMCPServers())
 	if mcpCfg.Servers == nil || len(mcpCfg.Servers) == 0 {
 		logger.InfoCF(
 			"agent",
@@ -308,6 +316,80 @@ func toolRegistryIncludes(registry *tools.ToolRegistry, name string) bool {
 		return false
 	}
 	return registry.HasRegistered(name)
+}
+
+// mergePluginServers merges the MCP servers of enabled Agent Plugins into an
+// in-memory copy of cfg, keyed `plugin/<plugin>/<server>` (design D1). The
+// input config is never mutated and nothing is persisted to config.json.
+// User-configured keys win: an existing same-name entry is not overwritten.
+func mergePluginServers(cfg *config.MCPConfig) *config.MCPConfig {
+	installRoot, err := agentplugins.DefaultInstallRoot()
+	dataRoot, dataErr := agentplugins.DefaultDataRoot()
+	if err != nil || dataErr != nil {
+		return cloneMCPConfig(cfg)
+	}
+	return mergePluginServersRoots(cfg, installRoot, dataRoot)
+}
+
+// mergePluginServersRoots is the testable core of mergePluginServers over an
+// explicit install/data root pair.
+func mergePluginServersRoots(cfg *config.MCPConfig, installRoot, dataRoot string) *config.MCPConfig {
+	merged := cloneMCPConfig(cfg)
+
+	plugins, rep := agentplugins.LoadPluginsDir(installRoot, dataRoot)
+	for _, w := range rep.Warnings {
+		logger.WarnCF("agent", "Plugin load problem", map[string]any{"warning": w})
+	}
+
+	for _, p := range plugins {
+		if !p.Enabled || len(p.MCPServers) == 0 {
+			continue
+		}
+		pluginDataDir := filepath.Join(dataRoot, p.Name)
+
+		// Spec §9.1 MUST: create PLUGIN_DATA before launching any stdio
+		// subprocess of this plugin.
+		if err := os.MkdirAll(pluginDataDir, 0o755); err != nil {
+			logger.WarnCF("agent", "Failed to create plugin data dir",
+				map[string]any{"plugin": p.Name, "error": err.Error()})
+		}
+
+		for serverName, entry := range p.MCPServers {
+			key := "plugin/" + p.Name + "/" + serverName
+			if _, exists := merged.Servers[key]; exists {
+				// User-configured server wins.
+				continue
+			}
+			merged.Servers[key] = config.MCPServerConfig{
+				Enabled:    true,
+				Type:       entry.Type,
+				Command:    entry.Command,
+				Args:       entry.Args,
+				Env:        entry.Env,
+				URL:        entry.URL,
+				Headers:    entry.Headers,
+				Dir:        entry.CWD, // LoadMCPConfig guarantees non-empty for stdio
+				PluginRoot: p.Root,
+				PluginData: pluginDataDir,
+			}
+		}
+	}
+	return merged
+}
+
+// cloneMCPConfig deep-copies the server map so plugin entries never leak
+// into the shared config object.
+func cloneMCPConfig(cfg *config.MCPConfig) *config.MCPConfig {
+	out := &config.MCPConfig{}
+	if cfg == nil {
+		return out
+	}
+	*out = *cfg
+	out.Servers = make(map[string]config.MCPServerConfig, len(cfg.Servers))
+	for k, v := range cfg.Servers {
+		out.Servers[k] = v
+	}
+	return out
 }
 
 func filterMCPConfigServers(

@@ -65,6 +65,28 @@ func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 // Each line should be in the format: KEY=value
 // Lines starting with # are comments
 // Empty lines are ignored
+// injectPluginEnv writes the client-supplied PLUGIN_ROOT/PLUGIN_DATA into
+// envMap last, replacing any entries with equivalent (case-insensitive)
+// names per platform environment-name semantics (Agent Plugins spec §9.1).
+func injectPluginEnv(envMap map[string]string, pluginRoot, pluginData string) {
+	if pluginRoot != "" {
+		envMap["PLUGIN_ROOT"] = pluginRoot
+		for k := range envMap {
+			if k != "PLUGIN_ROOT" && strings.EqualFold(k, "PLUGIN_ROOT") {
+				delete(envMap, k)
+			}
+		}
+	}
+	if pluginData != "" {
+		envMap["PLUGIN_DATA"] = pluginData
+		for k := range envMap {
+			if k != "PLUGIN_DATA" && strings.EqualFold(k, "PLUGIN_DATA") {
+				delete(envMap, k)
+			}
+		}
+	}
+}
+
 func loadEnvFile(path string) (map[string]string, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -403,6 +425,11 @@ func connectServer(
 		// Create command with context
 		cmd := exec.CommandContext(ctx, expandHomeCommandPath(cfg.Command), cfg.Args...)
 
+		// Working directory: the Agent Plugins bridge always sets Dir for
+		// stdio plugin entries (resolved cwd); plain user config leaves it
+		// empty, which matches the previous behavior (inherit process cwd).
+		cmd.Dir = cfg.Dir
+
 		// Build environment variables with proper override semantics
 		// Use a map to ensure config variables override file variables
 		envMap := make(map[string]string)
@@ -435,6 +462,11 @@ func connectServer(
 		for k, v := range cfg.Env {
 			envMap[k] = v
 		}
+
+		// Spec §9.1: the client sets PLUGIN_ROOT/PLUGIN_DATA LAST, replacing
+		// any entries with equivalent names (case-insensitive per platform
+		// environment-name semantics) so a plugin cannot forge them.
+		injectPluginEnv(envMap, cfg.PluginRoot, cfg.PluginData)
 
 		// Convert map to slice
 		env := make([]string, 0, len(envMap))
