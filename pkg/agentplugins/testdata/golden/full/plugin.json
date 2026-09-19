@@ -1,0 +1,20 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "plugin-name",
+  "version": "1.2.0",
+  "description": "Brief plugin description",
+  "author": {
+    "name": "Author Name",
+    "email": "author@example.com",
+    "url": "https://example.com"
+  },
+  "homepage": "https://docs.example.com/plugin",
+  "repository": "https://github.com/example/plugin",
+  "license": "MIT",
+  "keywords": ["keyword1", "keyword2"],
+  "extensions": {
+    "com.example.client": {
+      "setting": true
+    }
+  }
+}
