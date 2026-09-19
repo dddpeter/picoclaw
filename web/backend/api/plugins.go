@@ -416,3 +416,41 @@ func (h *Handler) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
 }
+
+// pluginServerDTO is one plugin-bridged MCP server in read-only views.
+type pluginServerDTO struct {
+	Key     string `json:"key"` // plugin/<plugin>/<server>
+	Plugin  string `json:"plugin"`
+	Server  string `json:"server"`
+	Type    string `json:"type"`
+	URL     string `json:"url,omitempty"`
+	Command string `json:"command,omitempty"`
+}
+
+// pluginServerDTOs lists the MCP servers of enabled plugins for read-only
+// display. The gateway performs the same merge in memory at load time; this
+// never touches config.json.
+func (h *Handler) pluginServerDTOs() []pluginServerDTO {
+	installRoot, dataRoot, err := h.pluginsRoots()
+	if err != nil {
+		return nil
+	}
+	plugins, _ := agentplugins.ScanPlugins(installRoot, dataRoot)
+	var out []pluginServerDTO
+	for _, p := range plugins {
+		if !p.Enabled {
+			continue
+		}
+		for server, entry := range p.MCPServers {
+			out = append(out, pluginServerDTO{
+				Key:     "plugin/" + p.Name + "/" + server,
+				Plugin:  p.Name,
+				Server:  server,
+				Type:    entry.Type,
+				URL:     entry.URL,
+				Command: entry.Command,
+			})
+		}
+	}
+	return out
+}

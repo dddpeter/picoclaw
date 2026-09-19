@@ -17,6 +17,12 @@ import (
 
 func newPluginsTestServer(t *testing.T) (*http.ServeMux, string) {
 	t.Helper()
+	mux, installRoot, _ := newPluginsTestServerWithConfig(t)
+	return mux, installRoot
+}
+
+func newPluginsTestServerWithConfig(t *testing.T) (*http.ServeMux, string, string) {
+	t.Helper()
 	configPath, cleanup := setupOAuthTestEnv(t)
 	t.Cleanup(cleanup)
 	h := NewHandler(configPath)
@@ -24,7 +30,7 @@ func newPluginsTestServer(t *testing.T) (*http.ServeMux, string) {
 	h.setPluginsRoots(installRoot, filepath.Join(installRoot, "data"))
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
-	return mux, installRoot
+	return mux, installRoot, configPath
 }
 
 // writeTestPlugin writes a minimal-but-complete plugin (manifest, one skill,
@@ -477,6 +483,67 @@ func TestPluginsInstall(t *testing.T) {
 		}
 		if _, err := os.Stat(filepath.Join(installRoot, "golden-git", "plugin.json")); err != nil {
 			t.Errorf("installed plugin.json missing: %v", err)
+		}
+	})
+}
+
+func TestPluginsVisibleInMCPConfig(t *testing.T) {
+	t.Run("enabled plugin servers are listed read-only", func(t *testing.T) {
+		mux, installRoot := newPluginsTestServer(t)
+		root := writeTestPlugin(t, installRoot, "golden")
+		both := fmt.Sprintf(`{"$schema":%q,"mcpServers":{"echo":{"type":"stdio","command":"node","args":["-e","process.exit(0)"]},"remote":{"type":"streamable-http","url":"https://deploy.example.com/mcp"}}}`, agentplugins.MCPConfigSchemaURL)
+		if err := os.WriteFile(filepath.Join(root, "mcp.json"), []byte(both), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		var resp mcpConfigResponse
+		decodeJSON(t, doJSON(t, mux, http.MethodGet, "/api/mcp/config", nil), &resp)
+		if len(resp.PluginServers) != 2 {
+			t.Fatalf("pluginServers = %+v", resp.PluginServers)
+		}
+		byKey := map[string]pluginServerDTO{}
+		for _, s := range resp.PluginServers {
+			byKey[s.Key] = s
+		}
+		echo, ok := byKey["plugin/golden/echo"]
+		if !ok || echo.Type != "stdio" || echo.Plugin != "golden" || echo.Server != "echo" || echo.Command != "node" {
+			t.Errorf("echo = %+v", echo)
+		}
+		rem, ok := byKey["plugin/golden/remote"]
+		if !ok || rem.Type != "streamable-http" || rem.URL != "https://deploy.example.com/mcp" {
+			t.Errorf("remote = %+v", rem)
+		}
+	})
+
+	t.Run("disabled plugin yields none", func(t *testing.T) {
+		mux, installRoot := newPluginsTestServer(t)
+		writeTestPlugin(t, installRoot, "golden")
+		writeTestRegistry(t, installRoot, `{"golden":{"name":"golden","enabled":false}}`)
+
+		var resp mcpConfigResponse
+		decodeJSON(t, doJSON(t, mux, http.MethodGet, "/api/mcp/config", nil), &resp)
+		if len(resp.PluginServers) != 0 {
+			t.Errorf("pluginServers = %+v", resp.PluginServers)
+		}
+	})
+
+	t.Run("PUT ignores pluginServers and never persists plugin keys", func(t *testing.T) {
+		mux, _, configPath := newPluginsTestServerWithConfig(t)
+
+		rec := doJSON(t, mux, http.MethodPut, "/api/mcp/config", mcpConfigRequest{
+			Enabled: true,
+			Servers: []mcpServerDTO{{Name: "user-server", Type: "stdio", Command: "node"}},
+		})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+		}
+
+		cfgRaw, err := os.ReadFile(configPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(cfgRaw), "plugin/") {
+			t.Errorf("config.json must never contain plugin keys: %s", cfgRaw)
 		}
 	})
 }

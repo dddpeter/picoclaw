@@ -39,10 +39,14 @@ type mcpServerDTO struct {
 }
 
 type mcpConfigResponse struct {
-	Enabled            bool            `json:"enabled"`
-	MaxInlineTextChars int             `json:"maxInlineTextChars"`
-	Discovery          mcpDiscoveryDTO `json:"discovery"`
-	Servers            []mcpServerDTO  `json:"servers"`
+	Enabled            bool              `json:"enabled"`
+	MaxInlineTextChars int               `json:"maxInlineTextChars"`
+	Discovery          mcpDiscoveryDTO   `json:"discovery"`
+	Servers            []mcpServerDTO    `json:"servers"`
+	// PluginServers are the Agent Plugins-bridged servers (read-only view:
+	// the gateway merges them in memory at load time; they are never part
+	// of config.json and a PUT request cannot modify them).
+	PluginServers []pluginServerDTO `json:"pluginServers,omitempty"`
 }
 
 type mcpConfigRequest struct {
@@ -139,8 +143,10 @@ func (h *Handler) handleGetMCPConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Failed to load config: %v", err), http.StatusInternalServerError)
 		return
 	}
+	resp := buildMCPConfigResponse(cfg)
+	resp.PluginServers = h.pluginServerDTOs()
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(buildMCPConfigResponse(cfg))
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // validateMCPServers enforces the UI contract: unique non-empty names,
