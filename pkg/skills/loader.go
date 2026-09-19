@@ -155,6 +155,43 @@ func NewSkillsLoaderFromRoots(workspace string, roots []SkillRoot) *SkillsLoader
 	}
 }
 
+// AppendPluginRoots appends the enabled Agent Plugins as lowest-priority
+// plugin-kind roots over the user's default install root (~/.agents/plugins).
+// Resolution problems are silent: a missing or broken install root leaves
+// the standard roots untouched (plugin load warnings go to slog).
+func AppendPluginRoots(roots []SkillRoot) []SkillRoot {
+	installRoot, err := agentplugins.DefaultInstallRoot()
+	if err != nil {
+		return roots
+	}
+	dataRoot, err := agentplugins.DefaultDataRoot()
+	if err != nil {
+		return roots
+	}
+	return appendPluginRootsWith(roots, installRoot, dataRoot)
+}
+
+// appendPluginRootsWith is the testable core of AppendPluginRoots over an
+// explicit install/data root pair.
+func appendPluginRootsWith(roots []SkillRoot, installRoot, dataRoot string) []SkillRoot {
+	plugins, rep := agentplugins.LoadPluginsDir(installRoot, dataRoot)
+	for _, w := range rep.Warnings {
+		slog.Warn("plugin load problem", "warning", w)
+	}
+	out := roots
+	for _, p := range plugins {
+		if !p.Enabled {
+			continue
+		}
+		out = append(out, SkillRoot{
+			Dir:    p.Root,
+			Source: "plugin:" + p.Name,
+			Kind:   SkillRootPlugin,
+		})
+	}
+	return out
+}
+
 func (sl *SkillsLoader) ListSkills() []SkillInfo {
 	skills := make([]SkillInfo, 0)
 	seen := make(map[string]bool)

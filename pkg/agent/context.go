@@ -14,7 +14,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/sipeed/picoclaw/pkg/agentplugins"
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
@@ -140,24 +139,8 @@ func newDefaultSkillsLoader(workspace string) *skills.SkillsLoader {
 	roots := skills.ResolveSkillRoots(workspace, globalSkillsDir, builtinSkillsDir, home)
 
 	// Append the plugin segment (lowest priority). Disabled plugins are
-	// already filtered out by LoadPluginsDir.
-	installRoot, err := agentplugins.DefaultInstallRoot()
-	dataRoot, dataErr := agentplugins.DefaultDataRoot()
-	if err == nil && dataErr == nil {
-		plugins, rep := agentplugins.LoadPluginsDir(installRoot, dataRoot)
-		for _, w := range rep.Warnings {
-			logger.WarnCF("agent", "Plugin load problem", map[string]any{"warning": w})
-		}
-		for _, p := range plugins {
-			if p.Enabled {
-				roots = append(roots, skills.SkillRoot{
-					Dir:    p.Root,
-					Source: "plugin:" + p.Name,
-					Kind:   skills.SkillRootPlugin,
-				})
-			}
-		}
-	}
+	// already filtered out inside AppendPluginRoots.
+	roots = skills.AppendPluginRoots(roots)
 
 	return skills.NewSkillsLoaderFromRoots(workspace, roots)
 }

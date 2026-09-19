@@ -752,3 +752,63 @@ func TestListSkills_SpecialCharFrontmatterNameFallsBack(t *testing.T) {
 		t.Fatal("fallback skill must be loadable")
 	}
 }
+
+func TestAppendPluginRoots(t *testing.T) {
+	writePluginInstall := func(t *testing.T, enabled string) string {
+		t.Helper()
+		installRoot := t.TempDir()
+		root := filepath.Join(installRoot, "golden")
+		if err := os.MkdirAll(filepath.Join(root, "skills", "alpha"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		manifest := `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"golden","version":"1.0.0"}`
+		if err := os.WriteFile(filepath.Join(root, "plugin.json"), []byte(manifest), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		skill := "---\nname: alpha\ndescription: d\n---\n\nbody\n"
+		if err := os.WriteFile(filepath.Join(root, "skills", "alpha", "SKILL.md"), []byte(skill), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if enabled != "" {
+			if err := os.WriteFile(filepath.Join(installRoot, "registry.json"), []byte(enabled), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return installRoot
+	}
+
+	t.Run("enabled plugin appended as plugin-kind root", func(t *testing.T) {
+		installRoot := writePluginInstall(t, "")
+		base := []SkillRoot{{Dir: t.TempDir(), Source: SourceGlobal}}
+
+		out := appendPluginRootsWith(base, installRoot, filepath.Join(installRoot, "data"))
+		if len(out) != 2 {
+			t.Fatalf("roots = %+v", out)
+		}
+		got := out[1]
+		if got.Kind != SkillRootPlugin || got.Source != "plugin:golden" {
+			t.Errorf("plugin root = %+v", got)
+		}
+		if want := filepath.Join(installRoot, "golden"); got.Dir != want {
+			t.Errorf("dir = %q, want %q", got.Dir, want)
+		}
+	})
+
+	t.Run("disabled plugin not appended", func(t *testing.T) {
+		installRoot := writePluginInstall(t, `{"golden":{"name":"golden","enabled":false}}`)
+		base := []SkillRoot{{Dir: t.TempDir(), Source: SourceGlobal}}
+
+		out := appendPluginRootsWith(base, installRoot, filepath.Join(installRoot, "data"))
+		if len(out) != 1 {
+			t.Fatalf("roots = %+v", out)
+		}
+	})
+
+	t.Run("missing install root leaves roots unchanged", func(t *testing.T) {
+		base := []SkillRoot{{Dir: t.TempDir(), Source: SourceGlobal}}
+		out := appendPluginRootsWith(base, filepath.Join(t.TempDir(), "nope"), t.TempDir())
+		if len(out) != 1 || out[0] != base[0] {
+			t.Fatalf("roots = %+v", out)
+		}
+	})
+}
