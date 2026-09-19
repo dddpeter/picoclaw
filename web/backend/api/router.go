@@ -30,6 +30,11 @@ type Handler struct {
 	weixinFlows map[string]*weixinFlow
 	wecomMu     sync.Mutex
 	wecomFlows  map[string]*wecomFlow
+	// Serializes Agent Plugins install/remove/enable writes (registry
+	// read-modify-save and install-root mutations).
+	pluginsMu          sync.Mutex
+	pluginsInstallRoot string // injected test override; empty = user default
+	pluginsDataRoot    string
 }
 
 // NewHandler creates an instance of the API handler.
@@ -101,6 +106,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	h.registerSkillRoutes(mux)
 	h.registerToolRoutes(mux)
 	h.registerMCPRoutes(mux)
+
+	// Agent Plugins management (list/install/validate/enable/remove)
+	h.registerPluginRoutes(mux)
 
 	// OS startup / launch-at-login
 	h.registerStartupRoutes(mux)

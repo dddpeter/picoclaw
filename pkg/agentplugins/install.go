@@ -14,7 +14,7 @@ import (
 // file (registry.json). Installing under these names is rejected.
 var reservedInstallNames = map[string]bool{
 	"data":           true,
-	registryFileName: true,
+	RegistryFileName: true,
 }
 
 // validateForInstall loads the manifest of the source tree, enforcing the
@@ -26,7 +26,7 @@ func validateForInstall(src string) (*Manifest, error) {
 		return nil, fmt.Errorf("source is not a valid plugin: %w", err)
 	}
 	if reservedInstallNames[m.Name] {
-		return nil, fmt.Errorf("plugin name %q collides with a reserved install-root path (data, %s)", m.Name, registryFileName)
+		return nil, fmt.Errorf("plugin name %q collides with a reserved install-root path (data, %s)", m.Name, RegistryFileName)
 	}
 	return m, nil
 }

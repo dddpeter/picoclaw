@@ -19,10 +19,10 @@ type Plugin struct {
 	Enabled    bool
 }
 
-// registryFileName is the CLI-maintained state file inside the install root.
+// RegistryFileName is the CLI-maintained state file inside the install root.
 // Implicitly read at load time: a missing file (or a missing entry for a
 // plugin directory) means enabled — installed is trusted by default.
-const registryFileName = "registry.json"
+const RegistryFileName = "registry.json"
 
 // LoadPlugin loads and validates one plugin from its root directory.
 // dataDir is the client-managed PLUGIN_DATA for this plugin instance
@@ -91,7 +91,7 @@ type registryEnabledEntry struct {
 // readEnabledMap reads <installRoot>/registry.json into name→enabled. Any
 // read/parse problem yields nil (everything enabled, default-trust).
 func readEnabledMap(installRoot string) map[string]registryEnabledEntry {
-	data, err := os.ReadFile(filepath.Join(installRoot, registryFileName))
+	data, err := os.ReadFile(filepath.Join(installRoot, RegistryFileName))
 	if err != nil {
 		return nil
 	}
@@ -143,7 +143,7 @@ func ScanPlugins(installRoot, dataRoot string) ([]*Plugin, []FailedPlugin) {
 		dir := filepath.Join(installRoot, name)
 
 		// Reserved install-root entries are never plugins.
-		if name == "data" || name == registryFileName {
+		if name == "data" || name == RegistryFileName {
 			continue
 		}
 
