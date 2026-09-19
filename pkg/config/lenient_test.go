@@ -52,21 +52,42 @@ func TestLoadConfigLenient_SyntaxErrorFailsHard(t *testing.T) {
 	assert.Contains(t, err.Error(), "config.json")
 }
 
-func TestLoadConfig_StrictModeStillRejectsUnknownFields(t *testing.T) {
+// TestLoadConfig_UnknownFieldsSkippedNotFatal covers the 2026-09-19 policy
+// change: the default load path (gateway startup / CLI) skips unknown fields
+// with a logged warning instead of failing, so binary/config version skew
+// (e.g. tools.lsp written by a newer build) no longer blocks startup.
+func TestLoadConfig_UnknownFieldsSkippedNotFatal(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.json")
 	raw := `{
 		"version": 3,
-		"tools": {"exec": {"approval_patterns": ["nope"]}}
+		"tools": {"exec": {"timeout_seconds": 600, "approval_patterns": ["nope"]}}
 	}`
 	if err := os.WriteFile(configPath, []byte(raw), 0o644); err != nil {
 		t.Fatalf("WriteFile(configPath): %v", err)
 	}
 
 	cfg, err := LoadConfig(configPath)
-	assert.Nil(t, cfg)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "tools.exec.approval_patterns")
+	assert.NoError(t, err, "unknown fields must not fail the default load")
+	assert.NotNil(t, cfg)
+	assert.Equal(t, 600, cfg.Tools.Exec.TimeoutSeconds)
+}
+
+// TestLoadConfig_MigrationPathToleratesUnknownFields covers the migration
+// branch (version < 3): legacy configs carrying fields unknown to this build
+// must migrate and load instead of hard-failing (same 2026-09-19 lenient
+// policy as the current-version path).
+func TestLoadConfig_MigrationPathToleratesUnknownFields(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	raw := `{"version": 2, "tools": {"weeb": {"enabled": true}}}`
+	if err := os.WriteFile(configPath, []byte(raw), 0o644); err != nil {
+		t.Fatalf("WriteFile(configPath): %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	assert.NoError(t, err, "unknown fields must not fail the migration path")
+	assert.NotNil(t, cfg)
 }
 
 func TestLoadConfigLenient_NoUnknownFieldsNoWarnings(t *testing.T) {

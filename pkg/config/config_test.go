@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1467,20 +1468,27 @@ func TestLoadConfig_TypeErrorReportsFieldPath(t *testing.T) {
 	}
 }
 
-func TestLoadConfig_UnknownFieldsReportsExactPaths(t *testing.T) {
+// TestLoadConfig_UnknownFieldsReportedAsWarnings verifies unknown fields are
+// surfaced as exact-path warnings (not errors) since the 2026-09-19 policy
+// change: the default load skips them, UI surfaces read them via
+// LoadConfigLenient.
+func TestLoadConfig_UnknownFieldsReportedAsWarnings(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.json")
-	raw := "{\n  \"version\": 2,\n  \"tools\": {\n    \"weeb\": {\n      \"enabled\": true\n    },\n    \"web\": {\n      \"fatch_limit_bytes\": 123\n    }\n  }\n}\n"
+	raw := "{\n  \"version\": 3,\n  \"tools\": {\n    \"weeb\": {\n      \"enabled\": true\n    },\n    \"web\": {\n      \"fatch_limit_bytes\": 123\n    }\n  }\n}\n"
 	if err := os.WriteFile(configPath, []byte(raw), 0o600); err != nil {
 		t.Fatalf("WriteFile() error: %v", err)
 	}
 
-	_, err := LoadConfig(configPath)
-	if err == nil {
-		t.Fatal("expected unknown field error, got nil")
+	cfg, warnings, err := LoadConfigLenient(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfigLenient() should tolerate unknown fields, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "tools.weeb") || !strings.Contains(err.Error(), "tools.web.fatch_limit_bytes") {
-		t.Fatalf("expected exact unknown field paths, got %q", err.Error())
+	if cfg == nil {
+		t.Fatal("expected non-nil config")
+	}
+	if !slices.Contains(warnings, "tools.weeb") || !slices.Contains(warnings, "tools.web.fatch_limit_bytes") {
+		t.Fatalf("expected exact unknown field paths in warnings, got %v", warnings)
 	}
 }
 

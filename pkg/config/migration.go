@@ -58,7 +58,11 @@ type legacyDiagnosticAgentDefaults struct {
 
 func validateLegacyConfigDiagnostics(data []byte) error {
 	var cfg legacyDiagnosticConfig
-	return decodeJSONWithDiagnostics(data, &cfg, "config.json")
+	// Lenient decode: legacy configs written by newer builds may carry fields
+	// this trimmed diagnostic struct does not know; skipping them (with
+	// warnings dropped) must not block migration — same policy as LoadConfig.
+	_, err := decodeJSONLenient(data, &cfg, "config.json")
+	return err
 }
 
 func migrateLegacyAgentDefaultsModel(m map[string]any) {
@@ -82,7 +86,10 @@ func migrateLegacyAgentDefaultsModel(m map[string]any) {
 
 // loadConfigV1 loads a version 1 config (current schema)
 func loadConfig(data []byte) (*Config, error) {
-	cfg, _, err := loadConfigLenient(data, false)
+	// Migration path: unknown fields are skipped (lenient), matching the
+	// default LoadConfig policy — a legacy config carrying fields this build
+	// does not know must still migrate and load instead of hard-failing.
+	cfg, _, err := loadConfigLenient(data, true)
 	return cfg, err
 }
 

@@ -15,11 +15,11 @@ import (
 const exampleTemplatePath = "../../config/config.example.json"
 
 // TestExampleTemplateLoadsStrict pins the shipped config template against the
-// strict loader — the exact path `picoclaw gateway` startup uses. A first-run
-// user who copies the template must not hit
-// "config.json contains unknown field(s)" (2026-09 first-install regression:
-// template advertised _comment keys and singular api_key fields the structs
-// never had). If this fails, the template drifted from the schema.
+// strict loader (kept as a schema regression pin even though the runtime
+// default load is lenient since 2026-09-19). A first-run user who copies the
+// template must not hit unknown-field warnings — the template must never
+// drift from the schema (2026-09 first-install regression: template
+// advertised _comment keys and singular api_key fields the structs never had).
 func TestExampleTemplateLoadsStrict(t *testing.T) {
 	if _, err := os.Stat(exampleTemplatePath); err != nil {
 		t.Skipf("example template not found: %v", err)
@@ -69,7 +69,8 @@ func TestCommentFieldsToleratedInStrictLoad(t *testing.T) {
 	assert.NotNil(t, cfg)
 	assert.Equal(t, 18790, cfg.Gateway.Port)
 
-	// The whitelist is narrow: a real typo must still be rejected.
+	// The whitelist is narrow: a real typo is still surfaced as a warning
+	// (and skipped on load).
 	typoPath := filepath.Join(dir, "typo.json")
 	typo := `{"version": 3, "gateway": {"prot": 1234}}`
 	if err := os.WriteFile(typoPath, []byte(typo), 0o644); err != nil {

@@ -1582,8 +1582,20 @@ func (c *MCPConfig) GetMaxInlineTextChars() int {
 	return DefaultMCPMaxInlineTextChars
 }
 
+// LoadConfig is the default load path for gateway startup and CLI commands.
+// Unknown fields are skipped and logged as warnings instead of failing the
+// whole load (2026-09-19: strict rejection turned binary/config version skew
+// — e.g. a config.json written by a newer build containing tools.lsp — into
+// a hard startup failure). JSON syntax errors and type errors on known
+// fields still fail hard.
 func LoadConfig(path string) (*Config, error) {
-	cfg, _, err := LoadConfigWithWarnings(path, false)
+	cfg, warnings, err := LoadConfigWithWarnings(path, true)
+	if err == nil && len(warnings) > 0 {
+		logger.WarnF(
+			"config contains unknown field(s), skipped: %s",
+			map[string]any{"path": path, "fields": strings.Join(warnings, ", ")},
+		)
+	}
 	return cfg, err
 }
 
@@ -1804,7 +1816,9 @@ func LoadConfigWithWarnings(path string, lenient bool) (*Config, []string, error
 			cfg, w, err = loadConfigLenient(data, true)
 			warnings = w
 		} else {
-			cfg, err = loadConfig(data)
+			// Strict mode (kept for the example-template regression pin):
+			// unknown fields fail the load with exact paths.
+			cfg, _, err = loadConfigLenient(data, false)
 		}
 		if err != nil {
 			logger.ErrorCF(
