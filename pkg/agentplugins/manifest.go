@@ -39,15 +39,15 @@ type Author struct {
 
 // Manifest is the parsed and validated root plugin.json (spec §5).
 type Manifest struct {
-	SchemaURL  string
-	Name       string
-	Version    string
+	SchemaURL   string
+	Name        string
+	Version     string
 	Description string
-	License    string
-	Homepage   string
-	Repository string
-	Keywords   []string
-	Author     *Author
+	License     string
+	Homepage    string
+	Repository  string
+	Keywords    []string
+	Author      *Author
 
 	// ignoredTopFields records top-level fields that were reported and
 	// ignored (unknown fields, non-object extensions).

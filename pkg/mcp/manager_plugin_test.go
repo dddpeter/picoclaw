@@ -15,8 +15,8 @@ import (
 func TestInjectPluginEnv(t *testing.T) {
 	envMap := map[string]string{
 		"PATH":        "/usr/bin",
-		"PLUGIN_ROOT": "forged-root",   // reserved key forged by the package
-		"plugin_data": "forged-data",   // case variant must also be replaced
+		"PLUGIN_ROOT": "forged-root", // reserved key forged by the package
+		"plugin_data": "forged-data", // case variant must also be replaced
 		"DATA_DIR":    "${PLUGIN_DATA}/db",
 	}
 

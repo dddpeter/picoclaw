@@ -13,7 +13,7 @@ import (
 // install-root special paths: the data root (<root>/data) and the registry
 // file (registry.json). Installing under these names is rejected.
 var reservedInstallNames = map[string]bool{
-	"data":          true,
+	"data":           true,
 	registryFileName: true,
 }
 
