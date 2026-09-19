@@ -25,6 +25,24 @@ const (
 )
 
 // resolveOfficialSchema loads one of the vendored official schemas.
+//
+// The schemas are vendored at testdata/schemas/ and committed, so this test
+// NEVER touches the network (spec §5.2 forbids runtime schema retrieval
+// anyway; the $schema URLs in spec.go are pure comparison constants). To
+// refresh the vendored copies, fetch from the spec repo — e.g.
+//
+//	curl -sL https://raw.githubusercontent.com/agentplugins/agent-plugins-spec/main/schemas/1.0.0/plugin.schema.json \
+//	  -o pkg/agentplugins/testdata/schemas/plugin.schema.json
+//	curl -sL https://raw.githubusercontent.com/agentplugins/agent-plugins-spec/main/schemas/1.0.0/mcp.schema.json \
+//	  -o pkg/agentplugins/testdata/schemas/mcp.schema.json
+//
+// If raw.githubusercontent.com is unreachable (mainland China), any of these
+// mirrors of the same repo path work:
+//
+//	https://cdn.jsdelivr.net/gh/agentplugins/agent-plugins-spec@main/schemas/1.0.0/<file>
+//	https://ghproxy.net/https://raw.githubusercontent.com/agentplugins/agent-plugins-spec/main/schemas/1.0.0/<file>
+//
+// Verify afterwards: both files start with "{", and this test passes.
 func resolveOfficialSchema(t *testing.T, name string) *jsonschema.Resolved {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("testdata", "schemas", name))
