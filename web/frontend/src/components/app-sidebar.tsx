@@ -7,6 +7,7 @@ import {
   IconListDetails,
   IconMessageCircle,
   IconPlugConnected,
+  IconPuzzle,
   IconSearch,
   IconSettings,
   IconSparkles,
@@ -157,6 +158,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             icon: IconPlugConnected,
             translateTitle: true,
           },
+          {
+            title: "navigation.plugins",
+            url: "/plugins",
+            icon: IconPuzzle,
+            translateTitle: true,
+          },
         ],
       },
       {
@@ -215,7 +222,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                             data-tour={
                               item.url === "/models" ? "models-nav" : undefined
                             }
-                            className={`h-9 px-3 ${isActive ? "bg-accent/80 text-foreground font-medium shadow-[0_4px_14px_-4px_oklch(0.2_0.03_55/50%)] -translate-y-px" : "text-foreground/85 hover:bg-muted/60"}`}
+                            className={`h-9 px-3 ${isActive ? "bg-accent/80 text-foreground -translate-y-px font-medium shadow-[0_4px_14px_-4px_oklch(0.2_0.03_55/50%)]" : "text-foreground/85 hover:bg-muted/60"}`}
                           >
                             <Link to={item.url}>
                               <item.icon

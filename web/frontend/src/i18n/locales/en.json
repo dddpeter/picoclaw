@@ -22,7 +22,8 @@
     "show_more_channels": "More",
     "show_less_channels": "Less",
     "config": "Config",
-    "logs": "Logs"
+    "logs": "Logs",
+    "plugins": "Plugins"
   },
   "launcherLogin": {
     "title": "Sign in",
@@ -1055,6 +1056,34 @@
         "notice": "MCP settings moved to a dedicated page",
         "link": "Open MCP page"
       }
+    },
+    "plugins": {
+      "install": "Install plugin",
+      "install_hint": "A local plugin directory or a git URL (branch/tag ref only)",
+      "installing": "Installing…",
+      "installed_toast": "Plugin installed",
+      "installed_with_errors": "Installed with problems",
+      "enabled_toast": "Plugin enabled",
+      "disabled_toast": "Plugin disabled",
+      "removed_toast": "Plugin removed",
+      "enabled_label": "Enabled",
+      "remove": "Remove",
+      "source": "Source",
+      "ref": "Ref (branch or tag)",
+      "installed_at": "Installed at",
+      "validate": "Validate only",
+      "unregistered": "unregistered",
+      "broken": "load failed",
+      "empty": "No plugins installed.",
+      "empty_hint": "Install one from a local directory or a git URL under {{root}}",
+      "warnings": "{{count}} warnings",
+      "warning": "warning",
+      "counts": "{{skills}} skills · {{mcp}} MCP",
+      "report_summary": "{{name}}: {{skills}} skills, {{mcp}} MCP servers",
+      "registry_error": "Registry problem",
+      "remove_confirm_title": "Remove {{name}}?",
+      "remove_confirm_desc": "The plugin directory is deleted. Its data directory can be kept or purged.",
+      "purge_data": "Purge data directory"
     }
   },
   "tour": {

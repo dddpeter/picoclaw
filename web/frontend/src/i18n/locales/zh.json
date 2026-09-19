@@ -22,7 +22,8 @@
     "show_more_channels": "更多",
     "show_less_channels": "收起",
     "config": "配置",
-    "logs": "日志"
+    "logs": "日志",
+    "plugins": "插件"
   },
   "launcherLogin": {
     "title": "登录",
@@ -1055,6 +1056,34 @@
         "notice": "MCP 设置已独立为专门页面",
         "link": "前往 MCP 页面"
       }
+    },
+    "plugins": {
+      "install": "安装插件",
+      "install_hint": "本地插件目录或 git URL（ref 仅支持分支/tag）",
+      "installing": "安装中…",
+      "installed_toast": "插件已安装",
+      "installed_with_errors": "已安装，但存在问题",
+      "enabled_toast": "插件已启用",
+      "disabled_toast": "插件已禁用",
+      "removed_toast": "插件已移除",
+      "enabled_label": "启用",
+      "remove": "移除",
+      "source": "来源",
+      "ref": "Ref（分支或 tag）",
+      "installed_at": "安装时间",
+      "validate": "仅验证",
+      "unregistered": "未注册",
+      "broken": "加载失败",
+      "empty": "尚未安装插件。",
+      "empty_hint": "可从本地目录或 git URL 安装到 {{root}}",
+      "warnings": "{{count}} 条警告",
+      "warning": "警告",
+      "counts": "{{skills}} 个技能 · {{mcp}} 个 MCP",
+      "report_summary": "{{name}}：{{skills}} 个技能，{{mcp}} 个 MCP 服务器",
+      "registry_error": "注册表异常",
+      "remove_confirm_title": "移除 {{name}}？",
+      "remove_confirm_desc": "将删除插件目录；其数据目录可保留或一并清除。",
+      "purge_data": "同时清除数据目录"
     }
   },
   "tour": {
