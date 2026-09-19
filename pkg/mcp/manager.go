@@ -61,10 +61,6 @@ func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return base.RoundTrip(req)
 }
 
-// loadEnvFile loads environment variables from a file in .env format
-// Each line should be in the format: KEY=value
-// Lines starting with # are comments
-// Empty lines are ignored
 // injectPluginEnv writes the client-supplied PLUGIN_ROOT/PLUGIN_DATA into
 // envMap last, replacing any entries with equivalent (case-insensitive)
 // names per platform environment-name semantics (Agent Plugins spec §9.1).
@@ -87,6 +83,10 @@ func injectPluginEnv(envMap map[string]string, pluginRoot, pluginData string) {
 	}
 }
 
+// loadEnvFile loads environment variables from a file in .env format
+// Each line should be in the format: KEY=value
+// Lines starting with # are comments
+// Empty lines are ignored
 func loadEnvFile(path string) (map[string]string, error) {
 	file, err := os.Open(path)
 	if err != nil {

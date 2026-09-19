@@ -2,7 +2,6 @@ package agentplugins
 
 import (
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,8 +32,9 @@ func validateForInstall(src string) (*Manifest, error) {
 }
 
 // copyTree copies the whole source directory tree into dst (dst must not
-// exist). os.CopyFS preserves regular files and directories; the plugin
-// package model is directory-based so nothing else is needed.
+// exist). os.CopyFS preserves regular files, directories and symlinks;
+// symlink escapes are not an install-time concern — every package path is
+// containment-checked again at load time (spec §4.1, design D6).
 func copyTree(dst, src string) error {
 	return os.CopyFS(dst, os.DirFS(src))
 }
@@ -141,5 +141,3 @@ func RegisterIn(r *Registry, name, version, source, ref string) {
 		Enabled:     true,
 	}
 }
-
-var _ fs.FS = os.DirFS(".")
