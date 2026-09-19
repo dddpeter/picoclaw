@@ -600,3 +600,77 @@ func TestPluginSkillsInSkillsAPI(t *testing.T) {
 		}
 	})
 }
+
+// TestPluginsEndToEnd walks the full dashboard flow over HTTP: install →
+// list → visibility in MCP config and skills API → disable → remove → gone.
+func TestPluginsEndToEnd(t *testing.T) {
+	mux, installRoot, _ := newPluginsTestServerWithConfig(t)
+	src := writeTestPlugin(t, t.TempDir(), "golden")
+
+	// Install
+	var install pluginReportResponse
+	decodeJSON(t, doJSON(t, mux, http.MethodPost, "/api/plugins/install", map[string]string{"source": src}), &install)
+	if !install.OK || install.Name != "golden" || install.Skills != 1 || install.MCPServers != 1 {
+		t.Fatalf("install = %+v", install)
+	}
+
+	// List shows it
+	var list pluginsResponse
+	decodeJSON(t, doJSON(t, mux, http.MethodGet, "/api/plugins", nil), &list)
+	if len(list.Plugins) != 1 || !list.Plugins[0].Enabled || !list.Plugins[0].Registered {
+		t.Fatalf("list = %+v", list.Plugins)
+	}
+
+	// MCP config exposes the bridged server read-only
+	var mcpCfg mcpConfigResponse
+	decodeJSON(t, doJSON(t, mux, http.MethodGet, "/api/mcp/config", nil), &mcpCfg)
+	if len(mcpCfg.PluginServers) != 1 || mcpCfg.PluginServers[0].Key != "plugin/golden/echo" {
+		t.Fatalf("pluginServers = %+v", mcpCfg.PluginServers)
+	}
+
+	// Skills API exposes the plugin skill with plugin source
+	var skillsResp struct {
+		Skills []skillSupportItem `json:"skills"`
+	}
+	decodeJSON(t, doJSON(t, mux, http.MethodGet, "/api/skills", nil), &skillsResp)
+	var sawPluginSkill bool
+	for _, s := range skillsResp.Skills {
+		if s.Name == "alpha" && s.Source == "plugin:golden" {
+			sawPluginSkill = true
+		}
+	}
+	if !sawPluginSkill {
+		t.Fatalf("plugin skill missing from /api/skills: %+v", skillsResp.Skills)
+	}
+
+	// Disable → MCP config loses the server, skills lose the skill, list reflects state
+	if rec := doJSON(t, mux, http.MethodPut, "/api/plugins/golden/enabled", map[string]bool{"enabled": false}); rec.Code != http.StatusOK {
+		t.Fatalf("disable status = %d", rec.Code)
+	}
+	var mcpCfgAfter mcpConfigResponse // fresh var: pluginServers is omitempty, decoding into the old one would keep stale entries
+	decodeJSON(t, doJSON(t, mux, http.MethodGet, "/api/mcp/config", nil), &mcpCfgAfter)
+	if len(mcpCfgAfter.PluginServers) != 0 {
+		t.Fatalf("disabled plugin still bridged: %+v", mcpCfgAfter.PluginServers)
+	}
+	var skillsAfter struct {
+		Skills []skillSupportItem `json:"skills"`
+	}
+	decodeJSON(t, doJSON(t, mux, http.MethodGet, "/api/skills", nil), &skillsAfter)
+	for _, s := range skillsAfter.Skills {
+		if s.Name == "alpha" {
+			t.Fatalf("disabled plugin skill still listed: %+v", s)
+		}
+	}
+
+	// Remove with purge → everything gone
+	if rec := doJSON(t, mux, http.MethodDelete, "/api/plugins/golden?purgeData=true", nil); rec.Code != http.StatusOK {
+		t.Fatalf("remove status = %d", rec.Code)
+	}
+	if _, err := os.Stat(filepath.Join(installRoot, "golden")); !os.IsNotExist(err) {
+		t.Error("plugin dir must be gone")
+	}
+	decodeJSON(t, doJSON(t, mux, http.MethodGet, "/api/plugins", nil), &list)
+	if len(list.Plugins) != 0 {
+		t.Fatalf("plugins after remove = %+v", list.Plugins)
+	}
+}

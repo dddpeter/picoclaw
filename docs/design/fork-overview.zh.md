@@ -205,9 +205,11 @@
 
 - **换行符容错编辑**（`pkg/tools/fs/text_compat.go`）：`edit_file` 的 `old_text` 匹配三级降级——字节精确 → 去除 UTF-8 BOM 后精确 → 行尾归一化匹配（`
 ` 与 `
-`/孤立 `` 等价，带归一化偏移映射回原文字节位置）；单行 needle 永不跨 CR 误匹配，归一化空间计歧义（多次匹配仍报错）。替换文本自动改写为文件的主导 EOL 风格（`detectEOLStyle`），编辑永不引入混合换行；LF 文件保持旧字节级语义。
+`/孤立 `
+` 等价，带归一化偏移映射回原文字节位置）；单行 needle 永不跨 CR 误匹配，归一化空间计歧义（多次匹配仍报错）。替换文本自动改写为文件的主导 EOL 风格（`detectEOLStyle`），编辑永不引入混合换行；LF 文件保持旧字节级语义。
 - **append_file 风格跟随**：向 CRLF/CR 文件追加的内容改写为该文件的 EOL 风格，杜绝同文件混合换行；LF 文件逐字节不动。
-- **编码检测与保编码回写**（`pkg/tools/fs/encoding.go`）：`decodeText`/`encodeText` 支持 UTF-8、UTF-8 BOM、GB18030（GBK 中文 Windows 常见）；edit/append 在解码后的文本空间操作再按原编码写回，**GBK 文件编辑后仍是 GBK**，不静默转码。NUL 字节视为二进制信号绝不转码。`read_file`（行模式，agent 默认读工具）对 ≤8MB 文件整读解码，非 UTF-8 时输出转 UTF-8 并在 header 标注 `encoding: gb18030` / `utf-8 (BOM)`；行输出剥离尾部 ``（CRLF 文件不再向模型泄漏裸 CR）。`golang.org/x/text` 因此从 indirect 转为直接依赖。
+- **编码检测与保编码回写**（`pkg/tools/fs/encoding.go`）：`decodeText`/`encodeText` 支持 UTF-8、UTF-8 BOM、GB18030（GBK 中文 Windows 常见）；edit/append 在解码后的文本空间操作再按原编码写回，**GBK 文件编辑后仍是 GBK**，不静默转码。NUL 字节视为二进制信号绝不转码。`read_file`（行模式，agent 默认读工具）对 ≤8MB 文件整读解码，非 UTF-8 时输出转 UTF-8 并在 header 标注 `encoding: gb18030` / `utf-8 (BOM)`；行输出剥离尾部 `
+`（CRLF 文件不再向模型泄漏裸 CR）。`golang.org/x/text` 因此从 indirect 转为直接依赖。
 - **Windows 路径名校验**（`pkg/tools/fs/windows_names_windows.go` / `_other.go`，build tag 双实现）：写路径拒绝保留设备名（CON/NUL/COM1-9/LPT1-9，含带扩展名形式）、尾点/尾空格（Win32 会静默剥除导致文件落在别名下）、非法字符 `<>:"|?*` 与 NTFS 备用数据流（`file.txt:ads`）；读路径拒绝保留名（打开 CON 可能挂起）。clear error 让模型立即换名，不进重试循环。新版 Win11 已放开部分保留名创建，仍保留校验以兼容旧版 Windows 与工具链。
 - **原子写 Windows 加固**（`pkg/fileutil/rename*.go` + `file.go`）：`WithTransientRenameRetry` 对 sharing/lock/access-denied 瞬态错误做指数退避重试（杀软/索引器扫描窗口）；进程内 rename 互斥串行化（并发替换同一目标会互相推进 delete-pending 窗口，Windows 报 Access denied）；临时文件名加原子计数器（Windows 时钟粒度粗，pid+UnixNano 高并发必碰撞）。`WriteFileTool` 的存在性探测句柄补 Close（原泄漏靠 GC finalizer，Windows 上会阻塞后续 rename/删除）。
 - 测试锚点：`TestReplaceEditContent_*`（归一化匹配/歧义/CR 文件）、`TestEditFileTool_CRLFFile_MatchesLFNeedle`、`TestEditFileTool_PreservesGB18030Encoding`、`TestAppendFileTool_CRLFFileAdaptsAppendedEOLs`、`TestReadFileLinesTool_{CRLFStrippedFromOutput,GB18030Decoded,UTF8BOMStripped}`、`TestValidateWritePath_*`、`TestWithTransientRenameRetry_*`（Windows-only）。
@@ -254,3 +256,12 @@
 - 长任务四件套（2026-09-18，§12）：`pkg/tools/shell.go` 的 `resolveRunTimeout`/超时参数化、`pkg/agent/agent.go` runAgentLoop 的**续段循环**、`pkg/agent/turn_coord.go` 的 `IterationLimitResponse` 覆盖与 `startProgressHeartbeat` 挂载、`pkg/agent/steering_abort.go` 的 `detectDanglingToolCalls`/`sealDanglingWith` 抽取（重构后既有 seal 测试必须仍过）、`pkg/agent/restart_recovery.go` 全文件、`pkg/agent/progress_heartbeat.go` 全文件、`pkg/agent/agent_message.go` 的 `cancelRecoveryReminder` 钩子、`pkg/gateway/gateway.go` 的启动挂载、`pkg/memory/jsonl.go`/`pkg/session/jsonl_backend.go` 的 `LastModified`、`pkg/config` 三个新配置项——均为 fork 行为，上游同步时保留 fork 语义；测试锚点见 §12。
 - 合并后跑 `go test ./pkg/agent/ ./pkg/tools/ ./pkg/providers/... ./pkg/commands/ ./pkg/cron/ ./pkg/evolution/` 验证 fork 测试（文件名含 `_test.go` 且测试名带 `NewResets`/`NewArchives`/`NeverBlocks`/`ResponseHeaderTimeout`/`CleanCommandOutput`/`ReloadsStore`/`WakeGate`/`ApplyLearn`/`Suggest`/`AutoContinue`/`RestartRecovery`/`ProgressHeartbeat`/`PerCallTimeout` 的均为 fork 独有）；前端改动需另跑 `pnpm build` 验证。
 - 配置模板兼容（2026-09-14）是 fork 对上游缺陷的修复：上游结构与模板均未改。同步上游时若 `config.example.json` 被上游改动，同步后必须保证 `TestExampleTemplateLoadsStrict` 仍过（模板不得引入结构体不认识的字段，`_comment` 除外）；`pkg/config/diagnostics.go` 的 `_comment` 白名单与四 provider 的 `LegacyAPIKey` 折叠保留 fork 语义，不要按上游"修"掉。
+
+
+## 16. Agent Plugins Spec 1.0 兼容客户端 + launcher 管理（2026-09-19）
+
+- 规范客户端核心（`pkg/agentplugins`，**只 import 标准库**——import 环硬约束）：manifest/mcp.json 封闭校验、§4.1 路径遏制（EvalSymlinks 最近存在祖先）、§7.1 平铺技能发现、§9.2 单遍占位符展开、三处 §7.2.1 MUST（`./` command 绝对解析、缺省 cwd=插件根、PLUGIN_DATA 启动前创建）、保留名守卫（插件名 `data`/`registry.json` 拒绝）。CLI：`picoclaw plugin install/remove/list/enable/disable/validate`。
+- gateway 桥接：`pkg/agent/agent_mcp.go` 的 `mergePluginServers`（**合并必须先于空判**，用户零 MCP 配置时插件 server 仍生效；用户同名键赢）、`pkg/mcp/manager.go` 的 `injectPluginEnv`（PLUGIN_ROOT/DATA 最后写并删大小写变体）+ `cmd.Dir`；技能侧 `pkg/skills.AppendPluginRoots`（gateway `context.go` 与 launcher `api/skills.go` 共用，plugin root 平铺发现委托 `agentplugins.DiscoverSkills` 单一实现）。
+- launcher 管理（`web/`）：`/api/plugins` 五端点（GET 列表=ScanPlugins+registry 合并视图 / install / validate / PUT enabled / DELETE，`{name}` 过 `ValidatePluginName`+保留名双守卫）、`/plugins` 页面（zh/en）、MCP 页只读 pluginServers 段、skills 页插件 badge（删除按钮 workspace-only 是既有语义，天然禁删）。
+- 同步上游注意：`ensureMCPInitialized` 空判用合并后配置（不要按上游"空配置即早退"修回去）；`MCPServerConfig.Dir/PluginRoot/PluginData` 为 fork 增量字段；`ScanPlugins`/`AppendPluginRootsFrom` 为 fork API。测试锚点：`TestPluginMCP_*`、`TestPluginEndToEnd*`、`TestScanPlugins`、`TestAppendPluginRoots`、`api/plugins_test.go` 全套。
+- 设计/计划文档：`docs/design/2026-09-19-agent-plugins-client{,-design}.md`（客户端）、`docs/design/2026-09-19-agent-plugins-launcher{,-design}.zh.md`（launcher）；一致性矩阵 `docs/agent-plugins-conformance.md`。

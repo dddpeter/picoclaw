@@ -54,6 +54,9 @@ The current frontend exposes these major pages and flows:
   - Import Markdown skills into the workspace and delete workspace-owned skills.
 - `/agent/tools`
   - View tool availability and enable or disable tool switches through config-backed APIs.
+- `/plugins`
+  - Manage Agent Plugins Spec 1.0 packages: install from a local directory or git URL, validate without installing, enable/disable, remove (optional data purge).
+  - Plugin skills appear in the skills page (plugin badge, not deletable there); plugin MCP servers show as a read-only section on the MCP page.
 - `/config`
   - Edit agent defaults, self-evolution, exec controls, cron controls, heartbeat, device monitoring, launcher networking, and launch-at-login settings.
 - `/logs`
