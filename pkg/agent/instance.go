@@ -19,6 +19,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/session"
 	"github.com/sipeed/picoclaw/pkg/tools"
 	fstools "github.com/sipeed/picoclaw/pkg/tools/fs"
+	toolshared "github.com/sipeed/picoclaw/pkg/tools/shared"
 )
 
 // AgentInstance represents a fully configured agent with its own workspace,
@@ -138,11 +139,20 @@ func NewAgentInstance(
 			toolsRegistry.Register(tools.NewReadFileBytesTool(workspace, readRestrict, maxReadFileSize, allowReadPaths))
 		}
 	}
+	lspInject := cfg.Tools.Lsp.EffectiveEnabled() && cfg.Tools.Lsp.EffectiveInjectOnEdit()
 	if cfg.Tools.IsToolEnabled("edit_file") {
-		toolsRegistry.Register(tools.NewEditFileTool(workspace, restrict, allowWritePaths))
+		var editTool toolshared.Tool = tools.NewEditFileTool(workspace, restrict, allowWritePaths)
+		if lspInject {
+			editTool = tools.WithEditDiagnostics(editTool, cfg.Tools.Lsp, workspace, nil)
+		}
+		toolsRegistry.Register(editTool)
 	}
 	if cfg.Tools.IsToolEnabled("append_file") {
-		toolsRegistry.Register(tools.NewAppendFileTool(workspace, restrict, allowWritePaths))
+		var appendTool toolshared.Tool = tools.NewAppendFileTool(workspace, restrict, allowWritePaths)
+		if lspInject {
+			appendTool = tools.WithEditDiagnostics(appendTool, cfg.Tools.Lsp, workspace, nil)
+		}
+		toolsRegistry.Register(appendTool)
 	}
 	// Build write_file's copy from the registered editors so it steers the agent
 	// to edit_file/append_file only when those tools are actually available.
@@ -156,10 +166,24 @@ func NewAgentInstance(
 			altTools = append(altTools, "edit_file")
 		}
 		writeTool.SetAlternativeTools(altTools)
-		toolsRegistry.Register(writeTool)
+		var wTool toolshared.Tool = writeTool
+		if lspInject {
+			wTool = tools.WithEditDiagnostics(wTool, cfg.Tools.Lsp, workspace, nil)
+		}
+		toolsRegistry.Register(wTool)
 	}
 	if cfg.Tools.IsToolEnabled("list_dir") {
 		toolsRegistry.Register(tools.NewListDirTool(workspace, readRestrict, allowReadPaths))
+	}
+	// LSP diagnostics (fork feature, docs/design/lsp-support-design.zh.md).
+	// Default on: unavailable servers are skipped silently and failures
+	// are circuit-broken per (root, server), so an empty environment degrades
+	// to a no-op tool rather than an error.
+	if cfg.Tools.IsToolEnabled("lsp_diagnostics") {
+		toolsRegistry.Register(tools.NewLspDiagnosticsTool(workspace, readRestrict, allowReadPaths, cfg.Tools.Lsp))
+	}
+	if cfg.Tools.IsToolEnabled("lsp_fix") {
+		toolsRegistry.Register(tools.NewLspFixTool(workspace, restrict, allowReadPaths, allowWritePaths, cfg.Tools.Lsp))
 	}
 	if cfg.Tools.IsToolEnabled("exec") {
 		execTool, err := tools.NewExecToolWithConfig(workspace, restrict, cfg, allowReadPaths)

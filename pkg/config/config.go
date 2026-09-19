@@ -1391,6 +1391,10 @@ type ToolsConfig struct {
 	Cron            CronToolsConfig    `json:"cron"              yaml:"-"`
 	Exec            ExecConfig         `json:"exec"              yaml:"-"`
 	Skills          SkillsToolsConfig  `json:"skills"            yaml:"skills,omitempty"`
+	// Lsp configures language-server diagnostics/fix tooling (fork
+	// feature, docs/design/lsp-support-design.zh.md). Absent = enabled with
+	// the built-in server catalog (missing commands are skipped silently).
+	Lsp LspToolsConfig `json:"lsp" yaml:"lsp,omitempty"`
 	MediaCleanup    MediaCleanupConfig `json:"media_cleanup"     yaml:"-"`
 	MCP             MCPConfig          `json:"mcp"               yaml:"-"`
 	AppendFile      ToolConfig         `json:"append_file"       yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_APPEND_FILE_"`
@@ -2201,6 +2205,8 @@ func (t *ToolsConfig) IsToolEnabled(name string) bool {
 		return t.WriteFile.Enabled
 	case "mcp":
 		return t.MCP.Enabled
+	case "lsp_diagnostics", "lsp_fix":
+		return t.Lsp.EffectiveEnabled()
 	default:
 		return true
 	}

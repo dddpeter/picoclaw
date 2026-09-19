@@ -28,6 +28,7 @@
 | 长任务第二批改进 | `<2026-09-18 晚>` | 同上 + `pkg/channels/feishu/feishu_stream_card.go`（面板 header 续段标识） | 同上 §8.2（第二批：多代理扫描/心跳节流+降级/续段标识/默认超时 120s） |
 | 文件工具 Windows 兼容性 | `<2026-09-19>` | `pkg/tools/fs/text_compat.go`、`pkg/tools/fs/encoding.go`、`pkg/tools/fs/windows_names_*.go`、`pkg/fileutil/rename*.go` | 本文 §13 |
 | 回合尾压缩异步化（A+C） | `<2026-09-19>` | `pkg/agent/compact_schedule.go`、`pkg/agent/pipeline_finalize.go`、`pkg/agent/pipeline_execute.go`、`pkg/seahorse/short_constants.go` | 本文 §14 |
+| LSP 诊断与源码修复 | `<2026-09-19>` | `pkg/lsp/`（client/pool/position/edits/fakeserver）、`pkg/tools/lsp*.go`、`pkg/config/lsp.go` | 本文 §15、`docs/design/lsp-support-design.zh.md` |
 
 ## 1. 飞书 CardKit v2 流式卡片
 
@@ -222,9 +223,21 @@
 - 语义保持：门控条件不变（`EnableSummary && !NoHistory`，心跳轮照旧跳过）；`allResponsesHandled=true` 早退路径不压（ExecuteTools 的 tool-satisfied 分支已排过，防双压）；压缩失败仅告警不失败回合。
 - 测试锚点：`TestFinalize_CompactAsync`（Finalize 不被压缩阻塞）、`TestFinalize_CompactAllResponsesHandledPath`（早退不双压）、`TestScheduleCompactGating`（门控）、`TestScheduleCompactDedup`（会话去重）、`TestFinalize_CompactErrorNonFatal`、`seahorse TestConstants`/`TestLeafChunkTokensReduced`。
 
+## 15. LSP 诊断与源码修复（2026-09-19）
+
+参考 `@narumitw/pi-lsp` v0.49.7（spawn-per-call、扩展名路由、push/pull 双通道）与 opencode（持久会话池、broken 熔断、诊断注入 edit、配置 merge、per-server root 解析）设计的 LSP 工具面，设计文档 `docs/design/lsp-support-design.zh.md`（v2，含两参考实现的逐文件分析）：
+
+- **`pkg/lsp/`**：最小 LSP 客户端（手写 JSON-RPC stdio 分帧、静态能力声明）+ **idle-TTL 会话池**（(root,server) 键、spawning 去重、broken 永久熔断、空闲 5min 回收）+ **UTF-16↔UTF-8 位置换算**（中文 BMP 1:3、emoji 代理对 2:4——JS 实现免费、Go 必须显式做的正确性红线）+ WorkspaceEdit 收集/重叠检测/从后往前应用 + Windows `.bat/.cmd` 经 cmd.exe 包装 + **KILL_ON_CLOSE Job Object**（网关崩溃整树回收，与 exec 工具的无 KILL_ON_CLOSE 选择相反——LSP 服务器不应比网关活得久）。
+- **工具面**：`lsp_diagnostics`（扩展名路由、命令缺失静默跳过/显式指定报错、≤50 文件/调用、输出限 200 行）+ `lsp_fix`（codeAction→resolve→edits→预览/标准原子写回，多服务器匹配需显式指定）+ **编辑诊断注入**（edit_file/write_file/append_file 成功后追加 error 级 `<diagnostics>` 块，≤20 条、2s 上限、无 error 零追加——opencode 模式的编辑→诊断→修复闭环）。
+- **默认全开**（评审决策）：`tools.lsp.enabled`/`inject_on_edit` 均 nil=开；空环境退化为 no-op 工具。内置目录 8 项（gopls/ts-ls/pyright/ruff/rust-analyzer/clangd/jdtls/vue-ls），自定义按名 merge + disabled 关单项。
+- 文件内容**原样字节进出**（不走过 text_compat 解码/换行归一——服务器按原文计算位置，任何转换都会让 range 错位）；读路径复用 `ValidatePathWithAllowPaths`，写路径复用 `WriteFileTool`（校验+原子写+Windows 名规则）。
+- 测试锚点：`pkg/lsp` 的 `TestClientPull/PushDiagnostics`、`TestClientPushCleanFileWithGrace`、`TestPool*`（复用/并发去重/熔断/TTL）、`TestPositionToOffset*`（UTF-16 中文/代理对）、`TestApplyEdits*`（重叠/纯插入）；`pkg/tools` 的 `TestResolveLspServersMergeSemantics`、`TestSelectLspRoutesSkipsMissingCommands`、`TestLspDiagnosticsTool*`、`TestLspFixTool*`、`TestEditDiagnosticsInjection*`；fake server 在 `pkg/lsp/fakeserver`（可编程 helper 进程，PICOCLAW_FAKESERVER_* 环境变量契约）。
+- P1 遗留：`/lsp` 命令（列配置服务器与 PATH 可用性）、per-server root 解析（NearestRoot，monorepo 场景）、P2 的 auto_install（仅 gopls go install，默认关）。
+
 ## 同步上游注意事项
 
 
+- LSP 工具面（§15）：`pkg/lsp/` 全包、`pkg/tools/lsp*.go`、`pkg/config/lsp.go`、`instance.go` 的注册与注入包装——均为 fork 行为；`TestResolveLspServersMergeSemantics`/`TestLspFixTool*`/`TestEditDiagnosticsInjection*` 钉住行为，上游同步时保留；编辑注入的 wrapper 语义（ForLLM 追加诊断块、ForUser 不动）不要按上游裸工具语义修掉。
 - 回合尾压缩异步化（§14）：`pkg/agent/compact_schedule.go`（scheduleCompact/drainCompact/每会话去重）、`pipeline_finalize.go`/`pipeline_execute.go` 的两处调用点、`agent_init.go` 的 eager 装配、`pkg/seahorse/short_constants.go` 的 LeafChunkTokens=8000——均为 fork 行为，上游同步时保留；§14 测试锚点必须全过。
 - 文件工具 Windows 兼容性五件套（§13）：`pkg/tools/fs/` 的 `text_compat.go`、`encoding.go`、`windows_names_*.go`，`pkg/fileutil/` 的 `rename*.go` 与临时名计数器、`WriteFileTool` 探测句柄 Close——均为 fork 行为，上游同步时保留 fork 语义；§13 测试锚点必须全过。
 - 主要冲突面：`pkg/commands/`、`pkg/agent/pipeline_execute.go`、`pkg/agent/agent_command.go`（/learn 拦截 + /cron Runtime 回调）、`pkg/tools/shell.go`、`pkg/tools/cron.go`（§11 script/蓝图/建议动作）、`pkg/channels/feishu/`、`pkg/config/config.go`（AgentDefaults + EvolutionConfig.SuggestionsEnabled）、`pkg/skills/loader.go`（§10 五级根目录）、`web/frontend/src/index.css`（§8 主题）、`web/frontend/src/hooks/use-theme.ts`、`web/frontend/src/components/theme-switcher.tsx`、`web/frontend/index.html`（防闪烁脚本）。

@@ -485,6 +485,44 @@ PicoClaw 可以自动执行周期性任务。在工作区创建 `HEARTBEAT.md` �
 
 Agent 将每隔 30 分钟（可配置）读取此文件，并使用可用工具执行任务。
 
+### 语言服务器 (lsp)
+
+通过 LSP 为编辑工具提供目标化诊断与源码修复（fork 功能，设计文档 `docs/design/lsp-support-design.zh.md`）。**默认开启**——本机没有安装对应语言服务器时相关服务器被静默跳过，不产生任何开销。
+
+```json
+{
+  "tools": {
+    "lsp": {
+      "enabled": true,
+      "inject_on_edit": true,
+      "timeout_seconds": 20,
+      "max_files": 50,
+      "idle_ttl_seconds": 300,
+      "servers": {
+        "gopls": { "command": ["gopls"], "extensions": [".go"] }
+      }
+    }
+  }
+}
+```
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `enabled` | 未配置时视为 `true` | 总开关，关闭后 lsp 工具与编辑注入一并移除 |
+| `inject_on_edit` | 未配置时视为 `true` | edit_file/write_file/append_file 成功后自动追加 error 级诊断（≤20 条、2 秒上限、无 error 零追加）——编辑→诊断→修复闭环，模型无需记得调诊断工具 |
+| `timeout_seconds` | 20 | 单个 LSP 请求超时 |
+| `max_files` | 50 | 单次诊断调用最多打开文件数 |
+| `idle_ttl_seconds` | 300 | 语言服务器会话空闲回收（会话按 root+服务器复用，摊销冷启动） |
+| `servers` | 内置目录 | **按名合并**（opencode 语义）：同名覆盖 command/extensions 等字段，`"disabled": true` 关闭单项 |
+
+**内置目录（8 项）**：gopls（.go）、typescript-language-server（.ts/.tsx/.js/.jsx）、pyright 与 ruff（.py）、rust-analyzer（.rs）、clangd（.c/.cpp/.h…）、jdtls（.java）、vue-language-server（.vue）。命令从 PATH 解析；`.bat/.cmd` 包装命令（npm 全局安装）自动经 cmd.exe 启动。
+
+**新增工具**：
+- `lsp_diagnostics`：按扩展名路由到语言服务器，输出 `path:line:col: severity source code: message`（中间反馈——完成前仍要跑项目的权威 build/test）
+- `lsp_fix`：应用服务器支持的 source action（默认 `source.fixAll`，可选 `source.organizeImports` 等）；`write=false` 预览全文，`write=true` 走标准原子写回
+
+**Windows 注意**：诊断位置按 LSP 规范以 UTF-16 code unit 计算，实现已显式换算（中文/emoji 不会错位）；语言服务器进程挂在 KILL_ON_CLOSE Job Object 上，网关崩溃时整树回收，不会残留孤儿进程。
+
 ### 模型故障冷却 (cooldown_enabled)
 
 模型调用失败后，故障候选会进入指数退避冷却（1min → 5min → 25min → 1h；配额耗尽 5h 起），防止 429 风暴期间反复撞死端点。两个行为保证：
