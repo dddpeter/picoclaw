@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -1701,8 +1702,15 @@ func (s *Store) scanSummaries(rows *sql.Rows) ([]Summary, error) {
 	return summaries, nil
 }
 
+// summaryIDCounter disambiguates IDs created within one clock tick. Windows
+// has ~0.5ms wall-clock granularity, so rapid successive CreateSummary calls
+// previously produced identical UnixNano-based IDs and tripped the
+// summaries.summary_id UNIQUE constraint.
+var summaryIDCounter atomic.Uint64
+
 func generateSummaryID(content string, t time.Time) string {
-	return fmt.Sprintf("sum_%x", t.UnixNano())
+	n := summaryIDCounter.Add(1)
+	return fmt.Sprintf("sum_%x_%010x", t.UnixNano(), n)
 }
 
 func isUniqueViolation(err error) bool {
