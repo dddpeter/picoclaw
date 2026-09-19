@@ -17,3 +17,19 @@ func TestLeafChunkTokensReduced(t *testing.T) {
 			LeafChunkTokens, CondensedTargetTokens)
 	}
 }
+
+func TestFreshTailCountConfigurable(t *testing.T) {
+	original := FreshTailCountValue()
+	if original != 128 {
+		t.Fatalf("default FreshTailCount = %d, want 128", original)
+	}
+	SetFreshTailCount(64)
+	if FreshTailCountValue() != 64 {
+		t.Fatalf("override = %d, want 64", FreshTailCountValue())
+	}
+	SetFreshTailCount(0) // non-positive ignored
+	if FreshTailCountValue() != 64 {
+		t.Fatalf("non-positive override must be ignored, got %d", FreshTailCountValue())
+	}
+	SetFreshTailCount(128) // restore for other tests
+}

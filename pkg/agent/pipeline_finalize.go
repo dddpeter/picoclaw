@@ -97,11 +97,10 @@ func (p *Pipeline) Finalize(
 	// Post-turn compaction runs async after the response is published
 	// (option A): the previous synchronous Compact blocked finalize on a
 	// summarize LLM call (observed 10-30s+ per turn on long sessions).
-	if !ts.opts.NoHistory && ts.opts.EnableSummary {
-		al.scheduleCompact(ts.sessionKey, ts.agent.ContextWindow, ts.opts)
-	}
-
 	contextUsage := computeContextUsage(ts.agent, ts.sessionKey)
+	if !ts.opts.NoHistory && ts.opts.EnableSummary {
+		al.scheduleCompactWithUsage(ts.agent, ts.sessionKey, ts.agent.ContextWindow, ts.opts, contextUsage)
+	}
 	streamErr := finalizeConfiguredStreamingLLM(turnCtx, ts, exec, finalContent, contextUsage)
 	// Text fallback (hermes-style last resort): when the card could not be
 	// finalized — finalize errored on a card that never showed output — the

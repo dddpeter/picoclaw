@@ -156,7 +156,7 @@ func BenchmarkAssemble_BudgetEviction(b *testing.B) {
 	}
 
 	// Add fresh tail
-	for i := 0; i < FreshTailCount; i++ {
+	for i := 0; i < FreshTailCountValue(); i++ {
 		m, _ := s.AddMessage(ctx, convID, "user", "fresh", 10)
 		s.AppendContextMessage(ctx, convID, m.ID)
 	}

@@ -523,6 +523,28 @@ Agent 将每隔 30 分钟（可配置）读取此文件，并使用可用工具�
 
 **Windows 注意**：诊断位置按 LSP 规范以 UTF-16 code unit 计算，实现已显式换算（中文/emoji 不会错位）；语言服务器进程挂在 KILL_ON_CLOSE Job Object 上，网关崩溃时整树回收，不会残留孤儿进程。
 
+### 压缩使用率门槛与新鲜尾部 (compact_usage_threshold / fresh_tail_messages)
+
+编码类 agent 的两个上下文保鲜参数（借鉴 pi：**原始历史尽量保留到窗口真正吃紧才压缩**，而不是每回合滚动摘要）：
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "compact_usage_threshold": 0.75,
+      "fresh_tail_messages": 128
+    }
+  }
+}
+```
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `compact_usage_threshold` | `0.75` | 回合尾压缩的使用率门槛：上下文用量（历史+系统+工具定义）低于 `该比例 × (context_window - max_tokens)` 时**完全跳过压缩**，原始历史原样保留；达到后才异步压缩。溢出错误仍有 forceCompression 兜底。有效范围 (0, 0.98]，超出回退 0.75 |
+| `fresh_tail_messages` | `128` | seahorse 压缩时**永不摘要**的最近消息条数（原 32——编码会话里 32 条只够几轮工具往返，模型反复重读刚读过又被摘要掉的文件，是编码慢的主因之一）。0 或正数无效时用默认 |
+
+配套：`context_window` 未配置时推导为 `max(max_tokens×4, 256k)`（现代模型默认值）；`max_tool_iterations` 默认 20→**40**（编码回合常见 30+ 次工具调用）。
+
 ### 模型故障冷却 (cooldown_enabled)
 
 模型调用失败后，故障候选会进入指数退避冷却（1min → 5min → 25min → 1h；配额耗尽 5h 起），防止 429 风暴期间反复撞死端点。两个行为保证：

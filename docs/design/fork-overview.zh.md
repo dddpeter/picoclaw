@@ -220,6 +220,7 @@
 - **每会话去重**：scheduler 持 `inFlight sync.Map`，同会话压缩进行中跳过新调度（续段/快速追问不再堆叠压缩 goroutine，也消除了异步化引入的并发 Compact 竞态——seahorse `Engine.Compact` 不取会话锁，原同步实现靠 turn 串行性保证）。下一回合尾若仍超阈值会自然再排。
 - **超时分级**：单次压缩调用 `compactCallTimeout=3min`（对齐 LLM 预算量级，多片链也不会被腰斩）；关机 drain `compactDrainTimeout=30s`（超时放弃，不阻塞退出）。
 - **方案 C（治标兜底）**：`LeafChunkTokens` 20000→8000，单次 summarize 调用按比例变快（存量断言 `types_test.go` 与新增 `TestLeafChunkTokensReduced` 均钉 8000）。
+- **第二批：pi 式保鲜（2026-09-19 晚，治编码慢）**：① 回合尾压缩加**使用率门槛** `agents.defaults.compact_usage_threshold`（默认 0.75）——用量低于 `0.75×(context_window−max_tokens)` 时完全跳过压缩，原始历史保留到窗口吃紧（`NeedsCompaction` 早已设计但从未接线，此前每回合无条件滚动压缩是编码 agent 反复重读文件的根因）；② `FreshTailCount` 32→**128** 且可配 `fresh_tail_messages`（seahorse 常量改原子变量）；③ `context_window` 未配置时推导改 `max(max_tokens×4, 256k 下限)`；④ `max_tool_iterations` 默认 20→40。测试锚点：`TestShouldCompactNow`、`TestScheduleCompactUsageGateBlocksLowUsage`、`TestNewAgentInstance_{ContextWindowDefaultFloor,CodingVelocityDefaults}`、`TestFreshTailCountConfigurable`。
 - 语义保持：门控条件不变（`EnableSummary && !NoHistory`，心跳轮照旧跳过）；`allResponsesHandled=true` 早退路径不压（ExecuteTools 的 tool-satisfied 分支已排过，防双压）；压缩失败仅告警不失败回合。
 - 测试锚点：`TestFinalize_CompactAsync`（Finalize 不被压缩阻塞）、`TestFinalize_CompactAllResponsesHandledPath`（早退不双压）、`TestScheduleCompactGating`（门控）、`TestScheduleCompactDedup`（会话去重）、`TestFinalize_CompactErrorNonFatal`、`seahorse TestConstants`/`TestLeafChunkTokensReduced`。
 
@@ -237,6 +238,8 @@
 ## 同步上游注意事项
 
 
+- 编码提速四件套+上下文窗口下限（2026-09-19，§14 第二批）：`compact_schedule.go` 的 `scheduleCompactWithUsage` 使用率门槛、`pkg/seahorse/short_constants.go` 的 FreshTailCount 原子变量（128）、`instance.go` 的 `defaultContextWindowFloor=256_000` 与 `maxIter=40`、`pkg/config` 的 `compact_usage_threshold`/`fresh_tail_messages`——fork 行为，`TestShouldCompactNow` 等锚点必须过。
+- 上下文窗口默认启发式（2026-09-19）：`pkg/agent/instance.go` 的 `defaultContextWindowFloor=256_000`——未配置 context_window 时推导为 max(max_tokens×4, 256k)（上游为裸 4x，默认 32k 在现代模型上过早触发压缩）；显式配置仍优先。`TestNewAgentInstance_ContextWindowDefaultFloor` 钉住。
 - LSP 工具面（§15）：`pkg/lsp/` 全包、`pkg/tools/lsp*.go`、`pkg/config/lsp.go`、`instance.go` 的注册与注入包装——均为 fork 行为；`TestResolveLspServersMergeSemantics`/`TestLspFixTool*`/`TestEditDiagnosticsInjection*` 钉住行为，上游同步时保留；编辑注入的 wrapper 语义（ForLLM 追加诊断块、ForUser 不动）不要按上游裸工具语义修掉。
 - 回合尾压缩异步化（§14）：`pkg/agent/compact_schedule.go`（scheduleCompact/drainCompact/每会话去重）、`pipeline_finalize.go`/`pipeline_execute.go` 的两处调用点、`agent_init.go` 的 eager 装配、`pkg/seahorse/short_constants.go` 的 LeafChunkTokens=8000——均为 fork 行为，上游同步时保留；§14 测试锚点必须全过。
 - 文件工具 Windows 兼容性五件套（§13）：`pkg/tools/fs/` 的 `text_compat.go`、`encoding.go`、`windows_names_*.go`，`pkg/fileutil/` 的 `rename*.go` 与临时名计数器、`WriteFileTool` 探测句柄 Close——均为 fork 行为，上游同步时保留 fork 语义；§13 测试锚点必须全过。

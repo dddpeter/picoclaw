@@ -91,7 +91,7 @@
 | `image_model` | string | `""` | `PICOCLAW_AGENTS_DEFAULTS_IMAGE_MODEL` | 图像模型 |
 | `image_model_fallbacks` | string[] | `[]` | — | 图像模型回退链 |
 | `max_tokens` | int | `32768` | `PICOCLAW_AGENTS_DEFAULTS_MAX_TOKENS` | 单次回复上限；显式设 `0` 时运行时回落 `8192` |
-| `context_window` | int | `0`（自动 = max_tokens × 4） | `PICOCLAW_AGENTS_DEFAULTS_CONTEXT_WINDOW` | 上下文窗口；0 表示按启发式推导 |
+| `context_window` | int | `0`（自动 = max(max_tokens × 4, **256k 下限**)） | `PICOCLAW_AGENTS_DEFAULTS_CONTEXT_WINDOW` | 上下文窗口；0 表示按启发式推导（fork：下限 256k，现代模型 75% 阈值 ≈192k 才触发压缩）。声明值大于供应商实际值时超出部分会被截断 |
 | `temperature` | float\|null | `null`（供应商默认） | `PICOCLAW_AGENTS_DEFAULTS_TEMPERATURE` | 采样温度 |
 | `max_tool_iterations` | int | `50` | `PICOCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS` | 单 turn 工具调用上限 |
 | `auto_continue_turns` | int | `2` | `PICOCLAW_AGENTS_DEFAULTS_AUTO_CONTINUE_TURNS` | fork 长任务：turn 因迭代到顶结束且无最终答复时自动续接的额外 turn 数；`0` = 关闭（负值按 0） |
@@ -106,6 +106,8 @@
 | `context_manager_config` | object | — | `PICOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER_CONFIG` | 上下文管理器附加参数（raw JSON） |
 | `max_llm_retries` | int | `2` | `PICOCLAW_AGENTS_DEFAULTS_MAX_LLM_RETRIES` | LLM 调用重试次数 |
 | `llm_retry_backoff_secs` | int | `2` | `PICOCLAW_AGENTS_DEFAULTS_LLM_RETRY_BACKOFF_SECS` | 重试退避秒数 |
+| `compact_usage_threshold` | float | `0.75` | `PICOCLAW_AGENTS_DEFAULTS_COMPACT_USAGE_THRESHOLD` | fork：回合尾压缩使用率门槛；用量低于 `该值×(context_window−max_tokens)` 时完全跳过压缩（原始历史保留，pi 语义）。有效范围 (0, 0.98] |
+| `fresh_tail_messages` | int | `128` | `PICOCLAW_AGENTS_DEFAULTS_FRESH_TAIL_MESSAGES` | fork：seahorse 压缩永不摘要的最近消息条数（原 32，编码场景不够用） |
 | `cooldown_enabled` | *bool | 未配置视为 `true` | `PICOCLAW_AGENTS_DEFAULTS_COOLDOWN_ENABLED` | fork：模型故障冷却总开关；`false` = 失败不设冷却、候选永不被冷却跳过（回退链对"全冷却"的强制尝试与该开关无关，始终生效） |
 | `project_docs` | string[] | `["AGENTS.md", "README.md", "CLAUDE.md"]` | — | 注入系统提示的工作区文档；显式 `[]` 可关闭 |
 

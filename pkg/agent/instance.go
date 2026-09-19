@@ -25,18 +25,22 @@ import (
 // AgentInstance represents a fully configured agent with its own workspace,
 // session manager, context builder, and tool registry.
 type AgentInstance struct {
-	modelMu                   *sync.RWMutex
-	ID                        string
-	Name                      string
-	Model                     string
-	Fallbacks                 []string
-	Workspace                 string
-	MaxIterations             int
-	MaxTokens                 int
-	Temperature               float64
-	ThinkingLevel             ThinkingLevel
-	ThinkingLevelConfigured   bool
-	ContextWindow             int
+	modelMu                 *sync.RWMutex
+	ID                      string
+	Name                    string
+	Model                   string
+	Fallbacks               []string
+	Workspace               string
+	MaxIterations           int
+	MaxTokens               int
+	Temperature             float64
+	ThinkingLevel           ThinkingLevel
+	ThinkingLevelConfigured bool
+	ContextWindow           int
+	// CompactUsageThreshold gates post-turn compaction (0 = default 0.75):
+	// raw history is kept until used tokens reach this fraction of the
+	// effective window.
+	CompactUsageThreshold     float64
 	SummarizeMessageThreshold int
 	SummarizeTokenPercent     int
 	Provider                  providers.LLMProvider
@@ -225,23 +229,35 @@ func NewAgentInstance(
 
 	maxIter := defaults.MaxToolIterations
 	if maxIter == 0 {
-		maxIter = 20
+		// 40 (raised from 20, 2026-09-19): coding turns routinely need
+		// 30+ tool calls (reads + edits + verification); 20 exhausted
+		// mid-task and relied on auto-continue segments to finish.
+		maxIter = 40
 	}
+
+	// defaultContextWindowFloor bounds the derived context window when
+	// agents.defaults.context_window is unset: at least 256k tokens (see the
+	// heuristic comment in resolveAgentDefaultsContext below).
+	const defaultContextWindowFloor = 256_000
 
 	maxTokens := defaults.MaxTokens
 	if maxTokens == 0 {
 		maxTokens = 8192
 	}
 
+	compactUsageThreshold := defaults.CompactUsageThreshold
+	if compactUsageThreshold <= 0 || compactUsageThreshold > 0.98 {
+		compactUsageThreshold = 0.75
+	}
 	contextWindow := defaults.ContextWindow
 	if contextWindow == 0 {
-		// Default heuristic: 4x the output token limit.
-		// Most models have context windows well above their output limits
-		// (e.g., GPT-4o 128k ctx / 16k out, Claude 200k ctx / 8k out).
-		// 4x is a conservative lower bound that avoids premature
-		// summarization while remaining safe — the reactive
-		// forceCompression handles any overshoot.
-		contextWindow = maxTokens * 4
+		// Default heuristic: 4x the output token limit, floored at 256k
+		// tokens. Modern models ship 128k–1M context windows, and the old
+		// bare 4x rule (32k for the default 8k output limit) compacted far
+		// too early — every long session paid the summarize-LLM tax at 75%
+		// of a tiny budget. Overshoot past a model's real window is still
+		// handled reactively by forceCompression on context-overflow errors.
+		contextWindow = max(maxTokens*4, defaultContextWindowFloor)
 	}
 
 	temperature := 0.7
@@ -372,6 +388,7 @@ func NewAgentInstance(
 		ThinkingLevel:             thinkingLevel,
 		ThinkingLevelConfigured:   thinkingLevelConfigured,
 		ContextWindow:             contextWindow,
+		CompactUsageThreshold:     compactUsageThreshold,
 		SummarizeMessageThreshold: summarizeMessageThreshold,
 		SummarizeTokenPercent:     summarizeTokenPercent,
 		Provider:                  provider,

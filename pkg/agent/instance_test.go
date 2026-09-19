@@ -1373,3 +1373,73 @@ func TestNewAgentInstance_ExplicitEmptyToolsFieldBlocksAllTools(t *testing.T) {
 		})
 	}
 }
+
+func TestNewAgentInstance_ContextWindowDefaultFloor(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "agent-instance-cw-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Unset context_window and max_tokens: the derived window must respect
+	// the 256k floor (max(8192*4, 256_000) = 256_000).
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace: tmpDir,
+				ModelName: "test-model",
+			},
+		},
+	}
+	agent := NewAgentInstance(nil, &cfg.Agents.Defaults, cfg, &mockProvider{})
+	if agent.ContextWindow != 256_000 {
+		t.Fatalf("ContextWindow = %d, want 256000 (floor)", agent.ContextWindow)
+	}
+
+	// Large output budget still wins over the floor: 4x rule.
+	cfg.Agents.Defaults.MaxTokens = 65_536
+	agent = NewAgentInstance(nil, &cfg.Agents.Defaults, cfg, &mockProvider{})
+	if agent.ContextWindow != 262_144 {
+		t.Fatalf("ContextWindow = %d, want 262144 (4x max_tokens)", agent.ContextWindow)
+	}
+
+	// Explicit configuration always wins.
+	cfg.Agents.Defaults.ContextWindow = 131_072
+	agent = NewAgentInstance(nil, &cfg.Agents.Defaults, cfg, &mockProvider{})
+	if agent.ContextWindow != 131_072 {
+		t.Fatalf("ContextWindow = %d, want explicit 131072", agent.ContextWindow)
+	}
+}
+
+func TestNewAgentInstance_CodingVelocityDefaults(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "agent-instance-cv-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{Workspace: tmpDir, ModelName: "m"},
+		},
+	}
+	agent := NewAgentInstance(nil, &cfg.Agents.Defaults, cfg, &mockProvider{})
+	if agent.MaxIterations != 40 {
+		t.Fatalf("MaxToolIterations = %d, want 40 (raised default)", agent.MaxIterations)
+	}
+	if agent.CompactUsageThreshold != 0.75 {
+		t.Fatalf("CompactUsageThreshold = %v, want 0.75 default", agent.CompactUsageThreshold)
+	}
+
+	cfg.Agents.Defaults.MaxToolIterations = 7
+	cfg.Agents.Defaults.CompactUsageThreshold = 0.9
+	agent = NewAgentInstance(nil, &cfg.Agents.Defaults, cfg, &mockProvider{})
+	if agent.MaxIterations != 7 || agent.CompactUsageThreshold != 0.9 {
+		t.Fatalf("explicit config must win: %+v", agent)
+	}
+
+	cfg.Agents.Defaults.CompactUsageThreshold = 1.5 // out of range → clamp
+	agent = NewAgentInstance(nil, &cfg.Agents.Defaults, cfg, &mockProvider{})
+	if agent.CompactUsageThreshold != 0.75 {
+		t.Fatalf("out-of-range threshold = %v, want clamp to 0.75", agent.CompactUsageThreshold)
+	}
+}

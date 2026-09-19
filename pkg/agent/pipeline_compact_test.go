@@ -97,6 +97,12 @@ func newCompactTestPipeline(t *testing.T, fcm ContextManager) *Pipeline {
 	t.Helper()
 	al := newLegacyTestAgentLoop(t, &summarizingRecordingProvider{response: "unused"})
 	al.contextManager = fcm
+	// These tests pin the ASYNC semantics, not the usage gate: force the
+	// gate open (empty test histories are always below the default 0.75
+	// threshold and would otherwise skip compaction entirely).
+	if agent := al.registry.GetDefaultAgent(); agent != nil {
+		agent.CompactUsageThreshold = 0.000001
+	}
 	return NewPipeline(al)
 }
 
@@ -238,6 +244,7 @@ func TestFinalize_CompactErrorNonFatal(t *testing.T) {
 	if result.status != TurnEndStatusCompleted {
 		t.Fatalf("async compaction must not fail the turn, got %q", result.status)
 	}
+	waitForCondition(t, time.Second, func() bool { return fcm.callCount() == 1 })
 	if got := fcm.callCount(); got != 1 {
 		t.Fatalf("expected exactly 1 Compact call, got %d", got)
 	}

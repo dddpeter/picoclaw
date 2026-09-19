@@ -23,8 +23,8 @@ func TestConstants(t *testing.T) {
 	if ContextThreshold != 0.75 {
 		t.Errorf("expected ContextThreshold = 0.75, got %f", ContextThreshold)
 	}
-	if FreshTailCount != 32 {
-		t.Errorf("expected FreshTailCount = 32, got %d", FreshTailCount)
+	if FreshTailCountValue() != 128 {
+		t.Errorf("expected FreshTailCountValue() = 128 (raised from 32), got %d", FreshTailCountValue())
 	}
 
 	// Fanout

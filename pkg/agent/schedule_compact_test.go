@@ -3,6 +3,8 @@ package agent
 import (
 	"testing"
 	"time"
+
+	"github.com/sipeed/picoclaw/pkg/bus"
 )
 
 // scheduleCompact is the async enqueue helper extracted from Finalize.
@@ -83,4 +85,57 @@ func TestScheduleCompactDedup(t *testing.T) {
 		pipeline.al.scheduleCompact(ts.sessionKey, budget, ts.opts)
 		return fcm.callCount() >= 2
 	})
+}
+
+// TestShouldCompactNow pins the usage-gate math (pi-style raw-history
+// preservation): below the threshold compaction is skipped, at/above it
+// runs, and unknown usage conservatively compacts.
+func TestShouldCompactNow(t *testing.T) {
+	agent := &AgentInstance{ContextWindow: 100_000, MaxTokens: 8_192, CompactUsageThreshold: 0.75}
+	window := 100_000 - 8_192
+
+	cases := []struct {
+		name  string
+		usage *bus.ContextUsage
+		want  bool
+	}{
+		{"nil usage compacts", nil, true},
+		{"far below skips", &bus.ContextUsage{UsedTokens: window / 2}, false},
+		{"just below skips", &bus.ContextUsage{UsedTokens: int(float64(window) * 0.74)}, false},
+		{"at threshold compacts", &bus.ContextUsage{UsedTokens: int(float64(window) * 0.75)}, true},
+		{"above compacts", &bus.ContextUsage{UsedTokens: window + 5_000}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := shouldCompactNow(agent.CompactUsageThreshold, tc.usage, agent); got != tc.want {
+				t.Fatalf("shouldCompactNow = %v, want %v", got, tc.want)
+			}
+		})
+	}
+
+	// Zero threshold falls back to the 0.75 default.
+	agent.CompactUsageThreshold = 0
+	if shouldCompactNow(0, &bus.ContextUsage{UsedTokens: window / 2}, agent) {
+		t.Fatal("zero threshold must behave as the 0.75 default (skip at 50%)")
+	}
+}
+
+// TestScheduleCompactUsageGateBlocksLowUsage verifies end-to-end that a
+// session far below the threshold does not spawn compaction at all.
+func TestScheduleCompactUsageGateBlocksLowUsage(t *testing.T) {
+	fcm := newFakeContextManagerForCompact()
+	pipeline := newCompactTestPipeline(t, fcm)
+	// Restore the real default threshold (the helper forces it open).
+	if agent := pipeline.al.registry.GetDefaultAgent(); agent != nil {
+		agent.CompactUsageThreshold = 0.75
+	}
+	ts := newCompactTurnState(t, pipeline.al, "session-lowusage",
+		processOptions{EnableSummary: true})
+	budget := pipeline.al.registry.GetDefaultAgent().ContextWindow
+
+	pipeline.al.scheduleCompact(ts.sessionKey, budget, ts.opts)
+	time.Sleep(100 * time.Millisecond)
+	if got := fcm.callCount(); got != 0 {
+		t.Fatalf("low-usage session must not compact, got %d calls", got)
+	}
 }

@@ -10,8 +10,25 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/logger"
 )
+
+// shouldCompactNow reports whether post-turn compaction should run. nil
+// usage (unknown) conservatively compacts — the old behavior.
+func shouldCompactNow(threshold float64, usage *bus.ContextUsage, agent *AgentInstance) bool {
+	if threshold <= 0 || threshold > 0.98 {
+		threshold = 0.75
+	}
+	if usage == nil {
+		return true
+	}
+	window := agent.ContextWindow - agent.MaxTokens
+	if window <= 0 {
+		window = agent.ContextWindow
+	}
+	return usage.UsedTokens >= int(float64(window)*threshold)
+}
 
 const (
 	// compactCallTimeout bounds a single async compaction call. Generous on
@@ -55,14 +72,36 @@ func newCompactScheduler(al *AgentLoop) *compactScheduler {
 }
 
 // scheduleCompact enqueues an async compaction for a completed turn when the
-// turn's options allow it. Gating mirrors the previous synchronous call sites:
-// requires a context manager, history tracking, and EnableSummary.
+// turn's options allow it AND the session is under real context pressure
+// (usage gate, pi-style: raw history is preserved until the window is
+// meaningfully full — rolling summarization every turn made coding agents
+// re-read files whose contents had been summarized away).
 // The context is detached because turn contexts are canceled by the time
 // finalize returns, yet compaction must still run.
 func (al *AgentLoop) scheduleCompact(sessionKey string, budget int, opts processOptions) {
+	al.scheduleCompactWithUsage(al.registry.GetDefaultAgent(), sessionKey, budget, opts, nil)
+}
+
+// scheduleCompactWithUsage is scheduleCompact with the owning agent (whose
+// ContextWindow/MaxTokens/threshold drive the gate — NOT the registry
+// default, which differs in multi-agent setups) and a precomputed context
+// usage snapshot (finalize already has one; nil computes it here).
+func (al *AgentLoop) scheduleCompactWithUsage(agent *AgentInstance, sessionKey string, budget int, opts processOptions, usage *bus.ContextUsage) {
 	if al.contextManager == nil || opts.NoHistory || !opts.EnableSummary {
 		return
 	}
+	// Usage gate: below the threshold the session keeps raw history and
+	// compaction is skipped entirely (overflow is still handled by
+	// forceCompression on context-limit errors).
+	if agent != nil {
+		if usage == nil {
+			usage = computeContextUsage(agent, sessionKey)
+		}
+		if !shouldCompactNow(agent.CompactUsageThreshold, usage, agent) {
+			return
+		}
+	}
+
 	scheduler := al.compactScheduler
 	if scheduler == nil {
 		logger.WarnCF("agent", "compactScheduler not initialized; skipping post-turn compaction", nil)

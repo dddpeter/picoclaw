@@ -1114,7 +1114,7 @@ func TestSeahorseSummarizeSkipsCondensedWhenBelowThreshold(t *testing.T) {
 	}
 
 	// Add fresh messages (required for condensation candidates)
-	for i := 0; i < seahorse.FreshTailCount+1; i++ {
+	for i := 0; i < seahorse.FreshTailCountValue()+1; i++ {
 		m, msgErr := store.AddMessage(ctx, conv.ConversationID, "user", "fresh", 5)
 		if msgErr != nil {
 			t.Fatalf("AddMessage %d: %v", i, msgErr)
