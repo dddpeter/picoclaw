@@ -34,7 +34,7 @@
 
 用飞书卡片（CardKit v2）承载 agent 回复的流式渲染，替代纯文本回复：
 
-- 过程面板：工具调用步骤、嵌套推理轮次（reasoning rounds）、kind 着色图标、动态状态行、**面板默认折叠**（思考文字照常流式写入面板内并归档，点开可回看；整卡刷新会重放 `expanded=false`，流式期间手动展开会被下一次刷新压回，封卡后展开才稳定）；工具输出以行内代码渲染以控制卡片体积。
+- 过程面板：工具调用步骤、**平铺推理轮次**（2026-09-19 对齐 hermes `_round_fragment`：绿 ✓ 标题 + 缩进正文直接可读，不再是嵌套折叠面板，点开外层面板一次即可读全部轮次）、kind 着色图标、动态状态行、**流式展开/封卡收起**（初始卡与刷新卡重申 `expanded=true`，推理文字直接可见地流动；封卡重置 `expanded=false`，代价是流式期间手动收起会被下一次刷新重新展开）；满载（20 轮+20 工具 ≈ 207 tag objects > 195 阈值）时 `enforceFeishuElementLimit` 从最老条目裁起并显示折叠提示；工具输出以行内代码渲染以控制卡片体积。测试锚点：`TestFeishuReasoningRoundsRenderFlat`、`TestFeishuPanelExpandedWhileStreaming`、`TestFeishuPanelElementBudgetUnderCaps`（钉住安全网裁剪后的真实状态）。
 - **行为对齐 hermes-lark-streaming**（`539c046f`，2026-09-07）：①面板条目按事件到达序**时间线交错**渲染（R→T→R→T），不按类型分组；②面板标题始终显示**裁剪前的实际总数**（含运行中条目），超 20 上限不缩水，标题耗时 = 推理 + 工具之和；③工具执行中显示 `⏳ …（运行中）` amber 条目（`bus.ToolStep.Running`，pipeline 执行前发布，完成即替换）。配套修复：`streamingChunkPublisher` 放行无工具名的 KindText 归档步骤（`280ffb8a` 的"本轮说明"此前被空名门禁拦截，从未到达面板）。测试锚点：`TestFeishuPanelTimelineInterleave`、`TestFeishuPanelHeaderShowsActualTotals`、`TestFeishuPanelRunningTool`、`TestStreamerRunningToolStepLifecycle`、`TestAppendToolStepAllowsUnnamedTextArchives`。
 - 打字机效果跨面板刷新保持存活；中止/取消时显示原因（cancel reason）与 steering 通知；turn 在 LLM 调用中被中止时流式卡片保持可达。
 - **中途说明追加式呈现**：带工具调用的迭代，其正文在管线归档（`KindText` 步骤，`ExecuteTools` 入口）时被钉为答案区上方一行灰字（空白折叠为单行、200 字截断、只保留最近 5 行，`feishuStreamState.Narration`），下一轮在轨迹下方继续打字，不再整块覆盖；封卡后「灰字轨迹 + 最终答案」一起保留，卡片摘要只取最终答案；面板里的「💬 本轮说明」归档不变。管线零改动。测试锚点：`TestNarrationLinesAppendAboveLiveAnswer`、`TestNarrationLineCaps`、`TestNarrationTrailSurvivesCancel`。
@@ -152,7 +152,7 @@
 
 | 场景 | 上游 | 本 fork |
 |---|---|---|
-| 飞书回复 | 文本消息 | CardKit 流式卡片（过程面板时间线交错 + 工具运行中条目 + 标题实际总数 + 面板默认折叠 + 中途说明灰字轨迹） |
+| 飞书回复 | 文本消息 | CardKit 流式卡片（过程面板时间线交错 + 工具运行中条目 + 标题实际总数 + 平铺推理轮次、流式展开/封卡收起 + 中途说明灰字轨迹） |
 | `/new` | 无此命令 | 归档旧对话（历史/标题迁入归档会话）+ 清空活会话 + 重置为配置默认模型（重读磁盘） |
 | `/switch model`（turn 活跃时） | 阻塞等待 | 立即返回 busy 提示 |
 | 流式 LLM 请求 | 无响应头超时 | 90 秒响应头超时后快速失败 |
