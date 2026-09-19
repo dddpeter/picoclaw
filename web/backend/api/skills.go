@@ -122,7 +122,7 @@ func (h *Handler) handleListSkills(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items, err := buildSkillSupportItems(cfg)
+	items, err := h.buildSkillSupportItems(cfg)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to build skill list: %v", err), http.StatusInternalServerError)
 		return
@@ -141,7 +141,7 @@ func (h *Handler) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	skillItems, err := buildSkillSupportItems(cfg)
+	skillItems, err := h.buildSkillSupportItems(cfg)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to build skill list: %v", err), http.StatusInternalServerError)
 		return
@@ -201,7 +201,7 @@ func (h *Handler) handleSearchSkills(w http.ResponseWriter, r *http.Request) {
 		offset = parsedOffset
 	}
 
-	installedSkills, err := buildOccupiedWorkspaceSkillsByDirectory(cfg)
+	installedSkills, err := h.buildOccupiedWorkspaceSkillsByDirectory(cfg)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to inspect installed skills: %v", err), http.StatusInternalServerError)
 		return
@@ -403,7 +403,7 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	validatedSkill := findWorkspaceSkillByDirectory(cfg, dirName)
+	validatedSkill := h.findWorkspaceSkillByDirectory(cfg, dirName)
 	if validatedSkill == nil {
 		http.Error(
 			w,
@@ -469,7 +469,7 @@ func (h *Handler) handleImportSkill(w http.ResponseWriter, r *http.Request) {
 	workspaceSkillWriteMu.Lock()
 	defer workspaceSkillWriteMu.Unlock()
 
-	importedSkill, statusCode, err := importUploadedSkill(cfg, fileHeader.Filename, content)
+	importedSkill, statusCode, err := h.importUploadedSkill(cfg, fileHeader.Filename, content)
 	if err != nil {
 		http.Error(w, err.Error(), statusCode)
 		return
@@ -486,7 +486,7 @@ func (h *Handler) handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	loader := newSkillsLoader(cfg.WorkspacePath())
+	loader := h.newSkillsLoader(cfg.WorkspacePath())
 	name := r.PathValue("name")
 	workspaceSkillWriteMu.Lock()
 	defer workspaceSkillWriteMu.Unlock()
@@ -516,12 +516,18 @@ func (h *Handler) handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "Skill not found", http.StatusNotFound)
 }
 
-func newSkillsLoader(workspace string) *skills.SkillsLoader {
-	return skills.NewSkillsLoader(
-		workspace,
-		filepath.Join(globalConfigDir(), "skills"),
-		builtinSkillsDir(),
-	)
+// newSkillsLoader builds the skills loader over the standard roots plus the
+// enabled Agent Plugins segment (lowest priority; injected test roots win
+// over the user defaults so tests never touch ~/.agents/plugins).
+func (h *Handler) newSkillsLoader(workspace string) *skills.SkillsLoader {
+	home, _ := os.UserHomeDir()
+	roots := skills.ResolveSkillRoots(workspace, filepath.Join(globalConfigDir(), "skills"), builtinSkillsDir(), home)
+	installRoot, dataRoot, err := h.pluginsRoots()
+	if err != nil {
+		return skills.NewSkillsLoaderFromRoots(workspace, roots)
+	}
+	roots = skills.AppendPluginRootsFrom(roots, installRoot, dataRoot)
+	return skills.NewSkillsLoaderFromRoots(workspace, roots)
 }
 
 func newSkillsRegistryManager(cfg *config.Config) *skills.RegistryManager {
@@ -538,8 +544,8 @@ func ensureSkillRegistryToolEnabled(cfg *config.Config, toolName string) error {
 	return nil
 }
 
-func buildSkillSupportItems(cfg *config.Config) ([]skillSupportItem, error) {
-	rawSkills := newSkillsLoader(cfg.WorkspacePath()).ListSkills()
+func (h *Handler) buildSkillSupportItems(cfg *config.Config) ([]skillSupportItem, error) {
+	rawSkills := h.newSkillsLoader(cfg.WorkspacePath()).ListSkills()
 	items := make([]skillSupportItem, 0, len(rawSkills))
 	for _, skill := range rawSkills {
 		item, err := enrichSkillInfo(cfg, skill)
@@ -551,9 +557,9 @@ func buildSkillSupportItems(cfg *config.Config) ([]skillSupportItem, error) {
 	return items, nil
 }
 
-func buildWorkspaceSkillItemsByDirectory(cfg *config.Config) (map[string]skillSupportItem, error) {
+func (h *Handler) buildWorkspaceSkillItemsByDirectory(cfg *config.Config) (map[string]skillSupportItem, error) {
 	result := make(map[string]skillSupportItem)
-	items, err := buildSkillSupportItems(cfg)
+	items, err := h.buildSkillSupportItems(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -570,9 +576,9 @@ func buildWorkspaceSkillItemsByDirectory(cfg *config.Config) (map[string]skillSu
 	return result, nil
 }
 
-func buildOccupiedWorkspaceSkillsByDirectory(cfg *config.Config) (map[string]skillSupportItem, error) {
+func (h *Handler) buildOccupiedWorkspaceSkillsByDirectory(cfg *config.Config) (map[string]skillSupportItem, error) {
 	result := make(map[string]skillSupportItem)
-	items, err := buildSkillSupportItems(cfg)
+	items, err := h.buildSkillSupportItems(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -598,8 +604,8 @@ func buildOccupiedWorkspaceSkillsByDirectory(cfg *config.Config) (map[string]ski
 	return result, nil
 }
 
-func findWorkspaceSkillByDirectory(cfg *config.Config, directory string) *skillSupportItem {
-	items, err := buildWorkspaceSkillItemsByDirectory(cfg)
+func (h *Handler) findWorkspaceSkillByDirectory(cfg *config.Config, directory string) *skillSupportItem {
+	items, err := h.buildWorkspaceSkillItemsByDirectory(cfg)
 	if err != nil {
 		return nil
 	}
@@ -837,14 +843,14 @@ func normalizeImportedSkillContent(content []byte, skillName string) []byte {
 	return []byte(builder.String())
 }
 
-func importUploadedSkill(cfg *config.Config, filename string, content []byte) (*skillSupportItem, int, error) {
+func (h *Handler) importUploadedSkill(cfg *config.Config, filename string, content []byte) (*skillSupportItem, int, error) {
 	if isImportedSkillArchive(filename, content) {
-		return importUploadedSkillArchive(cfg, filename, content)
+		return h.importUploadedSkillArchive(cfg, filename, content)
 	}
-	return importUploadedMarkdownSkill(cfg, filename, content)
+	return h.importUploadedMarkdownSkill(cfg, filename, content)
 }
 
-func importUploadedMarkdownSkill(cfg *config.Config, filename string, content []byte) (*skillSupportItem, int, error) {
+func (h *Handler) importUploadedMarkdownSkill(cfg *config.Config, filename string, content []byte) (*skillSupportItem, int, error) {
 	skillName, err := normalizeImportedSkillName(filename, content)
 	if err != nil {
 		return nil, http.StatusBadRequest, err
@@ -866,10 +872,10 @@ func importUploadedMarkdownSkill(cfg *config.Config, filename string, content []
 		return nil, http.StatusInternalServerError, fmt.Errorf("Failed to save skill: %v", err)
 	}
 
-	return finalizeImportedSkill(cfg, skillDir, skillName, false)
+	return h.finalizeImportedSkill(cfg, skillDir, skillName, false)
 }
 
-func importUploadedSkillArchive(cfg *config.Config, filename string, content []byte) (*skillSupportItem, int, error) {
+func (h *Handler) importUploadedSkillArchive(cfg *config.Config, filename string, content []byte) (*skillSupportItem, int, error) {
 	tmpDir, tempDirErr := os.MkdirTemp("", "picoclaw-skill-import-*")
 	if tempDirErr != nil {
 		return nil, http.StatusInternalServerError, fmt.Errorf("Failed to create temp directory: %v", tempDirErr)
@@ -922,7 +928,7 @@ func importUploadedSkillArchive(cfg *config.Config, filename string, content []b
 		return nil, http.StatusInternalServerError, fmt.Errorf("Failed to normalize skill: %v", err)
 	}
 
-	return finalizeImportedSkill(cfg, skillDir, skillName, true)
+	return h.finalizeImportedSkill(cfg, skillDir, skillName, true)
 }
 
 func isImportedSkillArchive(filename string, content []byte) bool {
@@ -951,7 +957,7 @@ func statusCodeForImportedSkillWriteError(err error) int {
 	return http.StatusInternalServerError
 }
 
-func finalizeImportedSkill(
+func (h *Handler) finalizeImportedSkill(
 	cfg *config.Config,
 	skillDir string,
 	skillName string,
@@ -966,7 +972,7 @@ func finalizeImportedSkill(
 		return nil, http.StatusInternalServerError, fmt.Errorf("Failed to persist skill metadata: %v", err)
 	}
 
-	if importedSkill := findWorkspaceSkillByDirectory(cfg, skillName); importedSkill != nil {
+	if importedSkill := h.findWorkspaceSkillByDirectory(cfg, skillName); importedSkill != nil {
 		return importedSkill, http.StatusOK, nil
 	}
 

@@ -547,3 +547,56 @@ func TestPluginsVisibleInMCPConfig(t *testing.T) {
 		}
 	})
 }
+
+func TestPluginSkillsInSkillsAPI(t *testing.T) {
+	t.Run("plugin skill listed with plugin source", func(t *testing.T) {
+		mux, installRoot := newPluginsTestServer(t)
+		writeTestPlugin(t, installRoot, "golden")
+
+		var resp struct {
+			Skills []skillSupportItem `json:"skills"`
+		}
+		decodeJSON(t, doJSON(t, mux, http.MethodGet, "/api/skills", nil), &resp)
+		var found *skillSupportItem
+		for i := range resp.Skills {
+			if resp.Skills[i].Name == "alpha" {
+				found = &resp.Skills[i]
+			}
+		}
+		if found == nil {
+			t.Fatalf("alpha not listed: %+v", resp.Skills)
+		}
+		if found.Source != "plugin:golden" {
+			t.Errorf("source = %q, want plugin:golden", found.Source)
+		}
+	})
+
+	t.Run("plugin skill cannot be deleted via skills api", func(t *testing.T) {
+		mux, installRoot := newPluginsTestServer(t)
+		writeTestPlugin(t, installRoot, "golden")
+
+		rec := doJSON(t, mux, http.MethodDelete, "/api/skills/alpha", nil)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want 400 (only workspace skills deletable)", rec.Code)
+		}
+		if _, err := os.Stat(filepath.Join(installRoot, "golden", "skills", "alpha", "SKILL.md")); err != nil {
+			t.Errorf("plugin skill file must survive: %v", err)
+		}
+	})
+
+	t.Run("disabled plugin skill not listed", func(t *testing.T) {
+		mux, installRoot := newPluginsTestServer(t)
+		writeTestPlugin(t, installRoot, "golden")
+		writeTestRegistry(t, installRoot, `{"golden":{"name":"golden","enabled":false}}`)
+
+		var resp struct {
+			Skills []skillSupportItem `json:"skills"`
+		}
+		decodeJSON(t, doJSON(t, mux, http.MethodGet, "/api/skills", nil), &resp)
+		for _, s := range resp.Skills {
+			if s.Name == "alpha" {
+				t.Errorf("disabled plugin skill must not be listed: %+v", s)
+			}
+		}
+	})
+}

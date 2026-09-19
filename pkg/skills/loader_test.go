@@ -781,7 +781,7 @@ func TestAppendPluginRoots(t *testing.T) {
 		installRoot := writePluginInstall(t, "")
 		base := []SkillRoot{{Dir: t.TempDir(), Source: SourceGlobal}}
 
-		out := appendPluginRootsWith(base, installRoot, filepath.Join(installRoot, "data"))
+		out := AppendPluginRootsFrom(base, installRoot, filepath.Join(installRoot, "data"))
 		if len(out) != 2 {
 			t.Fatalf("roots = %+v", out)
 		}
@@ -798,7 +798,7 @@ func TestAppendPluginRoots(t *testing.T) {
 		installRoot := writePluginInstall(t, `{"golden":{"name":"golden","enabled":false}}`)
 		base := []SkillRoot{{Dir: t.TempDir(), Source: SourceGlobal}}
 
-		out := appendPluginRootsWith(base, installRoot, filepath.Join(installRoot, "data"))
+		out := AppendPluginRootsFrom(base, installRoot, filepath.Join(installRoot, "data"))
 		if len(out) != 1 {
 			t.Fatalf("roots = %+v", out)
 		}
@@ -806,7 +806,7 @@ func TestAppendPluginRoots(t *testing.T) {
 
 	t.Run("missing install root leaves roots unchanged", func(t *testing.T) {
 		base := []SkillRoot{{Dir: t.TempDir(), Source: SourceGlobal}}
-		out := appendPluginRootsWith(base, filepath.Join(t.TempDir(), "nope"), t.TempDir())
+		out := AppendPluginRootsFrom(base, filepath.Join(t.TempDir(), "nope"), t.TempDir())
 		if len(out) != 1 || out[0] != base[0] {
 			t.Fatalf("roots = %+v", out)
 		}

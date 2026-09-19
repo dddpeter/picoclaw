@@ -168,12 +168,13 @@ func AppendPluginRoots(roots []SkillRoot) []SkillRoot {
 	if err != nil {
 		return roots
 	}
-	return appendPluginRootsWith(roots, installRoot, dataRoot)
+	return AppendPluginRootsFrom(roots, installRoot, dataRoot)
 }
 
-// appendPluginRootsWith is the testable core of AppendPluginRoots over an
-// explicit install/data root pair.
-func appendPluginRootsWith(roots []SkillRoot, installRoot, dataRoot string) []SkillRoot {
+// AppendPluginRootsFrom is the explicit-roots variant of AppendPluginRoots:
+// hosts with their own install/data root resolution (e.g. the web backend
+// with injected test roots) call this directly.
+func AppendPluginRootsFrom(roots []SkillRoot, installRoot, dataRoot string) []SkillRoot {
 	plugins, rep := agentplugins.LoadPluginsDir(installRoot, dataRoot)
 	for _, w := range rep.Warnings {
 		slog.Warn("plugin load problem", "warning", w)
