@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as PluginsRouteImport } from './routes/plugins'
 import { Route as ModelsRouteImport } from './routes/models'
 import { Route as McpRouteImport } from './routes/mcp'
 import { Route as LogsRouteImport } from './routes/logs'
@@ -25,6 +26,11 @@ import { Route as AgentToolsRouteImport } from './routes/agent/tools'
 import { Route as AgentSkillsRouteImport } from './routes/agent/skills'
 import { Route as AgentHubRouteImport } from './routes/agent/hub'
 
+const PluginsRoute = PluginsRouteImport.update({
+  id: '/plugins',
+  path: '/plugins',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ModelsRoute = ModelsRouteImport.update({
   id: '/models',
   path: '/models',
@@ -112,6 +118,7 @@ export interface FileRoutesByFullPath {
   '/logs': typeof LogsRoute
   '/mcp': typeof McpRoute
   '/models': typeof ModelsRoute
+  '/plugins': typeof PluginsRoute
   '/agent/hub': typeof AgentHubRoute
   '/agent/skills': typeof AgentSkillsRoute
   '/agent/tools': typeof AgentToolsRoute
@@ -129,6 +136,7 @@ export interface FileRoutesByTo {
   '/logs': typeof LogsRoute
   '/mcp': typeof McpRoute
   '/models': typeof ModelsRoute
+  '/plugins': typeof PluginsRoute
   '/agent/hub': typeof AgentHubRoute
   '/agent/skills': typeof AgentSkillsRoute
   '/agent/tools': typeof AgentToolsRoute
@@ -147,6 +155,7 @@ export interface FileRoutesById {
   '/logs': typeof LogsRoute
   '/mcp': typeof McpRoute
   '/models': typeof ModelsRoute
+  '/plugins': typeof PluginsRoute
   '/agent/hub': typeof AgentHubRoute
   '/agent/skills': typeof AgentSkillsRoute
   '/agent/tools': typeof AgentToolsRoute
@@ -166,6 +175,7 @@ export interface FileRouteTypes {
     | '/logs'
     | '/mcp'
     | '/models'
+    | '/plugins'
     | '/agent/hub'
     | '/agent/skills'
     | '/agent/tools'
@@ -183,6 +193,7 @@ export interface FileRouteTypes {
     | '/logs'
     | '/mcp'
     | '/models'
+    | '/plugins'
     | '/agent/hub'
     | '/agent/skills'
     | '/agent/tools'
@@ -200,6 +211,7 @@ export interface FileRouteTypes {
     | '/logs'
     | '/mcp'
     | '/models'
+    | '/plugins'
     | '/agent/hub'
     | '/agent/skills'
     | '/agent/tools'
@@ -218,10 +230,18 @@ export interface RootRouteChildren {
   LogsRoute: typeof LogsRoute
   McpRoute: typeof McpRoute
   ModelsRoute: typeof ModelsRoute
+  PluginsRoute: typeof PluginsRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/plugins': {
+      id: '/plugins'
+      path: '/plugins'
+      fullPath: '/plugins'
+      preLoaderRoute: typeof PluginsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/models': {
       id: '/models'
       path: '/models'
@@ -378,6 +398,7 @@ const rootRouteChildren: RootRouteChildren = {
   LogsRoute: LogsRoute,
   McpRoute: McpRoute,
   ModelsRoute: ModelsRoute,
+  PluginsRoute: PluginsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
