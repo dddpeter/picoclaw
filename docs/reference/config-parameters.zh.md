@@ -94,6 +94,8 @@
 | `context_window` | int | `0`（自动 = max_tokens × 4） | `PICOCLAW_AGENTS_DEFAULTS_CONTEXT_WINDOW` | 上下文窗口；0 表示按启发式推导 |
 | `temperature` | float\|null | `null`（供应商默认） | `PICOCLAW_AGENTS_DEFAULTS_TEMPERATURE` | 采样温度 |
 | `max_tool_iterations` | int | `50` | `PICOCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS` | 单 turn 工具调用上限 |
+| `auto_continue_turns` | int | `2` | `PICOCLAW_AGENTS_DEFAULTS_AUTO_CONTINUE_TURNS` | fork 长任务：turn 因迭代到顶结束且无最终答复时自动续接的额外 turn 数；`0` = 关闭（负值按 0） |
+| `progress_heartbeat_seconds` | int | `180` | `PICOCLAW_AGENTS_DEFAULTS_PROGRESS_HEARTBEAT_SECONDS` | fork 长任务：流式面板闲置超该秒数后发布进度心跳（节流至每周期一拍；无流式 publisher 时降级为 outbound）；`0` = 关闭 |
 | `summarize_message_threshold` | int | `20` | `PICOCLAW_AGENTS_DEFAULTS_SUMMARIZE_MESSAGE_THRESHOLD` | 触发摘要的消息条数 |
 | `summarize_token_percent` | int | `75` | `PICOCLAW_AGENTS_DEFAULTS_SUMMARIZE_TOKEN_PERCENT` | 触发摘要的上下文占比 |
 | `max_media_size` | int | `20971520`（20 MB） | `PICOCLAW_AGENTS_DEFAULTS_MAX_MEDIA_SIZE` | 媒体大小上限 |
@@ -104,7 +106,19 @@
 | `context_manager_config` | object | — | `PICOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER_CONFIG` | 上下文管理器附加参数（raw JSON） |
 | `max_llm_retries` | int | `2` | `PICOCLAW_AGENTS_DEFAULTS_MAX_LLM_RETRIES` | LLM 调用重试次数 |
 | `llm_retry_backoff_secs` | int | `2` | `PICOCLAW_AGENTS_DEFAULTS_LLM_RETRY_BACKOFF_SECS` | 重试退避秒数 |
+| `cooldown_enabled` | *bool | 未配置视为 `true` | `PICOCLAW_AGENTS_DEFAULTS_COOLDOWN_ENABLED` | fork：模型故障冷却总开关；`false` = 失败不设冷却、候选永不被冷却跳过（回退链对"全冷却"的强制尝试与该开关无关，始终生效） |
 | `project_docs` | string[] | `["AGENTS.md", "README.md", "CLAUDE.md"]` | — | 注入系统提示的工作区文档；显式 `[]` 可关闭 |
+
+### agents.defaults.restart_recovery（fork：重启恢复）
+
+网关重启后自动封口（seal）被中断的 turn，并向受影响会话发送"可继续"通知；对未响应的会话按间隔重发提醒。默认启用（省略整块 = 开）。
+
+| 键 | 类型 | 默认值 | Env | 说明 |
+|---|---|---|---|---|
+| `restart_recovery.enabled` | *bool | 未配置视为 `true` | `PICOCLAW_AGENTS_DEFAULTS_RESTART_RECOVERY_ENABLED` | 总开关；`false` = 不封口不通知 |
+| `restart_recovery.notify_window_hours` | int | `24` | `PICOCLAW_AGENTS_DEFAULTS_RESTART_RECOVERY_NOTIFY_WINDOW_HOURS` | 通知新鲜度窗口：只通知落盘记录在该窗口内变更过的会话；`0` = 不通知（封口仍执行）。注意是新鲜度过滤，不是重发间隔 |
+| `restart_recovery.reminder_interval_minutes` | int | `30` | `PICOCLAW_AGENTS_DEFAULTS_RESTART_RECOVERY_REMINDER_INTERVAL_MINUTES` | 首次通知后用户未回复时重发提醒的间隔；`0` = 关闭重提醒 |
+| `restart_recovery.reminder_max` | int | `3` | `PICOCLAW_AGENTS_DEFAULTS_RESTART_RECOVERY_REMINDER_MAX` | 每个会话重发提醒次数上限 |
 
 ### agents.defaults.routing（智能路由）
 
@@ -431,7 +445,7 @@
 | `tools.exec.custom_deny_patterns` | string[] | `[]` | `PICOCLAW_TOOLS_EXEC_CUSTOM_DENY_PATTERNS` | 自定义拦截正则 |
 | `tools.exec.custom_allow_patterns` | string[] | `[]` | `PICOCLAW_TOOLS_EXEC_CUSTOM_ALLOW_PATTERNS` | 自定义放行正则（优先于 deny） |
 | `tools.exec.allow_remote` | bool | `true` | `PICOCLAW_TOOLS_EXEC_ALLOW_REMOTE` | 允许远程渠道执行命令 |
-| `tools.exec.timeout_seconds` | int | `60` | `PICOCLAW_TOOLS_EXEC_TIMEOUT_SECONDS` | 0 = 用默认 |
+| `tools.exec.timeout_seconds` | int | `120` | `PICOCLAW_TOOLS_EXEC_TIMEOUT_SECONDS` | 0 = 用默认（fork：60s→120s，per-call `timeout` 参数可覆盖） |
 
 > 另有 symlink 解析防逃逸（默认开启）；guard 只检查直接命令行，不递归查 make/go run 等拉起的子进程。
 

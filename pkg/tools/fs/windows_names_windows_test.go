@@ -56,7 +56,7 @@ func TestValidateWritePath_AcceptsLegitNames(t *testing.T) {
 		`C:\tmp\.gitignore`,
 		`C:\tmp\aux-files\data.txt`, // intermediate element may resemble a reserved name
 		`C:\tmp\com10\log.txt`,      // COM10+ are not reserved
-		`C:\tmp\file.name.txt`,       // first-dot base "file" is not reserved
+		`C:\tmp\file.name.txt`,      // first-dot base "file" is not reserved
 		`C:\tmp\null\x.txt`,         // "null" ≠ "nul"
 		`D:\code\con as prefix.txt`,
 		`relative\path\file.md`,

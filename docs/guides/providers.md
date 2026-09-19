@@ -444,7 +444,12 @@ Configure multiple endpoints for the same model name—PicoClaw will automatical
 
 PicoClaw already supports automatic failover when you configure `primary` + `fallbacks` in the agent model settings.
 The runtime fallback chain retries the next candidate for retriable failures such as HTTP `429`, quota/rate-limit errors, and timeout errors.
-It also applies cooldown tracking per candidate to avoid immediately retrying a recently failed target.
+It also applies cooldown tracking per candidate (exponential backoff: 1min → 5min → 25min → 1h; quota-exhaustion starts at 5h) to avoid immediately retrying a recently failed target.
+
+Two fork behaviors guarantee the turn never dies from cooldown alone:
+
+1. **Cooldown exhaustion never fails the turn**: when every candidate is in cooldown, the fallback chain force-tries the candidate that recovers soonest (the old behavior could fail subsequent turns outright after a transient outage on an aggregator gateway put all candidates into cooldown). Cooldowns are cleared on any success, so the next turn proceeds normally.
+2. **Cooldowns can be disabled entirely**: set `agents.defaults.cooldown_enabled` to `false` — failures no longer set cooldowns and candidates are never skipped for being in cooldown (always-try semantics). The force-try in point 1 applies regardless of this switch.
 
 ```json
 {
