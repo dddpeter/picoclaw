@@ -2,7 +2,9 @@ package agentplugins
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -73,6 +75,25 @@ func TestContains(t *testing.T) {
 		}
 		if !Contains(root, filepath.Join(link, "file.txt")) {
 			t.Fatal("symlink resolving inside root must be contained")
+		}
+	})
+	t.Run("junction escape", func(t *testing.T) {
+		if runtime.GOOS != "windows" {
+			t.Skip("junctions are a Windows reparse mechanism")
+		}
+		outside := t.TempDir()
+		if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		link := filepath.Join(root, "junction")
+		// Junctions do not require elevated privileges; created via mklink.
+		out, err := exec.Command("cmd", "/c", "mklink", "/J", link, outside).CombinedOutput()
+		if err != nil {
+			t.Skipf("junction creation unavailable: %v: %s", err, string(out))
+		}
+		defer os.Remove(link)
+		if Contains(root, filepath.Join(link, "secret.txt")) {
+			t.Fatal("junction resolving outside root must not be contained")
 		}
 	})
 }

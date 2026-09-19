@@ -227,6 +227,18 @@ func TestLoadMCPConfig(t *testing.T) {
 			mcp:         `{"$schema":"` + mcpSchema + `","mcpServers":{"bad":{"type":"stdio","command":"npx","env":{"plugin_data":"x"}}}}`,
 			wantSkipped: "bad",
 		},
+		{
+			// Windows .bat/.cmd scripts stay a single bare token; the client
+			// may launch them through a platform interpreter but command
+			// validation itself only sees one token.
+			name: "bat cmd script single token",
+			mcp:  `{"$schema":"` + mcpSchema + `","mcpServers":{"ok":{"type":"stdio","command":"server.cmd"}}}`,
+			check: func(t *testing.T, entries map[string]MCPServerEntry, dir string) {
+				if entries["ok"].Command != "server.cmd" {
+					t.Errorf("Command = %q, want bare token", entries["ok"].Command)
+				}
+			},
+		},
 	}
 
 	for _, tc := range cases {
