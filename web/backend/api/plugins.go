@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -62,6 +64,123 @@ func (h *Handler) setPluginsRoots(installRoot, dataRoot string) {
 // registerPluginRoutes binds Agent Plugins management endpoints to the mux.
 func (h *Handler) registerPluginRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/plugins", h.handleListPlugins)
+	mux.HandleFunc("PUT /api/plugins/{name}/enabled", h.handleSetPluginEnabled)
+	mux.HandleFunc("DELETE /api/plugins/{name}", h.handleRemovePlugin)
+}
+
+// validatePluginNameSegment rejects path-traversal, reserved and
+// spec-invalid plugin names with 400. ok=false means the response is written.
+func validatePluginNameSegment(w http.ResponseWriter, name string) bool {
+	if err := agentplugins.ValidatePluginName(name); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		writeErrorf(w, "Invalid plugin name: %v", err)
+		return false
+	}
+	if agentplugins.IsReservedInstallName(name) {
+		w.WriteHeader(http.StatusBadRequest)
+		writeErrorf(w, "Plugin name %q collides with a reserved install-root path", name)
+		return false
+	}
+	return true
+}
+
+// handleSetPluginEnabled toggles a registered plugin's enabled flag.
+//
+//	PUT /api/plugins/{name}/enabled  {"enabled": bool}
+func (h *Handler) handleSetPluginEnabled(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if !validatePluginNameSegment(w, name) {
+		return
+	}
+	var req struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Enabled == nil {
+		w.WriteHeader(http.StatusBadRequest)
+		writeErrorf(w, "Request body must be {\"enabled\": bool}")
+		return
+	}
+
+	installRoot, _, err := h.pluginsRoots()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		writeErrorf(w, "Failed to resolve plugin roots: %v", err)
+		return
+	}
+
+	h.pluginsMu.Lock()
+	defer h.pluginsMu.Unlock()
+
+	reg, err := agentplugins.LoadRegistry(filepath.Join(installRoot, agentplugins.RegistryFileName))
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		writeErrorf(w, "Failed to load registry: %v", err)
+		return
+	}
+	if err := reg.SetEnabled(name, *req.Enabled); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if err := reg.Save(); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		writeErrorf(w, "Failed to save registry: %v", err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+// handleRemovePlugin deletes the plugin directory (and optionally its data
+// directory) plus the registry entry. A registry-only "ghost" entry is
+// cleanable even when the directory is already gone.
+//
+//	DELETE /api/plugins/{name}[?purgeData=true]
+func (h *Handler) handleRemovePlugin(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if !validatePluginNameSegment(w, name) {
+		return
+	}
+	purgeData := r.URL.Query().Get("purgeData") == "true"
+
+	installRoot, _, err := h.pluginsRoots()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		writeErrorf(w, "Failed to resolve plugin roots: %v", err)
+		return
+	}
+
+	h.pluginsMu.Lock()
+	defer h.pluginsMu.Unlock()
+
+	reg, regErr := agentplugins.LoadRegistry(filepath.Join(installRoot, agentplugins.RegistryFileName))
+	if regErr != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		writeErrorf(w, "Failed to load registry: %v", regErr)
+		return
+	}
+	_, statErr := os.Stat(filepath.Join(installRoot, name))
+	dirExists := statErr == nil
+	_, hasEntry := reg.Entries[name]
+	if !dirExists && !hasEntry {
+		http.Error(w, fmt.Sprintf("plugin %q is not installed", name), http.StatusNotFound)
+		return
+	}
+
+	if dirExists {
+		if err := agentplugins.Remove(name, installRoot, purgeData); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			writeErrorf(w, "Failed to remove plugin: %v", err)
+			return
+		}
+	}
+	delete(reg.Entries, name)
+	if err := reg.Save(); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		writeErrorf(w, "Failed to save registry: %v", err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 }
 
 // handleListPlugins returns the merged registry + scan view of installed
@@ -72,6 +191,7 @@ func (h *Handler) registerPluginRoutes(mux *http.ServeMux) {
 func (h *Handler) handleListPlugins(w http.ResponseWriter, r *http.Request) {
 	installRoot, dataRoot, err := h.pluginsRoots()
 	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
 		writeErrorf(w, "Failed to resolve plugin roots: %v", err)
 		return
 	}

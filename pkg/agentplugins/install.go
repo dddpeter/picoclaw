@@ -141,3 +141,10 @@ func RegisterIn(r *Registry, name, version, source, ref string) {
 		Enabled:     true,
 	}
 }
+
+// IsReservedInstallName reports whether name collides with a reserved
+// install-root path (the data root or the registry file). Such names are
+// spec-legal plugin names but must never be install/remove targets.
+func IsReservedInstallName(name string) bool {
+	return reservedInstallNames[name]
+}
