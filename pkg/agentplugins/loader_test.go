@@ -181,3 +181,62 @@ func TestLoadPluginsDir(t *testing.T) {
 		}
 	})
 }
+
+func TestScanPlugins(t *testing.T) {
+	t.Run("mixed golden and broken dirs", func(t *testing.T) {
+		installRoot := t.TempDir()
+		dataRoot := filepath.Join(installRoot, "data")
+		makeGoldenPlugin(t, filepath.Join(installRoot, "golden"))
+		if err := os.MkdirAll(filepath.Join(installRoot, "broken"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		plugins, failed := ScanPlugins(installRoot, dataRoot)
+		if len(plugins) != 1 || plugins[0].Name != "golden" {
+			t.Fatalf("plugins = %+v", plugins)
+		}
+		if len(failed) != 1 || failed[0].Name != "broken" || failed[0].Dir == "" || failed[0].Err == nil {
+			t.Fatalf("failed = %+v", failed)
+		}
+	})
+
+	t.Run("reserved entries are neither plugin nor failure", func(t *testing.T) {
+		installRoot := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(installRoot, "data", "x"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(installRoot, "registry.json"), []byte("{}"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		plugins, failed := ScanPlugins(installRoot, filepath.Join(installRoot, "data"))
+		if len(plugins) != 0 || len(failed) != 0 {
+			t.Fatalf("plugins=%d failed=%d, want 0/0", len(plugins), len(failed))
+		}
+	})
+
+	t.Run("disabled plugin is a plugin not a failure", func(t *testing.T) {
+		installRoot := t.TempDir()
+		dataRoot := filepath.Join(installRoot, "data")
+		makeGoldenPlugin(t, filepath.Join(installRoot, "golden"))
+		reg := `{"golden":{"name":"golden","enabled":false}}`
+		if err := os.WriteFile(filepath.Join(installRoot, "registry.json"), []byte(reg), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		plugins, failed := ScanPlugins(installRoot, dataRoot)
+		if len(failed) != 0 {
+			t.Fatalf("failed = %+v", failed)
+		}
+		if len(plugins) != 1 || plugins[0].Enabled || len(plugins[0].Skills) != 0 || len(plugins[0].MCPServers) != 0 {
+			t.Fatalf("plugins = %+v", plugins)
+		}
+	})
+
+	t.Run("missing install root is silent", func(t *testing.T) {
+		plugins, failed := ScanPlugins(filepath.Join(t.TempDir(), "nope"), t.TempDir())
+		if len(plugins) != 0 || len(failed) != 0 {
+			t.Fatalf("plugins=%d failed=%d", len(plugins), len(failed))
+		}
+	})
+}

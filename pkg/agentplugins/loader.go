@@ -102,16 +102,24 @@ func readEnabledMap(installRoot string) map[string]registryEnabledEntry {
 	return m
 }
 
-// LoadPluginsDir scans every subdirectory of the install root, loading each
-// as a plugin. Bad directories are skipped and reported. A disabled registry
-// entry yields Plugin{Enabled:false} without component discovery. A missing
-// install root yields an empty result silently.
-func LoadPluginsDir(installRoot, dataRoot string) ([]*Plugin, *Report) {
-	rep := &Report{Warnings: []string{}}
+// FailedPlugin is a plugin directory that failed to load. ScanPlugins
+// surfaces these structurally for UI views; LoadPluginsDir folds them back
+// into Report warnings.
+type FailedPlugin struct {
+	Name string
+	Dir  string
+	Err  error
+}
 
+// ScanPlugins scans every subdirectory of the install root, returning both
+// the loaded plugins and the directories that failed to load. Reserved
+// install-root entries (the data root, registry.json) and stray files are
+// neither. A disabled registry entry yields Plugin{Enabled:false} without
+// component discovery. A missing install root yields empty results silently.
+func ScanPlugins(installRoot, dataRoot string) ([]*Plugin, []FailedPlugin) {
 	entries, err := os.ReadDir(installRoot)
 	if err != nil {
-		return nil, rep // missing install root: silent (analogous to §6.2)
+		return nil, nil // missing install root: silent (analogous to §6.2)
 	}
 
 	enabledMap := readEnabledMap(installRoot)
@@ -126,6 +134,7 @@ func LoadPluginsDir(installRoot, dataRoot string) ([]*Plugin, *Report) {
 	}
 
 	var plugins []*Plugin
+	var failed []FailedPlugin
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue // stray files are not plugins
@@ -138,13 +147,26 @@ func LoadPluginsDir(installRoot, dataRoot string) ([]*Plugin, *Report) {
 			continue
 		}
 
-		enabled := enabledFor(name)
-		p, err := LoadPlugin(dir, filepath.Join(dataRoot, name), enabled)
+		p, err := LoadPlugin(dir, filepath.Join(dataRoot, name), enabledFor(name))
 		if err != nil {
-			rep.Warnf("plugin %q skipped: %v", name, err)
+			failed = append(failed, FailedPlugin{Name: name, Dir: dir, Err: err})
 			continue
 		}
 		plugins = append(plugins, p)
+	}
+	return plugins, failed
+}
+
+// LoadPluginsDir scans every subdirectory of the install root, loading each
+// as a plugin. Bad directories are skipped and reported. A disabled registry
+// entry yields Plugin{Enabled:false} without component discovery. A missing
+// install root yields an empty result silently. It is ScanPlugins folded
+// into the Report-based shape the gateway bridge consumes.
+func LoadPluginsDir(installRoot, dataRoot string) ([]*Plugin, *Report) {
+	rep := &Report{Warnings: []string{}}
+	plugins, failed := ScanPlugins(installRoot, dataRoot)
+	for _, f := range failed {
+		rep.Warnf("plugin %q skipped: %v", f.Name, f.Err)
 	}
 	return plugins, rep
 }
