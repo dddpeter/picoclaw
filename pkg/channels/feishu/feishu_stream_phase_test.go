@@ -56,22 +56,22 @@ func TestBuildFeishuLoadingElementPhases(t *testing.T) {
 	}
 }
 
-// TestFeishuPanelCollapsedByDefault locks in the collapsed-by-default process
-// panel: the live thinking text still renders inside the panel (archived on
-// seal), but the panel never auto-expands — not on the initial card, not on
-// mid-stream refreshes, whatever the answer state.
-func TestFeishuPanelCollapsedByDefault(t *testing.T) {
+// TestFeishuPanelExpandedWhileStreaming locks in the hermes-aligned
+// expansion lifecycle: the process panel is expanded on the initial card and
+// stays expanded through mid-stream refreshes — reasoning text flows visibly
+// while the turn is running. The sealed card folds it back (final-card test).
+func TestFeishuPanelExpandedWhileStreaming(t *testing.T) {
 	initial := buildFeishuStreamingCard()
 	els := initial["body"].(map[string]any)["elements"].([]any)
-	if panel, ok := els[0].(map[string]any); !ok || panel["expanded"] != false {
-		t.Errorf("initial card panel should be collapsed by default, got %v", els[0])
+	if panel, ok := els[0].(map[string]any); !ok || panel["expanded"] != true {
+		t.Errorf("initial card panel should be expanded while streaming, got %v", els[0])
 	}
 	for _, answer := range []string{"", "   ", "partial answer"} {
 		state := &feishuStreamState{CurReasoning: "thinking"}
 		card := buildFeishuRefreshCard(state, answer, feishuPhaseThinking, feishuPanelTextBudget, "")
 		elements := card["body"].(map[string]any)["elements"].([]any)
-		if panel := elements[0].(map[string]any); panel["expanded"] != false {
-			t.Errorf("refresh card with answer %q should keep the panel collapsed, got %v", answer, panel["expanded"])
+		if panel := elements[0].(map[string]any); panel["expanded"] != true {
+			t.Errorf("refresh card with answer %q should keep the panel expanded, got %v", answer, panel["expanded"])
 		}
 	}
 }
@@ -79,7 +79,7 @@ func TestFeishuPanelCollapsedByDefault(t *testing.T) {
 // TestFeishuRefreshCardKeepsStreamingConfig locks in the fix for the
 // "content replaced instead of fully displayed" regression: a mid-stream
 // full-card refresh must carry streaming_mode (dropping it kills the answer
-// element's typewriter), keep the panel collapsed, and render the phase
+// element's typewriter), keep the panel expanded, and render the phase
 // status line.
 func TestFeishuRefreshCardKeepsStreamingConfig(t *testing.T) {
 	state := &feishuStreamState{
@@ -100,11 +100,11 @@ func TestFeishuRefreshCardKeepsStreamingConfig(t *testing.T) {
 	if !strings.Contains(rendered, feishuLoadingTextAnswer) {
 		t.Errorf("refresh card should render the answer-phase status line:\n%s", rendered)
 	}
-	// Panel stays collapsed by default.
+	// Panel stays expanded while streaming (sealed card folds it back).
 	elements := card["body"].(map[string]any)["elements"].([]any)
 	panel := elements[0].(map[string]any)
-	if panel["expanded"] != false {
-		t.Errorf("panel should stay collapsed by default, got %v", panel["expanded"])
+	if panel["expanded"] != true {
+		t.Errorf("refresh panel should stay expanded while streaming, got %v", panel["expanded"])
 	}
 }
 

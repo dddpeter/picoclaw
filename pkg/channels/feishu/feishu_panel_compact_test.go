@@ -11,7 +11,11 @@ import (
 	"github.com/sipeed/picoclaw/pkg/bus"
 )
 
-func TestFeishuReasoningRoundsRenderAsCollapsedNestedPanels(t *testing.T) {
+// TestFeishuReasoningRoundsRenderFlat locks in the hermes-aligned flat
+// rendering of finalized reasoning rounds: title + indented thinking text
+// directly in the panel body — expanding the outer panel is enough to read
+// every round, no nested per-round collapsible panels.
+func TestFeishuReasoningRoundsRenderFlat(t *testing.T) {
 	state := &feishuStreamState{
 		Rounds: []feishuReasoningRound{
 			{Text: "round one thinking", Duration: 2 * time.Second},
@@ -21,31 +25,34 @@ func TestFeishuReasoningRoundsRenderAsCollapsedNestedPanels(t *testing.T) {
 	panel := buildFeishuPanel(state, true)
 	children := panel["elements"].([]any)
 
+	if len(children) != 4 {
+		t.Fatalf("two rounds should render title+text each (4 children), got %d", len(children))
+	}
 	for i, want := range []string{"第 1 轮推理", "第 2 轮推理"} {
-		nested, ok := children[i].(map[string]any)
-		if !ok || nested["tag"] != "collapsible_panel" {
-			t.Fatalf("round %d should be a nested collapsible_panel, got %#v", i+1, children[i])
+		title, ok := children[i*2].(map[string]any)
+		if !ok || title["tag"] != "div" {
+			t.Fatalf("round %d should start with a title div, got %#v", i+1, children[i*2])
 		}
-		if nested["expanded"] != false {
-			t.Errorf("round %d panel should be collapsed by default", i+1)
+		content, _ := title["text"].(map[string]any)["content"].(string)
+		if !strings.Contains(content, want) || !strings.Contains(content, "✓") {
+			t.Errorf("round %d title %q should contain %q and the finalized ✓", i+1, content, want)
 		}
-		title := nested["header"].(map[string]any)["title"].(map[string]any)["content"].(string)
-		if !strings.Contains(title, want) {
-			t.Errorf("round %d header %q should contain %q", i+1, title, want)
+		body, ok := children[i*2+1].(map[string]any)
+		if !ok || body["tag"] != "div" {
+			t.Fatalf("round %d thinking text should render as an indented div, got %#v", i+1, children[i*2+1])
 		}
-		inner := nested["elements"].([]any)
-		md, _ := inner[0].(map[string]any)["content"].(string)
-		if !strings.Contains(md, fmt.Sprintf("round %s", map[int]string{1: "one", 2: "two"}[i+1])) {
-			t.Errorf("round %d body should keep the thinking text, got %q", i+1, md)
+		md := body["text"].(map[string]any)
+		if c, _ := md["content"].(string); !strings.Contains(c, fmt.Sprintf("round %s", map[int]string{1: "one", 2: "two"}[i+1])) {
+			t.Errorf("round %d body should keep the thinking text, got %q", i+1, c)
 		}
 	}
 }
 
-func TestFeishuReasoningRoundPanelEmptyText(t *testing.T) {
-	p := feishuReasoningRoundPanel(3, feishuReasoningRound{})
-	inner := p["elements"].([]any)
-	if len(inner) != 1 {
-		t.Fatalf("empty round should render one placeholder, got %d", len(inner))
+func TestFeishuReasoningRoundEmptyTextTitleOnly(t *testing.T) {
+	state := &feishuStreamState{Rounds: []feishuReasoningRound{{}}}
+	children := buildFeishuPanel(state, true)["elements"].([]any)
+	if len(children) != 1 {
+		t.Fatalf("empty round should render title only, got %d children", len(children))
 	}
 }
 
@@ -132,6 +139,11 @@ func TestFeishuCardSummaryRuneSafe(t *testing.T) {
 	}
 }
 
+// TestFeishuPanelElementBudgetUnderCaps locks in the max-caps behavior:
+// 20 rounds + 20 tools cost ~5 tag objects each (~207 with scaffolding),
+// which exceeds the 195 threshold, so the card-level element-limit safety
+// net trims the oldest rounds and inserts a fold hint. The sealed card must
+// land under the threshold with the trim honestly reflected in the panel.
 func TestFeishuPanelElementBudgetUnderCaps(t *testing.T) {
 	state := &feishuStreamState{}
 	for i := 0; i < feishuMaxReasoningRounds; i++ {
@@ -143,5 +155,24 @@ func TestFeishuPanelElementBudgetUnderCaps(t *testing.T) {
 	card := buildFeishuFinalCard(state, "answer", false, time.Second, "")
 	if got := countFeishuTagObjects(card); got > feishuElementLimit-feishuElementLimitMargin {
 		t.Fatalf("maxed panel card uses %d tag objects, threshold is %d", got, feishuElementLimit-feishuElementLimitMargin)
+	}
+	panel := card["body"].(map[string]any)["elements"].([]any)[0].(map[string]any)
+	children := panel["elements"].([]any)
+	hint, _ := children[0].(map[string]any)["content"].(string)
+	if !strings.Contains(hint, "已折叠") {
+		t.Errorf("maxed panel should open with a fold hint, got %q", hint)
+	}
+	visibleRounds := 0
+	for _, c := range children {
+		if m, ok := c.(map[string]any); ok {
+			if txt, ok := m["text"].(map[string]any); ok {
+				if s, _ := txt["content"].(string); strings.Contains(s, "轮推理") {
+					visibleRounds++
+				}
+			}
+		}
+	}
+	if visibleRounds == feishuMaxReasoningRounds {
+		t.Errorf("safety net should trim some rounds at max caps, but all %d are visible", visibleRounds)
 	}
 }

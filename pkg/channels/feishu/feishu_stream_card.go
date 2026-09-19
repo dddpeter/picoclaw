@@ -280,19 +280,19 @@ func degradeFeishuCardConfig(card map[string]any) {
 }
 
 // buildFeishuRefreshCard builds the mid-stream full-card update: the process
-// panel (always collapsed — a full-card update re-applies the declared
-// expanded value, so a user's mid-turn manual expansion would be re-folded by
-// the next refresh anyway), current answer snapshot and the dynamic status
-// line, while keeping the streaming config so the answer element's typewriter
-// survives the replacement. spinnerKey, when non-empty, swaps the status line
-// icon for the animated amber spinner.
+// panel (expanded while streaming — reasoning text flows visibly under the
+// panel header; a full-card update re-asserts the declared expanded value,
+// which keeps the panel open across refreshes), current answer snapshot and
+// the dynamic status line, while keeping the streaming config so the answer
+// element's typewriter survives the replacement. spinnerKey, when non-empty,
+// swaps the status line icon for the animated amber spinner.
 func buildFeishuRefreshCard(state *feishuStreamState, answer, phase string, panelBudget int, spinnerKey string) map[string]any {
 	card := map[string]any{
 		"schema": "2.0",
 		"config": feishuStreamingCardConfig(),
 		"body": map[string]any{
 			"elements": []any{
-				buildFeishuPanelBudget(state, false, panelBudget),
+				buildFeishuPanelBudget(state, true, panelBudget),
 				map[string]any{
 					"tag":        "markdown",
 					"content":    sanitizeFeishuMarkdownImages(composeFeishuAnswer(state.Narration, answer)),
@@ -313,7 +313,7 @@ func buildFeishuRefreshCard(state *feishuStreamState, answer, phase string, pane
 func buildFeishuPanelPlaceholder() map[string]any {
 	return map[string]any{
 		"tag":              "collapsible_panel",
-		"expanded":         false,
+		"expanded":         true,
 		"header":           feishuPanelHeader(0, false, 0, 0, ""),
 		"border":           map[string]any{"color": "grey", "corner_radius": "10px"},
 		"vertical_spacing": "4px",
@@ -515,11 +515,17 @@ func buildFeishuPanelBudget(state *feishuStreamState, expanded bool, textBudget 
 	}
 
 	// Timeline merge: rounds and tools interleave by their arrival sequence.
-	// Ties (and seq-less legacy states) render the round first.
+	// Ties (and seq-less legacy states) render the round first. Finalized
+	// rounds render flat (title + indented text, hermes-aligned): expanding
+	// the outer panel is enough to read every round.
 	ri, ti := 0, 0
 	for ri < len(rounds) || ti < len(tools) {
 		if ti >= len(tools) || (ri < len(rounds) && rounds[ri].Seq <= toolSeq(ti)) {
-			children = append(children, feishuReasoningRoundPanel(ri+1, rounds[ri]))
+			r := rounds[ri]
+			children = append(children, feishuReasoningTitle(ri+1, r.Duration, true))
+			if t := strings.TrimSpace(r.Text); t != "" {
+				children = append(children, feishuIndentedLarkMD(truncateFeishuReasoning(t)))
+			}
 			ri++
 		} else {
 			children = append(children, feishuToolStepChildren(tools[ti])...)
@@ -803,37 +809,6 @@ func feishuToolStepTitle(step bus.ToolStep) map[string]any {
 	}
 }
 
-// feishuReasoningRoundPanel nests a finalized reasoning round in its own
-// collapsed panel: the panel list stays scannable (one header line per round)
-// and the full text is one click away. Only the live in-progress round stays
-// expanded inline.
-func feishuReasoningRoundPanel(index int, r feishuReasoningRound) map[string]any {
-	text := fmt.Sprintf("第 %d 轮推理", index)
-	if r.Duration > 0 {
-		text += " · " + formatFeishuElapsed(r.Duration)
-	}
-	elements := []any{}
-	if t := strings.TrimSpace(r.Text); t != "" {
-		elements = append(elements, map[string]any{
-			"tag": "markdown", "content": truncateFeishuReasoning(t), "text_size": "notation",
-		})
-	}
-	if len(elements) == 0 {
-		elements = []any{map[string]any{"tag": "markdown", "content": " "}}
-	}
-	return map[string]any{
-		"tag":      "collapsible_panel",
-		"expanded": false,
-		"header": map[string]any{"title": map[string]any{
-			"tag": "plain_text", "content": "✓ " + text, "text_color": "green", "text_size": "notation",
-		}},
-		"border":           map[string]any{"color": "grey", "corner_radius": "8px"},
-		"vertical_spacing": "2px",
-		"padding":          "8px 8px 4px 8px",
-		"elements":         elements,
-	}
-}
-
 func feishuIndentedLarkMD(content string) map[string]any {
 	return map[string]any{
 		"tag":    "div",
@@ -846,6 +821,8 @@ func feishuIndentedLarkMD(content string) map[string]any {
 
 // buildFeishuFinalCard builds the sealed card: collapsed process panel, the
 // full answer, and a footer with turn statistics. The loading element is gone.
+// The panel folds on seal ("收起来即可"): reasoning text stays flat inside,
+// one click on the header reveals every round.
 func buildFeishuFinalCard(state *feishuStreamState, answer string, aborted bool, elapsed time.Duration, cancelReason string) map[string]any {
 	return buildFeishuCardWithinSize(func(panelBudget int) map[string]any {
 		return buildFeishuFinalCardBudget(state, answer, aborted, elapsed, cancelReason, panelBudget)
