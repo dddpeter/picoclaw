@@ -3,6 +3,7 @@ package fileutil
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 )
@@ -27,6 +28,9 @@ func TestWriteFileAtomic_Basic(t *testing.T) {
 }
 
 func TestWriteFileAtomic_Permissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows only models the read-only attribute via chmod; perm bits always report 0666")
+	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "secret.txt")
 
@@ -168,9 +172,19 @@ func TestWriteFileAtomic_Concurrent(t *testing.T) {
 }
 
 func TestWriteFileAtomic_InvalidPath(t *testing.T) {
-	// /dev/null/impossible is not a valid path on any OS
-	err := WriteFileAtomic("/dev/null/impossible/file.txt", []byte("data"), 0o644)
+	// A path that cannot be created on the running OS must surface an error,
+	// not silently create directories.
+	var badPath string
+	if runtime.GOOS == "windows" {
+		// "/dev/null/..." is a drive-relative path on Windows and would be
+		// created for real; recent Windows 11 builds even allow creating
+		// "con" directories, so use a character invalid on every version.
+		badPath = filepath.Join(t.TempDir(), "bad|name", "file.txt")
+	} else {
+		badPath = "/dev/null/impossible/file.txt" // not a valid path on any Unix
+	}
+	err := WriteFileAtomic(badPath, []byte("data"), 0o644)
 	if err == nil {
-		t.Error("expected error for invalid path, got nil")
+		t.Errorf("expected error for invalid path %q, got nil", badPath)
 	}
 }

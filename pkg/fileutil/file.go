@@ -11,8 +11,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 )
+
+// tmpNameCounter disambiguates temp file names within this process.
+var tmpNameCounter atomic.Uint64
 
 // WriteFileAtomic atomically writes data to a file using a temp file + rename pattern.
 //
@@ -56,9 +60,12 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 	}
 
 	// Create temp file in the same directory (ensures atomic rename works)
-	// Using a hidden prefix (.tmp-) to avoid issues with some tools
+	// Using a hidden prefix (.tmp-) to avoid issues with some tools.
+	// The atomic counter guarantees uniqueness even when the platform clock
+	// (Windows time granularity can be coarse) hands out identical UnixNano
+	// values to concurrent writers.
 	tmpFile, err := os.OpenFile(
-		filepath.Join(dir, fmt.Sprintf(".tmp-%d-%d", os.Getpid(), time.Now().UnixNano())),
+		filepath.Join(dir, fmt.Sprintf(".tmp-%d-%d-%d", os.Getpid(), time.Now().UnixNano(), tmpNameCounter.Add(1))),
 		os.O_WRONLY|os.O_CREATE|os.O_EXCL,
 		perm,
 	)
@@ -101,8 +108,9 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 
 	// Atomic rename: temp file becomes the target
 	// On POSIX: rename() is atomic
-	// On Windows: Rename() is atomic for files
-	if err := os.Rename(tmpPath, path); err != nil {
+	// On Windows: Rename() is atomic for files; transient sharing violations
+	// (editor/antivirus holding the target) are retried with backoff.
+	if err := RenameWithRetry(tmpPath, path); err != nil {
 		return fmt.Errorf("failed to rename temp file: %w", err)
 	}
 

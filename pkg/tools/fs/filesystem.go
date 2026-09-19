@@ -15,8 +15,11 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
+
+	"golang.org/x/text/encoding/simplifiedchinese"
 
 	"github.com/sipeed/picoclaw/pkg/fileutil"
 	"github.com/sipeed/picoclaw/pkg/logger"
@@ -594,7 +597,28 @@ func (t *ReadFileLinesTool) Execute(ctx context.Context, args map[string]any) *T
 		return ErrorResult("file appears to be binary; switch read_file mode to 'bytes' for byte-based inspection")
 	}
 
-	reader := bufio.NewReaderSize(io.MultiReader(bytes.NewReader(sample), file), 32*1024)
+	// Decode small text files up front so non-UTF-8 encodings (GB18030/GBK,
+	// common on Chinese-locale Windows) and UTF-8 BOMs are presented as clean
+	// UTF-8. Oversized files keep the streaming raw path.
+	var source io.Reader = io.MultiReader(bytes.NewReader(sample), file)
+	encodingNote := ""
+	if info, statErr := file.Stat(); statErr == nil && info.Size() <= maxDecodeFileSize {
+		if rest, readAllErr := io.ReadAll(file); readAllErr == nil {
+			full := append(sample, rest...)
+			text, enc := decodeText(full)
+			switch enc {
+			case encGB18030:
+				source, encodingNote = bytes.NewReader([]byte(text)), "gb18030"
+			case encUTF8BOM:
+				source, encodingNote = bytes.NewReader([]byte(text)), "utf-8 (BOM)"
+			default:
+				// encUTF8 or encRaw: serve the original bytes unchanged.
+				source = bytes.NewReader(full)
+			}
+		}
+	}
+
+	reader := bufio.NewReaderSize(source, 32*1024)
 
 	var content strings.Builder
 	lineIndex := int64(1)
@@ -635,9 +659,12 @@ func (t *ReadFileLinesTool) Execute(ctx context.Context, args map[string]any) *T
 		}
 
 		content.WriteString(prefix)
-		content.Write(line)
+		// Line-mode output always uses LF terminators: a trailing CR (from a
+		// CRLF file) is stripped so the model never sees or copies raw "\r".
+		out := normalizeLineTerminator(line)
+		content.Write(out)
 		fileBytesRead += int64(len(line))
-		outputBytesRead += int64(len(prefix) + len(line))
+		outputBytesRead += int64(len(prefix) + len(out))
 		linesRead++
 		lineIndex++
 
@@ -670,6 +697,9 @@ func (t *ReadFileLinesTool) Execute(ctx context.Context, args map[string]any) *T
 		"[file: %s | read: lines %d-%d (1-indexed) | file_bytes: %d | output_bytes: %d]",
 		displayPath, start, endLine, fileBytesRead, outputBytesRead,
 	)
+	if encodingNote != "" {
+		header += fmt.Sprintf(" | encoding: %s", encodingNote)
+	}
 
 	switch {
 	case lineTruncated:
@@ -718,6 +748,9 @@ func formatReadFileLinePrefix(lineNumber int64) string {
 	return strconv.FormatInt(lineNumber, 10) + "|"
 }
 
+// sandboxTmpCounter disambiguates sandbox temp file names within this process.
+var sandboxTmpCounter atomic.Uint64
+
 func isBinaryReadFileData(data []byte) bool {
 	if len(data) == 0 {
 		return false
@@ -744,8 +777,13 @@ func isBinaryReadFileData(data []byte) bool {
 		return false
 	}
 
+	sample = trimTrailingPartialSequence(sample)
 	if !utf8.Valid(sample) {
-		return true
+		// GB18030/GBK-encoded text (common on Chinese-locale Windows) decodes
+		// cleanly and is text, not binary; everything else stays binary.
+		if _, err := simplifiedchinese.GB18030.NewDecoder().Bytes(sample); err != nil {
+			return true
+		}
 	}
 
 	controlChars := 0
@@ -756,6 +794,22 @@ func isBinaryReadFileData(data []byte) bool {
 	}
 
 	return float64(controlChars)/float64(len(sample)) > 0.1
+}
+
+// normalizeLineTerminator rewrites a line fragment ending in "\r\n" to end in
+// "\n" (in place), and drops a lone trailing "\r" (final line without newline
+// or CR-only files), so line-mode output carries no stray carriage returns.
+func normalizeLineTerminator(line []byte) []byte {
+	n := len(line)
+	switch {
+	case n >= 2 && line[n-1] == '\n' && line[n-2] == '\r':
+		line[n-2] = '\n'
+		return line[:n-1]
+	case n >= 1 && line[n-1] == '\r':
+		return line[:n-1]
+	default:
+		return line
+	}
 }
 
 func consumeNextLine(reader *bufio.Reader) (bool, error) {
@@ -968,7 +1022,11 @@ func (t *WriteFileTool) Execute(ctx context.Context, args map[string]any) *ToolR
 	overwrite, _ := args["overwrite"].(bool)
 
 	if !overwrite {
-		if _, err := t.fs.Open(path); err == nil {
+		// Close the probe handle immediately: on Windows an open handle blocks
+		// renames/removals of the file until the GC finalizer runs (or forever,
+		// for files the caller tries to touch right after).
+		if existing, err := t.fs.Open(path); err == nil {
+			_ = existing.Close()
 			if phrase := t.altToolsPhrase(); phrase != "" {
 				return ErrorResult(
 					fmt.Sprintf(
@@ -1080,6 +1138,9 @@ func (h *hostFs) ReadFile(path string) ([]byte, error) {
 	if err := h.checkProtectedSystemPath(path); err != nil {
 		return nil, err
 	}
+	if err := validateReadPath(path); err != nil {
+		return nil, err
+	}
 	content, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -1104,6 +1165,9 @@ func (h *hostFs) WriteFile(path string, data []byte) error {
 	if err := h.checkProtectedSystemPath(path); err != nil {
 		return err
 	}
+	if err := validateWritePath(path); err != nil {
+		return err
+	}
 	// Use unified atomic write utility with explicit sync for flash storage reliability.
 	// Using 0o600 (owner read/write only) for secure default permissions.
 	return fileutil.WriteFileAtomic(path, data, 0o600)
@@ -1111,6 +1175,9 @@ func (h *hostFs) WriteFile(path string, data []byte) error {
 
 func (h *hostFs) Open(path string) (fs.File, error) {
 	if err := h.checkProtectedSystemPath(path); err != nil {
+		return nil, err
+	}
+	if err := validateReadPath(path); err != nil {
 		return nil, err
 	}
 	f, err := os.Open(path)
@@ -1156,6 +1223,9 @@ func (r *sandboxFs) execute(path string, fn func(root *os.Root, relPath string) 
 func (r *sandboxFs) ReadFile(path string) ([]byte, error) {
 	var content []byte
 	err := r.execute(path, func(root *os.Root, relPath string) error {
+		if err := validateReadPath(relPath); err != nil {
+			return err
+		}
 		fileContent, err := root.ReadFile(relPath)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -1176,6 +1246,9 @@ func (r *sandboxFs) ReadFile(path string) ([]byte, error) {
 
 func (r *sandboxFs) WriteFile(path string, data []byte) error {
 	return r.execute(path, func(root *os.Root, relPath string) error {
+		if err := validateWritePath(relPath); err != nil {
+			return err
+		}
 		dir := filepath.Dir(relPath)
 		if dir != "." && dir != "/" {
 			if err := root.MkdirAll(dir, 0o755); err != nil {
@@ -1185,7 +1258,10 @@ func (r *sandboxFs) WriteFile(path string, data []byte) error {
 
 		// Use atomic write pattern with explicit sync for flash storage reliability.
 		// Using 0o600 (owner read/write only) for secure default permissions.
-		tmpRelPath := fmt.Sprintf(".tmp-%d-%d", os.Getpid(), time.Now().UnixNano())
+		// The atomic counter guarantees uniqueness even when the platform clock
+		// (Windows time granularity can be coarse) hands out identical
+		// UnixNano values to concurrent writers.
+		tmpRelPath := fmt.Sprintf(".tmp-%d-%d-%d", os.Getpid(), time.Now().UnixNano(), sandboxTmpCounter.Add(1))
 
 		tmpFile, err := root.OpenFile(tmpRelPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err != nil {
@@ -1212,7 +1288,12 @@ func (r *sandboxFs) WriteFile(path string, data []byte) error {
 			return fmt.Errorf("failed to close temp file: %w", err)
 		}
 
-		if err := root.Rename(tmpRelPath, relPath); err != nil {
+		// Retry transient Windows sharing/lock violations: editors, antivirus
+		// and indexers briefly hold the target open, and a single rename
+		// failure would otherwise surface as a spurious tool error.
+		if err := fileutil.WithTransientRenameRetry(func() error {
+			return root.Rename(tmpRelPath, relPath)
+		}); err != nil {
 			root.Remove(tmpRelPath)
 			return fmt.Errorf("failed to rename temp file over target: %w", err)
 		}
@@ -1243,6 +1324,9 @@ func (r *sandboxFs) ReadDir(path string) ([]os.DirEntry, error) {
 func (r *sandboxFs) Open(path string) (fs.File, error) {
 	var f fs.File
 	err := r.execute(path, func(root *os.Root, relPath string) error {
+		if err := validateReadPath(relPath); err != nil {
+			return err
+		}
 		file, err := root.Open(relPath)
 		if err != nil {
 			if os.IsNotExist(err) {

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"regexp"
-	"strings"
 )
 
 // EditFileTool edits a file by replacing old_text with new_text.
@@ -29,7 +28,7 @@ func (t *EditFileTool) Name() string {
 }
 
 func (t *EditFileTool) Description() string {
-	return "Edit a file by replacing old_text with new_text. The old_text must exist exactly in the file. Standard JSON escaping applies: \\n for newline and \\\\n for literal backslash-n."
+	return "Edit a file by replacing old_text with new_text. The old_text must exist in the file; line-ending differences are tolerated (\\n matches a CRLF file) and the file's line-ending style and text encoding (UTF-8/GBK) are preserved. Standard JSON escaping applies: \\n for newline and \\\\n for literal backslash-n."
 }
 
 func (t *EditFileTool) Parameters() map[string]any {
@@ -93,7 +92,7 @@ func (t *AppendFileTool) Name() string {
 }
 
 func (t *AppendFileTool) Description() string {
-	return "Append content to the end of a file. Standard JSON escaping applies: \\n for newline and \\\\n for literal backslash-n."
+	return "Append content to the end of a file. If the file uses CRLF or CR line endings, the appended content's line endings are adapted to match. Standard JSON escaping applies: \\n for newline and \\\\n for literal backslash-n."
 }
 
 func (t *AppendFileTool) Parameters() map[string]any {
@@ -132,48 +131,56 @@ func (t *AppendFileTool) Execute(ctx context.Context, args map[string]any) *Tool
 
 // editFile reads the file via sysFs, performs the replacement, and writes back.
 // It uses a fileSystem interface, allowing the same logic for both restricted and unrestricted modes.
+//
+// The file is decoded first (UTF-8 with/without BOM, or GB18030 for Chinese
+// Windows files), edited as text, and re-encoded in the original encoding so
+// the on-disk form never silently changes. The returned before/after pair is
+// decoded text, so diffs render correctly regardless of encoding.
 func editFile(sysFs fileSystem, path, oldText, newText string) ([]byte, []byte, error) {
-	content, err := sysFs.ReadFile(path)
+	raw, err := sysFs.ReadFile(path)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	newContent, err := replaceEditContent(content, oldText, newText)
+	text, enc := decodeText(raw)
+
+	newContent, err := replaceEditContent([]byte(text), oldText, newText)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if err := sysFs.WriteFile(path, newContent); err != nil {
+	encoded, err := encodeText(string(newContent), enc)
+	if err != nil {
 		return nil, nil, err
 	}
 
-	return content, newContent, nil
+	if err := sysFs.WriteFile(path, encoded); err != nil {
+		return nil, nil, err
+	}
+
+	return []byte(text), newContent, nil
 }
 
 // appendFile reads the existing content (if any) via sysFs, appends new content, and writes back.
+// Appended text is re-terminated in the file's dominant line-ending style
+// (and written back in the file's encoding) so a single file never ends up
+// with mixed line endings or mixed encodings.
 func appendFile(sysFs fileSystem, path, appendContent string) error {
-	content, err := sysFs.ReadFile(path)
+	raw, err := sysFs.ReadFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 
-	newContent := append(content, []byte(appendContent)...)
-	return sysFs.WriteFile(path, newContent)
-}
-
-// replaceEditContent handles the core logic of finding and replacing a single occurrence of oldText.
-func replaceEditContent(content []byte, oldText, newText string) ([]byte, error) {
-	contentStr := string(content)
-
-	if !strings.Contains(contentStr, oldText) {
-		return nil, fmt.Errorf("old_text not found in file. Make sure it matches exactly")
+	text, enc := decodeText(raw)
+	if len(text) > 0 {
+		if style := detectEOLStyle(text); style != "\n" {
+			appendContent = adaptEOLToStyle(appendContent, style)
+		}
 	}
 
-	count := strings.Count(contentStr, oldText)
-	if count > 1 {
-		return nil, fmt.Errorf("old_text appears %d times. Please provide more context to make it unique", count)
+	encoded, err := encodeText(text+appendContent, enc)
+	if err != nil {
+		return err
 	}
-
-	newContent := strings.Replace(contentStr, oldText, newText, 1)
-	return []byte(newContent), nil
+	return sysFs.WriteFile(path, encoded)
 }

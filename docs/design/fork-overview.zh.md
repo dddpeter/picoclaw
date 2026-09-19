@@ -26,6 +26,7 @@
 | 配置模板兼容（_comment + api_key 别名） | `<2026-09-14>` | `pkg/config/diagnostics.go`、`pkg/config/config.go`（四搜索 provider）、`config/config.example.json` | 本文 §5、同步注意事项 |
 | 长任务执行优化四件套 | `<2026-09-18>` | `pkg/tools/shell.go`、`pkg/agent/agent.go`（runAgentLoop 续段）、`pkg/agent/restart_recovery.go`、`pkg/agent/progress_heartbeat.go` | `docs/design/long-task-execution.zh.md`、本文 §12 |
 | 长任务第二批改进 | `<2026-09-18 晚>` | 同上 + `pkg/channels/feishu/feishu_stream_card.go`（面板 header 续段标识） | 同上 §8.2（第二批：多代理扫描/心跳节流+降级/续段标识/默认超时 120s） |
+| 文件工具 Windows 兼容性 | `<本次>` | `pkg/tools/fs/text_compat.go`、`pkg/tools/fs/encoding.go`、`pkg/tools/fs/windows_names_*.go`、`pkg/fileutil/rename*.go` | 本文 §13 |
 
 ## 1. 飞书 CardKit v2 流式卡片
 
@@ -195,9 +196,23 @@
 | 网关重启 | 悬空 tool_calls 致下次请求 400，用户无感 | 封口 + 窗口内通知 + 重提醒，回复「继续」即恢复 |
 | 长静默期间 | 卡片 running 条目静止，无法分辨在干活/卡死 | 闲置 3 分钟发进度归档步骤，兼作流式卡保活 |
 
+## 13. 文件工具 Windows 兼容性（换行符/编码/路径名/原子写）
+
+面向 Windows 开发机（D:\code 工作流）的文件工具兼容性五件套，全部为 fork 行为：
+
+- **换行符容错编辑**（`pkg/tools/fs/text_compat.go`）：`edit_file` 的 `old_text` 匹配三级降级——字节精确 → 去除 UTF-8 BOM 后精确 → 行尾归一化匹配（`
+` 与 `
+`/孤立 `` 等价，带归一化偏移映射回原文字节位置）；单行 needle 永不跨 CR 误匹配，归一化空间计歧义（多次匹配仍报错）。替换文本自动改写为文件的主导 EOL 风格（`detectEOLStyle`），编辑永不引入混合换行；LF 文件保持旧字节级语义。
+- **append_file 风格跟随**：向 CRLF/CR 文件追加的内容改写为该文件的 EOL 风格，杜绝同文件混合换行；LF 文件逐字节不动。
+- **编码检测与保编码回写**（`pkg/tools/fs/encoding.go`）：`decodeText`/`encodeText` 支持 UTF-8、UTF-8 BOM、GB18030（GBK 中文 Windows 常见）；edit/append 在解码后的文本空间操作再按原编码写回，**GBK 文件编辑后仍是 GBK**，不静默转码。NUL 字节视为二进制信号绝不转码。`read_file`（行模式，agent 默认读工具）对 ≤8MB 文件整读解码，非 UTF-8 时输出转 UTF-8 并在 header 标注 `encoding: gb18030` / `utf-8 (BOM)`；行输出剥离尾部 ``（CRLF 文件不再向模型泄漏裸 CR）。`golang.org/x/text` 因此从 indirect 转为直接依赖。
+- **Windows 路径名校验**（`pkg/tools/fs/windows_names_windows.go` / `_other.go`，build tag 双实现）：写路径拒绝保留设备名（CON/NUL/COM1-9/LPT1-9，含带扩展名形式）、尾点/尾空格（Win32 会静默剥除导致文件落在别名下）、非法字符 `<>:"|?*` 与 NTFS 备用数据流（`file.txt:ads`）；读路径拒绝保留名（打开 CON 可能挂起）。clear error 让模型立即换名，不进重试循环。新版 Win11 已放开部分保留名创建，仍保留校验以兼容旧版 Windows 与工具链。
+- **原子写 Windows 加固**（`pkg/fileutil/rename*.go` + `file.go`）：`WithTransientRenameRetry` 对 sharing/lock/access-denied 瞬态错误做指数退避重试（杀软/索引器扫描窗口）；进程内 rename 互斥串行化（并发替换同一目标会互相推进 delete-pending 窗口，Windows 报 Access denied）；临时文件名加原子计数器（Windows 时钟粒度粗，pid+UnixNano 高并发必碰撞）。`WriteFileTool` 的存在性探测句柄补 Close（原泄漏靠 GC finalizer，Windows 上会阻塞后续 rename/删除）。
+- 测试锚点：`TestReplaceEditContent_*`（归一化匹配/歧义/CR 文件）、`TestEditFileTool_CRLFFile_MatchesLFNeedle`、`TestEditFileTool_PreservesGB18030Encoding`、`TestAppendFileTool_CRLFFileAdaptsAppendedEOLs`、`TestReadFileLinesTool_{CRLFStrippedFromOutput,GB18030Decoded,UTF8BOMStripped}`、`TestValidateWritePath_*`、`TestWithTransientRenameRetry_*`（Windows-only）。
+
 ## 同步上游注意事项
 
 
+- 文件工具 Windows 兼容性五件套（§13）：`pkg/tools/fs/` 的 `text_compat.go`、`encoding.go`、`windows_names_*.go`，`pkg/fileutil/` 的 `rename*.go` 与临时名计数器、`WriteFileTool` 探测句柄 Close——均为 fork 行为，上游同步时保留 fork 语义；§13 测试锚点必须全过。
 - 主要冲突面：`pkg/commands/`、`pkg/agent/pipeline_execute.go`、`pkg/agent/agent_command.go`（/learn 拦截 + /cron Runtime 回调）、`pkg/tools/shell.go`、`pkg/tools/cron.go`（§11 script/蓝图/建议动作）、`pkg/channels/feishu/`、`pkg/config/config.go`（AgentDefaults + EvolutionConfig.SuggestionsEnabled）、`pkg/skills/loader.go`（§10 五级根目录）、`web/frontend/src/index.css`（§8 主题）、`web/frontend/src/hooks/use-theme.ts`、`web/frontend/src/components/theme-switcher.tsx`、`web/frontend/index.html`（防闪烁脚本）。
 - `pkg/providers/openai_compat/provider.go` 的流式超时如与上游改动冲突，保留 `streamRoundTripper` 语义优先。
 - `pkg/config/config.go` 的 `ModelStreamingConfig.Enabled` 是 `*bool`（nil=开启，fork 默认开流式）；上游若改回值 bool，同步时保留 `*bool` + `EffectiveEnabled()` 语义，消费点走 `EffectiveEnabled()` 而非直接读字段。`defaults.go` 里 feishu 渠道出厂带 `streaming.enabled: true`。
