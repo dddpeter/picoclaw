@@ -39,7 +39,7 @@ type recoveryReminder struct {
 	interval   time.Duration
 	max        int
 	nextAt     time.Time // guarded by mu
-	sent       int      // guarded by mu
+	sent       int       // guarded by mu
 }
 
 func (r *recoveryReminder) due(now time.Time) bool {

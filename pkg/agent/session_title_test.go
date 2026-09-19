@@ -19,10 +19,10 @@ func newTitleTestAgent(t *testing.T) (*AgentLoop, *AgentInstance, session.Sessio
 	backend := session.NewJSONLBackend(store)
 	al := &AgentLoop{}
 	agent := &AgentInstance{
-		Sessions:     backend,
-		Provider:     &mockProvider{},
+		Sessions:      backend,
+		Provider:      &mockProvider{},
 		LightProvider: &mockProvider{}, // upgrades only run on the light model
-		Model:        "mock-model",
+		Model:         "mock-model",
 	}
 	return al, agent, backend
 }
@@ -68,7 +68,7 @@ func TestMaybeTitleSessionWithoutLightModelKeepsDerived(t *testing.T) {
 
 func titleOpts(sessionKey, senderID, userMsg string) *processOptions {
 	return &processOptions{
-		SenderID: senderID,
+		SenderID:    senderID,
 		UserMessage: userMsg,
 		Dispatch: DispatchRequest{
 			SessionKey:  sessionKey,
@@ -94,13 +94,13 @@ func waitForTitleSource(t *testing.T, store session.SessionStore, key, wantSourc
 
 func TestDeriveSessionTitle(t *testing.T) {
 	cases := map[string]struct{ in, want string }{
-		"plain":           {"帮我看下网关日志", "帮我看下网关日志"},
-		"collapse lines":  {"第一行\n第二行\t第三行", "第一行 第二行 第三行"},
-		"strip quotes":    {"\"部署脚本\"", "部署脚本"},
+		"plain":          {"帮我看下网关日志", "帮我看下网关日志"},
+		"collapse lines": {"第一行\n第二行\t第三行", "第一行 第二行 第三行"},
+		"strip quotes":   {"\"部署脚本\"", "部署脚本"},
 		"strip zero宽":    {"​标题​", "标题"},
-		"trim space":      {"   spaces   ", "spaces"},
-		"empty":           {"   ", ""},
-		"only quotes":     {`"  "`, ""},
+		"trim space":     {"   spaces   ", "spaces"},
+		"empty":          {"   ", ""},
+		"only quotes":    {`"  "`, ""},
 	}
 	for name, tc := range cases {
 		if got := deriveSessionTitle(tc.in); got != tc.want {

@@ -240,7 +240,6 @@ func TestRunRestartRecovery_ReminderStopsAfterMax(t *testing.T) {
 	}
 }
 
-
 func TestRunRestartRecovery_ScansAllAgents(t *testing.T) {
 	wsMain, wsHelper := t.TempDir(), t.TempDir()
 	cfg := &config.Config{

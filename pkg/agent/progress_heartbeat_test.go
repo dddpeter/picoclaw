@@ -16,9 +16,9 @@ type heartbeatRecorder struct {
 	steps []bus.ToolStep
 }
 
-func (r *heartbeatRecorder) Update(ctx context.Context, content string) error  { return nil }
+func (r *heartbeatRecorder) Update(ctx context.Context, content string) error   { return nil }
 func (r *heartbeatRecorder) Finalize(ctx context.Context, content string) error { return nil }
-func (r *heartbeatRecorder) Cancel(ctx context.Context)                          {}
+func (r *heartbeatRecorder) Cancel(ctx context.Context)                         {}
 
 func (r *heartbeatRecorder) AppendToolStep(ctx context.Context, step bus.ToolStep) error {
 	r.steps = append(r.steps, step)
@@ -173,8 +173,8 @@ func TestProgressHeartbeat_OutboundFallbackWithoutStreamer(t *testing.T) {
 	agent := al.GetRegistry().GetDefaultAgent()
 	ts := newTurnState(agent, processOptions{
 		Dispatch: DispatchRequest{
-			SessionKey:   "s",
-			UserMessage:  "hi",
+			SessionKey:     "s",
+			UserMessage:    "hi",
 			InboundContext: &bus.InboundContext{Channel: "test", ChatID: "chat9", ChatType: "direct", SenderID: "u1"},
 		},
 	}, turnEventScope{turnID: "t9"})

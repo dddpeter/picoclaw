@@ -160,7 +160,7 @@ func TestPreOutputFailureFinalizeFailDeliversPlainText(t *testing.T) {
 	streamer := &failingFinalizeStreamer{err: errors.New("card api down")}
 	msgBus.SetStreamDelegate(configuredStreamingDelegate{streamer: streamer})
 	provider := &configuredStreamingProvider{
-		eventPlan:   []configuredStreamingEventCall{{err: errors.New("Status: 429")}},
+		eventPlan:    []configuredStreamingEventCall{{err: errors.New("Status: 429")}},
 		chatResponse: &providers.LLMResponse{Content: "chain answer"},
 	}
 	al := NewAgentLoop(cfg, msgBus, provider)

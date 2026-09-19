@@ -328,13 +328,13 @@ func TestConfiguredStreamingEligibilityGates(t *testing.T) {
 		{
 			// Fork default-on: a model entry that omits the streaming block
 			// (nil *bool) streams as long as the channel switch is on.
-			name:              "model omitted still streams",
-			channel:           "pico",
-			channelStreaming:  true,
+			name:               "model omitted still streams",
+			channel:            "pico",
+			channelStreaming:   true,
 			modelStreamingOmit: true,
-			streamingProvider: true,
-			streamDelegate:    true,
-			wantStreamCalls:   1,
+			streamingProvider:  true,
+			streamDelegate:     true,
+			wantStreamCalls:    1,
 		},
 		{
 			name:             "provider without streaming uses chat",

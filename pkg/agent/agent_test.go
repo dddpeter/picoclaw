@@ -1576,13 +1576,16 @@ func TestApplyExplicitSkillCommand_ArmsSkillForNextMessage(t *testing.T) {
 	if !handled {
 		t.Fatal("expected /use without inline message to be handled immediately")
 	}
-	if !strings.Contains(reply, `Skill "finance-news" is armed for your next message`) {
+	// The catalog name derives from the skill's heading ("Finance News");
+	// /use matched it via the directory-name fallback.
+	if !strings.Contains(reply, `is armed for your next message`) ||
+		!strings.Contains(reply, "Finance News") {
 		t.Fatalf("unexpected reply: %q", reply)
 	}
 
 	pending := al.takePendingSkills(opts.SessionKey)
-	if len(pending) != 1 || pending[0] != "finance-news" {
-		t.Fatalf("pending skills = %#v, want [finance-news]", pending)
+	if len(pending) != 1 || pending[0] != "Finance News" {
+		t.Fatalf("pending skills = %#v, want [Finance News] // resolved catalog name (dir-name fallback)", pending)
 	}
 }
 
@@ -1623,8 +1626,8 @@ func TestApplyExplicitSkillCommand_InlineMessageMutatesOptions(t *testing.T) {
 	if opts.UserMessage != "dammi le ultime news" {
 		t.Fatalf("opts.UserMessage = %q, want %q", opts.UserMessage, "dammi le ultime news")
 	}
-	if len(opts.ForcedSkills) != 1 || opts.ForcedSkills[0] != "finance-news" {
-		t.Fatalf("opts.ForcedSkills = %#v, want [finance-news]", opts.ForcedSkills)
+	if len(opts.ForcedSkills) != 1 || opts.ForcedSkills[0] != "Finance News" {
+		t.Fatalf("opts.ForcedSkills = %#v, want [Finance News] // resolved catalog name (dir-name fallback)", opts.ForcedSkills)
 	}
 }
 
@@ -8047,10 +8050,10 @@ func TestRunAgentLoop_AutoContinueDisabledByZero(t *testing.T) {
 // segment 1 it claims the session with a foreign turnState, exactly like a
 // user message winning the auto-continue segment gap would.
 type gapClaimProvider struct {
-	al        *AgentLoop
+	al         *AgentLoop
 	sessionKey string
-	claimed   atomic.Bool
-	calls     int
+	claimed    atomic.Bool
+	calls      int
 }
 
 func (m *gapClaimProvider) Chat(

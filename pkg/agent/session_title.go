@@ -45,7 +45,7 @@ const (
 	llmTitleMaxRunes = 32
 	// titleModelMaxTokens bounds the light-model call.
 	titleModelMaxTokens = 96
-	titleModelTimeout  = 30 * time.Second
+	titleModelTimeout   = 30 * time.Second
 )
 
 // machineTitlePrefixes are opening-message shapes that must never become

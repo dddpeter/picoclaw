@@ -49,16 +49,82 @@ func TestSkillsInfoValidate(t *testing.T) {
 		{
 			name:        "name-with-spaces",
 			skillName:   "skill with spaces",
-			description: "invalid name with spaces",
-			wantErr:     true,
-			errContains: []string{"name must be alphanumeric with hyphens"},
+			description: "spaces are allowed in skill names",
+			wantErr:     false,
 		},
 		{
 			name:        "name-with-underscore",
 			skillName:   "skill_underscore",
-			description: "invalid name with underscore",
+			description: "underscores are allowed in skill names",
+			wantErr:     false,
+		},
+		{
+			name:        "name-with-cjk",
+			skillName:   "SVG绘图工作台-智能生图",
+			description: "unicode letters are allowed",
+			wantErr:     false,
+		},
+		{
+			name:        "name-with-parens",
+			skillName:   "Proactivity (Proactive Agent)",
+			description: "parens and spaces are allowed",
+			wantErr:     false,
+		},
+		{
+			name:        "name-with-path-separator",
+			skillName:   "skill/sub",
+			description: "path separators are invalid",
 			wantErr:     true,
-			errContains: []string{"name must be alphanumeric with hyphens"},
+			errContains: []string{"skill name is invalid"},
+		},
+		{
+			name:        "name-with-backslash",
+			skillName:   `skill\sub`,
+			description: "backslashes are invalid",
+			wantErr:     true,
+			errContains: []string{"skill name is invalid"},
+		},
+		{
+			name:        "name-with-dotdot",
+			skillName:   "skill..bad",
+			description: "traversal sequences are invalid",
+			wantErr:     true,
+			errContains: []string{"skill name is invalid"},
+		},
+		{
+			name:        "name-with-question-mark",
+			skillName:   "bad?name",
+			description: "windows-forbidden runes are invalid",
+			wantErr:     true,
+			errContains: []string{`must not contain "?"`},
+		},
+		{
+			name:        "name-windows-reserved",
+			skillName:   "con",
+			description: "windows device names are invalid",
+			wantErr:     true,
+			errContains: []string{"reserved device name"},
+		},
+		{
+			name:        "name-leading-dot",
+			skillName:   ".hidden",
+			description: "names must not start with a dot",
+			wantErr:     true,
+			errContains: []string{"must not start with a dot"},
+		},
+		{
+			name:        "name-trailing-dot",
+			skillName:   "bad.",
+			description: "names must not end with a dot",
+			wantErr:     true,
+			errContains: []string{"must not end with a dot or space"},
+		},
+		{
+			name:        "name-with-control-char",
+			skillName:   "bad\tname",
+			description: "control characters are invalid",
+			wantErr:     true,
+			errContains: []string{"control characters"},
 		},
 	}
 
@@ -227,16 +293,64 @@ func TestListSkillsInvalidSkillSkipped(t *testing.T) {
 	ws := filepath.Join(tmp, "workspace")
 	global := filepath.Join(tmp, "global")
 
-	// Invalid name (underscore)
-	createSkillDir(t, filepath.Join(ws, "skills"), "bad_skill", "bad_skill", "desc")
+	// Invalid name (path separator is always rejected)
+	bad := filepath.Join(ws, "skills", "bad_name")
+	require.NoError(t, os.MkdirAll(bad, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(bad, "SKILL.md"), []byte(
+		"---\nname: bad/name\ndescription: desc\n---\n\n# bad"), 0o644))
 	// Valid skill
 	createSkillDir(t, global, "good-skill", "good-skill", "desc")
 
 	sl := NewSkillsLoader(ws, global, "")
 	skills := sl.ListSkills()
 
-	assert.Len(t, skills, 1)
-	assert.Equal(t, "good-skill", skills[0].Name)
+	// 2026-09-19 semantics change: an invalid declared name no longer drops
+	// the skill — it falls back to the directory basename (special-character
+	// support), so the workspace skill survives under "bad_name".
+	require.Len(t, skills, 2)
+	names := []string{skills[0].Name, skills[1].Name}
+	assert.Contains(t, names, "good-skill")
+	assert.Contains(t, names, "bad_name")
+}
+
+func TestListSkillsNestedDirs(t *testing.T) {
+	tmp := t.TempDir()
+	ws := filepath.Join(tmp, "workspace")
+
+	// Namespace-style nesting: skills/@ns/slug/SKILL.md
+	createSkillDir(t, filepath.Join(ws, "skills", "@ns"), "slug", "nested-skill", "nested skill")
+	// Deeper nesting without SKILL.md in intermediate dirs
+	createSkillDir(t, filepath.Join(ws, "skills", "group", "vendor"), "deep-skill", "deep-skill", "deep skill")
+	// Flat skill still works
+	createSkillDir(t, filepath.Join(ws, "skills"), "flat-skill", "flat-skill", "flat skill")
+
+	sl := NewSkillsLoader(ws, "", "")
+	skills := sl.ListSkills()
+	require.Len(t, skills, 3)
+
+	byName := map[string]SkillInfo{}
+	for _, s := range skills {
+		byName[s.Name] = s
+	}
+	assert.Contains(t, byName, "nested-skill")
+	assert.Contains(t, byName, "deep-skill")
+	assert.Contains(t, byName, "flat-skill")
+
+	content, ok := sl.LoadSkill("nested-skill")
+	require.True(t, ok, "nested skill must load even though dir basename != name")
+	assert.Contains(t, content, "# nested-skill")
+
+	// No SKILL.md in intermediate directories must not swallow nested skills.
+	hiddenRoot := filepath.Join(ws, "skills", ".hidden")
+	createSkillDir(t, hiddenRoot, "inside-hidden", "inside-hidden", "hidden desc")
+	sl2 := NewSkillsLoader(ws, "", "")
+	assert.NotContains(t, func() []string {
+		var names []string
+		for _, s := range sl2.ListSkills() {
+			names = append(names, s.Name)
+		}
+		return names
+	}(), "inside-hidden", "skills under hidden dirs must be skipped")
 }
 
 func TestListSkillsEmptyAndNonexistentDirs(t *testing.T) {
@@ -464,7 +578,8 @@ func TestGetSkillMetadata_UsesMarkdownParagraphWhenNoFrontmatter(t *testing.T) {
 	sl := &SkillsLoader{}
 	meta := sl.getSkillMetadata(filepath.Join(skillDir, "SKILL.md"))
 	require.NotNil(t, meta)
-	assert.Equal(t, "plain-skill", meta.Name)
+	// The H1 is a valid skill name now, so it wins over the directory name.
+	assert.Equal(t, "Plain Skill", meta.Name)
 	assert.Equal(t, "This is parsed from markdown paragraph.", meta.Description)
 }
 
@@ -503,7 +618,7 @@ func TestGetSkillMetadata_InvalidHeadingNameFallsBackToDirName(t *testing.T) {
 	skillDir := filepath.Join(tmp, "workspace", "skills", "valid-name")
 	require.NoError(t, os.MkdirAll(skillDir, 0o755))
 
-	content := "# Invalid Heading Name\n\nBody description.\n"
+	content := "# Invalid?Heading Name\n\nBody description.\n" // "?" is a Windows-forbidden rune
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(content), 0o644))
 
 	sl := &SkillsLoader{}
@@ -524,6 +639,77 @@ func TestGetSkillMetadata_IgnoresHTMLCommentBlocks(t *testing.T) {
 	sl := &SkillsLoader{}
 	meta := sl.getSkillMetadata(filepath.Join(skillDir, "SKILL.md"))
 	require.NotNil(t, meta)
-	assert.Equal(t, "biomed-skill", meta.Name)
+	// The HTML comment is ignored; the real H1 "Biomed Skill" is a valid
+	// name now (spaces allowed), so it wins over the directory basename.
+	assert.Equal(t, "Biomed Skill", meta.Name)
 	assert.Equal(t, "Summarize biomedical papers.", meta.Description)
+}
+
+// TestListSkills_DeepNestingAndSymlinkedDirs verifies discovery beyond the
+// old depth-4 limit and through directory symlinks (npm-style installs).
+func TestListSkills_DeepNestingAndSymlinkedDirs(t *testing.T) {
+	root := t.TempDir()
+	// 6 levels deep — old limit was 4.
+	deep := filepath.Join(root, "l1", "l2", "l3", "l4", "deep-skill")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(deep, "SKILL.md"), []byte("---\nname: deep-skill\ndescription: d\n---\nbody"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Symlinked skill dir (skip when the platform/privilege denies it).
+	linkTarget := filepath.Join(root, "real-skill")
+	if err := os.MkdirAll(linkTarget, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(linkTarget, "SKILL.md"), []byte("---\nname: linked-skill\ndescription: d\n---\nbody"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "linked-skill")
+	if err := os.Symlink(linkTarget, link); err != nil {
+		t.Logf("symlink unavailable on this host (%v); skipping symlink part", err)
+	} else {
+		t.Cleanup(func() { _ = os.Remove(link) })
+	}
+
+	sl := NewSkillsLoaderFromRoots(root, []SkillRoot{{Dir: root, Source: "workspace"}})
+	found := map[string]bool{}
+	for _, s := range sl.ListSkills() {
+		found[s.Name] = true
+	}
+	if !found["deep-skill"] {
+		t.Fatalf("deep-nested skill not discovered: %v", found)
+	}
+	if _, statErr := os.Lstat(link); statErr == nil && !found["linked-skill"] {
+		t.Fatalf("symlinked skill dir not discovered: %v", found)
+	}
+}
+
+// TestListSkills_SpecialCharFrontmatterNameFallsBack pins that a frontmatter
+// name failing validation (exotic runes) no longer drops the skill: the
+// directory basename is used instead.
+func TestListSkills_SpecialCharFrontmatterNameFallsBack(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "ok-dir")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// "what? really" contains a Windows-forbidden rune → validation fails.
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"),
+		[]byte("---\nname: what? really\ndescription: d\n---\nbody"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sl := NewSkillsLoaderFromRoots(root, []SkillRoot{{Dir: root, Source: "workspace"}})
+	skills := sl.ListSkills()
+	if len(skills) != 1 {
+		t.Fatalf("skills = %d, want 1 (fallback keeps the skill)", len(skills))
+	}
+	if skills[0].Name != "ok-dir" {
+		t.Fatalf("fallback name = %q, want directory basename", skills[0].Name)
+	}
+	if _, ok := sl.LoadSkill("ok-dir"); !ok {
+		t.Fatal("fallback skill must be loadable")
+	}
 }

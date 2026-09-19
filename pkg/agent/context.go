@@ -1347,6 +1347,14 @@ func (cb *ContextBuilder) ResolveSkillName(name string) (string, bool) {
 			return skill.Name, true
 		}
 	}
+	// Directory-name fallback: /use <dirname> keeps working when the catalog
+	// name comes from frontmatter/heading and differs from the skill's
+	// directory (e.g. "finance-news" vs "Finance News").
+	for _, skill := range cb.skillsLoader.ListSkills() {
+		if strings.EqualFold(filepath.Base(filepath.Dir(skill.Path)), name) {
+			return skill.Name, true
+		}
+	}
 
 	return "", false
 }

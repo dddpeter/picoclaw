@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -18,8 +18,6 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/logger"
 )
-
-var namePattern = regexp.MustCompile(`^[a-zA-Z0-9]+(-[a-zA-Z0-9]+)*$`)
 
 const (
 	MaxNameLength        = 64
@@ -148,21 +146,78 @@ func (sl *SkillsLoader) ListSkills() []SkillInfo {
 	skills := make([]SkillInfo, 0)
 	seen := make(map[string]bool)
 
-	for _, root := range sl.roots {
-		dirs, err := os.ReadDir(root.Dir)
-		if err != nil {
-			continue
+	// discoverSkillDirs walks root recursively (bounded depth) collecting
+	// directories that contain a SKILL.md. Directories without SKILL.md are
+	// descended into (namespace nesting like skills/@ns/slug/), hidden dirs
+	// (leading dot) are skipped. Once a SKILL.md is found the dir is treated
+	// as a skill root; its children are skill resources, not skills.
+	discoverSkillDirs := func(root string) []string {
+		var found []string
+		// Depth 8 (was 4): package-manager installs nest deeply
+		// (@ns/category/skill/SKILL.md plus version dirs). pi recurses
+		// without a limit; 8 covers every layout seen in the wild while
+		// still bounding cycles.
+		const maxDepth = 8
+		visited := make(map[string]bool)
+		var walk func(dir string, depth int)
+		walk = func(dir string, depth int) {
+			if depth > maxDepth {
+				return
+			}
+			real, err := filepath.EvalSymlinks(dir)
+			if err != nil {
+				return
+			}
+			if visited[real] {
+				return // symlink cycle guard
+			}
+			visited[real] = true
+			entries, err := os.ReadDir(real)
+			if err != nil {
+				return
+			}
+			hasSkillMD := false
+			subdirs := make([]string, 0, len(entries))
+			for _, e := range entries {
+				if e.IsDir() {
+					if strings.HasPrefix(e.Name(), ".") || e.Name() == "node_modules" {
+						continue
+					}
+					subdirs = append(subdirs, filepath.Join(dir, e.Name()))
+					continue
+				}
+				// Directory SYMLINKS (npm/junction installs) read as
+				// non-dir entries — resolve and descend when they point
+				// at directories (pi follows symlinks; picoclaw used to
+				// skip them silently).
+				if e.Type()&fs.ModeSymlink != 0 {
+					target, err := os.Stat(filepath.Join(dir, e.Name()))
+					if err == nil && target.IsDir() && !strings.HasPrefix(e.Name(), ".") {
+						subdirs = append(subdirs, filepath.Join(dir, e.Name()))
+					}
+					continue
+				}
+				if e.Name() == "SKILL.md" {
+					hasSkillMD = true
+				}
+			}
+			if hasSkillMD {
+				found = append(found, dir)
+				return
+			}
+			for _, sub := range subdirs {
+				walk(sub, depth+1)
+			}
 		}
-		for _, d := range dirs {
-			if !d.IsDir() {
-				continue
-			}
-			skillFile := filepath.Join(root.Dir, d.Name(), "SKILL.md")
-			if _, err := os.Stat(skillFile); err != nil {
-				continue
-			}
+		walk(root, 0)
+		return found
+	}
+
+	for _, root := range sl.roots {
+		for _, dir := range discoverSkillDirs(root.Dir) {
+			skillFile := filepath.Join(dir, "SKILL.md")
 			info := SkillInfo{
-				Name:   d.Name(),
+				Name:   filepath.Base(dir),
 				Path:   skillFile,
 				Source: root.Source,
 			}
@@ -173,8 +228,19 @@ func (sl *SkillsLoader) ListSkills() []SkillInfo {
 				info.DisableModelInvocation = metadata.DisableModelInvocation
 			}
 			if err := info.validate(); err != nil {
-				slog.Warn("invalid skill from "+root.Source, "name", info.Name, "error", err)
-				continue
+				// A frontmatter name that fails validation (e.g. exotic
+				// runes) used to drop the whole skill. Fall back to the
+				// directory basename — a valid directory name by
+				// construction — so the skill stays loadable (special
+				// characters support).
+				declaredName := info.Name
+				info.Name = filepath.Base(dir)
+				if err2 := info.validate(); err2 != nil {
+					slog.Warn("invalid skill from "+root.Source, "name", info.Name, "error", err2)
+					continue
+				}
+				slog.Warn("skill frontmatter name rejected, using directory name",
+					"declared", declaredName, "fallback", info.Name, "error", err)
 			}
 			if seen[info.Name] {
 				continue
@@ -192,9 +258,22 @@ func (sl *SkillsLoader) LoadSkill(name string) (string, bool) {
 		return "", false
 	}
 
+	// Fast path: <root>/<name>/SKILL.md (flat layout, name == directory).
 	for _, root := range sl.roots {
 		skillFile := filepath.Join(root.Dir, name, "SKILL.md")
 		if content, err := os.ReadFile(skillFile); err == nil {
+			return sl.stripFrontmatter(string(content)), true
+		}
+	}
+
+	// Slow path: nested layouts (e.g. skills/@ns/slug/SKILL.md) where the
+	// skill's directory basename differs from its metadata name. Fall back to
+	// a catalog scan and match by resolved skill name.
+	for _, skill := range sl.ListSkills() {
+		if skill.Name != name || strings.TrimSpace(skill.Path) == "" {
+			continue
+		}
+		if content, err := os.ReadFile(skill.Path); err == nil {
 			return sl.stripFrontmatter(string(content)), true
 		}
 	}
@@ -283,7 +362,9 @@ func (sl *SkillsLoader) getSkillMetadata(skillPath string) *SkillMetadata {
 		Name:        dirName,
 		Description: bodyDescription,
 	}
-	if title != "" && namePattern.MatchString(title) && len(title) <= MaxNameLength {
+	// A markdown H1 can act as the display name when it is a valid skill
+	// name (not just a strict ASCII slug — Unicode titles are fine now).
+	if title != "" && ValidateSkillName(title) == nil && len(title) <= MaxNameLength {
 		metadata.Name = title
 	}
 
