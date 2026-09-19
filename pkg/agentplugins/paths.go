@@ -14,7 +14,14 @@ import (
 func Contains(root, candidate string) bool {
 	rootReal, err := resolveExisting(root)
 	if err != nil {
-		return false
+		// Root does not exist yet (e.g. PLUGIN_DATA created just before
+		// launch): fall back to lexical containment — no symlink can hide
+		// inside a nonexistent root.
+		rootAbs, aerr := filepath.Abs(root)
+		if aerr != nil {
+			return false
+		}
+		rootReal = rootAbs
 	}
 	rootNorm := normalizePath(rootReal)
 
