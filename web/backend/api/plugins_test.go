@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -27,10 +28,19 @@ func newPluginsTestServer(t *testing.T) (*http.ServeMux, string) {
 }
 
 // writeTestPlugin writes a minimal-but-complete plugin (manifest, one skill,
-// one stdio MCP server) into root/<name>.
+// one stdio MCP server) into root/<name> and returns its directory.
 func writeTestPlugin(t *testing.T, installRoot, name string) string {
 	t.Helper()
 	root := filepath.Join(installRoot, name)
+	writeTestPluginFiles(t, root, name)
+	return root
+}
+
+// writeTestPluginFiles writes the golden plugin files directly into dir
+// (manifest carries the given name; dir layout is flat).
+func writeTestPluginFiles(t *testing.T, dir, name string) {
+	t.Helper()
+	root := dir
 	if err := os.MkdirAll(filepath.Join(root, "skills", "alpha"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +57,6 @@ func writeTestPlugin(t *testing.T, installRoot, name string) string {
 	if err := os.WriteFile(filepath.Join(root, "skills", "alpha", "SKILL.md"), []byte(skill), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return root
 }
 
 func writeTestRegistry(t *testing.T, installRoot, body string) {
@@ -314,6 +323,160 @@ func TestPluginsRemove(t *testing.T) {
 		rec := doJSON(t, mux, http.MethodDelete, "/api/plugins/ghost", nil)
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("remove(unknown) status = %d, want 404", rec.Code)
+		}
+	})
+}
+
+func TestPluginsValidate(t *testing.T) {
+	mux, installRoot := newPluginsTestServer(t)
+	_ = installRoot
+
+	t.Run("golden dir passes", func(t *testing.T) {
+		src := writeTestPlugin(t, t.TempDir(), "golden")
+		rec := doJSON(t, mux, http.MethodPost, "/api/plugins/validate", map[string]string{"path": src})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+		}
+		var resp pluginReportResponse
+		decodeJSON(t, rec, &resp)
+		if !resp.OK || resp.Name != "golden" || resp.Skills != 1 || resp.MCPServers != 1 {
+			t.Errorf("resp = %+v", resp)
+		}
+	})
+
+	t.Run("bad plugin reports error", func(t *testing.T) {
+		dir := t.TempDir()
+		bad := `{"$schema":"` + agentplugins.ManifestSchemaURL + `","name":"Golden"}`
+		if err := os.WriteFile(filepath.Join(dir, "plugin.json"), []byte(bad), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rec := doJSON(t, mux, http.MethodPost, "/api/plugins/validate", map[string]string{"path": dir})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d", rec.Code)
+		}
+		var resp pluginReportResponse
+		decodeJSON(t, rec, &resp)
+		if resp.OK || resp.Error == "" {
+			t.Errorf("resp = %+v, want ok=false + error", resp)
+		}
+	})
+
+	t.Run("missing path is 400", func(t *testing.T) {
+		rec := doJSON(t, mux, http.MethodPost, "/api/plugins/validate", map[string]string{"path": filepath.Join(t.TempDir(), "nope")})
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want 400", rec.Code)
+		}
+	})
+}
+
+func TestPluginsInstall(t *testing.T) {
+	t.Run("local golden installs and registers", func(t *testing.T) {
+		mux, installRoot := newPluginsTestServer(t)
+		src := writeTestPlugin(t, t.TempDir(), "golden")
+
+		rec := doJSON(t, mux, http.MethodPost, "/api/plugins/install", map[string]string{"source": src})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+		}
+		var resp pluginReportResponse
+		decodeJSON(t, rec, &resp)
+		if !resp.OK || resp.Name != "golden" || resp.Target == "" || resp.Skills != 1 || resp.MCPServers != 1 {
+			t.Fatalf("resp = %+v", resp)
+		}
+		if want := filepath.Join(installRoot, "golden"); resp.Target != want {
+			t.Errorf("target = %q, want %q", resp.Target, want)
+		}
+		if _, err := os.Stat(filepath.Join(installRoot, "golden", "plugin.json")); err != nil {
+			t.Errorf("installed plugin.json missing: %v", err)
+		}
+		raw, _ := os.ReadFile(filepath.Join(installRoot, "registry.json"))
+		var reg map[string]struct {
+			Source string `json:"source"`
+			Ref    string `json:"ref"`
+		}
+		if err := json.Unmarshal(raw, &reg); err != nil {
+			t.Fatal(err)
+		}
+		if e, ok := reg["golden"]; !ok || e.Source != src {
+			t.Errorf("registry = %s", raw)
+		}
+	})
+
+	t.Run("existing target is refused", func(t *testing.T) {
+		mux, installRoot := newPluginsTestServer(t)
+		src := writeTestPlugin(t, t.TempDir(), "golden")
+		writeTestPlugin(t, installRoot, "golden")
+
+		rec := doJSON(t, mux, http.MethodPost, "/api/plugins/install", map[string]string{"source": src})
+		var resp pluginReportResponse
+		decodeJSON(t, rec, &resp)
+		if resp.OK || !strings.Contains(resp.Error, "remove") {
+			t.Errorf("resp = %+v, want ok=false + remove hint", resp)
+		}
+	})
+
+	t.Run("invalid source shape is 400", func(t *testing.T) {
+		mux, _ := newPluginsTestServer(t)
+		rec := doJSON(t, mux, http.MethodPost, "/api/plugins/install", map[string]string{"source": "ftp://example.com/plugin"})
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want 400", rec.Code)
+		}
+	})
+
+	t.Run("git file source installs", func(t *testing.T) {
+		if _, err := exec.LookPath("git"); err != nil {
+			t.Skip("git not available")
+		}
+		gitRoot := t.TempDir()
+		bare := filepath.Join(gitRoot, "bare.git")
+		work := filepath.Join(gitRoot, "work")
+		runGit := func(args ...string) error {
+			cmd := exec.Command("git", args...)
+			cmd.Dir = work
+			cmd.Env = append(os.Environ(),
+				"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Logf("git %v: %v: %s", args, err, out)
+			}
+			return err
+		}
+		if err := exec.Command("git", "init", "--bare", bare).Run(); err != nil {
+			t.Skipf("git init --bare failed: %v", err)
+		}
+		if err := os.MkdirAll(work, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for _, args := range [][]string{
+			{"init"}, {"checkout", "-b", "main"},
+		} {
+			if err := runGit(args...); err != nil {
+				t.Skipf("git setup failed: %v", err)
+			}
+		}
+		writeTestPluginFiles(t, work, "golden-git")
+		for _, args := range [][]string{
+			{"add", "-A"}, {"commit", "-m", "plugin"}, {"push", "file://" + filepath.ToSlash(bare), "main"},
+		} {
+			if err := runGit(args...); err != nil {
+				t.Skipf("git push failed: %v", err)
+			}
+		}
+
+		mux, installRoot := newPluginsTestServer(t)
+		rec := doJSON(t, mux, http.MethodPost, "/api/plugins/install", map[string]string{
+			"source": "file://" + filepath.ToSlash(bare), "ref": "main",
+		})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+		}
+		var resp pluginReportResponse
+		decodeJSON(t, rec, &resp)
+		if !resp.OK || resp.Name != "golden-git" {
+			t.Fatalf("resp = %+v", resp)
+		}
+		if _, err := os.Stat(filepath.Join(installRoot, "golden-git", "plugin.json")); err != nil {
+			t.Errorf("installed plugin.json missing: %v", err)
 		}
 	})
 }

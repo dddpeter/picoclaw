@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/agentplugins"
@@ -66,6 +67,8 @@ func (h *Handler) registerPluginRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/plugins", h.handleListPlugins)
 	mux.HandleFunc("PUT /api/plugins/{name}/enabled", h.handleSetPluginEnabled)
 	mux.HandleFunc("DELETE /api/plugins/{name}", h.handleRemovePlugin)
+	mux.HandleFunc("POST /api/plugins/validate", h.handleValidatePlugin)
+	mux.HandleFunc("POST /api/plugins/install", h.handleInstallPlugin)
 }
 
 // validatePluginNameSegment rejects path-traversal, reserved and
@@ -269,6 +272,147 @@ func (h *Handler) handleListPlugins(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// pluginReportResponse is the shared shape of validate/install results: the
+// load outcome plus diagnostics. Install success with a load failure keeps
+// OK=true and fills Error (same semantics as the CLI).
+type pluginReportResponse struct {
+	OK         bool     `json:"ok"`
+	Name       string   `json:"name,omitempty"`
+	Version    string   `json:"version,omitempty"`
+	Target     string   `json:"target,omitempty"`
+	Skills     int      `json:"skills"`
+	MCPServers int      `json:"mcpServers"`
+	Warnings   []string `json:"warnings,omitempty"`
+	Error      string   `json:"error,omitempty"`
+}
+
+// loadPluginForReport re-loads an installed plugin to fill a report response.
+func loadPluginForReport(target, dataRoot string) (*agentplugins.Plugin, error) {
+	var rep agentplugins.Report
+	m, err := agentplugins.LoadManifest(target, &rep)
+	if err != nil {
+		return nil, err
+	}
+	return agentplugins.LoadPlugin(target, filepath.Join(dataRoot, m.Name), true)
+}
+
+func reportFromPlugin(p *agentplugins.Plugin) pluginReportResponse {
+	resp := pluginReportResponse{OK: true, Name: p.Name, Version: p.Version, Skills: len(p.Skills), MCPServers: len(p.MCPServers)}
+	if p.Report != nil {
+		resp.Warnings = p.Report.Warnings
+	}
+	return resp
+}
+
+// handleValidatePlugin runs the full spec load path on a directory without
+// installing anything.
+//
+//	POST /api/plugins/validate  {"path": "..."}
+func (h *Handler) handleValidatePlugin(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path string `json:"path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Path == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		writeErrorf(w, "Request body must be {\"path\": string}")
+		return
+	}
+	if st, err := os.Stat(req.Path); err != nil || !st.IsDir() {
+		w.WriteHeader(http.StatusBadRequest)
+		writeErrorf(w, "Path %q is not an accessible directory", req.Path)
+		return
+	}
+	dataDir := filepath.Join(os.TempDir(), "picoclaw-plugin-validate", "data")
+	p, err := agentplugins.LoadPlugin(req.Path, dataDir, true)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(pluginReportResponse{OK: false, Error: err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(reportFromPlugin(p))
+}
+
+// handleInstallPlugin installs a plugin from a local directory or git URL and
+// registers it (install ⇒ enabled).
+//
+//	POST /api/plugins/install  {"source": "<path|git-url>", "ref": "<branch|tag>"}
+func (h *Handler) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Source string `json:"source"`
+		Ref    string `json:"ref"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Source == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		writeErrorf(w, "Request body must be {\"source\": string}")
+		return
+	}
+	installRoot, dataRoot, err := h.pluginsRoots()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		writeErrorf(w, "Failed to resolve plugin roots: %v", err)
+		return
+	}
+
+	h.pluginsMu.Lock()
+	defer h.pluginsMu.Unlock()
+
+	var target string
+	if st, statErr := os.Stat(req.Source); statErr == nil && st.IsDir() {
+		target, err = agentplugins.InstallFromLocal(req.Source, installRoot)
+	} else if strings.HasPrefix(req.Source, "https://") || strings.HasPrefix(req.Source, "git@") || strings.HasPrefix(req.Source, "file://") {
+		target, err = agentplugins.InstallFromGit(req.Source, req.Ref, installRoot)
+	} else {
+		w.WriteHeader(http.StatusBadRequest)
+		writeErrorf(w, "Source %q is neither an existing directory nor a git URL", req.Source)
+		return
+	}
+	if err != nil {
+		// Invalid source package / refused overwrite — a user-input problem.
+		w.WriteHeader(http.StatusBadRequest)
+		writeErrorf(w, "Install failed: %v", err)
+		return
+	}
+
+	// Register (install ⇒ enabled).
+	reg, regErr := agentplugins.LoadRegistry(filepath.Join(installRoot, agentplugins.RegistryFileName))
+	if regErr != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		writeErrorf(w, "Installed at %s, but the registry failed to load: %v", target, regErr)
+		return
+	}
+	var probe agentplugins.Report
+	m, mErr := agentplugins.LoadManifest(target, &probe)
+	if mErr != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		writeErrorf(w, "Installed at %s, but the manifest became unreadable: %v", target, mErr)
+		return
+	}
+	agentplugins.RegisterIn(reg, m.Name, m.Version, req.Source, req.Ref)
+	if err := reg.Save(); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		writeErrorf(w, "Installed at %s, but saving the registry failed: %v", target, err)
+		return
+	}
+
+	resp := pluginReportResponse{Target: target, Name: m.Name, Version: m.Version}
+	if p, loadErr := loadPluginForReport(target, dataRoot); loadErr != nil {
+		resp.OK = true
+		resp.Error = loadErr.Error()
+	} else {
+		resp.OK = true
+		resp.Name = p.Name
+		resp.Version = p.Version
+		resp.Skills = len(p.Skills)
+		resp.MCPServers = len(p.MCPServers)
+		if p.Report != nil {
+			resp.Warnings = p.Report.Warnings
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
 }
