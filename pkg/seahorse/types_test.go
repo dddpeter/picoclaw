@@ -38,9 +38,11 @@ func TestConstants(t *testing.T) {
 		t.Errorf("expected CondensedMinFanoutHard = 2, got %d", CondensedMinFanoutHard)
 	}
 
-	// Token targets
-	if LeafChunkTokens != 20000 {
-		t.Errorf("expected LeafChunkTokens = 20000, got %d", LeafChunkTokens)
+	// Token targets (option C: leaf chunks shrunk 20000 → 8000 to cut the
+	// per-call cost of end-of-turn compaction; pinned in
+	// short_constants_test.go TestLeafChunkTokensReduced)
+	if LeafChunkTokens != 8000 {
+		t.Errorf("expected LeafChunkTokens = 8000, got %d", LeafChunkTokens)
 	}
 	if LeafTargetTokens != 1200 {
 		t.Errorf("expected LeafTargetTokens = 1200, got %d", LeafTargetTokens)

@@ -16,11 +16,13 @@ const (
 	CondensedMinFanout     int = 4 // Min summaries per condensed
 	CondensedMinFanoutHard int = 2 // Min for forced compaction
 
-	// LeafChunkTokens is the token target.
-	LeafChunkTokens       int = 20000 // Max tokens per leaf chunk
-	LeafTargetTokens      int = 1200  // Target tokens for leaf summaries
-	CondensedTargetTokens int = 2000  // Target tokens for condensed summaries
-	MaxExpandTokens       int = 4000  // Token cap for expansion queries
+	// LeafChunkTokens is the token target. Kept modest (8000): each leaf
+	// chunk becomes one summarize LLM call, so chunk size directly sets the
+	// per-call cost of end-of-turn compaction.
+	LeafChunkTokens       int = 8000 // Max tokens per leaf chunk
+	LeafTargetTokens      int = 1200 // Target tokens for leaf summaries
+	CondensedTargetTokens int = 2000 // Target tokens for condensed summaries
+	MaxExpandTokens       int = 4000 // Token cap for expansion queries
 
 	// MaxCompactIterations caps CompactUntilUnder to prevent infinite loops.
 	// Each iteration reduces ~4x tokens via leaf (8:1) or condensed (4:1) compaction.

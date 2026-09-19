@@ -60,10 +60,10 @@ func (p *Pipeline) Finalize(
 		al.commitTurnMemory(ts.sessionKey, ts.userMessage, content)
 		ts.setPhase(TurnPhaseCompleted)
 		return turnResult{
-			finalContent: finalContent,
-			modelName:    exec.llmModelName,
-			status:       turnStatus,
-			followUps:    append([]bus.InboundMessage(nil), ts.followUps...),
+			finalContent:          finalContent,
+			modelName:             exec.llmModelName,
+			status:                turnStatus,
+			followUps:             append([]bus.InboundMessage(nil), ts.followUps...),
 			endedByIterationLimit: ts.iterationLimitHit(),
 		}, nil
 	}
@@ -94,15 +94,11 @@ func (p *Pipeline) Finalize(
 		}
 	}
 
+	// Post-turn compaction runs async after the response is published
+	// (option A): the previous synchronous Compact blocked finalize on a
+	// summarize LLM call (observed 10-30s+ per turn on long sessions).
 	if !ts.opts.NoHistory && ts.opts.EnableSummary {
-		al.contextManager.Compact(
-			turnCtx,
-			&CompactRequest{
-				SessionKey: ts.sessionKey,
-				Reason:     ContextCompressReasonSummarize,
-				Budget:     ts.agent.ContextWindow,
-			},
-		)
+		al.scheduleCompact(ts.sessionKey, ts.agent.ContextWindow, ts.opts)
 	}
 
 	contextUsage := computeContextUsage(ts.agent, ts.sessionKey)
@@ -131,10 +127,10 @@ func (p *Pipeline) Finalize(
 	}
 	ts.setPhase(TurnPhaseCompleted)
 	return turnResult{
-		finalContent: finalContent,
-		modelName:    exec.llmModelName,
-		status:       turnStatus,
-		followUps:    append([]bus.InboundMessage(nil), ts.followUps...),
+		finalContent:          finalContent,
+		modelName:             exec.llmModelName,
+		status:                turnStatus,
+		followUps:             append([]bus.InboundMessage(nil), ts.followUps...),
 		endedByIterationLimit: ts.iterationLimitHit(),
 	}, nil
 }

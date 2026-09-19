@@ -935,12 +935,9 @@ toolLoop:
 					})
 			}
 		}
+		// Async post-turn compaction (option A), same rationale as Finalize.
 		if !ts.opts.NoHistory && ts.opts.EnableSummary {
-			al.contextManager.Compact(turnCtx, &CompactRequest{
-				SessionKey: ts.sessionKey,
-				Reason:     ContextCompressReasonSummarize,
-				Budget:     ts.agent.ContextWindow,
-			})
+			al.scheduleCompact(ts.sessionKey, ts.agent.ContextWindow, ts.opts)
 		}
 		ts.setPhase(TurnPhaseCompleted)
 		ts.setFinalContent("")

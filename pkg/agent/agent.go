@@ -47,22 +47,23 @@ type AgentLoop struct {
 	hooks              *HookManager
 
 	// Runtime state
-	running         atomic.Bool
-	startedAt       time.Time // process-loop start, for /status uptime
-	contextManager  ContextManager
-	memoryCommitter *memoryCommitter
-	fallback        *providers.FallbackChain
-	channelManager  interfaces.ChannelManager
-	mediaStore      media.MediaStore
-	transcriber     asr.Transcriber
-	cmdRegistry     *commands.Registry
-	mcp             mcpRuntime
-	evolution       *evolutionBridge
-	hookRuntime     hookRuntime
-	steering        *steeringQueue
-	pendingSkills   sync.Map
-	pendingStops    sync.Map
-	mu              sync.RWMutex
+	running          atomic.Bool
+	startedAt        time.Time // process-loop start, for /status uptime
+	contextManager   ContextManager
+	memoryCommitter  *memoryCommitter
+	compactScheduler *compactScheduler
+	fallback         *providers.FallbackChain
+	channelManager   interfaces.ChannelManager
+	mediaStore       media.MediaStore
+	transcriber      asr.Transcriber
+	cmdRegistry      *commands.Registry
+	mcp              mcpRuntime
+	evolution        *evolutionBridge
+	hookRuntime      hookRuntime
+	steering         *steeringQueue
+	pendingSkills    sync.Map
+	pendingStops     sync.Map
+	mu               sync.RWMutex
 
 	// workerSem limits concurrent turn processing workers.
 	workerSem chan struct{}
@@ -347,6 +348,10 @@ func (al *AgentLoop) Close() {
 	// Drain in-flight memory commits first: they call into the MCP manager
 	// closed just below, and losing them on shutdown was silent.
 	al.memoryCommitter.Drain(memoryCommitDrainTimeout)
+
+	// Drain in-flight async compactions: they write to the seahorse engine
+	// whose DB should not be torn down underneath a running summarize call.
+	al.drainCompact(compactDrainTimeout)
 
 	mcpManager := al.mcp.takeManager()
 

@@ -26,7 +26,8 @@
 | 配置模板兼容（_comment + api_key 别名） | `<2026-09-14>` | `pkg/config/diagnostics.go`、`pkg/config/config.go`（四搜索 provider）、`config/config.example.json` | 本文 §5、同步注意事项 |
 | 长任务执行优化四件套 | `<2026-09-18>` | `pkg/tools/shell.go`、`pkg/agent/agent.go`（runAgentLoop 续段）、`pkg/agent/restart_recovery.go`、`pkg/agent/progress_heartbeat.go` | `docs/design/long-task-execution.zh.md`、本文 §12 |
 | 长任务第二批改进 | `<2026-09-18 晚>` | 同上 + `pkg/channels/feishu/feishu_stream_card.go`（面板 header 续段标识） | 同上 §8.2（第二批：多代理扫描/心跳节流+降级/续段标识/默认超时 120s） |
-| 文件工具 Windows 兼容性 | `<本次>` | `pkg/tools/fs/text_compat.go`、`pkg/tools/fs/encoding.go`、`pkg/tools/fs/windows_names_*.go`、`pkg/fileutil/rename*.go` | 本文 §13 |
+| 文件工具 Windows 兼容性 | `<2026-09-19>` | `pkg/tools/fs/text_compat.go`、`pkg/tools/fs/encoding.go`、`pkg/tools/fs/windows_names_*.go`、`pkg/fileutil/rename*.go` | 本文 §13 |
+| 回合尾压缩异步化（A+C） | `<2026-09-19>` | `pkg/agent/compact_schedule.go`、`pkg/agent/pipeline_finalize.go`、`pkg/agent/pipeline_execute.go`、`pkg/seahorse/short_constants.go` | 本文 §14 |
 
 ## 1. 飞书 CardKit v2 流式卡片
 
@@ -209,9 +210,21 @@
 - **原子写 Windows 加固**（`pkg/fileutil/rename*.go` + `file.go`）：`WithTransientRenameRetry` 对 sharing/lock/access-denied 瞬态错误做指数退避重试（杀软/索引器扫描窗口）；进程内 rename 互斥串行化（并发替换同一目标会互相推进 delete-pending 窗口，Windows 报 Access denied）；临时文件名加原子计数器（Windows 时钟粒度粗，pid+UnixNano 高并发必碰撞）。`WriteFileTool` 的存在性探测句柄补 Close（原泄漏靠 GC finalizer，Windows 上会阻塞后续 rename/删除）。
 - 测试锚点：`TestReplaceEditContent_*`（归一化匹配/歧义/CR 文件）、`TestEditFileTool_CRLFFile_MatchesLFNeedle`、`TestEditFileTool_PreservesGB18030Encoding`、`TestAppendFileTool_CRLFFileAdaptsAppendedEOLs`、`TestReadFileLinesTool_{CRLFStrippedFromOutput,GB18030Decoded,UTF8BOMStripped}`、`TestValidateWritePath_*`、`TestWithTransientRenameRetry_*`（Windows-only）。
 
+## 14. 回合尾上下文压缩异步化（延迟治理 A+C）
+
+长会话「结束一次对话前很慢」的根因：Finalize 在封存响应（封卡/发布）之前**同步**执行 `contextManager.Compact`（seahorse leaf 压缩 = 一次 summarize LLM 调用，实测 ~16s/片；ContextThreshold=0.75 反复越线 → 几乎每个长回合尾都在还债，日志见 28s 内 5 次 leaf）。修复为方案 A+C 组合：
+
+- **方案 A（治本）**：两处同步调用点（`pipeline_finalize.go` 正常收尾、`pipeline_execute.go` 工具直答路径）改为 `scheduleCompact` 异步调度——fire-and-forget goroutine + 脱离 turn 上下文（turnCtx 在 finalize 返回时已取消）+ WaitGroup 供关机 drain（`agent.go` 关机序列先 drain 再拆 seahorse 引擎）。响应发布不再被压缩阻塞。
+- **每会话去重**：scheduler 持 `inFlight sync.Map`，同会话压缩进行中跳过新调度（续段/快速追问不再堆叠压缩 goroutine，也消除了异步化引入的并发 Compact 竞态——seahorse `Engine.Compact` 不取会话锁，原同步实现靠 turn 串行性保证）。下一回合尾若仍超阈值会自然再排。
+- **超时分级**：单次压缩调用 `compactCallTimeout=3min`（对齐 LLM 预算量级，多片链也不会被腰斩）；关机 drain `compactDrainTimeout=30s`（超时放弃，不阻塞退出）。
+- **方案 C（治标兜底）**：`LeafChunkTokens` 20000→8000，单次 summarize 调用按比例变快（存量断言 `types_test.go` 与新增 `TestLeafChunkTokensReduced` 均钉 8000）。
+- 语义保持：门控条件不变（`EnableSummary && !NoHistory`，心跳轮照旧跳过）；`allResponsesHandled=true` 早退路径不压（ExecuteTools 的 tool-satisfied 分支已排过，防双压）；压缩失败仅告警不失败回合。
+- 测试锚点：`TestFinalize_CompactAsync`（Finalize 不被压缩阻塞）、`TestFinalize_CompactAllResponsesHandledPath`（早退不双压）、`TestScheduleCompactGating`（门控）、`TestScheduleCompactDedup`（会话去重）、`TestFinalize_CompactErrorNonFatal`、`seahorse TestConstants`/`TestLeafChunkTokensReduced`。
+
 ## 同步上游注意事项
 
 
+- 回合尾压缩异步化（§14）：`pkg/agent/compact_schedule.go`（scheduleCompact/drainCompact/每会话去重）、`pipeline_finalize.go`/`pipeline_execute.go` 的两处调用点、`agent_init.go` 的 eager 装配、`pkg/seahorse/short_constants.go` 的 LeafChunkTokens=8000——均为 fork 行为，上游同步时保留；§14 测试锚点必须全过。
 - 文件工具 Windows 兼容性五件套（§13）：`pkg/tools/fs/` 的 `text_compat.go`、`encoding.go`、`windows_names_*.go`，`pkg/fileutil/` 的 `rename*.go` 与临时名计数器、`WriteFileTool` 探测句柄 Close——均为 fork 行为，上游同步时保留 fork 语义；§13 测试锚点必须全过。
 - 主要冲突面：`pkg/commands/`、`pkg/agent/pipeline_execute.go`、`pkg/agent/agent_command.go`（/learn 拦截 + /cron Runtime 回调）、`pkg/tools/shell.go`、`pkg/tools/cron.go`（§11 script/蓝图/建议动作）、`pkg/channels/feishu/`、`pkg/config/config.go`（AgentDefaults + EvolutionConfig.SuggestionsEnabled）、`pkg/skills/loader.go`（§10 五级根目录）、`web/frontend/src/index.css`（§8 主题）、`web/frontend/src/hooks/use-theme.ts`、`web/frontend/src/components/theme-switcher.tsx`、`web/frontend/index.html`（防闪烁脚本）。
 - `pkg/providers/openai_compat/provider.go` 的流式超时如与上游改动冲突，保留 `streamRoundTripper` 语义优先。
