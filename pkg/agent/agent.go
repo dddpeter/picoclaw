@@ -474,7 +474,9 @@ func (al *AgentLoop) ReloadProviderAndConfig(
 			newRL.RegisterCandidates(agent.LightCandidates)
 		}
 	}
-	al.fallback = providers.NewFallbackChain(providers.NewCooldownTracker(), newRL)
+	newCooldown := providers.NewCooldownTracker()
+	newCooldown.SetEnabled(cfg.Agents.Defaults.EffectiveCooldownEnabled())
+	al.fallback = providers.NewFallbackChain(newCooldown, newRL)
 
 	al.mu.Unlock()
 	al.refreshRuntimeEventLogger(cfg)

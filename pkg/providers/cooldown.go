@@ -17,6 +17,7 @@ type CooldownTracker struct {
 	entries       map[string]*cooldownEntry
 	failureWindow time.Duration
 	nowFunc       func() time.Time // for testing
+	disabled      bool
 }
 
 type cooldownEntry struct {
@@ -37,6 +38,17 @@ func NewCooldownTracker() *CooldownTracker {
 	}
 }
 
+// SetEnabled toggles the cooldown mechanism (agents.defaults.cooldown_enabled
+// in config). When disabled, IsAvailable always reports true and failures
+// never set cooldowns — an escape hatch for personal deployments that prefer
+// always-try semantics over 429-storm protection. Existing entries are kept
+// (not cleared) so re-enabling resumes honoring them.
+func (ct *CooldownTracker) SetEnabled(enabled bool) {
+	ct.mu.Lock()
+	defer ct.mu.Unlock()
+	ct.disabled = !enabled
+}
+
 // MarkFailure records a failure for a provider and sets appropriate cooldown.
 // Resets error counts if last failure was more than failureWindow ago.
 func (ct *CooldownTracker) MarkFailure(provider string, reason FailoverReason) {
@@ -53,6 +65,10 @@ func (ct *CooldownTracker) MarkFailure(provider string, reason FailoverReason) {
 func (ct *CooldownTracker) MarkFailureWithHint(provider string, reason FailoverReason, hint time.Duration) {
 	ct.mu.Lock()
 	defer ct.mu.Unlock()
+
+	if ct.disabled {
+		return
+	}
 
 	now := ct.nowFunc()
 	entry := ct.getOrCreate(provider)
@@ -99,9 +115,14 @@ func (ct *CooldownTracker) MarkSuccess(provider string) {
 }
 
 // IsAvailable returns true if the provider is not in cooldown or disabled.
+// Always true while the tracker is disabled via SetEnabled(false).
 func (ct *CooldownTracker) IsAvailable(provider string) bool {
 	ct.mu.RLock()
 	defer ct.mu.RUnlock()
+
+	if ct.disabled {
+		return true
+	}
 
 	entry := ct.entries[provider]
 	if entry == nil {
@@ -124,10 +145,14 @@ func (ct *CooldownTracker) IsAvailable(provider string) bool {
 }
 
 // CooldownRemaining returns how long until the provider becomes available.
-// Returns 0 if already available.
+// Returns 0 if already available (or while the tracker is disabled).
 func (ct *CooldownTracker) CooldownRemaining(provider string) time.Duration {
 	ct.mu.RLock()
 	defer ct.mu.RUnlock()
+
+	if ct.disabled {
+		return 0
+	}
 
 	entry := ct.entries[provider]
 	if entry == nil {

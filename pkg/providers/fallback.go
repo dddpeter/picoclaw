@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -157,6 +158,18 @@ func (fc *FallbackChain) ExecuteCandidate(
 	candidates []FallbackCandidate,
 	run func(ctx context.Context, candidate FallbackCandidate) (*LLMResponse, error),
 ) (*FallbackResult, error) {
+	return fc.executeCandidates(ctx, candidates, run, false)
+}
+
+// executeCandidates walks the candidate list. When force is set, cooldown
+// checks are bypassed — used by the exhaustion bypass below to attempt a
+// single candidate that would otherwise be skipped by its own cooldown.
+func (fc *FallbackChain) executeCandidates(
+	ctx context.Context,
+	candidates []FallbackCandidate,
+	run func(ctx context.Context, candidate FallbackCandidate) (*LLMResponse, error),
+	force bool,
+) (*FallbackResult, error) {
 	if len(candidates) == 0 {
 		return nil, fmt.Errorf("fallback: no candidates configured")
 	}
@@ -174,7 +187,7 @@ func (fc *FallbackChain) ExecuteCandidate(
 		// Check cooldown per stable candidate identity, not just provider/model.
 		// This allows aliases and multi-key configs to fail over independently.
 		cooldownKey := candidate.StableKey()
-		if !fc.cooldown.IsAvailable(cooldownKey) {
+		if !force && !fc.cooldown.IsAvailable(cooldownKey) {
 			remaining := fc.cooldown.CooldownRemaining(cooldownKey)
 			result.Attempts = append(result.Attempts, FallbackAttempt{
 				Provider:          candidate.Provider,
@@ -287,8 +300,45 @@ func (fc *FallbackChain) ExecuteCandidate(
 		}
 	}
 
-	// All candidates were skipped (all in cooldown).
+	// All candidates were skipped by cooldown: rather than failing the turn,
+	// force one attempt at the soonest-recovering candidate. Cooldowns steer
+	// selection toward healthy candidates — they must not hard-block the only
+	// options left (observed: a transient aggregator blip cooling every
+	// candidate turned the rest of the cooldown window into dead turns).
+	// Billing disables are typically hours out, so the minimum-remaining pick
+	// naturally prefers rate-limit candidates.
+	if !force && len(result.Attempts) == len(candidates) && allCooldownSkipped(result.Attempts) {
+		best := 0
+		for i := 1; i < len(result.Attempts); i++ {
+			if result.Attempts[i].CooldownRemaining < result.Attempts[best].CooldownRemaining {
+				best = i
+			}
+		}
+		inner, err := fc.executeCandidates(ctx, candidates[best:best+1], run, true)
+		if inner != nil {
+			inner.Attempts = append(result.Attempts, inner.Attempts...)
+		}
+		if err != nil {
+			var exhausted *FallbackExhaustedError
+			if errors.As(err, &exhausted) {
+				exhausted.Attempts = append(result.Attempts, exhausted.Attempts...)
+			}
+		}
+		return inner, err
+	}
+
+	// All candidates were skipped (cooldown / local rate limit).
 	return nil, &FallbackExhaustedError{Attempts: result.Attempts}
+}
+
+// allCooldownSkipped reports whether every attempt is a cooldown skip.
+func allCooldownSkipped(attempts []FallbackAttempt) bool {
+	for _, a := range attempts {
+		if !a.Skipped || a.CooldownRemaining <= 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // ExecuteImage runs the fallback chain for image/vision requests.

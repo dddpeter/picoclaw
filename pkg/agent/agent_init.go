@@ -33,6 +33,10 @@ func NewAgentLoop(
 
 	// Set up shared fallback chain with rate limiting.
 	cooldown := providers.NewCooldownTracker()
+	// agents.defaults.cooldown_enabled=false turns cooldowns off entirely
+	// (always-try semantics); the exhaustion bypass in the chain applies
+	// regardless.
+	cooldown.SetEnabled(cfg.Agents.Defaults.EffectiveCooldownEnabled())
 	rl := providers.NewRateLimiterRegistry()
 	// Register rate limiters for all agents' candidates so that RPM limits
 	// configured in ModelConfig are enforced before each LLM call.

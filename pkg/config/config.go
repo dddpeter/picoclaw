@@ -521,6 +521,22 @@ type AgentDefaults struct {
 	// system prompt (AGENTS.md, README.md, ...). Absent from the config file
 	// means the default list; an explicit empty list disables the section.
 	ProjectDocs []string `json:"project_docs"`
+	// CooldownEnabled disables per-candidate failure cooldowns when false
+	// (fork feature). Nil (omitted) keeps cooldowns enabled — the default
+	// protects against 429 storms; personal deployments that prefer
+	// always-try semantics can turn it off. Independent of the fallback
+	// chain's exhaustion bypass (all-candidates-cooling still gets one
+	// forced attempt either way).
+	CooldownEnabled *bool `json:"cooldown_enabled,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_COOLDOWN_ENABLED"`
+}
+
+// EffectiveCooldownEnabled reports whether provider failure cooldowns are
+// active; omitted = enabled (fork convention for escape hatches).
+func (d *AgentDefaults) EffectiveCooldownEnabled() bool {
+	if d == nil || d.CooldownEnabled == nil {
+		return true
+	}
+	return *d.CooldownEnabled
 }
 
 // RestartRecoveryConfig controls post-restart sealing/notification for

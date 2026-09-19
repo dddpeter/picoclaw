@@ -57,7 +57,7 @@ func TestFallbackExhaustedErrorMixedKeepsFailedHeader(t *testing.T) {
 		},
 		{
 			Provider: "openai", Model: "glm-5.3-flash",
-			Skipped:  true, Reason: FailoverRateLimit,
+			Skipped: true, Reason: FailoverRateLimit,
 			CooldownRemaining: 25 * time.Second,
 			Error:             errors.New("openai/glm-5.3-flash in cooldown (25s remaining)"),
 		},
@@ -78,7 +78,7 @@ func TestFallbackExhaustedErrorNonCooldownSkipKeepsCause(t *testing.T) {
 	err := &FallbackExhaustedError{Attempts: []FallbackAttempt{
 		{
 			Provider: "openai", Model: "primary",
-			Skipped:  true, Reason: FailoverRateLimit,
+			Skipped: true, Reason: FailoverRateLimit,
 			Error:    errors.New("openai/primary waiting for local rate limit token"),
 			Duration: time.Second,
 		},
@@ -108,24 +108,33 @@ func TestExecuteCandidateRecordsCooldownRemaining(t *testing.T) {
 		cooldown.MarkFailure(c.StableKey(), FailoverRateLimit)
 	}
 
+	// Exhaustion bypass: every candidate cooling down still gets exactly one
+	// forced attempt at the soonest-recovering candidate.
+	calls := 0
 	_, err := fc.ExecuteCandidate(context.Background(), candidates,
 		func(_ context.Context, _ FallbackCandidate) (*LLMResponse, error) {
-			t.Fatal("all candidates are cooling down; the run function must not be called")
-			return nil, nil
+			calls++
+			return nil, errors.New("rate limit exceeded")
 		})
+	if calls != 1 {
+		t.Fatalf("calls = %d, want exactly 1 forced bypass attempt", calls)
+	}
 	if err == nil {
-		t.Fatal("expected exhaustion when every candidate is in cooldown")
+		t.Fatal("expected exhaustion when the bypass attempt also fails")
 	}
 
 	var exhausted *FallbackExhaustedError
 	if !errors.As(err, &exhausted) {
 		t.Fatalf("expected *FallbackExhaustedError, got %T", err)
 	}
-	msg := err.Error()
-	if !strings.Contains(msg, "candidates unavailable") {
-		t.Fatalf("aggregate must mark the all-skip outcome, got %q", msg)
+	if len(exhausted.Attempts) != 3 {
+		t.Fatalf("attempts = %d, want 3 (2 cooldown skips + bypass)", len(exhausted.Attempts))
 	}
-	if !strings.Contains(msg, "cooldown, ") || !strings.Contains(msg, "remaining)") {
+	msg := err.Error()
+	if !strings.Contains(msg, "skipped (cooldown, ") || !strings.Contains(msg, "remaining)") {
 		t.Fatalf("aggregate must carry remaining cooldown, got %q", msg)
+	}
+	if !strings.Contains(msg, "rate limit exceeded") {
+		t.Fatalf("aggregate must include the forced attempt failure, got %q", msg)
 	}
 }

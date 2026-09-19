@@ -195,7 +195,8 @@ func TestFallback_AllInCooldown(t *testing.T) {
 	ct := NewCooldownTracker()
 	fc := NewFallbackChain(ct, nil)
 
-	// Put all models in cooldown (using ModelKey now)
+	// openai carries a 1-min rate-limit cooldown (soonest to recover);
+	// anthropic a 5-hour billing disable.
 	ct.MarkFailure(ModelKey("openai", "gpt-4"), FailoverRateLimit)
 	ct.MarkFailure(ModelKey("anthropic", "claude"), FailoverBilling)
 
@@ -204,18 +205,52 @@ func TestFallback_AllInCooldown(t *testing.T) {
 		makeCandidate("anthropic", "claude"),
 	}
 
+	// Exhaustion bypass: with every candidate cooling down, the chain must
+	// still force exactly one attempt at the soonest-recovering candidate
+	// instead of failing the turn without trying.
+	calls := 0
 	_, err := fc.Execute(context.Background(), candidates,
 		func(ctx context.Context, provider, model string) (*LLMResponse, error) {
-			t.Error("should not call any provider (all in cooldown)")
-			return nil, nil
+			calls++
+			if provider != "openai" {
+				t.Errorf("bypass must try the soonest-recovering candidate, got %s", provider)
+			}
+			return nil, errors.New("rate limit exceeded")
 		})
 
+	if calls != 1 {
+		t.Fatalf("calls = %d, want exactly 1 forced bypass attempt", calls)
+	}
 	if err == nil {
-		t.Fatal("expected error when all in cooldown")
+		t.Fatal("expected error when the bypass attempt also fails")
 	}
 	var exhausted *FallbackExhaustedError
 	if !errors.As(err, &exhausted) {
 		t.Fatalf("expected FallbackExhaustedError, got %T", err)
+	}
+	// 2 cooldown skips + 1 forced attempt.
+	if len(exhausted.Attempts) != 3 {
+		t.Fatalf("attempts = %d, want 3 (2 cooldown skips + bypass attempt)", len(exhausted.Attempts))
+	}
+}
+
+func TestFallback_AllInCooldown_BypassSuccessClearsCooldown(t *testing.T) {
+	ct := NewCooldownTracker()
+	fc := NewFallbackChain(ct, nil)
+
+	ct.MarkFailure(ModelKey("openai", "gpt-4"), FailoverRateLimit)
+	candidates := []FallbackCandidate{makeCandidate("openai", "gpt-4")}
+
+	result, err := fc.Execute(context.Background(), candidates, successRun("recovered"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response.Content != "recovered" {
+		t.Fatalf("content = %q", result.Response.Content)
+	}
+	// A successful forced attempt must clear the cooldown it bypassed.
+	if !ct.IsAvailable(ModelKey("openai", "gpt-4")) {
+		t.Fatal("successful bypass attempt must clear cooldown via MarkSuccess")
 	}
 }
 

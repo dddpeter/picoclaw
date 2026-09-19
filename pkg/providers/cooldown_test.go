@@ -267,3 +267,31 @@ func TestCooldown_MultipleProviders(t *testing.T) {
 		t.Error("groq should be available")
 	}
 }
+
+func TestCooldown_DisabledNeverBlocks(t *testing.T) {
+	ct := NewCooldownTracker()
+	ct.SetEnabled(false)
+	ct.MarkFailure("openai/gpt-4", FailoverRateLimit)
+	ct.MarkFailureWithHint("openai/gpt-4", FailoverBilling, time.Minute)
+	if !ct.IsAvailable("openai/gpt-4") {
+		t.Fatal("disabled tracker must always report available")
+	}
+	if remaining := ct.CooldownRemaining("openai/gpt-4"); remaining != 0 {
+		t.Fatalf("remaining = %v, want 0 while disabled", remaining)
+	}
+}
+
+func TestCooldown_SetEnabledReEnableHonorsExistingEntries(t *testing.T) {
+	ct := NewCooldownTracker()
+	ct.MarkFailure("openai/gpt-4", FailoverRateLimit)
+
+	ct.SetEnabled(false)
+	if !ct.IsAvailable("openai/gpt-4") {
+		t.Fatal("disabled tracker must ignore recorded cooldown")
+	}
+
+	ct.SetEnabled(true)
+	if ct.IsAvailable("openai/gpt-4") {
+		t.Fatal("re-enabling must resume honoring recorded cooldown")
+	}
+}

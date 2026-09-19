@@ -3305,3 +3305,19 @@ func TestDefaultConfig_ExecTimeout(t *testing.T) {
 		t.Errorf("default exec timeout = %d, want 120", cfg.Tools.Exec.TimeoutSeconds)
 	}
 }
+
+func TestAgentDefaults_EffectiveCooldownEnabled(t *testing.T) {
+	var nilDefaults *AgentDefaults
+	if !nilDefaults.EffectiveCooldownEnabled() {
+		t.Fatal("nil defaults must keep cooldowns enabled")
+	}
+	d := &AgentDefaults{}
+	if !d.EffectiveCooldownEnabled() {
+		t.Fatal("omitted cooldown_enabled must default to enabled")
+	}
+	f := false
+	d.CooldownEnabled = &f
+	if d.EffectiveCooldownEnabled() {
+		t.Fatal("explicit cooldown_enabled=false must disable cooldowns")
+	}
+}
