@@ -16,6 +16,7 @@ import (
 	"github.com/gomarkdown/markdown/parser"
 	"gopkg.in/yaml.v3"
 
+	"github.com/sipeed/picoclaw/pkg/agentplugins"
 	"github.com/sipeed/picoclaw/pkg/logger"
 )
 
@@ -70,10 +71,22 @@ const (
 	SourceBuiltin   = "builtin"
 )
 
+// Skill root kinds. Kind=="plugin" roots bridge Agent Plugins packages into
+// the loader and use the spec's flat discovery (§7.1); empty string is
+// treated as standard for backward compatibility.
+const (
+	SkillRootStandard = "standard"
+	SkillRootPlugin   = "plugin"
+)
+
 // SkillRoot is one skill directory together with its provenance label.
 type SkillRoot struct {
 	Dir    string
 	Source string
+	// Kind selects the discovery behavior: "" / "standard" recurse the
+	// directory tree (bounded depth); "plugin" delegates to
+	// agentplugins.DiscoverSkills for the spec's flat one-level scan.
+	Kind string
 }
 
 type SkillsLoader struct {
@@ -214,7 +227,24 @@ func (sl *SkillsLoader) ListSkills() []SkillInfo {
 	}
 
 	for _, root := range sl.roots {
-		for _, dir := range discoverSkillDirs(root.Dir) {
+		// Plugin-kind roots bridge Agent Plugins packages: delegate to the
+		// agentplugins implementation so the spec's flat discovery (§7.1)
+		// lives in exactly one place. The spec-semantics package only
+		// imports the standard library, so this import cannot cycle.
+		var dirs []string
+		if root.Kind == SkillRootPlugin {
+			var rep agentplugins.Report
+			for _, sk := range agentplugins.DiscoverSkills(root.Dir, &rep) {
+				dirs = append(dirs, sk.Dir)
+			}
+			for _, w := range rep.Warnings {
+				slog.Warn("plugin skill discovery", "root", root.Dir, "warning", w)
+			}
+		} else {
+			dirs = discoverSkillDirs(root.Dir)
+		}
+
+		for _, dir := range dirs {
 			skillFile := filepath.Join(dir, "SKILL.md")
 			info := SkillInfo{
 				Name:   filepath.Base(dir),

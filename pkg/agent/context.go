@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/sipeed/picoclaw/pkg/agentplugins"
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
@@ -117,8 +118,10 @@ func NewContextBuilder(workspace string) *ContextBuilder {
 
 // newDefaultSkillsLoader builds the agent's skill loader over the standard
 // roots: the workspace's skills/ and .skills/, ~/.picoclaw/skills, the
-// cross-tool ~/.agents/skills, and the builtin dir (PICOCLAW_BUILTIN_SKILLS,
-// else skills/ under the process cwd).
+// cross-tool ~/.agents/skills, the builtin dir (PICOCLAW_BUILTIN_SKILLS,
+// else skills/ under the process cwd), and — lowest priority — the enabled
+// Agent Plugins (skills discovered flat per spec §7.1, so user-owned skills
+// always win).
 func newDefaultSkillsLoader(workspace string) *skills.SkillsLoader {
 	builtinSkillsDir := strings.TrimSpace(os.Getenv(config.EnvBuiltinSkills))
 	if builtinSkillsDir == "" {
@@ -132,7 +135,31 @@ func newDefaultSkillsLoader(workspace string) *skills.SkillsLoader {
 		builtinSkillsDir = filepath.Join(wd, "skills")
 	}
 	globalSkillsDir := filepath.Join(getGlobalConfigDir(), "skills")
-	return skills.NewSkillsLoader(workspace, globalSkillsDir, builtinSkillsDir)
+
+	home, _ := os.UserHomeDir()
+	roots := skills.ResolveSkillRoots(workspace, globalSkillsDir, builtinSkillsDir, home)
+
+	// Append the plugin segment (lowest priority). Disabled plugins are
+	// already filtered out by LoadPluginsDir.
+	installRoot, err := agentplugins.DefaultInstallRoot()
+	dataRoot, dataErr := agentplugins.DefaultDataRoot()
+	if err == nil && dataErr == nil {
+		plugins, rep := agentplugins.LoadPluginsDir(installRoot, dataRoot)
+		for _, w := range rep.Warnings {
+			logger.WarnCF("agent", "Plugin load problem", map[string]any{"warning": w})
+		}
+		for _, p := range plugins {
+			if p.Enabled {
+				roots = append(roots, skills.SkillRoot{
+					Dir:    p.Root,
+					Source: "plugin:" + p.Name,
+					Kind:   skills.SkillRootPlugin,
+				})
+			}
+		}
+	}
+
+	return skills.NewSkillsLoaderFromRoots(workspace, roots)
 }
 
 func (cb *ContextBuilder) RegisterPromptSource(desc PromptSourceDescriptor) error {

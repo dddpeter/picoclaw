@@ -215,6 +215,45 @@ func createSkillDir(t *testing.T, base, dirName, name, description string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644))
 }
 
+// TestListSkills_PluginKindFlatDiscovery pins the plugin-root bridge: a
+// Kind=="plugin" root uses the Agent Plugins §7.1 flat discovery (only
+// <root>/skills/*/SKILL.md, never deeper), and standard roots keep priority
+// over the plugin segment.
+func TestListSkills_PluginKindFlatDiscovery(t *testing.T) {
+	plug := t.TempDir()
+	createSkillDir(t, filepath.Join(plug, "skills"), "alpha", "alpha", "plugin version")
+	// Nested SKILL.md must NOT be discovered (flat discovery).
+	createSkillDir(t, filepath.Join(plug, "skills", "alpha"), "deep", "deep", "nested")
+	// An invalid plugin skill dir (missing SKILL.md) is skipped by the
+	// plugin discovery and must not surface.
+	require.NoError(t, os.MkdirAll(filepath.Join(plug, "skills", "empty"), 0o755))
+
+	std := t.TempDir()
+	createSkillDir(t, std, "alpha", "alpha", "standard version")
+
+	sl := NewSkillsLoaderFromRoots("", []SkillRoot{
+		{Dir: std, Source: SourceWorkspace},
+		{Dir: plug, Source: "plugin:gold", Kind: SkillRootPlugin},
+	})
+	skills := sl.ListSkills()
+
+	byName := make(map[string]SkillInfo, len(skills))
+	for _, s := range skills {
+		byName[s.Name] = s
+	}
+	alpha, ok := byName["alpha"]
+	if !ok {
+		t.Fatalf("alpha not discovered: %+v", skills)
+	}
+	assert.Equal(t, "standard version", alpha.Description, "standard root must win over plugin root")
+	assert.Equal(t, SourceWorkspace, alpha.Source)
+
+	deep, ok := byName["deep"]
+	if ok {
+		t.Errorf("nested SKILL.md must not be discovered under a plugin root: %+v", deep)
+	}
+}
+
 func TestListSkillsWorkspaceOverridesGlobal(t *testing.T) {
 	tmp := t.TempDir()
 	ws := filepath.Join(tmp, "workspace")
