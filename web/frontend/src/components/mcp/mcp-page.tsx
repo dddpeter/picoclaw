@@ -1,10 +1,10 @@
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 
-import { PageHeader } from "@/components/page-header"
 import { ServerCard } from "@/components/mcp/server-card"
-import { useMCPPage, type MCPPageTab } from "@/components/mcp/use-mcp-page"
 import type { MCPConfigForm } from "@/components/mcp/types"
+import { type MCPPageTab, useMCPPage } from "@/components/mcp/use-mcp-page"
+import { PageHeader } from "@/components/page-header"
 import { Field, SwitchCardField } from "@/components/shared-form"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,9 +14,23 @@ import { cn } from "@/lib/utils"
 export function MCPPage() {
   const { t } = useTranslation()
   const {
-    tab, setTab, form, dirty, saving, loading, status, testStates,
-    updateGlobal, updateServer, addServer, removeServer, save, runTest,
-    fetchStatus, reload, serverStatus,
+    tab,
+    setTab,
+    form,
+    dirty,
+    saving,
+    loading,
+    status,
+    testStates,
+    updateGlobal,
+    updateServer,
+    addServer,
+    removeServer,
+    save,
+    runTest,
+    fetchStatus,
+    reload,
+    serverStatus,
   } = useMCPPage()
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
@@ -33,7 +47,11 @@ export function MCPPage() {
     const entries = Object.values(status.servers ?? {})
     const connected = entries.filter((e) => e.connected).length
     const tools = entries.reduce((acc, e) => acc + e.toolCount, 0)
-    return t("pages.mcp.banner.summary", { connected, total: entries.length, tools })
+    return t("pages.mcp.banner.summary", {
+      connected,
+      total: entries.length,
+      tools,
+    })
   })()
 
   return (
@@ -48,9 +66,16 @@ export function MCPPage() {
             onCheckedChange={(checked) => updateGlobal({ enabled: checked })}
             aria-label={t("pages.mcp.global.enabled")}
           />
-          <span className="text-sm font-medium">{t("pages.mcp.global.enabled")}</span>
+          <span className="text-sm font-medium">
+            {t("pages.mcp.global.enabled")}
+          </span>
         </div>
-        <span className={cn("text-muted-foreground text-sm", offline && "opacity-70")}>
+        <span
+          className={cn(
+            "text-muted-foreground text-sm",
+            offline && "opacity-70",
+          )}
+        >
           {summary}
         </span>
         <Button variant="outline" size="sm" onClick={() => void fetchStatus()}>
@@ -84,8 +109,37 @@ export function MCPPage() {
           <p className="text-muted-foreground text-sm">…</p>
         ) : tab === "servers" ? (
           <div className="mx-auto flex max-w-3xl flex-col gap-3">
+            {(form?.pluginServers?.length ?? 0) > 0 && (
+              <div className="border-border/60 rounded-lg border px-3 py-2">
+                <div className="text-muted-foreground mb-1 flex items-center justify-between text-xs">
+                  <span>
+                    {t("pages.mcp.plugin_servers.title", {
+                      defaultValue:
+                        "Plugin-provided servers (read-only, managed on the Plugins page)",
+                    })}
+                  </span>
+                </div>
+                <div className="flex flex-col gap-1">
+                  {form.pluginServers.map((ps) => (
+                    <div
+                      key={ps.key}
+                      className="flex flex-wrap items-center gap-2 text-sm"
+                    >
+                      <span className="font-medium">{ps.server}</span>
+                      <span className="text-muted-foreground text-xs">
+                        {ps.plugin} · {ps.type}
+                        {ps.url ? ` · ${ps.url}` : ""}
+                        {ps.command ? ` · ${ps.command}` : ""}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {form.servers.length === 0 && (
-              <p className="text-muted-foreground text-sm">{t("pages.mcp.servers.empty")}</p>
+              <p className="text-muted-foreground text-sm">
+                {t("pages.mcp.servers.empty")}
+              </p>
             )}
             {form.servers.map((server) => (
               <ServerCard
@@ -116,7 +170,9 @@ export function MCPPage() {
 
         {dirty && (
           <div className="border-border/60 bg-background/95 sticky bottom-0 mt-4 flex items-center justify-end gap-3 rounded-md border px-4 py-3 backdrop-blur">
-            <span className="text-muted-foreground text-sm">{t("pages.mcp.discard_hint")}</span>
+            <span className="text-muted-foreground text-sm">
+              {t("pages.mcp.discard_hint")}
+            </span>
             {confirmDiscard ? (
               <Button
                 variant="destructive"
@@ -129,7 +185,11 @@ export function MCPPage() {
                 {t("pages.mcp.discard_confirm")}
               </Button>
             ) : (
-              <Button variant="ghost" size="sm" onClick={() => setConfirmDiscard(true)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setConfirmDiscard(true)}
+              >
                 {t("pages.mcp.discard")}
               </Button>
             )}
@@ -191,7 +251,9 @@ function DiscoverySettings({
               type="number"
               min={1}
               value={form.discoveryMaxResults}
-              onChange={(e) => onChange({ discoveryMaxResults: e.target.value })}
+              onChange={(e) =>
+                onChange({ discoveryMaxResults: e.target.value })
+              }
             />
           </Field>
           <SwitchCardField
@@ -200,7 +262,9 @@ function DiscoverySettings({
             layout="setting-row"
             checked={form.discoveryUseBM25}
             disabled={form.discoveryUseBM25 && !form.discoveryUseRegex}
-            onCheckedChange={(checked) => onChange({ discoveryUseBM25: checked })}
+            onCheckedChange={(checked) =>
+              onChange({ discoveryUseBM25: checked })
+            }
           />
           <SwitchCardField
             label={t("pages.mcp.discovery.use_regex")}
@@ -208,7 +272,9 @@ function DiscoverySettings({
             layout="setting-row"
             checked={form.discoveryUseRegex}
             disabled={form.discoveryUseRegex && !form.discoveryUseBM25}
-            onCheckedChange={(checked) => onChange({ discoveryUseRegex: checked })}
+            onCheckedChange={(checked) =>
+              onChange({ discoveryUseRegex: checked })
+            }
           />
         </>
       )}

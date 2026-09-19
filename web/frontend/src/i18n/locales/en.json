@@ -723,7 +723,9 @@
           "installing": "Installing...",
           "installed": "Already installed",
           "cannotInstall": "Cannot install: related tool is not enabled"
-        }
+        },
+        "plugin_badge": "plugin",
+        "plugin_badge_hint": "Provided by plugin {{name}}"
       },
       "tools": {
         "search_placeholder": "Search tools...",

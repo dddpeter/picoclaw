@@ -38,6 +38,18 @@ export function SkillCard({ skill, onView, onDelete }: SkillCardProps) {
                   {skill.registry_name}
                 </span>
               ) : null}
+              {skill.source?.startsWith("plugin:") ? (
+                <span
+                  className="text-primary/80 bg-primary/10 inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-semibold tracking-wider uppercase"
+                  title={t("pages.agent.skills.plugin_badge_hint", {
+                    defaultValue: "Provided by plugin {{name}}",
+                    name: skill.source.slice("plugin:".length),
+                  })}
+                >
+                  {t("pages.agent.skills.plugin_badge", "plugin")}·
+                  {skill.source.slice("plugin:".length)}
+                </span>
+              ) : null}
             </div>
             <CardDescription className="line-clamp-2 text-sm leading-relaxed">
               {skill.description || t("pages.agent.skills.no_description")}

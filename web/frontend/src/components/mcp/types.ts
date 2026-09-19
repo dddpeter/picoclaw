@@ -1,4 +1,9 @@
-import type { MCPConfigPayload, MCPServerPayload, MCPServerType } from "@/api/mcp"
+import type {
+  MCPConfigPayload,
+  MCPServerPayload,
+  MCPServerType,
+  PluginServerPayload,
+} from "@/api/mcp"
 
 export type DeferredMode = "inherit" | "deferred" | "eager"
 
@@ -25,6 +30,9 @@ export interface MCPConfigForm {
   discoveryUseBM25: boolean
   discoveryUseRegex: boolean
   servers: MCPServerDraft[]
+  // Read-only plugin-bridged servers (Agent Plugins); never part of the
+  // payload sent back on save.
+  pluginServers: PluginServerPayload[]
 }
 
 export function makeServerDraftID(name: string): string {

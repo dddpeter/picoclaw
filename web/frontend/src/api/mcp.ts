@@ -23,11 +23,21 @@ export interface MCPServerPayload {
   envFile: string
 }
 
+export interface PluginServerPayload {
+  key: string
+  plugin: string
+  server: string
+  type: string
+  url?: string
+  command?: string
+}
+
 export interface MCPConfigPayload {
   enabled: boolean
   maxInlineTextChars: number
   discovery: MCPDiscoveryPayload
   servers: MCPServerPayload[]
+  pluginServers?: PluginServerPayload[]
 }
 
 export type MCPConfigResponse = MCPConfigPayload

@@ -51,6 +51,7 @@ function formFromResponse(payload: Awaited<ReturnType<typeof getMCPConfig>>): MC
     discoveryUseBM25: payload.discovery.useBM25,
     discoveryUseRegex: payload.discovery.useRegex,
     servers: payload.servers.map(serverPayloadToDraft),
+    pluginServers: payload.pluginServers ?? [],
   }
 }
 

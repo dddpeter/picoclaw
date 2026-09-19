@@ -723,7 +723,9 @@
           "installing": "正在安装...",
           "installed": "已安装",
           "cannotInstall": "无法安装：相关工具未启用"
-        }
+        },
+        "plugin_badge": "插件",
+        "plugin_badge_hint": "由插件 {{name}} 提供"
       },
       "tools": {
         "search_placeholder": "搜索工具...",
