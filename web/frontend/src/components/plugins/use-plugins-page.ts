@@ -38,13 +38,8 @@ export function usePluginsPage() {
   }
 
   const toggleMutation = useMutation({
-    mutationFn: ({
-      name,
-      enabled,
-    }: {
-      name: string
-      enabled: boolean
-    }) => setPluginEnabled(name, enabled),
+    mutationFn: ({ name, enabled }: { name: string; enabled: boolean }) =>
+      setPluginEnabled(name, enabled),
     onSuccess: async (_, variables) => {
       await notifyRestartIfRequired(
         variables.enabled
@@ -61,11 +56,10 @@ export function usePluginsPage() {
   const removeMutation = useMutation({
     mutationFn: ({ name, purgeData }: { name: string; purgeData: boolean }) =>
       removePlugin(name, purgeData),
-    onSuccess: async (_, variables) => {
+    onSuccess: async () => {
       await notifyRestartIfRequired(
         t("pages.plugins.removed_toast", "Plugin removed"),
       )
-      void variables
       await invalidate()
     },
     onError: (error: Error) => {

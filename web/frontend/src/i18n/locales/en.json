@@ -1085,7 +1085,8 @@
       "registry_error": "Registry problem",
       "remove_confirm_title": "Remove {{name}}?",
       "remove_confirm_desc": "The plugin directory is deleted. Its data directory can be kept or purged.",
-      "purge_data": "Purge data directory"
+      "purge_data": "Purge data directory",
+      "validate_local_only": "Validate works on local directories only"
     }
   },
   "tour": {

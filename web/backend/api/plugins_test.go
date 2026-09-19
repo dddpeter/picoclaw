@@ -674,3 +674,17 @@ func TestPluginsEndToEnd(t *testing.T) {
 		t.Fatalf("plugins after remove = %+v", list.Plugins)
 	}
 }
+
+func TestPluginsRemove_CorruptRegistryDoesNotBlock(t *testing.T) {
+	mux, installRoot := newPluginsTestServer(t)
+	writeTestPlugin(t, installRoot, "golden")
+	writeTestRegistry(t, installRoot, `{not valid json`)
+
+	rec := doJSON(t, mux, http.MethodDelete, "/api/plugins/golden", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(installRoot, "golden")); !os.IsNotExist(err) {
+		t.Error("plugin dir must be removable despite corrupt registry")
+	}
+}

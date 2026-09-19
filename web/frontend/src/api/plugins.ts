@@ -34,7 +34,12 @@ export interface PluginReportResponse {
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await launcherFetch(path, options)
   if (!res.ok) {
-    throw new Error(await parseResponseError(res, `API error: ${res.status} ${res.statusText}`))
+    throw new Error(
+      await parseResponseError(
+        res,
+        `API error: ${res.status} ${res.statusText}`,
+      ),
+    )
   }
   return res.json() as Promise<T>
 }
@@ -69,7 +74,9 @@ export async function removePlugin(
   )
 }
 
-export async function validatePlugin(path: string): Promise<PluginReportResponse> {
+export async function validatePlugin(
+  path: string,
+): Promise<PluginReportResponse> {
   return request<PluginReportResponse>("/api/plugins/validate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

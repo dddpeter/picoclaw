@@ -1085,7 +1085,8 @@
       "registry_error": "注册表异常",
       "remove_confirm_title": "移除 {{name}}？",
       "remove_confirm_desc": "将删除插件目录；其数据目录可保留或一并清除。",
-      "purge_data": "同时清除数据目录"
+      "purge_data": "同时清除数据目录",
+      "validate_local_only": "仅验证支持本地目录"
     }
   },
   "tour": {

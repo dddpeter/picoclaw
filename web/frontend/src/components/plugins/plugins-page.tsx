@@ -1,15 +1,11 @@
 import { useTranslation } from "react-i18next"
 
+import type { PluginItem, PluginReportResponse } from "@/api/plugins"
 import { PageHeader } from "@/components/page-header"
 import { usePluginsPage } from "@/components/plugins/use-plugins-page"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Collapsible,
   CollapsibleContent,
@@ -26,7 +22,6 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import type { PluginItem, PluginReportResponse } from "@/api/plugins"
 
 function PluginReportBlock({ report }: { report: PluginReportResponse }) {
   const { t } = useTranslation()
@@ -46,7 +41,7 @@ function PluginReportBlock({ report }: { report: PluginReportResponse }) {
         </div>
       ) : null}
       {report.warnings?.length ? (
-        <div className="text-warning space-y-0.5">
+        <div className="space-y-0.5 text-amber-600 dark:text-amber-400">
           {report.warnings.map((w, i) => (
             <div key={i} className="break-all">
               ⚠ {w}
@@ -140,7 +135,7 @@ function PluginCard({
         ) : null}
         {plugin.warnings?.length ? (
           <Collapsible>
-            <CollapsibleTrigger className="text-warning underline-offset-2 hover:underline">
+            <CollapsibleTrigger className="text-amber-600 underline-offset-2 hover:underline dark:text-amber-400">
               {t("pages.plugins.warnings", {
                 defaultValue: "{{count}} warnings",
                 count: plugin.warnings.length,
@@ -208,7 +203,7 @@ export function PluginsPage() {
 
       <div className="flex-1 space-y-3 overflow-y-auto px-6 py-4">
         {registryError ? (
-          <div className="text-warning text-sm">
+          <div className="text-sm text-amber-600 dark:text-amber-400">
             {t("pages.plugins.registry_error", "Registry problem")}:{" "}
             {registryError}
           </div>
@@ -283,12 +278,23 @@ export function PluginsPage() {
                 />
               </div>
             ) : null}
-            {validateResult ? <PluginReportBlock report={validateResult} /> : null}
+            {validateResult ? (
+              <PluginReportBlock report={validateResult} />
+            ) : null}
           </div>
           <DialogFooter className="gap-2">
             <Button
               variant="outline"
-              disabled={!sourceText.trim() || validateMutation.isPending}
+              disabled={
+                !sourceText.trim() || isGitSource || validateMutation.isPending
+              }
+              title={
+                isGitSource
+                  ? t("pages.plugins.validate_local_only", {
+                      defaultValue: "Validate works on local directories only",
+                    })
+                  : undefined
+              }
               onClick={() =>
                 validateMutation.mutate({ path: sourceText.trim() })
               }

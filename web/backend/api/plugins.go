@@ -155,15 +155,19 @@ func (h *Handler) handleRemovePlugin(w http.ResponseWriter, r *http.Request) {
 	h.pluginsMu.Lock()
 	defer h.pluginsMu.Unlock()
 
+	// A corrupt registry must not block removal of an existing plugin
+	// directory: proceed without registry cleanup (the CLI rebuilds state
+	// from the filesystem; ghost entries disappear on the next save).
 	reg, regErr := agentplugins.LoadRegistry(filepath.Join(installRoot, agentplugins.RegistryFileName))
 	if regErr != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		writeErrorf(w, "Failed to load registry: %v", regErr)
-		return
+		reg = nil
 	}
 	_, statErr := os.Stat(filepath.Join(installRoot, name))
 	dirExists := statErr == nil
-	_, hasEntry := reg.Entries[name]
+	var hasEntry bool
+	if reg != nil {
+		_, hasEntry = reg.Entries[name]
+	}
 	if !dirExists && !hasEntry {
 		http.Error(w, fmt.Sprintf("plugin %q is not installed", name), http.StatusNotFound)
 		return
@@ -176,11 +180,13 @@ func (h *Handler) handleRemovePlugin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	delete(reg.Entries, name)
-	if err := reg.Save(); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		writeErrorf(w, "Failed to save registry: %v", err)
-		return
+	if reg != nil {
+		delete(reg.Entries, name)
+		if err := reg.Save(); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			writeErrorf(w, "Failed to save registry: %v", err)
+			return
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
@@ -399,12 +405,10 @@ func (h *Handler) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := pluginReportResponse{Target: target, Name: m.Name, Version: m.Version}
+	resp := pluginReportResponse{OK: true, Target: target, Name: m.Name, Version: m.Version}
 	if p, loadErr := loadPluginForReport(target, dataRoot); loadErr != nil {
-		resp.OK = true
 		resp.Error = loadErr.Error()
 	} else {
-		resp.OK = true
 		resp.Name = p.Name
 		resp.Version = p.Version
 		resp.Skills = len(p.Skills)
