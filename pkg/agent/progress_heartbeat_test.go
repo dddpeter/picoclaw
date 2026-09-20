@@ -208,6 +208,113 @@ func TestProgressHeartbeat_OutboundFallbackWithoutStreamer(t *testing.T) {
 	}
 }
 
+func TestProgressHeartbeat_StallWatchdogInterrupts(t *testing.T) {
+	al, ts, rs := newHeartbeatLoop(t, 40*time.Millisecond)
+	ts.stallInterruptAfter = 100 * time.Millisecond
+
+	providerCancelled := make(chan struct{}, 1)
+	ts.setProviderCancel(func() {
+		select {
+		case providerCancelled <- struct{}{}:
+		default:
+		}
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stop := al.startProgressHeartbeat(ctx, ts)
+	defer stop()
+	defer cancel()
+
+	// Sustained idle past the stall threshold: the watchdog must request a
+	// graceful interrupt, cancel the in-flight provider call, and emit a
+	// notice step — exactly once.
+	deadline := time.Now().Add(2 * time.Second)
+	interrupted := false
+	for !interrupted && time.Now().Before(deadline) {
+		if requested, _ := ts.gracefulInterruptRequested(); requested {
+			interrupted = true
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !interrupted {
+		t.Fatal("expected graceful interrupt after sustained stall")
+	}
+	select {
+	case <-providerCancelled:
+	case <-time.After(time.Second):
+		t.Fatal("expected provider call to be cancelled")
+	}
+	notices := 0
+	for _, s := range rs.steps {
+		if s.Kind == bus.ToolStepKindText && strings.Contains(fmt.Sprint(s.Result), "收尾") {
+			notices++
+		}
+	}
+	if notices != 1 {
+		t.Fatalf("expected exactly 1 stall notice step, got %d (%+v)", notices, rs.steps)
+	}
+}
+
+func TestProgressHeartbeat_StallWatchdogEscalatesToHardAbort(t *testing.T) {
+	al, ts, _ := newHeartbeatLoop(t, 40*time.Millisecond)
+	ts.stallInterruptAfter = 80 * time.Millisecond
+
+	turnCancelled := make(chan struct{}, 1)
+	ts.setTurnCancel(func() {
+		select {
+		case turnCancelled <- struct{}{}:
+		default:
+		}
+	})
+	// The provider cancel alone does not unblock the (mocked) stuck turn.
+	ts.setProviderCancel(func() {})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stop := al.startProgressHeartbeat(ctx, ts)
+	defer stop()
+	defer cancel()
+
+	// Interrupt fires first; one heartbeat interval of further silence
+	// must escalate to a hard abort (turn cancel).
+	select {
+	case <-turnCancelled:
+	case <-time.After(3 * time.Second):
+		t.Fatal("expected hard abort after sustained stall despite interrupt")
+	}
+	if !ts.hardAbortRequested() {
+		t.Fatal("hard abort flag not set")
+	}
+	if reason := ts.abortReasonCode(); reason != "stall_watchdog" {
+		t.Fatalf("expected abort reason stall_watchdog, got %q", reason)
+	}
+}
+
+func TestProgressHeartbeat_StallWatchdogSilentWhenActive(t *testing.T) {
+	al, ts, rs := newHeartbeatLoop(t, 40*time.Millisecond)
+	ts.stallInterruptAfter = 100 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stop := al.startProgressHeartbeat(ctx, ts)
+	defer stop()
+	defer cancel()
+
+	// Keep the turn "active": no watchdog action, no heartbeat beats.
+	for i := 0; i < 12; i++ {
+		time.Sleep(25 * time.Millisecond)
+		ts.touchActivity()
+	}
+	if requested, _ := ts.gracefulInterruptRequested(); requested {
+		t.Fatal("active turn must not be interrupted")
+	}
+	if ts.hardAbortRequested() {
+		t.Fatal("active turn must not be hard-aborted")
+	}
+	if len(rs.steps) != 0 {
+		t.Fatalf("active turn should stay silent, got %+v", rs.steps)
+	}
+}
+
 // segmentLabelRecorder accepts SetSegmentLabel like feishu's streamer does.
 type segmentLabelRecorder struct {
 	heartbeatRecorder

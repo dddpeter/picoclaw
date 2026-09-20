@@ -63,6 +63,7 @@
       "nonPicoSession": "Read-only session: this conversation belongs to another channel (e.g. Feishu) and can only be viewed here."
     },
     "newChat": "New Chat",
+    "turnStalled": "No response for {{minutes}} minutes — this turn may be stuck. You can still type to nudge it; if it does not recover, the server will automatically wrap up or abort this turn.",
     "notConnected": "Gateway is not running. Start it to chat.",
     "showAssistantDetails": "Reasoning and tool calls",
     "assistantDetailVisibility": {

@@ -96,6 +96,7 @@
 | `max_tool_iterations` | int | `50` | `PICOCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS` | 单 turn 工具调用上限 |
 | `auto_continue_turns` | int | `2` | `PICOCLAW_AGENTS_DEFAULTS_AUTO_CONTINUE_TURNS` | fork 长任务：turn 因迭代到顶结束且无最终答复时自动续接的额外 turn 数；`0` = 关闭（负值按 0） |
 | `progress_heartbeat_seconds` | int | `180` | `PICOCLAW_AGENTS_DEFAULTS_PROGRESS_HEARTBEAT_SECONDS` | fork 长任务：流式面板闲置超该秒数后发布进度心跳（节流至每周期一拍；无流式 publisher 时降级为 outbound）；`0` = 关闭 |
+| `progress_stall_interrupt_seconds` | int | `600` | `PICOCLAW_AGENTS_DEFAULTS_PROGRESS_STALL_INTERRUPT_SECONDS` | fork 卡死监护：turn 完全无活动超该秒数后两级升级（先 graceful interrupt + 取消在途 LLM 调用，再静默一个心跳周期后 hard abort）；阈值自动钳到 ≥ 2× 心跳间隔；`0` = 关闭（负值按 0） |
 | `summarize_message_threshold` | int | `20` | `PICOCLAW_AGENTS_DEFAULTS_SUMMARIZE_MESSAGE_THRESHOLD` | 触发摘要的消息条数 |
 | `summarize_token_percent` | int | `75` | `PICOCLAW_AGENTS_DEFAULTS_SUMMARIZE_TOKEN_PERCENT` | 触发摘要的上下文占比 |
 | `max_media_size` | int | `20971520`（20 MB） | `PICOCLAW_AGENTS_DEFAULTS_MAX_MEDIA_SIZE` | 媒体大小上限 |

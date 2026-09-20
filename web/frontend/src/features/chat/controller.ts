@@ -103,6 +103,8 @@ function disconnectChatInternal({
   updateChatStore({
     connectionState: "disconnected",
     isTyping: false,
+    turnStartedAt: undefined,
+    lastTurnActivityAt: undefined,
   })
 }
 
@@ -206,6 +208,8 @@ export async function connectChat() {
       updateChatStore({
         connectionState: "disconnected",
         isTyping: false,
+        turnStartedAt: undefined,
+        lastTurnActivityAt: undefined,
       })
       scheduleReconnect(generation, sessionId)
     }
@@ -286,6 +290,8 @@ export async function hydrateActiveSession() {
       updateChatStore({
         messages: historyMessages,
         isTyping: false,
+        turnStartedAt: undefined,
+        lastTurnActivityAt: undefined,
         activeSessionChannel: channel,
         hasHydratedActiveSession: true,
       })
@@ -307,6 +313,8 @@ export async function hydrateActiveSession() {
       updateChatStore({
         messages: [],
         isTyping: false,
+        turnStartedAt: undefined,
+        lastTurnActivityAt: undefined,
         hasHydratedActiveSession: true,
       })
     })
@@ -360,7 +368,9 @@ export function sendChatMessage({
       },
     ],
     isTyping: true,
-    ...(wasTyping ? {} : { turnStartedAt: Date.now() }),
+    ...(wasTyping
+      ? {}
+      : { turnStartedAt: Date.now(), lastTurnActivityAt: Date.now() }),
   }))
 
   try {
@@ -382,6 +392,8 @@ export function sendChatMessage({
     updateChatStore((prev) => ({
       messages: prev.messages.filter((message) => message.id !== id),
       isTyping: false,
+      turnStartedAt: undefined,
+      lastTurnActivityAt: undefined,
     }))
     return false
   }
@@ -401,6 +413,8 @@ export async function switchChatSession(sessionId: string, channel?: string) {
     updateChatStore({
       messages: historyMessages,
       isTyping: false,
+      turnStartedAt: undefined,
+      lastTurnActivityAt: undefined,
       activeSessionChannel: detailChannel ?? channel,
       hasHydratedActiveSession: true,
       contextUsage: undefined,
@@ -426,6 +440,8 @@ export async function newChatSession() {
   updateChatStore({
     messages: [],
     isTyping: false,
+    turnStartedAt: undefined,
+    lastTurnActivityAt: undefined,
     activeSessionChannel: "pico",
     hasHydratedActiveSession: true,
     contextUsage: undefined,

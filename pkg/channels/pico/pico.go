@@ -65,10 +65,21 @@ func outboundMessageIsToolCalls(msg bus.OutboundMessage) bool {
 	return strings.EqualFold(strings.TrimSpace(msg.Context.Raw["message_kind"]), MessageKindToolCalls)
 }
 
+// outboundMessageIsProgressNote reports whether the message is a non-final
+// progress beat (heartbeat / stall-watchdog notice) rather than the turn's
+// final answer.
+func outboundMessageIsProgressNote(msg bus.OutboundMessage) bool {
+	if len(msg.Context.Raw) == 0 {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(msg.Context.Raw["message_kind"]), MessageKindProgressNote)
+}
+
 func outboundMessageFinalizesTrackedToolFeedback(msg bus.OutboundMessage) bool {
 	return !outboundMessageIsToolFeedback(msg) &&
 		!outboundMessageIsThought(msg) &&
-		!outboundMessageIsToolCalls(msg)
+		!outboundMessageIsToolCalls(msg) &&
+		!outboundMessageIsProgressNote(msg)
 }
 
 // writeJSON sends a JSON message to the connection with write locking.
@@ -302,6 +313,7 @@ func (c *PicoChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]stri
 	isThought := outboundMessageIsThought(msg)
 	isToolFeedback := outboundMessageIsToolFeedback(msg)
 	isToolCalls := outboundMessageIsToolCalls(msg)
+	isProgressNote := outboundMessageIsProgressNote(msg)
 	if isToolFeedback {
 		if msgID, handled, err := c.progress.Update(ctx, msg.ChatID, msg.Content); handled {
 			if err != nil {
@@ -344,6 +356,12 @@ func (c *PicoChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]stri
 		if toolCalls, ok := picoToolCallsPayload(msg); ok {
 			payload[PayloadKeyToolCalls] = toolCalls
 		}
+
+	case isProgressNote:
+		// Non-final progress beat: mark it so clients (web UI) do not
+		// mistake it for the turn's final answer and clear their
+		// generating state early.
+		payload[PayloadKeyKind] = MessageKindProgressNote
 	}
 	setContextUsagePayload(payload, msg.ContextUsage)
 	outMsg := newMessage(TypeMessageCreate, payload)

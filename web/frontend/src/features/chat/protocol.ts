@@ -119,6 +119,10 @@ export function handlePicoMessage(
           ? normalizeUnixTimestamp(Number(message.timestamp))
           : Date.now()
 
+      const turnFinished =
+        !isPlaceholder &&
+        (kind === "normal" || message.type === "media.create")
+
       updateChatStore((prev) => ({
         messages: [
           ...prev.messages,
@@ -133,16 +137,13 @@ export function handlePicoMessage(
             timestamp,
           },
         ],
-        isTyping:
-          !isPlaceholder &&
-          (kind === "normal" || message.type === "media.create")
-            ? false
-            : prev.isTyping,
+        isTyping: turnFinished ? false : prev.isTyping,
+        ...(isPlaceholder
+          ? {}
+          : turnFinished
+            ? { turnStartedAt: undefined, lastTurnActivityAt: undefined }
+            : { lastTurnActivityAt: Date.now() }),
         ...(contextUsage ? { contextUsage } : {}),
-        ...(!isPlaceholder &&
-        (kind === "normal" || message.type === "media.create")
-          ? { turnStartedAt: undefined }
-          : {}),
       }))
       break
     }
@@ -202,6 +203,11 @@ export function handlePicoMessage(
             },
           ]
         })(),
+        // While a turn is streaming, an update event is server-side
+        // liveness; once idle, clear any stale activity timestamp.
+        ...(prev.isTyping
+          ? { lastTurnActivityAt: Date.now() }
+          : { lastTurnActivityAt: undefined }),
         ...(contextUsage ? { contextUsage } : {}),
       }))
       break
@@ -222,12 +228,18 @@ export function handlePicoMessage(
     case "typing.start":
       updateChatStore((prev) => ({
         isTyping: true,
-        ...(prev.turnStartedAt ? {} : { turnStartedAt: Date.now() }),
+        ...(prev.turnStartedAt
+          ? { lastTurnActivityAt: Date.now() }
+          : { turnStartedAt: Date.now(), lastTurnActivityAt: Date.now() }),
       }))
       break
 
     case "typing.stop":
-      updateChatStore({ isTyping: false, turnStartedAt: undefined })
+      updateChatStore({
+        isTyping: false,
+        turnStartedAt: undefined,
+        lastTurnActivityAt: undefined,
+      })
       break
 
     case "error": {
@@ -246,6 +258,7 @@ export function handlePicoMessage(
           : prev.messages,
         isTyping: false,
         turnStartedAt: undefined,
+        lastTurnActivityAt: undefined,
       }))
       break
     }

@@ -1,7 +1,7 @@
 # 长任务执行优化（四件套）设计文档
 
-> 状态：已实施（2026-09-18，四项全部落地；正文已按实现回填，`fork-overview.zh.md` 已同步）
-> 日期：2026-09-18
+> 状态：已实施（2026-09-18 四件套全部落地；同日第二批改进见 §8；2026-09-20 第三批卡死三层防护见 §9；正文已按实现回填，`fork-overview.zh.md` 已同步）
+> 日期：2026-09-18（第三批 2026-09-20）
 > 范围：① exec 超时引导与 per-call 超时；② `max_tool_iterations` 到顶自动续 turn；③ 网关重启后中断会话的封口与恢复提示；④ 长任务进度心跳。
 > 动机：个人部署中长任务（大重构、长构建、跨夜任务）的四个实际痛点——长命令被默认 60s 超时杀掉后模型盲目重试；步数到顶 turn 直接终止；网关重启后进行中的任务静默丢失；长时间无输出时用户无法分辨"在干活"与"卡死"。
 
@@ -148,6 +148,7 @@ systemd 重启/OOM/断电后，JSONL 历史在磁盘上，但进行中的 turn �
   "agents": { "defaults": {
     "auto_continue_turns": 2,          // ② 0=关
     "progress_heartbeat_seconds": 180, // ④ 0=关
+    "progress_stall_interrupt_seconds": 600, // §9 卡死监护 0=关
     "restart_recovery": {              // ③ enabled 省略=开
       "notify_window_hours": 24,        // 0=只封口不通知
       "reminder_interval_minutes": 30,  // 0=关闭重提醒
@@ -192,3 +193,30 @@ systemd 重启/OOM/断电后，JSONL 历史在磁盘上，但进行中的 turn �
 
 ### 测试锚点
 `TestRunRestartRecovery_ScansAllAgents`、`TestProgressHeartbeat_ThrottledToOnePerInterval`、`TestProgressHeartbeat_OutboundFallbackWithoutStreamer`、`TestFeishuPanelHeaderShowsSegmentLabel`、`TestStreamingPublisherSetsSegmentLabel`、`TestDefaultConfig_ExecTimeout`（更新断言 120）。
+
+## 9. 第三批：卡死三层防护（2026-09-20）
+
+web 端长时间「生成中」不动、实际 turn 已死的事故驱动。三层修复（A 前端可见 / B 后端治本 / C kind 语义）：
+
+### 9.1 B 后端 stall watchdog（治本）
+
+心跳只提示不收敛：LLM 网关挂起或工具无视 ctx 取消时，turn 永久占用会话。watchdog 挂在心跳 goroutine 内（`startProgressHeartbeat`），配置 `agents.defaults.progress_stall_interrupt_seconds`（默认 600，0=关，负值钳 0；getter `GetProgressStallInterruptSeconds`）：
+
+- **一级（graceful interrupt）**：idle ≥ 阈值 → `requestGracefulInterrupt(hint)` + `cancelProviderCall()`（取消在途 LLM 调用；turn 循环在迭代边界观察到 interrupt 标志后收尾总结）+ 用户可见通知「⛔ 本轮已 X 无任何进展，正在请求模型收尾总结」。`markStallInterrupted` CAS 保证通知恰好一条。
+- **二级（hard abort）**：interrupt 后再静默一个心跳间隔且 idle 仍 ≥ 阈值 → `requestHardAbortWithReason("stall_watchdog")`（turnCancel 解开无视取消的工具；原因与 abort 标志在同一临界区写入——turn 被 turnCancel 唤醒后会立刻读 `abortReasonCode()` 作流清理原因，先 cancel 后补写原因会输掉这个竞态）+ 通知「⛔ 长时间无进展且无法收尾，本轮已强制中止；可重新发送消息继续。」通知用脱离 turnCtx 的 5s 超时上下文（turnCancel 已使 turnCtx 不可用）。
+- **防误配**：阈值 < 2× 心跳间隔时自动抬到 2×interval（否则还没来得及发一拍心跳就误杀）。
+- **判定独立性**：watchdog 检查在心跳节流（`heartbeatDue`）之前，且不要求可投递面（无 publisher/非 deliverable 渠道也照常升级）。
+- **与既有机制分层**：`watchHardAbortUnwind`（abort 后 10s zombie 释放）负责 abort 后的会话释放兜底；watchdog 负责**主动发现**卡死并触发 abort。心跳文案同步升级：idle ≥ 2×interval 的拍显示「⚠️ 已 X 无新进展……持续无响应时将自动收尾本轮」。
+
+### 9.2 C progress_note 全链路（kind 语义）
+
+非流式降级的心跳消息原本无 kind 标记直达 web 前端，被当作最终回复清掉 isTyping（假完成）。修复：`pkg/channels/pico/protocol.go` 增 `MessageKindProgressNote = "progress_note"`；`pico.go` 的 `Send` 对该 kind 打 `payload[PayloadKeyKind]`，且 `outboundMessageFinalizesTrackedToolFeedback` 排除 progress_note（不提前定格 tool-feedback 气泡）；web 前端 `AssistantMessageKind` 增补 `progress_note` 枚举（渲染走普通文本路径）。
+
+### 9.3 A web 前端卡死提示（看得见）
+
+- **活动时间戳**：chat store 增 `lastTurnActivityAt`——message.create/update、typing 事件均视为服务端活动（心跳拍会刷新它）；turn 结束/断连/错误/切会话即清理（controller.ts 全部 isTyping 清除路径）。
+- **横幅**：`use-turn-stall.ts`——isTyping 期间完全无事件 ≥ 5 分钟（`TURN_STALL_THRESHOLD_MS`，5s 轮询）→ 消息列表底部琥珀色警告横幅（i18n `chat.turnStalled` zh/en，其余 locale 走 fallback）。
+- **分层**：正常慢任务（心跳 3 分钟一拍）持续刷新活动时间戳，不会误报；前端提示只负责「看得见」，收尾/中止由后端 watchdog（默认 600s）执行。
+
+### 测试锚点
+`TestProgressHeartbeat_StallWatchdogInterrupts`（graceful interrupt 触发 + provider cancel 被调 + 通知恰好 1 条）、`TestProgressHeartbeat_StallWatchdogEscalatesToHardAbort`（interrupt 后持续静默升级 turnCancel + hardAbortRequested）、`TestProgressHeartbeat_StallWatchdogSilentWhenActive`（持续活动零副作用）、`TestProgressHeartbeat_OutboundFallbackWithoutStreamer`（增 kind=progress_note 断言）。前端 `tsc --noEmit` 通过。

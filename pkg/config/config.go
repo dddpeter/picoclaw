@@ -495,7 +495,13 @@ type AgentDefaults struct {
 	AutoContinueTurns int `json:"auto_continue_turns,omitempty"     env:"PICOCLAW_AGENTS_DEFAULTS_AUTO_CONTINUE_TURNS"`
 	// ProgressHeartbeatSeconds is the idle interval for the long-task
 	// progress heartbeat on streaming cards (fork feature). 0 disables it.
-	ProgressHeartbeatSeconds  int                 `json:"progress_heartbeat_seconds,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_PROGRESS_HEARTBEAT_SECONDS"`
+	ProgressHeartbeatSeconds int `json:"progress_heartbeat_seconds,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_PROGRESS_HEARTBEAT_SECONDS"`
+	// ProgressStallInterruptSeconds is the idle threshold after which the
+	// stall watchdog requests a graceful interrupt (plus provider-call
+	// cancel) so a hung turn can finalize and release the session. If the
+	// turn still shows no activity one heartbeat interval later, a hard
+	// abort follows. 0 disables the watchdog (fork feature).
+	ProgressStallInterruptSeconds int `json:"progress_stall_interrupt_seconds,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_PROGRESS_STALL_INTERRUPT_SECONDS"`
 	SummarizeMessageThreshold int                 `json:"summarize_message_threshold"      env:"PICOCLAW_AGENTS_DEFAULTS_SUMMARIZE_MESSAGE_THRESHOLD"`
 	SummarizeTokenPercent     int                 `json:"summarize_token_percent"          env:"PICOCLAW_AGENTS_DEFAULTS_SUMMARIZE_TOKEN_PERCENT"`
 	MaxMediaSize              int                 `json:"max_media_size,omitempty"         env:"PICOCLAW_AGENTS_DEFAULTS_MAX_MEDIA_SIZE"`
@@ -640,6 +646,15 @@ func (d *AgentDefaults) GetProgressHeartbeatSeconds() int {
 		return 0
 	}
 	return d.ProgressHeartbeatSeconds
+}
+
+// GetProgressStallInterruptSeconds returns the stall-watchdog idle
+// threshold in seconds; <= 0 disables the watchdog.
+func (d *AgentDefaults) GetProgressStallInterruptSeconds() int {
+	if d.ProgressStallInterruptSeconds < 0 {
+		return 0
+	}
+	return d.ProgressStallInterruptSeconds
 }
 
 // GetAutoContinueTurns clamps negative values to 0 (disabled).

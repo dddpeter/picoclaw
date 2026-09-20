@@ -240,6 +240,11 @@ type turnState struct {
 	// heartbeatInterval lets tests shrink the progress-heartbeat period
 	// without touching global config (non-exported, zero = use config).
 	heartbeatInterval time.Duration
+	// Stall watchdog bookkeeping (fork feature, layered on the heartbeat):
+	// stallInterruptAtNano records when the watchdog fired its graceful
+	// interrupt; stallInterruptAfter lets tests shrink the threshold.
+	stallInterruptAtNano atomic.Int64
+	stallInterruptAfter  time.Duration
 	// segmentLabel marks auto-continue continuation segments (e.g. "续 2/3"),
 	// surfaced on streaming panel headers (fork feature §8.3).
 	segmentLabel string
@@ -715,13 +720,55 @@ func (ts *turnState) markGracefulTerminalUsed() {
 	ts.gracefulTerminalUsed = true
 }
 
+// cancelProviderCall cancels the in-flight LLM provider call, if any. Used
+// by the stall watchdog to unblock a hung stream/request; the turn loop
+// itself keeps running and observes the graceful-interrupt flag at the next
+// iteration boundary.
+func (ts *turnState) cancelProviderCall() {
+	ts.mu.RLock()
+	cancel := ts.providerCancel
+	ts.mu.RUnlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// markStallInterrupted records when the stall watchdog fired its graceful
+// interrupt. Returns false when already marked (first writer wins, so the
+// watchdog notice is emitted exactly once).
+func (ts *turnState) markStallInterrupted(now time.Time) bool {
+	return ts.stallInterruptAtNano.CompareAndSwap(0, now.UnixNano())
+}
+
+// stallInterruptedAt returns the watchdog interrupt time (zero time = never).
+func (ts *turnState) stallInterruptedAt() time.Time {
+	nano := ts.stallInterruptAtNano.Load()
+	if nano == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, nano)
+}
+
 func (ts *turnState) requestHardAbort() bool {
+	return ts.requestHardAbortWithReason("")
+}
+
+// requestHardAbortWithReason hard-aborts the turn and, when reason is
+// non-empty, records it inside the same critical section that flips the
+// hard-abort flag. Ordering matters: the cancels below wake the turn loop,
+// which reads abortReasonCode() (e.g. turn_coord's stream-cleanup defer)
+// right away, so a caller that set the reason after this call could lose
+// the race and report a generic abort cause.
+func (ts *turnState) requestHardAbortWithReason(reason string) bool {
 	ts.mu.Lock()
 	if ts.hardAbort {
 		ts.mu.Unlock()
 		return false
 	}
 	ts.hardAbort = true
+	if reason != "" && ts.abortReason == "" {
+		ts.abortReason = reason
+	}
 	turnCancel := ts.turnCancel
 	providerCancel := ts.providerCancel
 	ts.mu.Unlock()

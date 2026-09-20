@@ -36,7 +36,12 @@ export interface ChatToolCall {
   extraContent?: ChatToolCallExtraContent
 }
 
-export type AssistantMessageKind = "normal" | "thought" | "tool_calls"
+export type AssistantMessageKind =
+  | "normal"
+  | "thought"
+  | "tool_calls"
+  /** 非终结性进度提示（心跳/卡死监护通知），不算本轮最终回复。 */
+  | "progress_note"
 
 export interface ChatMessage {
   id: string
@@ -77,6 +82,12 @@ export interface ChatStoreState {
   contextUsage?: ContextUsage
   /** When the current assistant turn started (ms epoch); undefined when idle. */
   turnStartedAt?: number
+  /**
+   * When the last server-side turn activity was observed (message.create /
+   * message.update / typing events, ms epoch); while typing, the difference
+   * between now and this timestamp drives the stall hint. undefined when idle.
+   */
+  lastTurnActivityAt?: number
 }
 
 type ChatStorePatch = Partial<ChatStoreState>

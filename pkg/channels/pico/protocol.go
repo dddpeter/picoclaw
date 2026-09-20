@@ -32,6 +32,9 @@ const (
 
 	MessageKindThought   = "thought"
 	MessageKindToolCalls = "tool_calls"
+	// MessageKindProgressNote marks non-final progress beats (stall/heartbeat
+	// notices). Clients must not treat them as the turn's final answer.
+	MessageKindProgressNote = "progress_note"
 )
 
 // PicoMessage is the wire format for all Pico Protocol messages.

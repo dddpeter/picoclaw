@@ -43,6 +43,10 @@ func DefaultConfig() *Config {
 				MaxToolIterations:        50,
 				AutoContinueTurns:        2,
 				ProgressHeartbeatSeconds: 180,
+				// Stall watchdog: a turn silent for 10 minutes gets a graceful
+				// interrupt (+ provider cancel); one still silent a heartbeat
+				// interval after that gets hard-aborted (fork feature).
+				ProgressStallInterruptSeconds: 600,
 				RestartRecovery: RestartRecoveryConfig{
 					NotifyWindowHours:       24,
 					ReminderIntervalMinutes: 30,

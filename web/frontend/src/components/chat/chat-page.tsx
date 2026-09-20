@@ -1,4 +1,4 @@
-import { IconPlus } from "@tabler/icons-react"
+import { IconAlertTriangle, IconPlus } from "@tabler/icons-react"
 import { useAtom } from "jotai"
 import {
   type ChangeEvent,
@@ -34,6 +34,7 @@ import {
   getTransferredFiles,
   hasFileTransfer,
 } from "@/features/chat/image-input"
+import { useTurnStall } from "@/features/chat/use-turn-stall"
 import { useChatModels } from "@/hooks/use-chat-models"
 import { useGateway } from "@/hooks/use-gateway"
 import { usePicoChat } from "@/hooks/use-pico-chat"
@@ -146,6 +147,7 @@ export function ChatPage() {
 
   const { state: gwState } = useGateway()
   const isGatewayRunning = gwState === "running"
+  const { stalled: turnStalled, idleMs: turnIdleMs } = useTurnStall()
 
   const {
     defaultModelName,
@@ -428,6 +430,23 @@ export function ChatPage() {
             isTyping={isTyping}
             detail={assistantDetailVisibility}
           />
+
+          {isTyping && turnStalled && (
+            <div
+              role="status"
+              className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-400"
+            >
+              <IconAlertTriangle className="mt-0.5 size-4 shrink-0" />
+              <span>
+                {t("chat.turnStalled", {
+                  minutes: Math.max(
+                    1,
+                    Math.floor((turnIdleMs ?? 0) / 60_000),
+                  ),
+                })}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
