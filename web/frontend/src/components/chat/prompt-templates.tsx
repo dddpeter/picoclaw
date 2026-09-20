@@ -12,6 +12,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react"
@@ -56,6 +57,7 @@ interface BuiltinDef {
 // pi-web-ui. Copy lives in i18n (tpl.sk.*); the gateway only stores the user
 // delta on top of these defaults.
 const BUILTIN_DEFS: BuiltinDef[] = [
+  { id: "project-context", icon: "📁", titleKey: "tpl.sk.project.title", descKey: "tpl.sk.project.desc", promptKey: "tpl.sk.project.prompt" },
   { id: "setup-matt-pocock-skills", icon: "🧰", titleKey: "tpl.sk.setup.title", descKey: "tpl.sk.setup.desc", promptKey: "tpl.sk.setup.prompt" },
   { id: "ask-matt", icon: "🟣", titleKey: "tpl.sk.ask.title", descKey: "tpl.sk.ask.desc", promptKey: "tpl.sk.ask.prompt" },
   { id: "grill-with-docs", icon: "🔥", titleKey: "tpl.sk.grilldocs.title", descKey: "tpl.sk.grilldocs.desc", promptKey: "tpl.sk.grilldocs.prompt" },
@@ -99,6 +101,8 @@ function isFullEntry(s: StoredPromptTemplate): boolean {
 interface PromptTemplatesApi {
   templates: PromptTemplate[]
   loading: boolean
+  /** 写操作进行中（整表 PUT）：期间应禁用写入口，避免并发覆盖。 */
+  saving: boolean
   loadError: string | null
   saveError: string | null
   overriddenIds: Set<string>
@@ -136,10 +140,22 @@ interface ProviderProps {
 
 export function PromptTemplatesProvider({ children, onFill, onSend, canSend }: ProviderProps) {
   const { t } = useTranslation()
+  // i18n hands out a fresh `t` on every locale change. Effects read it through
+  // this ref instead of depending on it: re-running the load effect would GET
+  // again and overwrite in-flight local edits (e.g. an optimistic save that is
+  // about to roll back) with the server snapshot.
+  const tRef = useRef(t)
+  useEffect(() => {
+    tRef.current = t
+  }, [t])
   const [stored, setStored] = useState<StoredPromptTemplate[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  // Ref mirror of `saving`: persist may run from stale closures (queue of quick
+  // clicks), and the ref is the only place that sees in-flight writes synchronously.
+  const savingRef = useRef(false)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [editing, setEditing] = useState<PromptTemplate | null>(null)
   const [editOpen, setEditOpen] = useState(false)
@@ -156,14 +172,14 @@ export function PromptTemplatesProvider({ children, onFill, onSend, canSend }: P
       })
       .catch(() => {
         if (alive) {
-          setLoadError(t("tpl.loadError"))
+          setLoadError(tRef.current("tpl.loadError"))
           setLoading(false)
         }
       })
     return () => {
       alive = false
     }
-  }, [t])
+  }, [])
 
   const { templates, overriddenIds } = useMemo(() => {
     const hidden = new Set<string>()
@@ -207,6 +223,15 @@ export function PromptTemplatesProvider({ children, onFill, onSend, canSend }: P
 
   const persist = useCallback(
     async (next: StoredPromptTemplate[]): Promise<boolean> => {
+      // PUT carries the whole list, so two overlapping saves would let the later
+      // snapshot wipe the earlier edit. The UI disables its write buttons while
+      // saving; this guard also covers programmatic/rapid double submissions.
+      if (savingRef.current) {
+        setSaveError(tRef.current("tpl.saveBusy"))
+        return false
+      }
+      savingRef.current = true
+      setSaving(true)
       const prev = stored
       setStored(next)
       setSaveError(null)
@@ -216,11 +241,14 @@ export function PromptTemplatesProvider({ children, onFill, onSend, canSend }: P
         return true
       } catch (err) {
         setStored(prev)
-        setSaveError(err instanceof Error ? err.message : t("tpl.saveError"))
+        setSaveError(err instanceof Error ? err.message : tRef.current("tpl.saveError"))
         return false
+      } finally {
+        savingRef.current = false
+        setSaving(false)
       }
     },
-    [stored, t],
+    [stored],
   )
 
   const saveTemplate = useCallback(
@@ -312,6 +340,7 @@ export function PromptTemplatesProvider({ children, onFill, onSend, canSend }: P
   const api: PromptTemplatesApi = {
     templates,
     loading,
+    saving,
     loadError,
     saveError,
     overriddenIds,
@@ -355,7 +384,7 @@ function TemplateCard({
         title={tpl.title}
         className={cn(
           "flex h-full w-full cursor-pointer flex-col gap-2 rounded-xl border bg-card p-4 text-left transition-colors hover:border-foreground/25 hover:bg-accent",
-          compact && "gap-1.5 p-3",
+          compact && "h-11 flex-row items-center gap-2 px-3 py-0 pr-8",
         )}
       >
         <span className="flex items-center gap-2 min-w-0">
@@ -374,7 +403,10 @@ function TemplateCard({
         type="button"
         onClick={() => openEdit(tpl)}
         title={t("tpl.editTitle")}
-        className="absolute top-2 right-2 hidden h-6 w-6 cursor-pointer items-center justify-center rounded-lg bg-background/80 text-muted-foreground transition-colors hover:text-foreground group-hover/card:flex"
+        className={cn(
+          "absolute top-2 right-2 hidden h-6 w-6 cursor-pointer items-center justify-center rounded-lg bg-background/80 text-muted-foreground transition-colors hover:text-foreground group-hover/card:flex",
+          compact && "top-1/2 right-1.5 -translate-y-1/2",
+        )}
       >
         <IconEdit size={13} />
       </button>
@@ -384,13 +416,14 @@ function TemplateCard({
 
 function ResetButton({ className }: { className?: string }) {
   const { t } = useTranslation()
-  const { resetConfirm, toggleReset, resetToDefaults } = usePromptTemplates()
+  const { resetConfirm, toggleReset, resetToDefaults, saving } = usePromptTemplates()
   return (
     <Button
       type="button"
       variant={resetConfirm ? "destructive" : "outline"}
       size="sm"
       className={className}
+      disabled={saving}
       onClick={() => (resetConfirm ? resetToDefaults() : toggleReset())}
     >
       <IconRotateClockwise />
@@ -400,14 +433,28 @@ function ResetButton({ className }: { className?: string }) {
 }
 
 /** Suggestion cards shown on the chat empty state. */
+// 11 + the "new template" tile = 12: at the empty state's width the auto-fill
+// grid lands on 4 columns, so this paints three even rows with no scrolling.
+// Narrower viewports simply reflow into more rows — the cap is a height budget.
+const EMPTY_VISIBLE = 11
+
 export function EmptyTemplateCards() {
   const { t } = useTranslation()
-  const { templates, loading, loadError, openEdit } = usePromptTemplates()
+  const { templates, loading, loadError, openPicker, openEdit } = usePromptTemplates()
   if (loading) {
     return null
   }
+  // Custom templates first, builtin templates fill the rest of the slots; the
+  // remainder stays reachable through the picker dialog so the empty state
+  // never overflows into a scroll area.
+  const ordered = [
+    ...templates.filter((tpl) => !tpl.builtin),
+    ...templates.filter((tpl) => tpl.builtin),
+  ]
+  const visible = ordered.slice(0, EMPTY_VISIBLE)
+  const remaining = templates.length - visible.length
   return (
-    <div className="mt-10 flex flex-col items-center gap-3">
+    <div className="mt-10 flex w-full flex-col items-center gap-3">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <IconTemplate size={16} aria-hidden />
         <span>{t("tpl.hint")}</span>
@@ -415,22 +462,29 @@ export function EmptyTemplateCards() {
       {loadError && (
         <p className="text-xs text-destructive">{loadError}</p>
       )}
-      <ScrollArea className="max-h-72 w-full max-w-2xl">
-        <div className="grid grid-cols-2 gap-2 p-0.5 sm:grid-cols-3">
-          {templates.map((tpl) => (
+      <div className="w-full max-w-2xl">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-2 p-0.5">
+          {visible.map((tpl) => (
             <TemplateCard key={tpl.id} tpl={tpl} compact />
           ))}
           <button
             type="button"
             onClick={() => openEdit()}
-            className="flex h-full min-h-16 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed p-3 text-muted-foreground transition-colors hover:border-foreground/25 hover:bg-accent hover:text-foreground"
+            className="flex h-11 cursor-pointer flex-row items-center justify-center gap-1.5 rounded-xl border border-dashed px-3 text-muted-foreground transition-colors hover:border-foreground/25 hover:bg-accent hover:text-foreground"
           >
             <IconPlus size={16} aria-hidden />
             <span className="text-xs font-medium">{t("tpl.add")}</span>
           </button>
         </div>
-      </ScrollArea>
-      <ResetButton className="mt-1" />
+      </div>
+      <div className="mt-1 flex items-center gap-2">
+        {remaining > 0 && (
+          <Button type="button" variant="outline" size="sm" onClick={openPicker}>
+            {t("tpl.viewAll", { n: templates.length })}
+          </Button>
+        )}
+        <ResetButton />
+      </div>
     </div>
   )
 }
@@ -494,6 +548,7 @@ function TemplateEditDialog({
     restoreOverride,
     overriddenIds,
     saveError,
+    saving,
     fill,
     send,
     canSend,
@@ -647,13 +702,25 @@ function TemplateEditDialog({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap gap-2">
             {isBuiltin && overridden && (
-              <Button type="button" variant="outline" size="sm" onClick={onRestore}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onRestore}
+                disabled={saving}
+              >
                 <IconRotateClockwise />
                 {t("tpl.restore")}
               </Button>
             )}
             {!isNew && (
-              <Button type="button" variant="destructive" size="sm" onClick={onRemove}>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={onRemove}
+                disabled={saving}
+              >
                 <IconTrash />
                 {isBuiltin ? t("tpl.remove") : t("tpl.delete")}
               </Button>
@@ -673,7 +740,7 @@ function TemplateEditDialog({
               <IconSend />
               {t("tpl.sendNow")}
             </Button>
-            <Button type="button" size="sm" onClick={onSave}>
+            <Button type="button" size="sm" onClick={onSave} disabled={saving}>
               {t("tpl.save")}
             </Button>
           </div>

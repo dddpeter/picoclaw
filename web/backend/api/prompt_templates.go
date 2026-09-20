@@ -165,6 +165,10 @@ func (h *Handler) handleGetPromptTemplates(w http.ResponseWriter, r *http.Reques
 	_ = json.NewEncoder(w).Encode(promptTemplatesResponse{Templates: templates})
 }
 
+// handlePutPromptTemplates replaces the entire list (last write wins): there is
+// no per-entry merge, so concurrent writers can lose updates. Clients must
+// serialize their writes — the web UI disables its write actions while a save
+// is in flight (see PromptTemplatesProvider.persist).
 func (h *Handler) handlePutPromptTemplates(w http.ResponseWriter, r *http.Request) {
 	var payload promptTemplatesResponse
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {

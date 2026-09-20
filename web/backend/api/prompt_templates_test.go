@@ -208,3 +208,33 @@ func TestPromptTemplatesGetCorruptFile(t *testing.T) {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+// A corrupt store makes GET fail, but a valid PUT rewrites the file, so the
+// dashboard can recover from a hand-edited or truncated prompt-templates.json
+// without touching the filesystem.
+func TestPromptTemplatesCorruptFileSelfHealsViaPut(t *testing.T) {
+	_, mux, path := newPromptTemplatesTestHandler(t)
+	if err := os.WriteFile(path, []byte("{broken"), 0o600); err != nil {
+		t.Fatalf("write corrupt file: %v", err)
+	}
+
+	if rec := doPromptTemplatesJSON(t, mux, http.MethodGet, "/api/prompt-templates", nil); rec.Code != http.StatusInternalServerError {
+		t.Fatalf("GET on corrupt store status = %d, want 500", rec.Code)
+	}
+
+	put := promptTemplatesResponse{Templates: []storedPromptTemplate{
+		{ID: "repair-1", Icon: "🩹", Title: "Repaired", Prompt: "hello"},
+	}}
+	if rec := doPromptTemplatesJSON(t, mux, http.MethodPut, "/api/prompt-templates", put); rec.Code != http.StatusOK {
+		t.Fatalf("repairing PUT status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec := doPromptTemplatesJSON(t, mux, http.MethodGet, "/api/prompt-templates", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET after repair status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	got := decodePromptTemplates(t, rec)
+	if len(got.Templates) != 1 || got.Templates[0].ID != "repair-1" || got.Templates[0].Title != "Repaired" {
+		t.Fatalf("self-heal mismatch: %+v", got.Templates)
+	}
+}

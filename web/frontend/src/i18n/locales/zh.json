@@ -64,19 +64,6 @@
     },
     "newChat": "新建对话",
     "notConnected": "服务未运行，请先启动以进行对话。",
-    "thinking": {
-      "step1": "思考中...",
-      "step2": "分析您的请求...",
-      "step3": "准备回复...",
-      "step4": "马上就好...",
-      "elapsed": "已进行 {{seconds}}",
-      "stalled": "仍在处理 — 已有一段时间没有新输出了"
-    },
-    "reasoningLabel": "思考",
-    "toolCallsLabel": "工具调用",
-    "toolCallExplanationLabel": "调用提示",
-    "toolCallFunctionLabel": "调用摘要",
-    "toolCallArgumentsLabel": "参数",
     "showAssistantDetails": "思考与工具调用",
     "assistantDetailVisibility": {
       "none": "均不展示",
@@ -84,9 +71,7 @@
       "toolCalls": "仅展示工具调用",
       "all": "均展示"
     },
-    "toolLabel": "工具",
     "codeLabel": "代码",
-    "copyMessage": "复制消息",
     "copyCode": "复制代码",
     "copiedLabel": "已复制",
     "enableCodeWrap": "开启换行",
@@ -101,10 +86,6 @@
     "deleteSession": "删除会话",
     "messagesCount": "{{count}} 条消息",
     "noModel": "选择模型",
-    "inputDisabled": {
-      "notConnected": "服务未运行，请先启动以进行对话。",
-      "noModel": "未设置默认模型，请前往模型页面进行配置。"
-    },
     "sendMessage": "发送消息",
     "composeHint": "按 Enter 发送，Shift + Enter 换行",
     "contextTitle": "上下文",
@@ -131,9 +112,7 @@
       "apikey": "API Key",
       "oauth": "OAuth",
       "local": "本地模型"
-    },
-    "steeringBadge": "已插入当前轮",
-    "steeringTooltip": "这条消息已排队为 steering，会被正在运行的这轮对话消费"
+    }
   },
   "header": {
     "logout": {
@@ -1161,6 +1140,7 @@
   },
   "tpl": {
     "hint": "点击卡片直接填入输入框，✏️ 可编辑或删除 · 也能新增自己的模板",
+    "viewAll": "查看全部 {{n}} 个模板",
     "pickerTitle": "提示词模板",
     "pickerHint": "点击卡片直接填入输入框，✏️ 可编辑或删除 · 也能新增自己的模板",
     "add": "新建模板",
@@ -1185,7 +1165,13 @@
     "restore": "恢复默认",
     "loadError": "模板加载失败，当前展示内置默认（自定义内容暂不可用）",
     "saveError": "模板保存失败，请重试",
+    "saveBusy": "正在保存，请稍候再试",
     "sk": {
+      "project": {
+        "title": "项目上下文",
+        "desc": "把某个项目目录设为本次工作目标",
+        "prompt": "接下来请以这个项目目录为本次会话的工作目标：\n\n<在这里替换为项目绝对路径，例如 d:/code/picoclaw>\n\n要求：\n1. 先读取该目录下的 AGENTS.md / README.md / CLAUDE.md，摘要其中的构建、测试、协作约定\n2. 之后所有命令（exec 的 cwd）与文件读写都以该目录为基准，不要写到 ~/.picoclaw/workspace\n3. 报告：项目类型、构建 / 测试 / 运行命令、当前 git 分支与工作区状态\n\n先只报告，不要修改任何文件。"
+      },
       "setup": {
         "title": "仓库初始化",
         "desc": "让仓库了解它的构建与约定",
