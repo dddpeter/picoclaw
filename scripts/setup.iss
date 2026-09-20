@@ -38,6 +38,15 @@ ArchitecturesAllowed=x64compatible
 ; the 64-bit view of the registry.
 ArchitecturesInstallIn64BitMode=x64compatible
 DisableProgramGroupPage=yes
+; Always show the "Select Destination Location" page. On upgrades the default
+; is pre-filled with the previous install dir (UsePreviousAppDir), but the
+; user must still be able to change it.
+DisableDirPage=no
+UsePreviousAppDir=yes
+; Process shutdown is handled explicitly in [Code] PrepareToInstall with a
+; confirmation dialog: Restart Manager is unreliable for the windowless
+; background gateway process and its cryptic prompts abort installs.
+CloseApplications=no
 ; Remove the following line to run in administrative install mode (install for all users.)
 PrivilegesRequired=lowest
 OutputDir=..\build
@@ -73,3 +82,79 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDi
 
 [Run]
 Filename:"{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+const
+  // Same key Inno writes for PrivilegesRequired=lowest installs; used to
+  // detect a previous installation and show upgrade info on the Ready page.
+  // Keep in sync with AppId in [Setup].
+  PrevUninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{C8A1B4E7-D5F9-4C2A-8A6E-5F4D3C2A1B0E}_is1';
+
+function PicoclawProcessRunning(const ExeName: string): Boolean;
+var
+  ResultCode: Integer;
+begin
+  // tasklist + find exits 0 when a matching process exists.
+  Result := Exec(ExpandConstant('{cmd}'),
+    '/C tasklist /FI "IMAGENAME eq ' + ExeName + '" | find /I "' + ExeName + '" > nul',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+end;
+
+function StopPicoclawProcesses(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Exec(ExpandConstant('{cmd}'), '/C taskkill /IM picoclaw.exe /F > nul 2>&1',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{cmd}'), '/C taskkill /IM picoclaw-launcher.exe /F > nul 2>&1',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Sleep(1500);
+  Result := (not PicoclawProcessRunning('picoclaw.exe')) and
+    (not PicoclawProcessRunning('picoclaw-launcher.exe'));
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Attempts: Integer;
+begin
+  Result := '';
+  if (not PicoclawProcessRunning('picoclaw.exe')) and
+     (not PicoclawProcessRunning('picoclaw-launcher.exe')) then
+    exit;
+
+  for Attempts := 1 to 3 do
+  begin
+    if MsgBox(
+        '检测到 PicoClaw 正在运行（picoclaw.exe / picoclaw-launcher.exe），' + #13#10 +
+        '需要停止它们才能完成升级安装。' + #13#10#13#10 +
+        '是否现在停止这些进程？',
+        mbConfirmation, MB_YESNO) = IDYES then
+    begin
+      if StopPicoclawProcesses() then
+        exit;
+      MsgBox('未能完全停止 PicoClaw 进程，请手动关闭后点击"重试"。', mbError, MB_OK);
+    end
+    else
+    begin
+      // User declined: if they are installing into a fresh directory the
+      // running processes (which lock the OLD install dir) may not conflict;
+      // let file copying surface a retry prompt only if it really clashes.
+      exit;
+    end;
+  end;
+
+  Result := 'PicoClaw 进程仍在运行，无法继续安装。请手动停止 picoclaw.exe 和 picoclaw-launcher.exe 后重新运行安装程序。';
+end;
+
+function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo,
+  MemoTypeInfo, MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
+var
+  PrevVersion: String;
+begin
+  if RegQueryStringValue(HKCU, PrevUninstallKey, 'DisplayVersion', PrevVersion) and
+     (PrevVersion <> '{#MyAppVersion}') then
+    Result := '检测到已安装版本 ' + PrevVersion + '，本次将升级到 {#MyAppVersion}。' + NewLine + NewLine
+  else
+    Result := '';
+  Result := Result + MemoDirInfo + NewLine + MemoGroupInfo + NewLine + MemoTasksInfo;
+end;
