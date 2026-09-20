@@ -297,6 +297,14 @@ mcp_codebase-memory_query_graph(
 
 本机（Windows）`go test ./pkg/...` 存在**预存环境性失败**（cgo/libolm 缺失致 matrix 构建失败、Windows token/Unix shell 假设等），涉及 agent/tools/seahorse/deltachat/audio 等 14 包，与代码状态无关。批次 1 采用「失败集前后对比」验证：改动前后 `--- FAIL` 集合与包级 ok/FAIL 状态**完全一致**。后续批次（2/3 触碰 pkg/agent 热路径）建议在 Linux 部署机上跑全量，或继续用失败集对比法。
 
+## C.5 批次 2：ExecuteTools 内部拆分 —— 完成（2026-09-20）
+
+- 按附二 B.2 修订方案执行（查表化撤销）：新增 `pkg/agent/pipeline_execute_loop.go`（820 行）承载全部提取件；`pipeline_execute.go` 965→239 行，`ExecuteTools` 848→**121 行**（达标 ≤120），最大提取片 `handleHookRespond` 106 行。
+- 提取清单：`handleBeforeToolDecision` / `handleAfterToolDecision`（两个钩子决策流）、`handleHookRespond`（Respond 大块）、`runToolInvocation`、`handleToolResult`、`checkTurnCheckpoint`、`drainPendingSubTurnResults`、`finishToolExecution`（收尾三分支）、`appendDeniedToolResult`（四处同构 deny 块合一）、`publishToolFeedback`（两处反馈发布合一）、`deliverHandledMedia`+`buildMediaParts`（两处媒体投递合一）、三个 `appendTool*Message` 变体。
+- **保真手段**：新增 `toolLoopState` 载体 + `toolLoopAction` 四态枚举；两处历史性持久化门槛差异（hook-respond 路径多 `persistsToolMessages()` 门）用 `gateOnToolPersist` 参数显式保留；日志字符串/事件/ctx-vs-turnCtx 用法逐串比对（脚本校验 90 项，全部差异均为预期去重）。
+- 验证：`go build`/`go vet`/`gofmt` 绿；`pkg/agent` 全量测试失败集与基线**完全一致**（仅 4 个预存 seahorse 环境失败）；聚焦跑（Hook|Steer|Subturn|Tool|Approval…）同样仅命中基线内失败。调用点唯一（turn_coord.go）零改动，签名不变。
+- 净增 94 行（965→1059，两文件合计）：提取件文档注释与签名的必要开销。
+
 ---
 
-*执行人：pico（AI）。批次 1 于 2026-09-20 完成；批次 2（ExecuteTools 拆分）待开始。*
+*执行人：pico（AI）。批次 1/2 于 2026-09-20 完成；批次 3（CallLLM 拆分）待开始，前置：降级路径回归测试。*
