@@ -396,8 +396,8 @@ func TestFeishuPanelRunningTool(t *testing.T) {
 	panel := buildFeishuPanel(state, true)
 	data, _ := json.Marshal(panel["elements"])
 	rendered := string(data)
-	if !strings.Contains(rendered, "⏳ long") || !strings.Contains(rendered, "（运行中）") {
-		t.Errorf("running tool should render an amber running entry:\n%s", rendered)
+	if !strings.Contains(rendered, "⏳ `long") || !strings.Contains(rendered, "（运行中）") {
+		t.Errorf("running tool should render an amber running entry with a monospaced name:\n%s", rendered)
 	}
 	if !strings.Contains(rendered, "sleep 300") {
 		t.Errorf("running tool should show its args preview:\n%s", rendered)
@@ -435,6 +435,66 @@ func TestPanelShowsSteeringNotice(t *testing.T) {
 	data, _ = json.Marshal(panel["elements"])
 	if !strings.Contains(string(data), "…") {
 		t.Error("long steering preview should be truncated")
+	}
+}
+
+func TestFeishuToolTitleMonospaceName(t *testing.T) {
+	title := feishuToolStepTitle(bus.ToolStep{Tool: "web_search", Duration: time.Second})
+	content := title["text"].(map[string]any)["content"].(string)
+	if !strings.Contains(content, "`web_search`") {
+		t.Errorf("tool name should render monospaced, got %q", content)
+	}
+	// MCP names keep the mono span after the prefix strip.
+	mcp := feishuToolStepTitle(bus.ToolStep{Tool: "mcp_git_create_issue", Kind: bus.ToolStepKindMCP, Duration: time.Second})
+	content = mcp["text"].(map[string]any)["content"].(string)
+	if !strings.Contains(content, "MCP `git_create_issue`") {
+		t.Errorf("mcp tool name should render monospaced without prefix, got %q", content)
+	}
+	// Markdown specials stay literal inside the code span (no escaping —
+	// escaping would show "\_" for snake_case names).
+	weird := feishuToolStepTitle(bus.ToolStep{Tool: "we*ird"})
+	content = weird["text"].(map[string]any)["content"].(string)
+	if !strings.Contains(content, "`we*ird`") {
+		t.Errorf("code span content must stay literal, got %q", content)
+	}
+}
+
+func TestFeishuPanelWaitingModelTail(t *testing.T) {
+	state := &feishuStreamState{
+		Tools:        []bus.ToolStep{{Tool: "web_search", Args: "q", Result: "ok", Duration: time.Second}},
+		WaitingModel: true,
+	}
+	panel := buildFeishuPanel(state, true)
+	data, _ := json.Marshal(panel["elements"])
+	rendered := string(data)
+	if !strings.Contains(rendered, "等待模型继续") {
+		t.Errorf("waiting-model tail missing:\n%s", rendered)
+	}
+	// The tail closes the timeline, after the finalized tool step.
+	idx := panelChildOrder(t, panel, "`web_search`", "等待模型继续")
+	if idx[0] >= idx[1] {
+		t.Errorf("waiting tail should follow the tool step, got indexes %v", idx)
+	}
+
+	// Hidden while another tool runs.
+	state.RunningTool = &bus.ToolStep{Tool: "next_tool"}
+	panel = buildFeishuPanel(state, true)
+	if data, _ = json.Marshal(panel["elements"]); strings.Contains(string(data), "等待模型继续") {
+		t.Error("waiting tail must hide while another tool runs")
+	}
+	// Hidden while reasoning streams.
+	state.RunningTool = nil
+	state.CurReasoning = "resumed thinking"
+	panel = buildFeishuPanel(state, true)
+	if data, _ = json.Marshal(panel["elements"]); strings.Contains(string(data), "等待模型继续") {
+		t.Error("waiting tail must hide while reasoning streams")
+	}
+	// Never rendered once cleared (sealed cards clear it).
+	state.CurReasoning = ""
+	state.WaitingModel = false
+	panel = buildFeishuPanel(state, true)
+	if data, _ = json.Marshal(panel["elements"]); strings.Contains(string(data), "等待模型继续") {
+		t.Error("waiting tail must not render once cleared")
 	}
 }
 

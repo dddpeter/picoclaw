@@ -221,3 +221,72 @@ func TestStreamerRunningToolStepLifecycle(t *testing.T) {
 		t.Fatalf("completed step should join the timeline with a seq, got tools=%d seqs=%d", toolCount, seqCount)
 	}
 }
+
+// TestStreamerWaitingModelLifecycle locks the "Waiting for the model…"
+// semantics: a completed tool arms the panel tail, the next running tool,
+// reasoning round or answer text clears it, and the sealed card never shows it.
+func TestStreamerWaitingModelLifecycle(t *testing.T) {
+	fake := &degradeAPIFake{}
+	s := newDegradeTestStreamer(t, fake)
+
+	if err := s.AppendToolStep(context.Background(), bus.ToolStep{Tool: "t", Result: "ok"}); err != nil {
+		t.Fatalf("completed step: %v", err)
+	}
+	s.mu.Lock()
+	armed := s.state.WaitingModel
+	s.mu.Unlock()
+	if !armed {
+		t.Fatal("completed tool should arm WaitingModel")
+	}
+
+	// A running tool clears it.
+	if err := s.AppendToolStep(context.Background(), bus.ToolStep{Tool: "t2", Running: true}); err != nil {
+		t.Fatalf("running step: %v", err)
+	}
+	s.mu.Lock()
+	armed = s.state.WaitingModel
+	s.mu.Unlock()
+	if armed {
+		t.Fatal("running tool should clear WaitingModel")
+	}
+
+	// Completion re-arms it; the next reasoning round clears it again.
+	if err := s.AppendToolStep(context.Background(), bus.ToolStep{Tool: "t2", Result: "ok"}); err != nil {
+		t.Fatalf("completed step: %v", err)
+	}
+	if err := s.UpdateReasoning(context.Background(), "思考"); err != nil {
+		t.Fatalf("reasoning: %v", err)
+	}
+	s.mu.Lock()
+	armed = s.state.WaitingModel
+	s.mu.Unlock()
+	if armed {
+		t.Fatal("UpdateReasoning should clear WaitingModel")
+	}
+
+	// Re-arm, then answer text clears it too.
+	if err := s.AppendToolStep(context.Background(), bus.ToolStep{Tool: "t3", Result: "ok"}); err != nil {
+		t.Fatalf("completed step: %v", err)
+	}
+	if err := s.Update(context.Background(), "答案"); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	s.mu.Lock()
+	armed = s.state.WaitingModel
+	s.mu.Unlock()
+	if armed {
+		t.Fatal("Update should clear WaitingModel")
+	}
+
+	// The seal never leaves the tail on the card.
+	if err := s.AppendToolStep(context.Background(), bus.ToolStep{Tool: "t4", Result: "ok"}); err != nil {
+		t.Fatalf("completed step: %v", err)
+	}
+	if err := s.Finalize(context.Background(), "final"); err != nil {
+		t.Fatalf("finalize: %v", err)
+	}
+	data, _ := json.Marshal(fake.lastCard)
+	if strings.Contains(string(data), "等待模型继续") {
+		t.Error("sealed card must not show the waiting-model tail")
+	}
+}

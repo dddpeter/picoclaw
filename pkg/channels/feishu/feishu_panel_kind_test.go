@@ -30,12 +30,11 @@ func TestBuildFeishuPanelSkillAndMCPSteps(t *testing.T) {
 	}
 	rendered := string(data)
 
-	if !strings.Contains(rendered, "已加载技能：pdf-reader, web-lookup") {
+	if !strings.Contains(rendered, "已加载技能：`pdf-reader, web-lookup`") {
 		t.Errorf("panel should render skill activation entry, got:\n%s", rendered)
 	}
-	// Underscores are markdown-escaped in titles (web\_search), so match the
-	// prefix that survives escaping.
-	if !strings.Contains(rendered, "MCP fetch") {
+	// Tool names render monospaced in code spans (pi-web-ui parity).
+	if !strings.Contains(rendered, "MCP `fetch") {
 		t.Errorf("panel should render MCP-tagged tool step, got:\n%s", rendered)
 	}
 
@@ -48,7 +47,7 @@ func TestBuildFeishuPanelSkillAndMCPSteps(t *testing.T) {
 	// Skill entry precedes reasoning rounds; executions follow them.
 	skillIdx := strings.Index(rendered, "已加载技能")
 	reasoningIdx := strings.Index(rendered, "第 1 轮推理")
-	mcpIdx := strings.Index(rendered, "MCP fetch")
+	mcpIdx := strings.Index(rendered, "MCP `fetch")
 	if skillIdx == -1 || reasoningIdx == -1 || mcpIdx == -1 {
 		t.Fatalf("missing expected sections in panel:\n%s", rendered)
 	}

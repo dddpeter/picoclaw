@@ -390,6 +390,7 @@ func (s *feishuCardStreamer) Update(ctx context.Context, content string) error {
 	}
 	s.answer = content
 	s.lastAt = time.Now()
+	s.state.WaitingModel = false // answer text started arriving
 	if s.phase != feishuPhaseAnswer {
 		// The status line element is a div, which the element-content API
 		// cannot write (code 300313); the phase reaches the card only through
@@ -478,6 +479,7 @@ func (s *feishuCardStreamer) UpdateReasoning(ctx context.Context, content string
 	}
 	s.lastAt = time.Now()
 	s.setPhaseLocked(feishuPhaseThinking)
+	s.state.WaitingModel = false // the model is thinking again, not waiting
 	s.panelDirty = true
 	if s.state.CurReasoning == "" {
 		s.reasonAt = time.Now()
@@ -541,8 +543,13 @@ func (s *feishuCardStreamer) AppendToolStep(ctx context.Context, step bus.ToolSt
 	if step.Running {
 		running := step
 		s.state.RunningTool = &running
+		s.state.WaitingModel = false
 	} else {
 		s.state.RunningTool = nil
+		// Feedback delivered: the model now digests it before its next
+		// reasoning round or answer text (pi-web-ui's "Waiting for the
+		// model…" tail on the panel timeline).
+		s.state.WaitingModel = true
 		s.eventSeq++
 		s.state.Tools = append(s.state.Tools, step)
 		s.state.ToolSeqs = append(s.state.ToolSeqs, s.eventSeq)
@@ -635,6 +642,8 @@ func (s *feishuCardStreamer) FinalizeWithContext(ctx context.Context, content st
 		s.state.ContextTotal = usage.TotalTokens
 		s.state.ContextOffset = usage.HistoryTokens
 	}
+	// The sealed card never shows the waiting-model tail.
+	s.state.WaitingModel = false
 	// Fold any in-progress reasoning round so the sealed panel is complete.
 	if s.state.CurReasoning != "" {
 		s.eventSeq++
@@ -683,7 +692,9 @@ func (s *feishuCardStreamer) CancelWithReason(ctx context.Context, reason string
 		s.mu.Unlock()
 		return
 	}
-	// Fold the in-progress reasoning round so the panel stays consistent.
+	// The sealed card never shows the waiting-model tail; fold the
+	// in-progress reasoning round so the panel stays consistent.
+	s.state.WaitingModel = false
 	if s.state.CurReasoning != "" {
 		s.eventSeq++
 		s.state.Rounds = append(s.state.Rounds, feishuReasoningRound{Text: s.state.CurReasoning, Seq: s.eventSeq})

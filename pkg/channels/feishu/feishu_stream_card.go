@@ -201,6 +201,12 @@ type feishuStreamState struct {
 	SteeringLast  string
 	LLMCalls      int // LLM API calls made this turn (one per iteration)
 
+	// WaitingModel marks the gap after the last tool's feedback was delivered
+	// and before the model's next reasoning round or answer text starts
+	// (pi-web-ui's "Waiting for the model…"): rendered as an amber tail on
+	// the panel timeline. Cleared by UpdateReasoning/Update and at seal.
+	WaitingModel bool
+
 	// Context usage snapshot at finalize, for the footer.
 	ContextUsed   int
 	ContextTotal  int
@@ -539,6 +545,9 @@ func buildFeishuPanelBudget(state *feishuStreamState, expanded bool, textBudget 
 	if state.RunningTool != nil {
 		children = append(children, feishuRunningToolStepElements(*state.RunningTool)...)
 	}
+	if state.WaitingModel && state.RunningTool == nil && strings.TrimSpace(state.CurReasoning) == "" {
+		children = append(children, feishuWaitingModelElement())
+	}
 	if len(children) == 0 {
 		children = append(children, map[string]any{"tag": "markdown", "content": " "})
 	}
@@ -572,12 +581,33 @@ func feishuToolStepChildren(step bus.ToolStep) []any {
 	}
 }
 
+// feishuWaitingModelElement renders the timeline tail shown after the last
+// tool returned its feedback and before the model's next reasoning round or
+// answer text begins — pi-web-ui's "Waiting for the model…" phase.
+func feishuWaitingModelElement() map[string]any {
+	return map[string]any{
+		"tag":       "markdown",
+		"content":   fmt.Sprintf("<font color='%s'>**⏳ 等待模型继续…**</font>", feishuAmberColor),
+		"text_size": "notation",
+	}
+}
+
+// feishuMonoToolName wraps a tool name in inline code so it renders
+// monospaced (pi-web-ui parity). Inside a code span markdown treats content
+// literally, so no escaping pass here — escaping would surface as literal
+// backslashes for the snake_case names every tool uses (`web\_search`). A
+// backtick inside the name would break the span; real tool names never carry
+// one, so replace it defensively.
+func feishuMonoToolName(name string) string {
+	return "`" + strings.ReplaceAll(name, "`", "'") + "`"
+}
+
 // feishuRunningToolStepElements renders the in-flight tool invocation at the
 // end of the timeline: amber ⏳ title without an elapsed suffix (mirrors
 // hermes-lark-streaming's running status: orange-300, motion cue, no time).
 func feishuRunningToolStepElements(step bus.ToolStep) []any {
 	title := fmt.Sprintf(
-		"<font color='%s'>**⏳ %s（运行中）**</font>", feishuAmberColor, escapeFeishuMD(step.Tool))
+		"<font color='%s'>**⏳ %s（运行中）**</font>", feishuAmberColor, feishuMonoToolName(step.Tool))
 	iconColor := "grey"
 	if step.Kind == bus.ToolStepKindMCP {
 		iconColor = "blue"
@@ -779,16 +809,19 @@ func feishuToolStepTitle(step bus.ToolStep) map[string]any {
 	case bus.ToolStepKindSkill:
 		// Context activation, not an execution: show the skill names without
 		// an elapsed suffix.
-		title = "📚 已加载技能：" + step.Tool
+		title = "📚 已加载技能：" + feishuMonoToolName(step.Tool)
 	case bus.ToolStepKindMCP:
 		// MCP names carry an "mcp_<server>_<tool>" prefix; strip it and tag
 		// the step so peripheral calls stand out from built-in tools.
 		title = fmt.Sprintf("🔌 MCP %s（%s）",
-			strings.TrimPrefix(step.Tool, "mcp_"), formatFeishuElapsed(step.Duration))
+			feishuMonoToolName(strings.TrimPrefix(step.Tool, "mcp_")), formatFeishuElapsed(step.Duration))
 	default:
-		title = fmt.Sprintf("%s（%s）", step.Tool, formatFeishuElapsed(step.Duration))
+		title = fmt.Sprintf("%s（%s）", feishuMonoToolName(step.Tool), formatFeishuElapsed(step.Duration))
 	}
-	content := fmt.Sprintf("<font color='%s'>**%s %s**</font>", color, symbol, escapeFeishuMD(title))
+	// The tool name inside title is already escaped by feishuMonoToolName and
+	// the remaining fragments are fixed labels and elapsed times, so no
+	// second escaping pass here (it would double-escape the name).
+	content := fmt.Sprintf("<font color='%s'>**%s %s**</font>", color, symbol, title)
 	iconColor := "grey"
 	switch step.Kind {
 	case bus.ToolStepKindMCP:
@@ -1111,13 +1144,6 @@ func formatFeishuElapsed(d time.Duration) string {
 }
 
 var feishuBacktickRunRe = regexp.MustCompile("`+")
-
-var feishuMDSpecialRe = regexp.MustCompile("([`*_{}\\[\\]<>])")
-
-func escapeFeishuMD(value string) string {
-	value = strings.ReplaceAll(value, "\\", "\\\\")
-	return feishuMDSpecialRe.ReplaceAllString(value, `\$1`)
-}
 
 func truncateFeishuReasoning(text string) string {
 	if len(text) <= feishuReasoningDisplayLimit {
