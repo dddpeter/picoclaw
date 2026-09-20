@@ -9,6 +9,8 @@ import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
 
+import { EmptyTemplateCards } from "@/components/chat/prompt-templates"
+
 interface ChatEmptyStateProps {
   hasAvailableModels: boolean
   defaultModelName: string
@@ -84,6 +86,7 @@ export function ChatEmptyState({
       <p className="text-muted-foreground text-center text-sm">
         {t("chat.welcomeDesc")}
       </p>
+      <EmptyTemplateCards />
     </div>
   )
 }

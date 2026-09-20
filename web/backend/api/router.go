@@ -35,6 +35,9 @@ type Handler struct {
 	pluginsMu          sync.Mutex
 	pluginsInstallRoot string // injected test override; empty = user default
 	pluginsDataRoot    string
+	// Serializes prompt-template file writes; path override is injected by tests.
+	promptTemplatesMu         sync.Mutex
+	promptTemplatesDataPath   string // injected test override; empty = next to configPath
 }
 
 // NewHandler creates an instance of the API handler.
@@ -106,6 +109,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	h.registerSkillRoutes(mux)
 	h.registerToolRoutes(mux)
 	h.registerMCPRoutes(mux)
+
+	// Chat prompt templates (suggestion cards)
+	h.registerPromptTemplateRoutes(mux)
 
 	// Agent Plugins management (list/install/validate/enable/remove)
 	h.registerPluginRoutes(mux)

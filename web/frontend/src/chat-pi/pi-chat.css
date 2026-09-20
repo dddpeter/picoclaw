@@ -1,0 +1,1534 @@
+/*
+ * pi-chat.css — 对话输出区样式，移植自 pi-web-ui（MIT License）。
+ * 源：https://github.com/the-benchish/pi-web-ui 的 web/src/styles.css 消息区段落。
+ * SPDX-License-Identifier: MIT
+ *
+ * 规则与 pi-web-ui 保持一致（类名不加前缀）；仅在 .pi-chat 作用域内把
+ * pi-web-ui 的主题变量桥接到 picoclaw 现有的 shadcn 设计令牌上，
+ * 明暗主题沿用 picoclaw 的 .dark 切换。
+ */
+
+.pi-chat {
+	--bg: var(--background);
+	--text: var(--foreground);
+	--text-dim: var(--muted-foreground);
+	--text-faint: color-mix(in srgb, var(--muted-foreground) 62%, transparent);
+	--accent: var(--primary);
+	--accent-soft: color-mix(in srgb, var(--primary) 13%, transparent);
+	--border: var(--border);
+	--border-soft: color-mix(in srgb, var(--border) 55%, transparent);
+	--bg-elev: var(--card);
+	--bg-elev2: var(--muted);
+	--card-bg: var(--card);
+	--chip-bg: var(--muted);
+	--code-bg: color-mix(in srgb, var(--muted) 70%, var(--background));
+	--code-text: var(--foreground);
+	--mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, "Liberation Mono", monospace;
+	--font-ui: inherit;
+	--green: #22c55e;
+	--red: #ef4444;
+	--red-soft: color-mix(in srgb, #ef4444 10%, transparent);
+	--amber: #f59e0b;
+	--amber-text: #f59e0b;
+	--err-text: #ef4444;
+	--link: var(--primary);
+	/* 死规则兜底（移植原文里引用但消息区未用的变量） */
+	--glow-015: transparent;
+	--card-body-pad: 14px;
+	--code-pad: 10px 0;
+	--code-border: var(--border);
+	--mermaid-font-size: 13px;
+	--search-active-fg: var(--foreground);
+
+	/* 单列时间线与 pi-web-ui 一致的排版密度 */
+	font-size: 14px;
+	line-height: 1.5;
+}
+
+/* ==== 以下为 pi-web-ui styles.css 消息区规则原文（自动抽取） ==== */
+.msg {
+	margin: 0;
+	padding: 6px 0px 14px;
+	/* Question-nav jumps land the message just below the top of the list,
+	 * matching the active-bar detection line in MessageList. */
+	scroll-margin-top: 84px;
+}
+
+.msg-meta {
+	display: flex;
+	align-items: baseline;
+	gap: 10px;
+	margin-bottom: 4px;
+}
+
+.msg-role {
+	font-size: 11px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.8px;
+	color: var(--text-faint);
+}
+
+.msg-model {
+	font-size: 11px;
+	color: var(--accent);
+	font-family: var(--mono);
+}
+
+.msg-customtype {
+	font-size: 11px;
+	color: var(--amber);
+}
+
+.msg-time {
+	font-size: 11px;
+	color: var(--text-faint);
+	margin-left: auto;
+}
+
+/* ------------------------------------------------ in-conversation search (Ctrl+F) */
+
+.search-bar {
+	position: absolute;
+	top: 10px;
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: 30;
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	max-width: min(480px, calc(100% - 32px));
+	padding: 5px 6px 5px 12px;
+	border-radius: 10px;
+	border: 1px solid var(--border);
+	background: var(--bg-elev2);
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.search-input {
+	background: transparent;
+	border: none;
+	outline: none;
+	color: var(--text);
+	font-size: 13px;
+	width: 200px;
+	padding: 4px 0;
+}
+
+.search-input::placeholder {
+	color: var(--text-faint);
+}
+
+.search-count {
+	font-size: 11px;
+	color: var(--text-faint);
+	white-space: nowrap;
+	padding: 0 6px;
+	font-variant-numeric: tabular-nums;
+}
+
+.search-count.empty {
+	color: var(--red);
+}
+
+.search-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 26px;
+	height: 26px;
+	border-radius: 7px;
+	border: none;
+	background: transparent;
+	color: var(--text-dim);
+	cursor: pointer;
+}
+
+.search-btn:hover:not(:disabled) {
+	background: var(--accent-soft);
+	color: var(--text);
+}
+
+.search-btn:disabled {
+	opacity: 0.4;
+	cursor: default;
+}
+
+/* CSS Custom Highlight API —— 搜索命中内联高亮（不支持时自动无样式降级）
+ * 每一对声明第一行是 rgba 硬编码兑底：老浏览器不支持 color-mix() 时仍然着色，
+ * 支持时被后面的 var() 版本覆盖（跟随主题色）。 */
+::highlight(msg-search) {
+	background-color: rgba(251, 191, 36, 0.28);
+	background-color: color-mix(in srgb, var(--amber) 28%, transparent);
+}
+
+::highlight(msg-search-active) {
+	background-color: rgba(245, 158, 11, 0.85);
+	color: #1a1a1a;
+	background-color: color-mix(in srgb, var(--amber) 80%, transparent);
+	color: var(--search-active-fg);
+}
+
+/* ------------------------------------------------------- message edit/re-ask */
+
+.msg-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 2px;
+}
+
+.msg-action {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	border: none;
+	background: transparent;
+	color: var(--text-faint);
+	font-size: 11.5px;
+	cursor: pointer;
+	padding: 3px 8px;
+	border-radius: 6px;
+	opacity: 0;
+	transition:
+		opacity 0.15s ease,
+		color 0.15s ease,
+		background 0.15s ease;
+}
+.msg:hover .msg-action,
+.msg-action:focus-visible {
+	opacity: 1;
+}
+.msg-action:hover {
+	color: var(--accent);
+	background: var(--bg-elev2);
+}
+
+/* ------------------------------------------------------- plugin slot entries */
+/* 插件槽位按钮（terminal/scm/goalbar 工具条、通知区、会话行）：复用 .btn 基调，只补尺寸。 */
+.slot-toolbar,
+.lp-slot-sessions,
+.notice-actions {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+}
+.slot-btn,
+.lp-slot-btn,
+.notice-actions .btn-slot {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	border: 1px solid transparent;
+	background: transparent;
+	color: var(--text-faint);
+	font-size: 12px;
+	cursor: pointer;
+	padding: 2px 8px;
+	border-radius: 6px;
+}
+.slot-btn:hover,
+.lp-slot-btn:hover,
+.notice-actions .btn-slot:hover {
+	color: var(--accent);
+	background: var(--bg-elev2);
+}
+.slot-btn.on,
+.lp-slot-btn.on {
+	color: var(--accent);
+	border-color: var(--accent);
+}
+/* 插件下拉（kind="select"）：与同组按钮同字号，宽度封顶。 */
+select.slot-select,
+select.lp-slot-select,
+select.notice-select {
+	max-width: 160px;
+	border: 1px solid transparent;
+	background: transparent;
+	color: var(--text-faint);
+	font-size: 12px;
+	cursor: pointer;
+	padding: 2px 4px;
+	border-radius: 6px;
+}
+select.slot-select:hover,
+select.lp-slot-select:hover,
+select.notice-select:hover {
+	color: var(--accent);
+	background: var(--bg-elev2);
+}
+.slot-badge,
+.lp-slot-badge {
+	font-size: 11px;
+	color: var(--text-faint);
+	padding: 2px 6px;
+}
+.slot-divider,
+.lp-slot-divider {
+	width: 1px;
+	align-self: stretch;
+	background: var(--border);
+}
+.slot-progress {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 11px;
+	color: var(--text-faint);
+}
+.slot-progress progress {
+	width: 80px;
+	height: 8px;
+}
+.slot-input {
+	background: var(--bg-elev2);
+	border: 1px solid var(--border);
+	color: var(--text);
+	font-size: 12px;
+	padding: 2px 8px;
+	border-radius: 6px;
+	width: 140px;
+}
+/* 插件自定义消息部件：失败/加载中回退原文，容器只做挂载点。 */
+.plugin-widget:empty {
+	display: none;
+}
+
+.msg-editor {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+/* 编辑重问的图片附件条：原图缩略图 + 新粘贴/拖入的图 */
+.msg-editor-images {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+.msg-editor-img {
+	position: relative;
+	display: inline-flex;
+	width: 64px;
+	height: 64px;
+	border-radius: 8px;
+	overflow: hidden;
+	border: 1px solid var(--border);
+	background: var(--bg-elev);
+}
+.msg-editor-img img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	display: block;
+}
+.msg-editor-img-remove {
+	position: absolute;
+	top: 2px;
+	right: 2px;
+	width: 18px;
+	height: 18px;
+	padding: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: none;
+	border-radius: 50%;
+	cursor: pointer;
+	font-size: 10px;
+	line-height: 1;
+	color: #fff;
+	background: rgba(0, 0, 0, 0.55);
+}
+.msg-editor-img-remove:hover {
+	background: rgba(220, 38, 38, 0.85);
+}
+.msg-editor-img-remove svg {
+	width: 12px;
+	height: 12px;
+}
+
+/* 编辑重问里的文件/路径附件 chip（非图片） */
+.msg-editor-img.file-chip {
+	width: auto;
+	height: auto;
+	min-height: 28px;
+	padding: 2px 22px 2px 6px;
+	border-radius: 6px;
+	border: 1px solid rgba(96, 165, 250, 0.45);
+	background: rgba(96, 165, 250, 0.12);
+	align-items: center;
+}
+.msg-editor-file {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	font-size: 12px;
+	color: var(--text-dim);
+	max-width: 260px;
+}
+.msg-editor-file-icon {
+	flex: none;
+}
+.msg-editor-file-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.msg-editor-img.file-chip .msg-editor-img-remove {
+	top: 3px;
+	right: 3px;
+}
+
+/* 编辑重问里的瞬时提示（文件过大/读取失败） */
+.msg-editor-notice {
+	font-size: 11px;
+	color: var(--amber, #f59e0b);
+	padding: 2px 2px 4px;
+}
+/* 拖拽悬停时整个编辑器高亮 */
+.msg-editor.drag-over .msg-editor-input {
+	border-color: var(--accent);
+	box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.25);
+}
+.msg-editor.drag-over::after {
+	content: "📎";
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 28px;
+	pointer-events: none;
+	z-index: 2;
+}
+/* 提示文案里的内联图标与文字对齐 */
+span.msg-editor-hint svg {
+	vertical-align: -2px;
+	margin-right: 4px;
+}
+
+.msg-editor-input {
+	width: 100%;
+	min-height: 48px;
+	resize: vertical;
+	padding: 10px 12px;
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	background: var(--bg-elev);
+	color: var(--text);
+	font-family: inherit;
+	font-size: 13.5px;
+	line-height: 1.6;
+	outline: none;
+}
+.msg-editor-input:focus {
+	border-color: var(--accent);
+	box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.15);
+}
+
+.msg-editor-actions {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 8px;
+}
+
+.msg-editor-hint {
+	margin-right: auto;
+	font-size: 11px;
+	color: var(--text-faint);
+}
+
+.chip.primary {
+	border-color: var(--accent);
+	background: var(--accent-soft);
+	color: var(--accent);
+}
+.chip.primary:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
+/* -------------------------------------------------- collapsed old messages */
+
+.msg-collapsed {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	/* 列内元素：宽度由 .messages 的列内缩决定（见 .main） */
+	margin: 0 0 2px;
+	padding: 7px 12px;
+	box-sizing: border-box;
+	border: 1px solid var(--border-soft);
+	border-radius: 8px;
+	background: var(--card-bg, var(--bg-elev2));
+	color: var(--text-dim);
+	font-size: 12px;
+	text-align: left;
+	cursor: pointer;
+	transition:
+		border-color 0.15s ease,
+		background 0.15s ease,
+		color 0.15s ease;
+}
+.msg-collapsed:hover {
+	border-color: var(--border);
+	background: var(--chip-bg, var(--bg-elev2));
+	color: var(--text);
+}
+.msg-collapsed:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+
+.msg-collapsed-role {
+	flex-shrink: 0;
+	font-size: 10px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.7px;
+	color: var(--text-faint);
+	min-width: 52px;
+}
+.msg-collapsed-role.role-user {
+	color: var(--accent);
+}
+.msg-collapsed-role.role-assistant {
+	color: var(--green);
+}
+.msg-collapsed-role.role-bashExecution,
+.msg-collapsed-role.role-toolResult {
+	color: var(--amber);
+}
+
+.msg-collapsed-body {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	overflow: hidden;
+}
+
+.msg-collapsed-preview {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	color: var(--text-dim);
+}
+
+.msg-collapsed-chips {
+	display: inline-flex;
+	gap: 4px;
+	flex-shrink: 0;
+}
+.msg-collapsed-chip {
+	font-size: 10px;
+	color: var(--text-faint);
+	padding: 1px 6px;
+	border-radius: 999px;
+	border: 1px solid var(--border);
+	white-space: nowrap;
+}
+
+.msg-collapsed-time {
+	flex-shrink: 0;
+	font-size: 10.5px;
+	color: var(--text-faint);
+}
+
+.msg-collapsed-action {
+	flex-shrink: 0;
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	font-size: 11px;
+	color: var(--text-faint);
+}
+.msg-collapsed:hover .msg-collapsed-action {
+	color: var(--accent);
+}
+
+.msg-collapse-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	margin-left: 0;
+	border: none;
+	background: transparent;
+	color: var(--text-faint);
+	font-size: 11px;
+	cursor: pointer;
+	padding: 1px 6px;
+	border-radius: 5px;
+}
+.msg-collapse-btn:hover {
+	color: var(--accent);
+	background: var(--bg-elev2);
+}
+.msg-text {
+	position: relative;
+	color: var(--text);
+	/* 用户粘贴编译输出/长路径/URL 等无空格长 token 时在气泡内断行，
+	 * 否则横向溢出撑破气泡。overflow-wrap 与 word-break 均可继承，
+	 * 故 p / a / 内联 code 全部覆盖。 */
+	min-width: 0;
+	overflow-wrap: anywhere;
+	word-break: break-word;
+}
+
+.msg-text p {
+	margin: 6px 0;
+}
+.msg-text p:first-child {
+	margin-top: 0;
+}
+.msg-text p:last-child {
+	margin-bottom: 0;
+}
+
+.msg-text ul,
+.msg-text ol {
+	padding-left: 22px;
+	margin: 6px 0;
+}
+.msg-text li {
+	margin: 2px 0;
+}
+.msg-text blockquote {
+	margin: 8px 0;
+	padding: 2px 14px;
+	border-left: 3px solid var(--accent);
+	color: var(--text-dim);
+}
+.msg-text table {
+	border-collapse: collapse;
+	margin: 8px 0;
+}
+.msg-text th,
+.msg-text td {
+	border: 1px solid var(--border);
+	padding: 4px 10px;
+}
+.msg-text a {
+	color: var(--link);
+	/* GFM autolink 把长 URL 渲染成 <a>，同样要能断行（inline 继承父级
+	 * overflow-wrap，但显式声明以兼容个别浏览器的继承差异）。 */
+	overflow-wrap: anywhere;
+}
+.msg-text code {
+	font-family: var(--mono);
+	font-size: 12.5px;
+	background: var(--bg-elev2);
+	border: 1px solid var(--border-soft);
+	border-radius: 4px;
+	padding: 1px 5px;
+}
+/* KaTeX 公式（issue #116）：颜色继承气泡文字，深色主题无需覆盖；
+ * 长公式横向滚动而非撑破气泡；行内公式字号与正文对齐。 */
+.msg-text .katex-display {
+	margin: 8px 0;
+	padding: 4px 2px;
+	overflow-x: auto;
+	overflow-y: hidden;
+}
+.msg-text .katex {
+	font-size: 1.05em;
+}
+
+.codeblock {
+	position: relative;
+	margin: 10px 0;
+}
+.codeblock pre {
+	background: var(--chip-bg, var(--code-bg)) !important;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	padding: 10px 0;
+	overflow-x: auto;
+	margin: 0;
+}
+/* 每个逻辑行一行（issue #36）：行号 gutter + 自动换行主体 */
+.code-line {
+	display: flex;
+	align-items: flex-start;
+	min-width: 0;
+	padding: 0 14px;
+}
+.code-line .code-num {
+	flex: 0 0 auto;
+	text-align: right;
+	color: var(--text-faint);
+	font-family: var(--mono);
+	font-size: 12.5px;
+	line-height: 1.55;
+	user-select: none;
+	padding-right: 12px;
+}
+.codeblock code.code-line-body {
+	background: transparent;
+	border: none;
+	padding: 0;
+	font-family: var(--mono);
+	font-size: 12.5px;
+	line-height: 1.55;
+	flex: 1;
+	min-width: 0;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.copy-btn {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	z-index: 2;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: none;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	margin: 0;
+	border: 0;
+	border-radius: 50%;
+	background: transparent;
+	color: var(--text-faint);
+	font-size: 14px;
+	line-height: 1;
+	cursor: pointer;
+	opacity: 0;
+	transition:
+		opacity 0.15s ease,
+		color 0.15s ease;
+}
+.codeblock:hover .copy-btn {
+	opacity: 0.55;
+}
+.copy-btn:hover,
+.copy-btn:focus-visible {
+	opacity: 1;
+	color: var(--text);
+	background: transparent;
+}
+
+/* Mermaid diagrams track the active app palette. The renderer plugin bakes the
+   current CSS variables into each SVG and marks dark renders for their elevated
+   panel background (plugins/mermaid/client/entry.mjs). */
+.mermaid-block {
+	position: relative;
+	margin: 10px 0;
+	padding: 12px;
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	color-scheme: light;
+	font-size: var(--mermaid-font-size);
+}
+/* Mermaid sizes its root <svg> to the drawn diagram (inline width/height), so
+   small diagrams stay small — do NOT force them to the container width. Only
+   oversized renders need scrolling. */
+.mermaid-block[data-mermaid-dark] {
+	background: var(--bg-elev2);
+	color-scheme: dark;
+}
+.mermaid-svg {
+	overflow-x: auto;
+}
+.mermaid-svg svg {
+	display: block;
+	margin: 0 auto;
+}
+/* Mermaid hard-codes some diagram titles to 18px and ER foreignObject edge
+   labels inherit the 14px body size. Keep both at the configured Mermaid size
+   while retaining smaller axis/helper labels. */
+.mermaid-svg svg .titleText,
+.mermaid-svg svg foreignObject .edgeLabel {
+	font-size: var(--mermaid-font-size) !important;
+}
+.mermaid-note {
+	font-size: 12px;
+	color: var(--text-faint);
+	font-style: italic;
+	padding: 2px 34px 2px 0;
+}
+.mermaid-block-loading {
+	min-height: 34px;
+}
+.mermaid-block-error .codeblock {
+	margin: 6px 0 0;
+}
+.mermaid-block:hover .copy-btn {
+	opacity: 0.55;
+}
+
+.trunc-note {
+	margin-top: 6px;
+	font-size: 11.5px;
+	color: var(--text-faint);
+	font-style: italic;
+}
+
+.msg-image img {
+	max-width: 100%;
+	max-height: 420px;
+	border-radius: 8px;
+	border: 1px solid var(--border);
+}
+
+/* -------------------------------------------------------------- thinking */
+
+.thinking {
+	margin: 8px 0;
+	border: 1px solid var(--border-soft);
+	border-radius: 8px;
+	background: var(--card-bg, var(--glow-015));
+}
+
+.thinking-icon {
+	color: var(--accent);
+}
+
+/* 思考 / 工具 head 的图标占同尺寸盒子，箭头 / 图标 / 标题位置完全对齐。 */
+.thinking-icon,
+.toolcall-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: none;
+	width: 20px;
+	height: 28px;
+	font-size: 14px;
+}
+
+.thinking-body {
+	padding: var(--card-body-pad, 4px 14px 12px);
+	color: var(--text-dim);
+	font-style: italic;
+	font-size: 13px;
+	white-space: pre-wrap;
+	border-top: 1px solid var(--border-soft);
+}
+
+/* Animated “…” on the thinking header while reasoning is streaming live. */
+.thinking-live .thinking-toggle {
+	color: var(--text);
+}
+
+.thinking-live-label {
+	display: inline-flex;
+	align-items: center;
+}
+
+.thinking-live-label .dots::after {
+	content: "";
+	display: inline-block;
+	width: 1.2em;
+	text-align: left;
+	animation: thinking-dots 1.2s steps(4, end) infinite;
+}
+
+@keyframes thinking-dots {
+	0% {
+		content: "";
+	}
+	25% {
+		content: ".";
+	}
+	50% {
+		content: "..";
+	}
+	75% {
+		content: "...";
+	}
+}
+
+/* Visible placeholder while the streaming bubble has no content yet
+   (first token hasn't arrived — otherwise the bubble is invisible). */
+.thinking-wait {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	color: var(--text-dim);
+	font-size: 13px;
+	padding: 2px 0;
+}
+
+.thinking-wait .dot {
+	display: inline-block;
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--accent);
+	animation: stream-blink 1s steps(2, start) infinite;
+}
+
+/* Blinking caret shown while the assistant message is streaming. */
+.stream-cursor {
+	display: inline-block;
+	width: 8px;
+	height: 1.05em;
+	margin-left: 3px;
+	vertical-align: text-bottom;
+	border-radius: 1px;
+	background: var(--accent);
+	animation: stream-blink 1s steps(2, start) infinite;
+}
+
+@keyframes stream-blink {
+	0%,
+	49% {
+		opacity: 1;
+	}
+	50%,
+	100% {
+		opacity: 0;
+	}
+}
+
+/* --------------------------------------------------------------- toolcall */
+
+.toolcall {
+	margin: 8px 0;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--card-bg, var(--bg-elev));
+	overflow: hidden;
+}
+
+.toolcall-name {
+	font-family: var(--mono);
+	font-weight: 600;
+	color: var(--text);
+}
+
+/* 状态图标：名字右侧的小图标（具体文字放 title 悬浮提示里）。 */
+.toolcall-status {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: none;
+	width: 20px;
+	height: 28px;
+	font-size: 14px;
+	color: var(--text-faint);
+}
+.toolcall-status > svg {
+	width: 14px;
+	height: 14px;
+}
+/* 状态图标紧贴名字（抵消 head 的 flex 间距）。 */
+.toolcall-name + .toolcall-status {
+	margin-left: -4px;
+}
+.toolcall.run .toolcall-status {
+	color: var(--amber);
+}
+.toolcall.run .toolcall-status > svg {
+	animation: toolcall-spin 1s linear infinite;
+}
+.toolcall.ok .toolcall-status {
+	color: var(--green);
+}
+.toolcall.err .toolcall-status {
+	color: var(--red);
+}
+@keyframes toolcall-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+.toolcall.err {
+	border-color: rgba(248, 113, 113, 0.35);
+}
+
+.toolcall-spacer {
+	flex: 1;
+}
+
+/* Kill button on running bash tool cards — stops ONLY the command;
+   the agent run and conversation continue. 方形圆角（9px，与 .chip / .tb-tab
+   同一档）：卡头本身是方角家族，胶囊在这里像外来控件；且高度只有 26px 时 999px
+   半径会退化成圆角块，看不出「方」的意图。
+   全透明主题下另配色（红底在透图界面上发脏，见 themes/transparent.css）。 */
+.toolcall-kill {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: none;
+	gap: 4px;
+	height: 26px;
+	padding: 0 9px;
+	border: 1px solid var(--red);
+	background: var(--red-soft);
+	color: var(--red);
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 1;
+	border-radius: 9px;
+	cursor: pointer;
+	transition:
+		background 0.15s,
+		color 0.15s,
+		border-color 0.15s;
+}
+.toolcall-kill:hover {
+	background: var(--red);
+	border-color: var(--red);
+	color: #fff;
+}
+
+/* 思考 / 工具 head 的折叠键与复制键：同一 ghost 图标按钮（28px）。 */
+/* ------------------------- 对话列表卡片头：公用一套 .chead -----------------
+ * 思考 / 工具调用 / 附件 / 技能 / 压缩摘要的 head 共用同一骨架：
+ * [28px 折叠键][图标][标题省略][28px 复制键]，同一高度、同一间距、同一悬停。
+ * 旧语义类名（thinking-head 等）只留 DOM 钩子，不再自带布局样式。 */
+.chead {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	box-sizing: border-box;
+	width: 100%;
+	min-height: 32px;
+	padding: 2px 8px 2px 4px;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--text);
+	font-size: 12.5px;
+}
+div.chead[role="button"] {
+	cursor: pointer;
+	user-select: none;
+}
+div.chead[role="button"]:hover {
+	background: var(--bg-elev2);
+}
+div.chead[role="button"]:focus-visible,
+.chead-toggle:focus-visible,
+.chead-copy:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 1px;
+}
+/* 左折叠键 / 右复制键：同一 ghost 图标按钮（28px）。toggle 可能是 button
+ *（思考/工具）或 span（附件/技能/摘要，整头可点、图标只做视觉指示）。 */
+.chead-toggle {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: none;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	margin: 0;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--text-faint);
+	font-family: inherit;
+	font-size: 14px;
+	line-height: 1;
+	cursor: pointer;
+}
+.chead-toggle:hover {
+	color: var(--text);
+	background: var(--bg-elev2);
+}
+/* 复制键：透明幽灵，平时半透明图标，悬浮整头/正文或按钮才不透明。
+ * head 右键与正文复制键公用同一套（用户消息 / AI 回复统一）。 */
+.chead-copy,
+.msg-text-copy {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: none;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	margin: 0;
+	border: 0;
+	border-radius: 50%;
+	background: transparent;
+	color: var(--text-faint);
+	font-family: inherit;
+	font-size: 14px;
+	line-height: 1;
+	cursor: pointer;
+	opacity: 0.35;
+	transition:
+		opacity 0.15s ease,
+		color 0.15s ease,
+		background 0.15s ease;
+}
+.chead:hover .chead-copy,
+.msg-text:hover .msg-text-copy,
+.chead-copy:hover,
+.msg-text-copy:hover,
+.chead-copy:focus-visible,
+.msg-text-copy:focus-visible {
+	opacity: 1;
+}
+.chead-copy:hover,
+.msg-text-copy:hover {
+	color: var(--text);
+	background: transparent;
+}
+.chead-toggle > svg,
+.msg-collapsed-action > svg {
+	width: 16px;
+	height: 16px;
+	flex: none;
+}
+.chead-copy > svg,
+.msg-text-copy > svg,
+.copy-btn > svg {
+	width: 13px;
+	height: 13px;
+	flex: none;
+}
+/* 图标占同尺寸盒子，箭头 / 图标 / 标题在各 head 位置完全对齐。 */
+.chead-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: none;
+	width: 20px;
+	height: 28px;
+	font-size: 14px;
+}
+.chead-icon > svg {
+	width: 14px;
+	height: 14px;
+}
+/* 标题只裹内容（名字短不留白）：顶右边的事交给 spacer / margin-left:auto；
+ * 超长时收缩省略。 */
+.chead-title {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+/* 标题后没有别的元素时（思考/压缩摘要），标题撑满把复制键顶到最右。 */
+.thinking-label,
+.compaction-title {
+	flex: 1 1 auto;
+}
+
+/* 定位（其余样式与 .chead-copy 公用一套，见上）。 */
+.msg-text-copy {
+	position: absolute;
+	top: 6px;
+	right: 8px;
+	z-index: 1;
+}
+
+/* 单行消息：复制键行内右置（flex 6px 间距、垂直居中，不压字）。 */
+.msg-text.single {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+.msg-text.single .msg-text-main {
+	flex: 1;
+	min-width: 0;
+}
+.msg-text.single .msg-text-copy {
+	position: static;
+	transform: none;
+}
+
+.toolcall-body {
+	border-top: 1px solid var(--border-soft);
+	padding: var(--card-body-pad, 4px 14px 12px);
+}
+
+.toolcall-args pre {
+	margin: 0;
+	font-family: var(--mono);
+	font-size: 12px;
+	color: var(--text-dim);
+	white-space: pre;
+	overflow: auto;
+	max-height: 200px;
+	background: var(--chip-bg, var(--bg-elev2));
+	border: 1px solid var(--code-border, var(--border-soft));
+	border-radius: 6px;
+	padding: var(--code-pad, 8px 10px);
+}
+
+.termline {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	background: var(--chip-bg, var(--code-bg));
+	border: 1px solid var(--code-border, var(--border-soft));
+	border-radius: 6px;
+	padding: var(--code-pad, 8px 10px);
+	font-family: var(--mono);
+	font-size: 12.5px;
+}
+.termline-icon {
+	color: var(--green);
+	flex-shrink: 0;
+}
+.termline code {
+	word-break: break-all;
+}
+/* bash 超时提示（工具卡头，状态图标右侧；折叠时也可见） */
+/* 工具卡头提示：关键参数（文件路径 / 超时）。弱化小字，超长值截断显示，
+   不拆卡头布局（完整值在 title 悬浮提示里）。 */
+.toolcall-path {
+	flex-shrink: 0;
+	max-width: min(58ch, 42vw);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-family: var(--mono);
+	font-size: 11px;
+	color: var(--text-dim);
+}
+.toolcall-timeout {
+	flex-shrink: 0;
+	white-space: nowrap;
+	color: var(--text-faint);
+	font-size: 11px;
+}
+/* 折叠态 bash 命令预览（卡头内联，名字/状态右侧；只在折叠时渲染）：
+   单行省略，完整命令在 title 悬浮里；整头可点，点预览即展开。 */
+.toolcall-cmd {
+	flex: 0 1 auto;
+	min-width: 0;
+	max-width: min(60ch, 40vw);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-family: var(--mono);
+	font-size: 11px;
+	color: var(--text-dim);
+}
+/* 派单目标模板（delegate_task 卡头，状态图标右侧；折叠时也可见） */
+.toolcall-agent {
+	flex-shrink: 0;
+	max-width: min(30ch, 24vw);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-family: var(--mono);
+	font-size: 11px;
+	color: var(--accent);
+}
+/* 跳到子代理对话（派单卡头；ghost 按钮，与复制键同高 28px） */
+.toolcall-open {
+	display: inline-flex;
+	align-items: center;
+	flex: none;
+	gap: 4px;
+	height: 28px;
+	padding: 0 8px;
+	border: 1px solid transparent;
+	border-radius: 9px;
+	background: transparent;
+	color: var(--text-dim);
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 1;
+	cursor: pointer;
+}
+.toolcall-open:hover {
+	border-color: var(--border);
+	color: var(--text);
+}
+/* 派单卡片正文：六段式（只渲染非空段；段头小字 + 正文 pre-wrap） */
+.delegate-brief {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+.delegate-sec-label {
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--text-faint);
+	margin-bottom: 2px;
+}
+.delegate-sec-text {
+	white-space: pre-wrap;
+	word-break: break-word;
+	font-size: 12.5px;
+	line-height: 1.55;
+	color: var(--text);
+}
+
+.toolcall-output {
+	margin-top: 8px;
+}
+
+.toolcall-output-label {
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.6px;
+	color: var(--text-faint);
+	margin-bottom: 4px;
+}
+
+.toolcall-output pre {
+	margin: 0;
+	max-height: 320px;
+	overflow: auto;
+	background: var(--chip-bg, var(--code-bg));
+	border: 1px solid var(--code-border, var(--border-soft));
+	border-radius: 6px;
+	padding: var(--code-pad, 8px 10px);
+	font-family: var(--mono);
+	font-size: 12px;
+	line-height: 1.5;
+	color: var(--code-text);
+	/* terminal-style: keep original line breaks & column layout, scroll horizontally
+     instead of wrapping long lines */
+	white-space: pre;
+	word-break: normal;
+}
+
+.toolcall.err .toolcall-output pre {
+	color: var(--err-text);
+}
+
+.toolcall-waiting {
+	margin-top: 8px;
+	font-size: 12px;
+	color: var(--text-faint);
+}
+
+.cursor {
+	display: inline-block;
+	width: 7px;
+	height: 13px;
+	background: var(--accent);
+	vertical-align: -2px;
+	margin-left: 4px;
+	animation: blink 1s steps(2, start) infinite;
+}
+
+@keyframes blink {
+	50% {
+		opacity: 0;
+	}
+}
+
+/* ---------------------------------------------------------------- bashblock */
+
+.bashblock {
+	margin: 8px 0;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--card-bg, var(--code-bg));
+	overflow: hidden;
+}
+
+.bashblock-command {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 7px 12px;
+	font-family: var(--mono);
+	font-size: 12.5px;
+	border-bottom: 1px solid var(--border-soft);
+}
+.bashblock-prompt {
+	color: var(--green);
+	font-weight: 700;
+}
+.bashblock-exit {
+	margin-left: auto;
+	font-size: 11px;
+	padding: 1px 8px;
+	border-radius: 999px;
+	border: 1px solid var(--border);
+}
+.bashblock-exit.ok {
+	color: var(--green);
+}
+.bashblock-exit.err {
+	color: var(--red);
+}
+.bashblock-output {
+	margin: 0;
+	padding: 10px 12px;
+	font-family: var(--mono);
+	font-size: 12px;
+	line-height: 1.5;
+	color: var(--code-text);
+	/* terminal-style: no wrapping, horizontal scroll for long lines */
+	white-space: pre;
+	overflow: auto;
+	max-height: 320px;
+}
+
+/* ----------------------------------------------------------- message roles */
+
+/* Queued prompts (steer = 插队 / followUp = 排队) — 和用户消息同样的 msg-user 气泡
+ * (见 MessageList.tsx QueuedMessage)，只多一个状态 tag + 移除键；
+ * 气泡细节来自 .msg-user .msg-body，这里只补充“待发送”的差异化：
+ * 虚线边框 + 稍透明，真正发出后变为正常用户消息。 */
+.msg-queued .msg-body {
+	opacity: 0.75;
+	border-style: dashed;
+}
+.msg-queued .msg-meta {
+	align-items: center;
+}
+.queued-tag {
+	display: inline-block;
+	font-size: 10px;
+	line-height: 1.4;
+	padding: 1px 7px;
+	border-radius: 999px;
+	font-weight: 600;
+}
+.queued-tag.steer {
+	color: var(--amber);
+	background: rgba(251, 191, 36, 0.14);
+}
+.queued-tag.follow {
+	color: var(--text-dim);
+	background: var(--bg-elev2);
+}
+/* 撤回 + 移除 两个小键成组靠右（原来只有 ✕，auto margin 直接挂在它身上）。 */
+.msg-queued-actions {
+	margin-left: auto;
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+}
+/* 撤回：把这条排队/插队消息取回输入框（可编辑后重发）。 */
+.msg-queued-recall {
+	background: transparent;
+	border: none;
+	color: var(--text-dim);
+	font-size: 12px;
+	line-height: 1;
+	padding: 4px 5px;
+	cursor: pointer;
+	border-radius: 6px;
+	opacity: 0.4;
+	transition:
+		opacity 0.12s ease,
+		color 0.12s ease,
+		background 0.12s ease;
+}
+.msg-queued-recall:hover,
+.msg-queued-recall:focus-visible {
+	opacity: 1;
+	color: var(--accent);
+	background: var(--accent-soft);
+}
+.msg-queued-remove {
+	/* margin-left 交给 .msg-queued-actions（两个键成组靠右） */
+	background: transparent;
+	border: none;
+	color: var(--text-dim);
+	font-size: 12px;
+	line-height: 1;
+	padding: 4px 5px;
+	cursor: pointer;
+	border-radius: 6px;
+	opacity: 0.4;
+	transition:
+		opacity 0.12s ease,
+		color 0.12s ease,
+		background 0.12s ease;
+}
+.msg-queued-remove:hover,
+.msg-queued-remove:focus-visible {
+	opacity: 1;
+	color: var(--red);
+	background: var(--red-soft);
+}
+/* 粗指针（手机/平板）触击目标：与顶栏小键对齐，保证 ≥28px 高。 */
+@media (pointer: coarse) {
+	.msg-queued-recall,
+	.msg-queued-remove {
+		padding: 8px 9px;
+	}
+}
+
+.msg-user .msg-body {
+	background: var(--accent-soft);
+	border: 1px solid rgba(139, 92, 246, 0.25);
+	border-radius: 12px;
+	padding: 10px 14px;
+}
+
+.msg-error {
+	color: var(--red);
+	background: var(--red-soft);
+	border: 1px solid rgba(248, 113, 113, 0.35);
+	border-radius: 8px;
+	padding: 8px 12px;
+	margin-bottom: 8px;
+	font-size: 13px;
+	/* 长报错（URL/报错码/无空格字符串）不换行会撑破容器（尤其手机端） */
+	min-width: 0;
+	overflow-wrap: anywhere;
+	word-break: break-word;
+	white-space: normal;
+}
+
+/* 报错耗尽后的手动重试入口：红色卡片里唯一的操作键 */
+.msg-error-text {
+	display: block;
+	min-width: 0;
+}
+
+.msg-retry-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin-top: 8px;
+	padding: 4px 14px;
+	font-size: 13px;
+	line-height: 1.6;
+	color: var(--red);
+	background: transparent;
+	border: 1px solid rgba(248, 113, 113, 0.55);
+	border-radius: 999px;
+	cursor: pointer;
+}
+
+.msg-retry-btn:hover {
+	background: rgba(248, 113, 113, 0.14);
+}
+
+/* ==== picoclaw 适配补充（pi-web-ui 附件只有图片；非图片附件给链接 chip） ==== */
+.msg-attach-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin: 2px 0 6px;
+	padding: 4px 10px;
+	border: 1px solid var(--border-soft);
+	border-radius: 8px;
+	background: var(--chip-bg);
+	color: var(--text);
+	font-size: 12.5px;
+	text-decoration: none;
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.msg-attach-chip:hover {
+	border-color: var(--border);
+}
+
+/* ==== 响应式覆盖（pi-web-ui styles.css 原文，@media (max-width: 768px) 内的对话部分） ==== */
+@media (max-width: 768px) {
+	.msg {
+		padding: 6px 0 12px;
+	}
+}

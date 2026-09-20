@@ -1134,5 +1134,183 @@
         "strict": "Also blocks sudo, pipes to shell, package managers…"
       }
     }
+  },
+  "piChat": {
+    "roleUser": "You",
+    "roleAssistant": "picoclaw",
+    "steeringTag": "Steering",
+    "thinkingWait": "Thinking",
+    "thinking": "Thinking",
+    "thinkingNow": "Thinking",
+    "thinkingPreview": "Thinking: {{preview}}",
+    "collapseMsg": "Collapse",
+    "expandMsg": "Expand",
+    "copyMessage": "Copy message",
+    "copied": "Copied",
+    "copy": "Copy",
+    "copyArgs": "Copy args",
+    "output": "Output",
+    "errorOutput": "Error output",
+    "waitingOutput": "Waiting for output…",
+    "waitingModel": "Waiting for model response…",
+    "running": "Running…",
+    "done": "Done",
+    "error": "Error",
+    "toolDoneWaitingModel": "Done · waiting on model",
+    "toolQueued": "Queued"
+  },
+  "tpl": {
+    "hint": "Click a card to fill the input; ✏️ to edit or delete; add your own too",
+    "pickerTitle": "Prompt templates",
+    "pickerHint": "Click a card to fill the input; ✏️ to edit or delete; add your own too",
+    "add": "New template",
+    "addDesc": "Save a workflow you use often",
+    "reset": "Restore defaults",
+    "resetConfirm": "Restore defaults?",
+    "newTitle": "New prompt template",
+    "editTitle": "Edit prompt template",
+    "fieldIcon": "Icon",
+    "fieldTitle": "Title",
+    "fieldTitlePh": "Short title shown on the card",
+    "fieldDesc": "Description",
+    "fieldDescPh": "One-liner shown on the card",
+    "fieldPrompt": "Prompt",
+    "fieldPromptPh": "The full prompt sent to the agent",
+    "required": "Title and prompt are required",
+    "save": "Save",
+    "fill": "Fill input",
+    "sendNow": "Send now",
+    "delete": "Delete",
+    "remove": "Remove from library",
+    "restore": "Restore default",
+    "loadError": "Failed to load templates; showing built-in defaults (custom ones unavailable)",
+    "saveError": "Failed to save templates, please retry",
+    "sk": {
+      "setup": {
+        "title": "Repo setup",
+        "desc": "Give the repo a baseline that other workflows can use",
+        "prompt": "Scan this repository and build the baseline context other workflows rely on, then report concisely:\n\n1. Project type, tech stack and directory layout\n2. Concrete commands for build / test / run / format\n3. Code conventions and naming rules\n4. Where tasks / issues live and their format\n5. Known pitfalls or leftover issues\n\nReport only — do not modify any files."
+      },
+      "ask": {
+        "title": "Skill navigator",
+        "desc": "Tell me which workflow to use",
+        "prompt": "I'll describe the situation I'm in; you decide the best workflow (clarify requirements / plan & execute / TDD / debugging / architecture / review / handoff, etc.), explain why you recommend it and how you'd run it, then execute it after I confirm."
+      },
+      "grilldocs": {
+        "title": "Grill & record",
+        "desc": "Interview the plan and record decisions",
+        "prompt": "Before starting, grill me about this plan (one question at a time) until we reach shared understanding. Record key terms and settled decisions as you go (e.g. into CONTEXT.md or an ADR file) so all later work shares one vocabulary. Give your recommended answer with each question."
+      },
+      "tospec": {
+        "title": "To spec",
+        "desc": "Turn the agreed discussion into a written spec",
+        "prompt": "Turn the consensus we reached into a structured specification:\n\n1. Background and goals\n2. Explicit goals and non-goals\n3. Users and usage scenarios\n4. Edge cases and failure modes\n5. Acceptance criteria (what counts as done)\n6. Interface / data-shape overview\n\nOutput the spec for my review first, then continue only after I confirm."
+      },
+      "totickets": {
+        "title": "To tickets",
+        "desc": "Split the spec into small buildable tickets",
+        "prompt": "Split this spec into a set of small tickets an agent can build one by one:\n\n1. Each ticket small enough to be independently accepted\n2. Annotate dependency order (what must come first)\n3. Each ticket has: what to do, acceptance criteria, files involved\n4. Flag which tickets can run in parallel\n\nOutput the ticket list; I'll confirm the order before you execute."
+      },
+      "implement": {
+        "title": "Implement spec",
+        "desc": "Build the finished spec, test-first",
+        "prompt": "Implement per this spec, test-first:\n\n1. Write failing tests for each ticket first (happy path, edges, error branches)\n2. Make them pass with the minimal implementation\n3. Refactor while keeping tests green\n4. Proceed ticket by ticket, reporting briefly after each\n\nFinally check every acceptance criterion explicitly."
+      },
+      "codeview": {
+        "title": "Code review",
+        "desc": "Review the diff against the spec and your standards",
+        "prompt": "Review the recently changed diff:\n\n1. Against the spec: is the implementation complete and faithful?\n2. Correctness: edges, nulls, concurrency and timing\n3. Security: input validation, injection, sensitive data\n4. Performance & readability: does it follow project conventions?\n5. Tests: are critical paths covered?\n\nList issues by severity, each with a concrete suggestion."
+      },
+      "wayfinder": {
+        "title": "Wayfinder",
+        "desc": "Chart a large effort as a map of decisions",
+        "prompt": "This is a large task. First chart it as a decision map:\n\n1. List every decision point and its dependencies\n2. For each decision give options, trade-offs and your recommendation\n3. Mark what can run in parallel vs. what must be sequential\n4. Output a path plan; I'll confirm each item before you start."
+      },
+      "prototype": {
+        "title": "Prototype",
+        "desc": "Answer a design question with throwaway code",
+        "prompt": "Write a minimal prototype to validate the design assumption:\n\n1. Validate only the key assumption, not the full implementation\n2. Use the simplest means (hard-coding and skipped edge cases are fine)\n3. Run it and tell me the verdict: does the assumption hold? trade-offs?\n4. The prototype can be deleted, or made production-ready only after I confirm."
+      },
+      "research": {
+        "title": "Research",
+        "desc": "Get a cited answer from primary sources",
+        "prompt": "Research this question, preferring primary sources (official docs / source / specs):\n\n1. Give an answer with source links\n2. Distinguish facts, reasonable inference, and what's still uncertain\n3. List the main options and their trade-offs\n4. Don't stitch together secondary content; say so if you can't find it."
+      },
+      "arch": {
+        "title": "Architecture review",
+        "desc": "Find the modules worth refactoring (report)",
+        "prompt": "Do an architecture review of the whole codebase:\n\n1. Find signs of broken deep modules: oversized functions/classes, duplication, poor naming, hidden coupling\n2. Prioritize improvements by severity and blast radius; produce a visual report\n3. For each item give the minimal viable refactor with rationale\n4. Report before changing anything; confirm scope before refactoring."
+      },
+      "debug": {
+        "title": "Diagnose bugs",
+        "desc": "Diagnose from a repro that fails",
+        "prompt": "Diagnose this bug systematically:\n\n1. Reproduce it first (build a minimal repro if none exists)\n2. Narrow to a specific module via bisection or elimination\n3. Form hypotheses and verify with logs / assertions / a minimal sample — no guessing\n4. Once the root cause is found, explain it, then make the minimal fix\n5. Add a regression test to prevent recurrence."
+      },
+      "merge": {
+        "title": "Resolve merge conflicts",
+        "desc": "Finish a merge or rebase conflict hunk by hunk",
+        "prompt": "Help me resolve this merge / rebase conflict:\n\n1. Handle each conflict hunk, reading both sides' intent first\n2. Choose or merge to keep correct semantics — don't blindly pick one side\n3. Run tests and build afterwards to confirm\n4. Finally summarize the rationale for each resolution."
+      },
+      "triage": {
+        "title": "Triage",
+        "desc": "Sort raw issues into work someone can pick up",
+        "prompt": "Turn these raw issues / feedback into actionable work items:\n\n1. Deduplicate and merge related entries\n2. Categorize (bug / feature / improvement / question)\n3. Prioritize by impact and urgency\n4. For each item add: repro info or expectation, acceptance criteria\n\nOutput the cleaned list."
+      },
+      "wizard": {
+        "title": "Setup wizard",
+        "desc": "Generate a script that walks a human through setup",
+        "prompt": "Create a guided wizard (script or doc) for a manual setup flow:\n\n1. Guide step by step, explaining why at each step\n2. Validate each step; on wrong input give actionable hints\n3. Support undo / going back a step\n4. End with a self-check and how to verify."
+      },
+      "grillme": {
+        "title": "Grill me",
+        "desc": "Align on an idea before committing",
+        "prompt": "Before starting, interview me relentlessly about every aspect of this idea until we reach shared understanding (one question at a time, each with your recommended answer):\n\n1. Goals and non-goals\n2. Users and scenarios\n3. Edge cases and failure modes\n4. Constraints and dependencies\n5. Acceptance criteria\n\nThen give an implementation plan and wait for my confirmation before writing code."
+      },
+      "handoff": {
+        "title": "Handoff",
+        "desc": "Write up a long session so another agent can continue",
+        "prompt": "Turn this session into a handoff doc so another agent / teammate can continue seamlessly:\n\n1. Background and goals\n2. Work done and key decisions (with reasons)\n3. Outstanding items and next steps\n4. Known risks and open questions\n5. How to verify current state (commands, etc.)\n\nOutput as a structured document."
+      },
+      "questionnaire": {
+        "title": "To questionnaire",
+        "desc": "Turn open questions into a doc someone fills in",
+        "prompt": "Turn the info you need from someone into a fillable questionnaire:\n\n1. Explain the background and purpose of each question\n2. Mark required / optional\n3. Give example answers to lower friction\n4. Group and order: easy first, hard later\n\nOutput a doc they can fill in directly."
+      },
+      "teach": {
+        "title": "Teach",
+        "desc": "Learn a topic across sessions that build on each other",
+        "prompt": "Teach me this topic incrementally:\n\n1. First set a learning path and goal\n2. Teach one small section at a time, then a quick exercise\n3. Build on the previous section and ask questions to confirm understanding\n4. Summarize key points at the end of each section\n\nWorks well across multiple sessions."
+      },
+      "ww": {
+        "title": "Wait, what?",
+        "desc": "Say the last explanation again in plain English",
+        "prompt": "Re-explain what you just said in the simplest terms:\n\n1. Avoid jargon; define any term you must use in one sentence\n2. Use an analogy or concrete example\n3. Be clear about what is still guesswork / uncertain\n4. Keep the core point as short as possible."
+      },
+      "wfa": {
+        "title": "Writing for agents",
+        "desc": "Write docs that follow agent-friendly principles",
+        "prompt": "Write this doc / explanation following \"written for agents to read\" principles:\n\n1. Put the goal and usage up front\n2. Make instructions concrete and verifiable — no vagueness\n3. Give positive and negative examples\n4. Structure with headings, steps and checklists\n5. Mark what's required vs. optional."
+      },
+      "codesign": {
+        "title": "Deep-module design",
+        "desc": "Review & design with deep-module principles",
+        "prompt": "Review / design using the \"deep module\" principle:\n\n1. Check whether each module's public interface is simpler than its implementation\n2. Find modules that leak complexity outward\n3. Give responsibility boundaries and improvement plans\n4. Balance cohesion and reuse without over-abstracting\n\nOutput the review conclusions and refactor suggestions."
+      },
+      "domain": {
+        "title": "Domain modeling",
+        "desc": "Sharpen the words a project uses and write them down",
+        "prompt": "Help me clean up this project's domain language:\n\n1. Find the core terms and their current spellings\n2. Spot confusion from same-word-different-meaning / different-word-same-meaning\n3. Recommend one canonical term each, into a glossary\n4. State each term's boundary (what it is not)\n\nOutput a domain glossary."
+      },
+      "grilling": {
+        "title": "Grilling",
+        "desc": "Stress-test a plan with an interview",
+        "prompt": "Stress-test this plan with an interview:\n\n1. Check each assumption: what if it's wrong?\n2. Hunt for holes: edges, failure modes, dependencies, timing\n3. Challenge decisions: why this way? is there a simpler path?\n4. Ask one sharp question at a time and wait for my answer\n\nKeep going until the plan holds up."
+      },
+      "tdd": {
+        "title": "Test-driven",
+        "desc": "The rules of the red-green-refactor loop",
+        "prompt": "Implement using TDD (red-green-refactor):\n\n1. First write failing tests covering the happy path, edge cases and error branches\n2. Make them pass with the minimal implementation\n3. Refactor while keeping tests green\n\nAvoid three test anti-patterns: tests coupled to the implementation, tautological assertions (always true), and horizontal slicing (surface only). Report after each step and run the tests."
+      }
+    }
   }
 }

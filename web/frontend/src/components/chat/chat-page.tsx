@@ -10,16 +10,15 @@ import {
 } from "react"
 import { useTranslation } from "react-i18next"
 
-import { AssistantMessage } from "@/components/chat/assistant-message"
+import { PiMessageList } from "@/chat-pi/pi-message-list"
 import {
   ChatComposer,
   type ChatInputDisabledReason,
 } from "@/components/chat/chat-composer"
 import { ChatEmptyState } from "@/components/chat/chat-empty-state"
+import { PromptTemplatesProvider } from "@/components/chat/prompt-templates"
 import { ModelSelector } from "@/components/chat/model-selector"
 import { SessionHistorySidebar } from "@/components/chat/session-history-sidebar"
-import { TypingIndicator } from "@/components/chat/typing-indicator"
-import { UserMessage } from "@/components/chat/user-message"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import {
@@ -42,10 +41,7 @@ import { useSessionHistory } from "@/hooks/use-session-history"
 import type { AssistantDetailVisibility } from "@/store/chat"
 import type { ConnectionState } from "@/store/chat"
 import type { ChatAttachment } from "@/store/chat"
-import {
-  assistantDetailVisibilityAtom,
-  shouldShowAssistantMessage,
-} from "@/store/chat"
+import { assistantDetailVisibilityAtom } from "@/store/chat"
 import type { GatewayState } from "@/store/gateway"
 
 function resolveChatInputDisabledReason({
@@ -143,7 +139,6 @@ export function ChatPage() {
     activeSessionId,
     activeSessionChannel,
     contextUsage,
-    turnStartedAt,
     sendMessage,
     switchSession,
     newChat,
@@ -323,7 +318,24 @@ export function ChatPage() {
   const canSubmit =
     canInput && (Boolean(input.trim()) || attachments.length > 0)
 
+  const handleTemplateFill = (text: string) => {
+    if (!canInput) return
+    setInput(text)
+  }
+
+  const handleTemplateSend = (text: string) => {
+    if (!canInput) return
+    if (sendMessage({ content: text, attachments: [] })) {
+      setInput("")
+    }
+  }
+
   return (
+    <PromptTemplatesProvider
+      onFill={handleTemplateFill}
+      onSend={handleTemplateSend}
+      canSend={canInput}
+    >
     <div className="bg-background/95 flex h-full">
       <SessionHistorySidebar
         sessions={sessions}
@@ -402,7 +414,7 @@ export function ChatPage() {
         onScroll={handleScroll}
         className="min-h-0 flex-1 [scrollbar-gutter:stable] overflow-y-auto px-4 py-6 md:px-8 lg:px-24 xl:px-48"
       >
-        <div className="mx-auto flex w-full max-w-250 flex-col gap-8 pb-8">
+        <div className="pi-chat mx-auto flex w-full max-w-250 flex-col pb-8">
           {messages.length === 0 && !isTyping && (
             <ChatEmptyState
               hasAvailableModels={hasAvailableModels}
@@ -411,37 +423,11 @@ export function ChatPage() {
             />
           )}
 
-          {messages.map((msg) => {
-            if (
-              !shouldShowAssistantMessage(assistantDetailVisibility, msg.kind)
-            ) {
-              return null
-            }
-
-            return (
-              <div key={msg.id} className="flex w-full">
-                {msg.role === "assistant" ? (
-                  <AssistantMessage
-                    content={msg.content}
-                    attachments={msg.attachments}
-                    kind={msg.kind}
-                    modelName={msg.modelName}
-                    toolCalls={msg.toolCalls}
-                    timestamp={msg.timestamp}
-                  />
-                ) : (
-                  <UserMessage
-                    content={msg.content}
-                    attachments={msg.attachments}
-                    timestamp={msg.timestamp}
-                    steering={msg.steering}
-                  />
-                )}
-              </div>
-            )
-          })}
-
-          {isTyping && <TypingIndicator startedAt={turnStartedAt} />}
+          <PiMessageList
+            messages={messages}
+            isTyping={isTyping}
+            detail={assistantDetailVisibility}
+          />
         </div>
       </div>
 
@@ -478,5 +464,6 @@ export function ChatPage() {
       />
       </div>
     </div>
+    </PromptTemplatesProvider>
   )
 }

@@ -10,6 +10,8 @@ import TextareaAutosize from "react-textarea-autosize"
 
 import { ContextUsageRing } from "@/components/chat/context-usage-ring"
 import { Button } from "@/components/ui/button"
+
+import { TemplatePickerButton } from "@/components/chat/prompt-templates"
 import { cn } from "@/lib/utils"
 import type { ChatAttachment, ContextUsage } from "@/store/chat"
 
@@ -174,6 +176,7 @@ export function ChatComposer({
               >
                 <IconPhotoPlus className="size-4" />
               </Button>
+              <TemplatePickerButton className="text-muted-foreground hover:text-foreground h-8 w-8 rounded-full" />
             </div>
 
             <div className="flex items-center gap-1.5">
