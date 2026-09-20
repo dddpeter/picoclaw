@@ -11,16 +11,12 @@ import remarkBreaks from "remark-breaks";
 import remarkMath from "remark-math";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
-import rehypeRaw from "rehype-raw";
 import "katex/dist/katex.min.css";
 import { CopyButton } from "./copy-button";
 import { splitCodeLines } from "./code-lines";
 
 interface MarkdownProps {
 	text: string;
-	/** 渲染原始 HTML（嵌在 markdown 里）。默认关闭：聊天消息的 markdown 镜像会
-	 *  转义 HTML，信任模型的地方可开启以支持 HTML + markdown 混排。 */
-	rawHtml?: boolean;
 	/** 保留单个换行（\n → <br>）。用户气泡开启以忠实呈现用户原文的换行。 */
 	hardBreaks?: boolean;
 }
@@ -40,22 +36,11 @@ export const rehypePlugins: PluggableList = [
 	[rehypeHighlight, { detect: true, ignoreMissing: true }],
 ];
 
-export function MarkdownBody({
-	text,
-	rawHtml = false,
-	hardBreaks = false,
-}: {
-	text: string;
-	rawHtml?: boolean;
-	hardBreaks?: boolean;
-}) {
-	// rawHtml 时在 highlight 之前插入 rehype-raw：先把它内嵌的原始 HTML 解析成
-	// hast 节点，再统一交给 highlight 做代码高亮，顺序不可颠倒。
-	const rh: PluggableList = rawHtml ? [rehypeRaw, ...rehypePlugins] : rehypePlugins;
+export function MarkdownBody({ text, hardBreaks = false }: { text: string; hardBreaks?: boolean }) {
 	return (
 		<ReactMarkdown
 			remarkPlugins={hardBreaks ? remarkPluginsHardBreaks : remarkPlugins}
-			rehypePlugins={rh}
+			rehypePlugins={rehypePlugins}
 			components={{ pre: PlainCodeBlock, a: MdLink }}
 		>
 			{text}
@@ -64,10 +49,10 @@ export function MarkdownBody({
 }
 
 /** GFM markdown with syntax highlighting; code blocks get a copy button. */
-export const Markdown = memo(function Markdown({ text, rawHtml = false, hardBreaks = false }: MarkdownProps) {
+export const Markdown = memo(function Markdown({ text, hardBreaks = false }: MarkdownProps) {
 	return (
 		<div className="md">
-			<MarkdownBody text={text} rawHtml={rawHtml} hardBreaks={hardBreaks} />
+			<MarkdownBody text={text} hardBreaks={hardBreaks} />
 		</div>
 	);
 });

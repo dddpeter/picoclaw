@@ -87,9 +87,20 @@ export interface BuildTurnsOptions {
  */
 const feedbackSeenAt = new Map<string, number>();
 
+/**
+ * 观测表上界：条目只对「当前流式 turn 的耗时显示」有用，历史重建不会再读。
+ * 长驻页面（launcher 常年不刷新）里若无界增长，每个流式工具块都会留下一条
+ * 永久记录，故按插入序淘汰最旧项 —— Map 迭代序即插入序。
+ */
+const FEEDBACK_SEEN_MAX = 500;
+
 function observeFeedbackEndedAt(key: string, now: number): number {
 	let at = feedbackSeenAt.get(key);
 	if (at === undefined) {
+		if (feedbackSeenAt.size >= FEEDBACK_SEEN_MAX) {
+			const oldest = feedbackSeenAt.keys().next().value;
+			if (oldest !== undefined) feedbackSeenAt.delete(oldest);
+		}
 		at = now;
 		feedbackSeenAt.set(key, at);
 	}
