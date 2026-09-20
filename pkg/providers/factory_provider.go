@@ -87,6 +87,9 @@ func ResolveAPIBase(cfg *config.ModelConfig) string {
 // Supported protocol families include OpenAI-compatible prefixes (e.g., openai, openrouter, groq),
 // Azure OpenAI, Amazon Bedrock, Anthropic (including messages), and various CLI/compatibility shims.
 // See the switch on protocol in this function for the authoritative list.
+// This is the low-level factory: callers bootstrapping from a whole config
+// (resolving agents.defaults.model against model_list) should use
+// CreateProvider instead — see factory.go for the two-level layout.
 // Returns the provider, the effective model ID from ExtractProtocol, and any error.
 func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, error) {
 	if cfg == nil {

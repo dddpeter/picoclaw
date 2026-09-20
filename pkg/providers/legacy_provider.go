@@ -144,9 +144,14 @@ func modelConfigTemplateScore(modelCfg *config.ModelConfig, defaultProvider stri
 	return score
 }
 
-// CreateProvider creates a provider based on the configuration.
-// It uses the model_list configuration (new format) to create providers.
-// The old providers config is automatically converted to model_list during config loading.
+// CreateProvider creates a provider for the configured default model
+// (agents.defaults.model). It is the config-level factory entry: it composes
+// ResolveModelConfig (alias / raw-reference resolution against model_list)
+// with CreateProviderFromConfig and injects the global workspace when the
+// resolved model entry does not set one. The old v0 "providers" map is
+// migrated to model_list during config loading, so model_list is the only
+// source here. Callers that already hold a *config.ModelConfig should call
+// CreateProviderFromConfig directly (see factory.go for the factory layout).
 // Returns the provider, the model ID to use, and any error.
 func CreateProvider(cfg *config.Config) (LLMProvider, string, error) {
 	model := cfg.Agents.Defaults.GetModelName()

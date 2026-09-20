@@ -1,3 +1,8 @@
+// Compatibility facade: re-exports pkg/providers/oauth types and
+// constructors under the historic root-package import path. The
+// implementations live in pkg/providers/oauth — new code should import that
+// package directly; this facade exists so external configs / plugins with the
+// old import path keep compiling and is not extended with new symbols.
 package providers
 
 import (
