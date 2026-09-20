@@ -83,3 +83,4 @@ docker/data
 /count_chars.py
 /wc.ps1
 .pi/
+node_modules/

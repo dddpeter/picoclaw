@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>picoclaw 架构体检报告 · 2026-09-20</title>
+<style>
+  :root {
+    --p0: #dc2626; --p1: #ea580c; --p2: #d97706; --p3: #6b7280;
+    --ink: #1f2937; --muted: #64748b; --line: #e5e7eb; --bg: #f8fafc; --card: #ffffff;
+    --accent: #0f766e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif; color: var(--ink); background: var(--bg); line-height: 1.65; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 32px 24px 80px; }
+  header { border-bottom: 3px solid var(--ink); padding-bottom: 20px; margin-bottom: 28px; }
+  h1 { font-size: 26px; letter-spacing: .5px; }
+  header .meta { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  h2 { font-size: 19px; margin: 40px 0 14px; padding-left: 10px; border-left: 4px solid var(--accent); }
+  h3 { font-size: 15px; margin-bottom: 8px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin: 18px 0; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .stat .num { font-size: 26px; font-weight: 700; color: var(--accent); }
+  .stat .num.bad { color: var(--p0); }
+  .stat .lbl { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; font-size: 13px; }
+  th { background: #f1f5f9; text-align: left; padding: 8px 10px; font-size: 12px; color: var(--muted); }
+  td { padding: 8px 10px; border-top: 1px solid var(--line); vertical-align: top; }
+  code { font-family: "JetBrains Mono", Consolas, monospace; font-size: 12px; background: #f1f5f9; padding: 1px 5px; border-radius: 4px; word-break: break-all; }
+  .badge { display: inline-block; font-size: 11px; font-weight: 700; color: #fff; border-radius: 4px; padding: 1px 7px; margin-right: 6px; }
+  .b0 { background: var(--p0); } .b1 { background: var(--p1); } .b2 { background: var(--p2); } .b3 { background: var(--p3); }
+  .finding { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; margin: 14px 0; }
+  .finding.p0 { border-left: 5px solid var(--p0); } .finding.p1 { border-left: 5px solid var(--p1); }
+  .finding.p2 { border-left: 5px solid var(--p2); } .finding.p3 { border-left: 5px solid var(--p3); }
+  .finding .head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .finding .head .id { font-weight: 700; font-size: 15px; }
+  .kv { display: grid; grid-template-columns: 92px 1fr; gap: 4px 10px; font-size: 13px; margin: 10px 0; }
+  .kv dt { color: var(--muted); font-weight: 600; }
+  .kv dd { }
+  .bar-row { display: grid; grid-template-columns: 300px 1fr 110px; gap: 10px; align-items: center; font-size: 12.5px; margin: 5px 0; }
+  .bar-row .name { font-family: Consolas, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar-track { background: #eef2f7; border-radius: 4px; height: 16px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, #0d9488, #dc2626); }
+  .note { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 12px 16px; font-size: 13px; margin: 14px 0; }
+  .danger { background: #fef2f2; border: 1px solid #fecaca; }
+  footer { margin-top: 48px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); padding-top: 16px; }
+  .legend { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  ul { padding-left: 20px; } li { margin: 3px 0; }
+  .roadmap td:first-child { font-weight: 700; white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>🏗️ picoclaw 架构体检报告</h1>
+  <div class="meta">2026-09-20 · 基于代码知识图谱（full 模式，generation 2026-09-18，与 main 零漂移）+ 源码交叉验证 · 证据层级：Auditor（16 个关键文件覆盖校验通过）· 本报告只诊断不动手，重构范围待确认</div>
+</header>
+
+<h2>一、总体仪表盘</h2>
+<div class="cards">
+  <div class="stat"><div class="num">957 / 184</div><div class="lbl">Go 文件 / TS 文件</div></div>
+  <div class="stat"><div class="num">23,581</div><div class="lbl">图谱节点（36k 条 CALLS 边）</div></div>
+  <div class="stat"><div class="num bad">848</div><div class="lbl">最长单函数 ExecuteTools（行）</div></div>
+  <div class="stat"><div class="num bad">410</div><div class="lbl">最高认知复杂度（全库第一）</div></div>
+  <div class="stat"><div class="num bad">~78%</div><div class="lbl">前端 Add/EditModelSheet 重复率</div></div>
+  <div class="stat"><div class="num">29</div><div class="lbl">CALLS 循环（绝大多数良性）</div></div>
+  <div class="stat"><div class="num">55.9k</div><div class="lbl">pkg/agent 总行数（66 个非测试文件）</div></div>
+  <div class="stat"><div class="num">12.7k</div><div class="lbl">web/backend/api 总行数（26 文件）</div></div>
+</div>
+
+<div class="note">
+  <b>总体判断：</b>分层骨架是健康的——<code>config / logger / utils / media</code> 作为核心层 fan-in 大 fan-out 零，<code>providers</code> 只出不进，<code>channels</code> 高内聚，没有跨包的恶性循环。
+  病灶集中在两处：<b>① pkg/agent 流水线内部</b>（巨型函数 + 上帝状态结构体，"深模块"被内部细节淹没）；<b>② web 前端的巨型组件与复制粘贴</b>。其余为可控的遗留债。
+</div>
+
+<h2>二、复杂度排行榜（认知复杂度 Top 10，非测试 Go 函数）</h2>
+<div class="legend">认知复杂度（cognitive）衡量"理解成本"，比圈复杂度更能反映维护痛苦。红色端为高危。</div>
+<div class="bar-row"><span class="name">pkg/agent.ExecuteTools</span><div class="bar-track"><div class="bar-fill" style="width:100%"></div></div><span>410 · 848 行</span></div>
+<div class="bar-row"><span class="name">pkg/agent.CallLLM</span><div class="bar-track"><div class="bar-fill" style="width:43%"></div></div><span>175 · 704 行</span></div>
+<div class="bar-row"><span class="name">providers/bedrock.parseStreamResponse</span><div class="bar-track"><div class="bar-fill" style="width:42%"></div></div><span>174 · 141 行</span></div>
+<div class="bar-row"><span class="name">pkg/utils.walk (markdown)</span><div class="bar-track"><div class="bar-fill" style="width:37%"></div></div><span>153 · 234 行</span></div>
+<div class="bar-row"><span class="name">pkg/agent.Run</span><div class="bar-track"><div class="bar-fill" style="width:37%"></div></div><span>151 · 170 行</span></div>
+<div class="bar-row"><span class="name">pkg/agent.runTurn</span><div class="bar-track"><div class="bar-fill" style="width:35%"></div></div><span>144 · 299 行</span></div>
+<div class="bar-row"><span class="name">providers.CreateProviderFromConfig</span><div class="bar-track"><div class="bar-fill" style="width:33%"></div></div><span>135 · 279 行</span></div>
+<div class="bar-row"><span class="name">config.v0ProvidersMapToModelList</span><div class="bar-track"><div class="bar-fill" style="width:31%"></div></div><span>128 · 592 行 · 圈复杂度 110</span></div>
+<div class="bar-row"><span class="name">pkg/tools.runBackground</span><div class="bar-track"><div class="bar-fill" style="width:30%"></div></div><span>123 · 221 行</span></div>
+<div class="bar-row"><span class="name">web/backend.main</span><div class="bar-track"><div class="bar-fill" style="width:29%"></div></div><span>120 · 401 行</span></div>
+
+<h2>三、发现清单（按严重度分级）</h2>
+<table>
+  <tr><th>级别</th><th>#</th><th>发现</th><th>位置</th><th>影响范围</th><th>建议动作</th></tr>
+  <tr><td><span class="badge b0">P0</span></td><td>1</td><td>ExecuteTools 巨型函数</td><td><code>pkg/agent/pipeline_execute.go:121</code></td><td>每轮对话必经</td><td>内部拆分</td></tr>
+  <tr><td><span class="badge b0">P0</span></td><td>2</td><td>CallLLM 巨型函数 + 循环内线性扫描</td><td><code>pkg/agent/pipeline_llm.go:28</code></td><td>每轮对话必经</td><td>分支提取 + 索引化</td></tr>
+  <tr><td><span class="badge b0">P0</span></td><td>3</td><td>Add/EditModelSheet ~78% 重复</td><td><code>web/frontend/.../models/</code></td><td>模型管理 UI 全部变更</td><td>提取共享组件</td></tr>
+  <tr><td><span class="badge b1">P1</span></td><td>4</td><td>turnState/turnExecution 上帝结构体</td><td><code>pkg/agent/turn_state.go</code></td><td>28 个文件共享可变状态</td><td>分组 + 所有权文档</td></tr>
+  <tr><td><span class="badge b1">P1</span></td><td>5</td><td>前端巨型组件群</td><td><code>models-page / config-page / ...</code></td><td>前端维护性</td><td>逐页拆 hook</td></tr>
+  <tr><td><span class="badge b1">P1</span></td><td>6</td><td>v0 迁移函数 592 行 / 圈 110</td><td><code>pkg/config/config_old.go:32</code></td><td>仅 1 个调用点</td><td>冻结 + golden test</td></tr>
+  <tr><td><span class="badge b1">P1</span></td><td>7</td><td>web/backend 与配置文件直连</td><td><code>web/backend/*</code></td><td>backend→config 1080 次调用</td><td>写路径收口</td></tr>
+  <tr><td><span class="badge b2">P2</span></td><td>8</td><td>双工厂并存</td><td><code>providers/legacy_provider.go</code></td><td>gateway + CLI 2 调用点</td><td>合并或委托</td></tr>
+  <tr><td><span class="badge b2">P2</span></td><td>9</td><td>命名混乱：三个"会话之家"、三代上下文、双总线</td><td>memory / session / bus / events</td><td>新人理解成本</td><td>文档地图（不改名）</td></tr>
+  <tr><td><span class="badge b2">P2</span></td><td>10</td><td>DefaultConfig 518 行内联</td><td><code>pkg/config/defaults.go</code></td><td>低（复杂度 0）</td><td>观察即可</td></tr>
+  <tr><td><span class="badge b2">P2</span></td><td>11</td><td>散点高复杂度函数 6 处</td><td>bedrock / onebot / utils 等</td><td>局部</td><td>择机小步拆</td></tr>
+  <tr><td><span class="badge b3">P3</span></td><td>12</td><td>29 个 CALLS 环</td><td>多为委托/递归环</td><td>—</td><td>无需处理</td></tr>
+  <tr><td><span class="badge b3">P3</span></td><td>13</td><td>providers 根目录 4 个 facade 兼容层</td><td><code>*_facade.go</code></td><td>—</td><td>补 deprecation 注释</td></tr>
+</table>
+
+<h2>四、逐项诊断与最小重构方案</h2>
+
+<!-- P0-1 -->
+<div class="finding p0">
+  <div class="head"><span class="badge b0">P0</span><span class="id">#1 ExecuteTools：848 行单方法，认知复杂度 410（全库第一）</span></div>
+  <dl class="kv">
+    <dt>位置</dt><dd><code>pkg/agent/pipeline_execute.go:121</code>（文件共 965 行，此函数占 848 行）</dd>
+    <dt>证据</dt><dd>认知复杂度 410 / 圈复杂度 101；内含两个大型 <code>switch decision.normalizedAction()</code>（审批决策流 + 工具分发流前后串联）；11 个 case 分支</dd>
+    <dt>症状</dt><dd>一个方法同时负责：工具审批流、工具分发、skill 名推断（inferSkillNamesFromToolCall）、媒体引用解析、错误摘要、流式面板反馈、工具执行记录。六种职责纠缠，"深模块"应有的窄接口被内部细节淹没。</dd>
+    <dt>影响范围</dt><dd><b>每轮对话必经的热路径</b>。但调用点唯一：<code>turn_coord.go:254</code>（runTurn），重构不外溢出包。</dd>
+    <dt>最小重构</dt><dd><b>纯内部拆分，不改签名、不改行为</b>：① 把两个 switch 各自提取为 <code>handleApprovalDecision()</code> 与 <code>dispatchTool()</code>；② 每个 case 分支体提取为 <code>execToolXxx</code> 私有方法；③ 分发处改查表 <code>map[string]toolHandler</code>。目标：单函数 ≤ 120 行，每片认知复杂度 ≤ 40。先跑现有 agent 测试套件建立基线再动手。</dd>
+    <dt>理由</dt><dd>唯一调用点 + 包内私有 = 零 API 破坏；这是全库理解成本最高的函数，收益/风险比最优。</dd>
+    <dt>预估</dt><dd>1.5~2 天（含测试回归，agent 套件约 70 秒）。</dd>
+  </dl>
+</div>
+
+<!-- P0-2 -->
+<div class="finding p0">
+  <div class="head"><span class="badge b0">P0</span><span class="id">#2 CallLLM：704 行 + 循环内 10 处线性扫描（潜在 O(n²)）</span></div>
+  <dl class="kv">
+    <dt>位置</dt><dd><code>pkg/agent/pipeline_llm.go:28</code></dd>
+    <dt>证据</dt><dd>认知复杂度 175；<code>linear_scan_in_loop = 10</code>（find/contains/indexOf 式扫描出现在循环内，消息列表按名匹配等模式）；流式降级（streamingDegraded）、fallback 候选、hooks 改写、重试判定混在同一方法体</dd>
+    <dt>症状</dt><dd>LLM 调用的编排逻辑（流式/非流式/降级/重试/fallback/hooks）全部内联；704 行里任何一处改动都要通读全文。</dd>
+    <dt>影响范围</dt><dd>每轮对话必经。调用点唯一：<code>turn_coord.go:220</code>。</dd>
+    <dt>最小重构</dt><dd>① 提取 <code>callStreaming()</code> / <code>callNonStreaming()</code> 两分支为独立方法；② 重试环提取为 <code>retryLoop()</code>；③ 把循环内的线性扫描改为循环外构建一次 map 索引（先 benchmark 证实热点，fmt 见下）；④ 保持 <code>streamRoundTripper</code> 语义不变。</dd>
+    <dt>理由</dt><dd>与 #1 同属流水线双巨头，但此处涉及流式语义（fork 红线区），所以方案刻意保守：只做方法提取与索引化，不动传输层。</dd>
+    <dt>风险</dt><dd><span class="badge b0">红线</span> fork 关键行为：ChatStream 独立流式 Transport、响应头超时 90s、`streamRoundTripper`——重构禁止触碰 <code>openai_compat</code> 传输层；现有流式响应头超时测试必须保持绿。</dd>
+    <dt>预估</dt><dd>1.5 天（先补一个含降级路径的回归测试再动手）。</dd>
+  </dl>
+</div>
+
+<!-- P0-3 -->
+<div class="finding p0">
+  <div class="head"><span class="badge b0">P0</span><span class="id">#3 AddModelSheet vs EditModelSheet：647/846 行相同（~78% 重复）</span></div>
+  <dl class="kv">
+    <dt>位置</dt><dd><code>web/frontend/src/components/models/add-model-sheet.tsx</code>（846 行）与 <code>edit-model-sheet.tsx</code>（822 行）</dd>
+    <dt>证据</dt><dd>排序后取交集 647 行完全一致（含整段 import 块、字段渲染、FetchModelsDialog 集成、保存逻辑）；两文件 1668 行合计</dd>
+    <dt>症状</dt><dd>典型复制粘贴演化：任一表单字段/校验规则改动必须双处同步，已经/即将漂移。这是全库最大的一块机械重复。</dd>
+    <dt>影响范围</dt><dd>仅这两个文件 + 新建共享模块；模型管理页（ModelsPage）不感知内部结构。</dd>
+    <dt>最小重构</dt><dd>提取 <code>ModelFormSheet</code> 共享组件 + <code>useModelFormState()</code> hook（字段、校验、FetchModels 集成全部下沉），两个 Sheet 各自只保留：标题文案、初始值填充、提交端点（POST vs PUT）。预计净删 ~550~650 行。</dd>
+    <dt>理由</dt><dd>重复度极高且边界清晰（add=空表单+POST，edit=预填+PUT），提取风险低、收益立竿见影；建议作为 P0 里第一个动手项（前端改动不碰 Go 热路径）。</dd>
+    <dt>预估</dt><dd>1 天（含手工验证两条表单路径）。</dd>
+  </dl>
+</div>
+
+<!-- P1-4 -->
+<div class="finding p1">
+  <div class="head"><span class="badge b1">P1</span><span class="id">#4 turnState（~70 字段）+ turnExecution（~30 字段）上帝结构体</span></div>
+  <dl class="kv">
+    <dt>位置</dt><dd><code>pkg/agent/turn_state.go:119/204</code></dd>
+    <dt>证据</dt><dd>turnState 约 70 个字段（含锁、心跳原子量、流式发布器、skill 追踪、媒体、followUps…）；pkg/agent 内 28 个文件引用 turnState——这是包内隐藏耦合的最大来源：任何文件都能读写任何字段，字段所有权无人知晓</dd>
+    <dt>症状</dt><dd>典型的"浅模块 + 共享可变状态"：Pipeline 各阶段通过同一坨状态传递，数据流不可见；配合 66 文件的巨型包，新人无法建立心智模型。</dd>
+    <dt>影响范围</dt><dd>波及 pkg/agent 全包（28 文件）——<b>爆炸半径大，严禁一步到位重构</b>。</dd>
+    <dt>最小重构</dt><dd>分三步走且只走第一步：① <b>文档化字段所有权</b>——在结构体上按"阶段写者"重排并注释（SetupTurn 写哪些、CallLLM 写哪些、ExecuteTools 写哪些）；② 把 turnExecution 中每迭代重建的字段抽成 <code>iterationState</code> 子结构（创建点唯一：newTurnExecution）；③ 其余留待 #1/#2 拆分时顺势收口。禁止改 turnState 的锁语义。</dd>
+    <dt>理由</dt><dd>结构体是全包枢纽，动它的成本远高于先给 #1/#2 拆函数；字段分组是零行为变更的纯机械动作，却能让后续所有重构有地图可依。</dd>
+    <dt>风险</dt><dd><span class="badge b0">红线</span> turn 全程持有 agent 模型状态读锁（runTurn）——任何命令路径禁止无超时拿写锁；turnState 的 mu 语义不得改变。</dd>
+    <dt>预估</dt><dd>第①步 0.5 天；第②步 1 天。</dd>
+  </dl>
+</div>
+
+<!-- P1-5 -->
+<div class="finding p1">
+  <div class="head"><span class="badge b1">P1</span><span class="id">#5 前端巨型组件群</span></div>
+  <dl class="kv">
+    <dt>位置</dt><dd><code>ModelsPage</code> 848 行（27 个 hooks）/ <code>ConfigPage</code> 689 / <code>ChannelConfigPage</code> 469 / <code>useCredentialsPage</code> 413 行</dd>
+    <dt>症状</dt><dd>单组件内状态、派生逻辑、网络请求、渲染全部内联；认知负担高、无法单测逻辑层。</dd>
+    <dt>最小重构</dt><dd>只做模式化动作：每页按"数据 hook / 派生计算 / 渲染"三层剥出 <code>useXxxPage</code> hook（仓库已有 <code>use-skills-page.ts</code>、<code>use-credentials-page.ts</code> 先例，跟随既有模式即可）。ModelsPage 优先，其次 ConfigPage。</dd>
+    <dt>理由</dt><dd>有库内既有范式可套，不引入新依赖；hook 化后逻辑层可测，为后续任何 UI 改动降压。</dd>
+    <dt>预估</dt><dd>每页 0.5~1 天，可渐进。</dd>
+  </dl>
+</div>
+
+<!-- P1-6 -->
+<div class="finding p1">
+  <div class="head"><span class="badge b1">P1</span><span class="id">#6 v0ProvidersMapToModelList：592 行迁移遗留，圈复杂度 110</span></div>
+  <dl class="kv">
+    <dt>位置</dt><dd><code>pkg/config/config_old.go:32</code></dd>
+    <dt>证据</dt><dd>115 个 if/for；唯一调用点 <code>migration.go:236</code>（migrateV0ToV1，v0 配置升级）；认知复杂度 128、圈复杂度 110 双高</dd>
+    <dt>症状</dt><dd>把 v0 的 providers map 翻译成 v1 model_list 的巨型翻译器，分支爆炸。但它是<b>一次性历史迁移代码</b>，行为已冻结。</dd>
+    <dt>最小重构</dt><dd><b>不重构逻辑</b>。补一组 v0→v1 golden 测试（输入样本→期望输出快照）锁死行为，文件头加注释声明冻结、禁止新功能进入。待上游完全淘汰 v0 后整文件删除。</dd>
+    <dt>理由</dt><dd>重写冻结的迁移代码风险 &gt; 收益；golden test 让"删除"这一最终动作变得安全。</dd>
+    <dt>预估</dt><dd>0.5 天。</dd>
+  </dl>
+</div>
+
+<!-- P1-7 -->
+<div class="finding p1">
+  <div class="head"><span class="badge b1">P1</span><span class="id">#7 web/backend 与配置文件的隐式耦合</span></div>
+  <dl class="kv">
+    <dt>位置</dt><dd><code>web/backend/</code>（main.go 401 行、api 包 26 文件 12,687 行）</dd>
+    <dt>证据</dt><dd>边界扫描：backend→config 1080 次调用（全库最重边界）；backend 直接读写 <code>config.json</code>，与 gateway 的 mtime 轮询热重载构成跨进程文件级时序耦合；<code>api.Error</code> fan-in 387</dd>
+    <dt>症状</dt><dd>两个进程（backend、gateway）通过同一配置文件通信，耦合不可见：backend 写文件 → gateway 下一分钟轮询到 mtime 变化才生效。AGENTS.md 已记载 Windows rename 竞争问题——这是结构性根源。</dd>
+    <dt>最小重构</dt><dd>收口写路径：backend 内所有配置写入集中到一个 <code>configStore</code>（原子写 + 变更通知封装），禁止 handler 各自读写文件。读取路径暂维持现状（1080 处全改不现实）。main.go 按 CLI/服务/tray 三段拆为 <code>runWebServer()</code> 等。</dd>
+    <dt>理由</dt><dd>写路径是竞争与不一致的源头，收口一处即可消除整类问题；读路径 fan-in 太大，留待长期演进（如 gateway 暴露配置 API）。</dd>
+    <dt>预估</dt><dd>写路径收口 1 天；main.go 拆分 0.5 天。</dd>
+  </dl>
+</div>
+
+<!-- P2-8 -->
+<div class="finding p2">
+  <div class="head"><span class="badge b2">P2</span><span class="id">#8 双工厂并存：CreateProvider vs CreateProviderFromConfig</span></div>
+  <dl class="kv">
+    <dt>位置</dt><dd><code>providers/legacy_provider.go:26</code>（旧）与 <code>providers/factory_provider.go:91</code>（新，279 行、13 个 case）</dd>
+    <dt>证据</dt><dd>旧工厂仅 2 个生产调用点：<code>pkg/gateway/gateway.go:402</code>、<code>cmd/picoclaw/internal/agent/helpers.go:42</code>；新工厂被 agent 侧使用</dd>
+    <dt>症状</dt><dd>同名域两个入口，新人不知道该调哪个；协议解析逻辑存在两份漂移风险。</dd>
+    <dt>最小重构</dt><dd>迁移 2 个调用点到新工厂后删除旧工厂（或让旧函数变为一行委托）。同步给 <code>factory.go</code> 与 <code>factory_provider.go</code> 的分工加包注释。</dd>
+    <dt>理由</dt><dd>调用点仅 2 处，是全部发现里"删除收益/成本比"最高的一项。</dd>
+    <dt>预估</dt><dd>0.5 天。</dd>
+  </dl>
+</div>
+
+<!-- P2-9 -->
+<div class="finding p2">
+  <div class="head"><span class="badge b2">P2</span><span class="id">#9 命名混乱：三个"会话之家"、三代上下文管理器、两套总线</span></div>
+  <dl class="kv">
+    <dt>证据</dt><dd>
+      ① 会话概念散落三处：<code>pkg/memory</code>（JSONL 底层存储，978 行）→ <code>pkg/session</code>（包装层 metaAwareStore）→ <code>pkg/agent/sessions/</code>（运行时数据目录，源码树里的非代码目录）。三者名字几乎不可区分，但<b>分层本身是合理的</b>（已验证 memory 被 session/agent/web 三方引用，非死代码）。<br>
+      ② 上下文管理器三代同包共存：<code>context.go</code> / <code>context_legacy.go</code> / <code>context_seahorse.go</code>——legacy 版仍在 <code>turn_coord.go:370/377/385</code> 作为 seahorse 关闭时的回退路径，是活代码。<br>
+      ③ <code>pkg/bus</code>（频道消息路由，MessageBus）与 <code>pkg/events</code>（运行时事件总线，EventBus）职责不同但名字都不体现差别。
+    </dd>
+    <dt>最小重构</dt><dd><b>不改任何包名</b>（破坏面远大于收益）：在 <code>docs/design/fork-overview.zh.md</code> 补一张"会话/上下文/总线"概念地图；给四个包的 doc 注释各加 3 行角色说明；<code>pkg/agent/sessions</code> 数据目录确认加入 .gitignore（当前未入库，保持）。</dd>
+    <dt>理由</dt><dd>命名问题的最小修复是"地图"而非"搬家"——重命名包会破坏 100+ import 点与上游同步。</dd>
+    <dt>预估</dt><dd>0.5 天（纯文档）。</dd>
+  </dl>
+</div>
+
+<!-- P2-10 -->
+<div class="finding p2">
+  <div class="head"><span class="badge b2">P2</span><span class="id">#10 散点高复杂度函数（6 处，局部性）</span></div>
+  <dl class="kv">
+    <dt>清单</dt><dd>
+      <code>bedrock.parseStreamResponse</code>（认知 174/141 行）· <code>utils.walk</code> markdown 转换器（153/234 行，包内递归 DOM 走访）· <code>tools/integration.providerByName</code>（118/186 行）· <code>onebot.parseMessageSegments</code>（112/128 行）· <code>channels.hiddenValues</code>（110/101 行）· <code>tools.runBackground</code>（123/221 行）
+    </dd>
+    <dt>最小重构</dt><dd>不集中专项处理，列入"童子军军规"：谁下次改到这些文件，谁顺手把 switch 分支体提取成小函数。仅 <code>openai_compat.parseStreamResponse</code>（229 行）<b>明确不动</b>——它承载 fork 的 streamRoundTripper 关键语义。</dd>
+    <dt>预估</dt><dd>摊销到日常改动。</dd>
+  </dl>
+</div>
+
+<!-- P3 -->
+<div class="finding p3">
+  <div class="head"><span class="badge b3">P3</span><span class="id">#11~13 无需处理的项（记录在案防止误修）</span></div>
+  <dl class="kv">
+    <dt>循环</dt><dd>29 个 CALLS 环中 8 节点的 logger 环是门面递归设计，其余多为 A→B→A 委托环（如 Execute↔ExecuteWithContext 的 context 适配）——良性，不要"修"。</dd>
+    <dt>Facade</dt><dd><code>providers/cli_facade.go、httpapi_facade.go、oauth_facade.go</code> 等是保持 import 路径稳定的兼容层——有意为之，补 deprecation 注释即可。</dd>
+    <dt>DefaultConfig</dt><dd>518 行但复杂度 0——纯数据声明，可读性问题而非结构问题，观察。</dd>
+  </dl>
+</div>
+
+<h2>五、建议路线图（待确认后执行）</h2>
+<table class="roadmap">
+  <tr><th>批次</th><th>内容</th><th>预期净变化</th><th>前置条件</th></tr>
+  <tr><td>第 1 批（低风险热身）</td><td>#3 前端 Sheet 合并 · #8 双工厂合并 · #9 概念地图文档</td><td>净删 ~700 行重复/遗留</td><td>无（不碰 Go 热路径）</td></tr>
+  <tr><td>第 2 批（核心拆分）</td><td>#1 ExecuteTools 内部拆分</td><td>848 行 → ≤120 行 × 若干</td><td>先跑全量 <code>go test ./pkg/...</code> 建基线</td></tr>
+  <tr><td>第 3 批（核心拆分）</td><td>#2 CallLLM 分支提取 + 索引化</td><td>704 行 → 结构化方法群</td><td>补降级路径回归测试；红线：不碰 openai_compat 传输层</td></tr>
+  <tr><td>第 4 批（结构巩固）</td><td>#4 turnState 字段所有权文档 + iterationState 抽取 · #6 v0 golden test</td><td>隐藏耦合显性化</td><td>第 2/3 批完成</td></tr>
+  <tr><td>第 5 批（渐进摊销）</td><td>#5 前端 hook 化（ModelsPage 优先）· #7 backend 写路径收口 · #10 童子军军规</td><td>持续降压</td><td>无硬依赖，可穿插</td></tr>
+</table>
+
+<h2>六、方法论与局限</h2>
+<ul>
+  <li>数据来源：codebase-memory 知识图谱（full 模式，23,581 节点 / 144,482 边，generation 2026-09-18，<code>detect_changes</code> 与 main 零漂移）；复杂度/循环深度/线性扫描等指标来自图谱静态分析；全部 P0/P1 结论均经源码 grep/read 交叉验证。</li>
+  <li>覆盖校验：16 个证据文件 <code>check_index_coverage</code> 无记录缺口；设计性排除目录（<code>pkg/agent/sessions</code> 运行时数据、<code>cmd/picoclaw/internal/onboard</code>）已用文件系统补查。</li>
+  <li>局限：SIMILAR_TO 边无权重属性，重复判定改用文本交集法（排序后交集，行序不计）——647 行交集是<b>去重后的下界</b>，实际重复率只高不低；认知复杂度按函数计，不含测试代码；<code>linear_scan_in_loop</code> 提示的 O(n²) 需 benchmark 证实后优化。</li>
+  <li>所有方案均遵循本 fork 的行为红线（AGENTS.md）：不修掉开放默认三件套、不动 streamRoundTripper 语义、不改 *bool 配置指针类型、命令路径不拿无超时写锁。</li>
+</ul>
+
+<footer>picoclaw fork · 架构体检 v1 · 生成于 2026-09-20 · 仅诊断，未改动任何代码 · 重构范围待用户确认</footer>
+</div>
+</body>
+</html>
