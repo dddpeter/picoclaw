@@ -265,3 +265,35 @@
 - launcher 管理（`web/`）：`/api/plugins` 五端点（GET 列表=ScanPlugins+registry 合并视图 / install / validate / PUT enabled / DELETE，`{name}` 过 `ValidatePluginName`+保留名双守卫）、`/plugins` 页面（zh/en）、MCP 页只读 pluginServers 段、skills 页插件 badge（删除按钮 workspace-only 是既有语义，天然禁删）。
 - 同步上游注意：`ensureMCPInitialized` 空判用合并后配置（不要按上游"空配置即早退"修回去）；`MCPServerConfig.Dir/PluginRoot/PluginData` 为 fork 增量字段；`ScanPlugins`/`AppendPluginRootsFrom` 为 fork API。测试锚点：`TestPluginMCP_*`、`TestPluginEndToEnd*`、`TestScanPlugins`、`TestAppendPluginRoots`、`api/plugins_test.go` 全套。
 - 设计/计划文档：`docs/design/2026-09-19-agent-plugins-client{,-design}.md`（客户端）、`docs/design/2026-09-19-agent-plugins-launcher{,-design}.zh.md`（launcher）；一致性矩阵 `docs/agent-plugins-conformance.md`。
+
+## 17. 概念地图：命名易混淆处（2026-09-20，源自架构体检 P2-9）
+
+代码里同名概念多，不熟悉时容易混淆。本节是权威对照；**不改包名/文件名**（重命名会破坏 100+ import 点并撞上游同步成本），用文档消除困惑。
+
+### 三个「会话之家」
+
+| 路径 | 角色 |
+|---|---|
+| `pkg/memory` | 会话持久化**底层存储**：`Store` 接口 + JSONL 追加式实现（消息/标题/元数据落盘与读取）。被 session / agent / web 三方引用，**非死代码**。 |
+| `pkg/session` | 会话**管理层**：`SessionScope`/会话 key 解析/多 agent allocator + `SessionManager`，以 `metaAwareStore` 适配 `pkg/memory`，对 agent 提供按 scope 的会话视图。自身不存数据。 |
+| `pkg/agent/sessions/` | **运行时数据目录**（gitignore，非代码）：网关跑起来后 JSONL 会话文件落在这里。 |
+
+### 三代上下文管理器（同包共存，均为活代码）
+
+`resolveContextManager`（`turn_coord.go`）按 `agents.defaults.context_manager` 选择，未配置/未知名/工厂失败均**回退 legacy**（本部署显式配了 `seahorse`）：
+
+| 文件 | 角色 |
+|---|---|
+| `pkg/agent/context_manager.go` | `ContextManager` 接口（Assemble/Compact/Ingest/Clear）+ 注册表 |
+| `pkg/agent/context_legacy.go` | legacy 实现（代码默认）：滚动摘要；seahorse 关闭时的回退路径 |
+| `pkg/agent/context_seahorse.go` | seahorse 树上下文引擎（本部署主用；§14 压缩异步化/使用率门槛都发生在这条路径） |
+| `pkg/agent/context.go` | ⚠ 同名不同物：`ContextBuilder`——系统提示词组装（身份/技能/记忆/项目文档注入），与 ContextManager 策略选择无关 |
+
+### 双总线
+
+| 包 | 角色 |
+|---|---|
+| `pkg/bus` | **渠道消息总线**：IM 渠道（feishu/discord/…）进出站消息路由、流式代理（StreamDelegate）、背压 |
+| `pkg/events` | **运行时事件总线**：进程内组件观测事件，与消息路由无关（见其 doc.go） |
+
+包级角色注释已固化在 `pkg/memory/doc.go`、`pkg/session/doc.go`、`pkg/bus/doc.go`（`pkg/events` 本就有 doc.go）。
