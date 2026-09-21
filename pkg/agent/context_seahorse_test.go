@@ -300,6 +300,9 @@ func TestSeahorseAssemblePreservesActiveToolTurnAcrossSanitization(t *testing.T)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
+	// Close before t.TempDir cleanup, or Windows cannot remove seahorse.db
+	// while the sqlite handle is open.
+	t.Cleanup(func() { _ = engine.Close() })
 
 	ctx := context.Background()
 	sessionKey := "test:active-tool-turn"
@@ -643,6 +646,9 @@ func TestSeahorseRealLoopNoDuplicateMessages(t *testing.T) {
 	if !ok {
 		t.Fatal("expected seahorseContextManager")
 	}
+	// Close before t.TempDir cleanup, or Windows cannot remove seahorse.db
+	// while the sqlite handle is open.
+	t.Cleanup(func() { _ = seahorseCM.engine.Close() })
 
 	// Check DB for messages via RetrievalEngine.Store()
 	store := seahorseCM.engine.GetRetrieval().Store()
@@ -1017,6 +1023,9 @@ func TestSeahorseSteeringMessageIngested(t *testing.T) {
 	if !ok {
 		t.Fatal("expected seahorseContextManager")
 	}
+	// Close before t.TempDir cleanup, or Windows cannot remove seahorse.db
+	// while the sqlite handle is open.
+	t.Cleanup(func() { _ = seahorseCM.engine.Close() })
 
 	// Check DB for steering message
 	store := seahorseCM.engine.GetRetrieval().Store()
@@ -1086,6 +1095,9 @@ func TestSeahorseSummarizeSkipsCondensedWhenBelowThreshold(t *testing.T) {
 	if !ok {
 		t.Fatal("expected seahorseContextManager")
 	}
+	// Close before t.TempDir cleanup, or Windows cannot remove seahorse.db
+	// while the sqlite handle is open.
+	t.Cleanup(func() { _ = seahorseCM.engine.Close() })
 	store := seahorseCM.engine.GetRetrieval().Store()
 
 	conv, err := store.GetOrCreateConversation(ctx, sessionKey)

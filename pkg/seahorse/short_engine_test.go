@@ -1929,11 +1929,15 @@ func TestSelectShallowestCondensationWithNonConsecutiveDepths(t *testing.T) {
 
 	// Create summaries with non-consecutive depths: 0 and 1 have < 5, 2 is missing, 3 has >= 5
 	// This tests the bug: when depth=2 is missing, the loop breaks and depth=3 is never checked
-	// Need > FreshTailCount(32) summaries so they are not all in fresh tail
+	// The fresh tail protects the newest FreshTailCountValue() context items, so pad
+	// the end with filler that stays inside it — the groups below must be evictable.
 	// Depth 0: 3 summaries (not enough), Depth 1: 3 summaries (not enough)
 	// Depth 2: 0 summaries (missing), Depth 3: 40 summaries (enough)
 	depths := []int{0, 0, 0, 1, 1, 1}
 	for i := 0; i < 40; i++ {
+		depths = append(depths, 3)
+	}
+	for i := 0; i < FreshTailCountValue(); i++ {
 		depths = append(depths, 3)
 	}
 	now := time.Now().UTC()

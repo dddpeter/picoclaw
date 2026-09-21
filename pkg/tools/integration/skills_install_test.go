@@ -131,7 +131,9 @@ func (m *mockInvalidInstallRegistry) DownloadAndInstall(
 	}
 	if err := os.WriteFile(
 		filepath.Join(targetDir, "SKILL.md"),
-		[]byte("---\nname: bad_skill\ndescription: invalid name\n---\n# Invalid\n"),
+		// Missing description: the loader's validate() requires it. A bad *name*
+		// is no longer invalid since name validation was liberalized in 153614bc.
+		[]byte("---\nname: broken-skill\n---\n# Invalid\n"),
 		0o600,
 	); err != nil {
 		return nil, err

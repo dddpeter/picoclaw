@@ -78,7 +78,9 @@ func TestSkillsInstallFromRegistryRejectsInvalidSkillArchive(t *testing.T) {
 				"download_url": server.URL + "/raw/foo/bar/master/.agents/skills/pr-review/SKILL.md",
 			}}))
 		case "/raw/foo/bar/master/.agents/skills/pr-review/SKILL.md":
-			_, _ = w.Write([]byte("---\nname: bad_skill\ndescription: Invalid skill name\n---\n# Invalid\n"))
+			// Missing description: the loader's validate() requires it. A bad *name*
+			// is no longer invalid since name validation was liberalized in 153614bc.
+			_, _ = w.Write([]byte("---\nname: pr-review\n---\n# Invalid\n"))
 		default:
 			http.NotFound(w, r)
 		}

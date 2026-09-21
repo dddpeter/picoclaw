@@ -125,9 +125,11 @@ func TestCompactLeaf(t *testing.T) {
 	ce, s, convID := newTestCompactionEngine(t)
 	ctx := context.Background()
 
-	// Create enough messages to trigger leaf compaction:
-	// Need > FreshTailCountValue()(32) evictable messages with >= LeafMinFanout(8) contiguous
-	for i := 0; i < 40; i++ {
+	// Create enough messages to trigger leaf compaction: the newest
+	// FreshTailCountValue() items are protected, so the total must exceed that
+	// plus LeafMinFanout contiguous evictable messages.
+	total := FreshTailCountValue() + LeafMinFanout
+	for i := 0; i < total; i++ {
 		m, _ := s.AddMessage(ctx, convID, "user", "message content for compaction test", 100)
 		s.AppendContextMessage(ctx, convID, m.ID)
 	}
@@ -998,9 +1000,10 @@ func TestCompactLeafAccumulatesUpToLeafChunkTokens(t *testing.T) {
 	ce, s, convID := newTestCompactionEngine(t)
 	ctx := context.Background()
 
-	// Create messages totaling far more than LeafChunkTokens (20000)
-	// Each message is ~500 tokens, create 80 messages = 40000 tokens
-	for i := 0; i < 80; i++ {
+	// Create messages totaling far more than LeafChunkTokens: only the
+	// messages outside the fresh tail are evictable, so keep adding past it.
+	evictable := 40 // ~500 tokens each ≫ LeafChunkTokens
+	for i := 0; i < FreshTailCountValue()+evictable; i++ {
 		m, _ := s.AddMessage(
 			ctx,
 			convID,
@@ -1022,14 +1025,14 @@ func TestCompactLeafAccumulatesUpToLeafChunkTokens(t *testing.T) {
 		t.Fatal("expected a summary to be created")
 	}
 
-	// The source messages that were compacted should total roughly LeafChunkTokens (20000),
-	// not the entire 40000 tokens worth of messages
+	// The source messages that were compacted should total roughly LeafChunkTokens,
+	// not every evictable message
 	summary, _ := s.GetSummary(ctx, *summaryID)
 	if summary == nil {
 		t.Fatal("summary not found")
 	}
 
-	// Source message tokens should be roughly <= LeafChunkTokens (20000)
+	// Source message tokens should be roughly <= LeafChunkTokens
 	// Spec says: "Stop when accumulated tokens >= LeafChunkTokens"
 	if summary.SourceMessageTokenCount > LeafChunkTokens {
 		t.Errorf("source tokens = %d, should be <= LeafChunkTokens (%d)",

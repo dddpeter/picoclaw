@@ -47,7 +47,11 @@ func TestReviewDraft_QuarantinesSecretLikeContent(t *testing.T) {
 }
 
 func TestReviewDraft_QuarantinesInvalidTargetSkillName(t *testing.T) {
-	for _, name := range []string{"../escape", "/tmp/escape", " ", "weather_helper"} {
+	// Skill names were liberalized in 153614bc: any printable Unicode is valid
+	// now (CJK, spaces, parens, underscores). Still rejected, and pinned here:
+	// path traversal/separators, blank names, Windows-forbidden filename runes
+	// and Windows reserved device names (see pkg/skills.ValidateSkillName).
+	for _, name := range []string{"../escape", "/tmp/escape", " ", "con", "bad:name"} {
 		result := evolution.ReviewDraft(evolution.SkillDraft{
 			ID:              "draft-invalid-name",
 			TargetSkillName: name,
