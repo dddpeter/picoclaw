@@ -342,4 +342,6 @@ thought 流式：同 message_id 的 update 触发 block.text 变化 ──▶ Th
 5. **旧组件**：`assistant-message.tsx` / `user-message.tsx` / `typing-indicator.tsx` 已无引用（typing-wait 占位替代 TypingIndicator），暂保留在仓库中未删除。
 6. **turn 切分**：steering 用户消息自成一张用户卡并开启新 turn（其后助手块并入该 turn），插问视觉语义清晰。
 
-验证：`pnpm run build`（tsc + vite）通过；`CC=clang go build -tags goolm ./web/...`（含 dist embed）通过。待手工回归：流式 turn 全链路、错误 turn、历史加载、明暗主题（§7 验证清单）。
+验证：`pnpm run build`（tsc + vite）通过；`CC=gcc go build -tags goolm,stdjson ./web/...`（含 dist embed）通过。待手工回归：流式 turn 全链路、错误 turn、历史加载、明暗主题（§7 验证清单）。
+
+> 编译器修订：上行的 `CC=clang` 已改为默认 `gcc`，「msys2 ucrt64 gcc 损坏、须改用 clang」的旧结论经 2026-09-20 复核不成立（真实成因是 msys2 bash 的 PATH 未含 `ucrt64\bin`），详见 `picoclaw-windows-build` 技能。

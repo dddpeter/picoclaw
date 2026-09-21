@@ -295,7 +295,7 @@ mcp_codebase-memory_query_graph(
 
 ## C.4 测试基线说明（Windows 开发机）
 
-本机（Windows）`go test ./pkg/...` 存在**预存环境性失败**（cgo/libolm 缺失致 matrix 构建失败、Windows token/Unix shell 假设等），涉及 agent/tools/seahorse/deltachat/audio 等 14 包，与代码状态无关。批次 1 采用「失败集前后对比」验证：改动前后 `--- FAIL` 集合与包级 ok/FAIL 状态**完全一致**。后续批次（2/3 触碰 pkg/agent 热路径）建议在 Linux 部署机上跑全量，或继续用失败集对比法。
+本机（Windows）`go test -tags goolm,stdjson -count=1 ./pkg/... ./cmd/...` 存在**预存失败**，涉及 11 包 25 个用例，与代码状态无关。批次 1/2 采用「失败集前后对比」验证：改动前后 `--- FAIL` 集合与包级 ok/FAIL 状态**完全一致**。**注意**：本条初稿把全部失败归为环境性、并称 matrix 包因缺 cgo/libolm 构建失败，二者均已证伪（`pkg/channels/matrix` 实测 ok）——见 C.6 的修订与精确白名单。后续批次（触碰 pkg/agent 热路径）建议在 Linux 部署机上跑全量，或继续用失败集对比法。
 
 ## C.5 批次 2：ExecuteTools 内部拆分 —— 完成（2026-09-20）
 
@@ -307,4 +307,109 @@ mcp_codebase-memory_query_graph(
 
 ---
 
-*执行人：pico（AI）。批次 1/2 于 2026-09-20 完成；批次 3（CallLLM 拆分）待开始，前置：降级路径回归测试。*
+## C.6 测试基线修订：6 个确定性失败已修 + 精确白名单（2026-09-21）
+
+C.4 的初稿判断过宽：当时的 28 条 `--- FAIL` 里有 **6 条是确定性漂移**（在任何平台都会稳定失败），只有 25 条与环境/平台语义相关。本次按「以代码为真、改测试」修复确定性项，零生产代码改动（未提交）。
+
+### 已修（6 用例，确定性）
+
+| 包 | 用例 | 根因 |
+| --- | --- | --- |
+| pkg/agent | `TestSeahorseRealLoopNoDuplicateMessages`、`TestSeahorseSteeringMessageIngested`、`TestSeahorseAssemblePreservesActiveToolTurnAcrossSanitization`、`TestSeahorseSummarizeSkipsCondensedWhenBelowThreshold` | `45e61ead` 将 fresh_tail 32→128：常量引用被机械替换，测试内硬编码的 32 及其派生尺寸（leaf chunk、depth 填充量）未同步 |
+| pkg/evolution | `TestReviewDraft_QuarantinesInvalidTargetSkillName` | `153614bc` 放宽技能名校验：`weather_helper` 这类下划线名已合法 |
+| pkg/tools/integration | `TestInstallSkillToolRejectsInvalidInstalledSkill` | 同上；且 loader 现在「声明名非法→回退目录名」，坏名字不再能制造非法技能，fixture 改用**缺 `description`**（`validate()` 仍强制要求） |
+| cmd/picoclaw/internal/skills | `TestSkillsInstallFromRegistryRejectsInvalidSkillArchive` | 同上 |
+| cmd/picoclaw | `TestNewPicoclawCommand` | fork 新增顶级 `plugin` 子命令（`cmd/picoclaw/main.go:144`），测试仍钉着 14 项旧清单 |
+
+验证：六项聚焦跑全绿、`gofmt -l` 干净；全量失败集 28 → **25 条**，无新增失败。
+
+### 剩余白名单（25 条 `--- FAIL`，11 包，均与本机环境/平台语义相关）
+
+| 包（耗时） | 用例 | 本机实测原因 |
+| --- | --- | --- |
+| pkg/agent（97s） | ~~4× TestSeahorse*（RealLoop/Steering/Assemble/Summarize）~~ → 已修（C.8 同根因顺手修复：engine 未 Close 致 sqlite 句柄悬空，TempDir 清理失败） | （移入「已修」，白名单减 4） |
+| pkg/audio/asr | `TestAudioModelTranscriberTranscribe/unsupported_audio_format` | 报错串内嵌 Windows 转义路径（`"C:\\\\..."`），与期望判等不匹配 |
+| pkg/channels/deltachat | `TestResolveServerPathUsesPATH` | 依赖外部 `deltachat-rpc-server`，本机不在 PATH |
+| pkg/isolation | `TestResolveInstanceRoot_UsesPicoclawHome`、`TestValidateExposePaths`、`TestMergeExposePaths_OverrideByTarget`、`TestPrepareCommand_AppliesUserEnv` | Windows 路径分隔符/绝对路径判定；`expose_paths` 被 `platform_windows.go` 设计性拒绝；`create restricted primary token: Invalid access to memory location` |
+| pkg/migrate/internal | `TestResolveWorkspace`、`TestRelPath` | 期望 `/home/...`、`a/b`，实得 `\home\...`、`a\b` |
+| pkg/migrate/sources/openclaw | `TestResolveSourceHomeWithTilde` | 期望 `C:\Users\dddpe\openclaw`，实得 `C:\Users\dddpe/openclaw`（混合分隔符） |
+| pkg/pid | `TestWritePidFile` | Windows 不落实 POSIX 模式：`file permission = 666, want 0600` |
+| pkg/tools（54s） | 7× `TestShellTool_*` | 本机 shell 工具走 PowerShell 而非 POSIX sh：`&&` 不被支持、`2>/dev/null` 被判为工作目录外路径、`/etc/passwd` 不存在、`$?` 退出码语义不成立 |
+| cmd/picoclaw/internal | `TestGetConfigPath` | 测试改写 `HOME` 覆盖家目录，Windows 上 `os.UserHomeDir()` 读 `USERPROFILE`，覆盖不生效 |
+| cmd/picoclaw/internal/mcp | `TestMCPAddRejectsNonExecutableLocalCommand` | Windows 无「可执行位」，无法据权限位拒绝本地命令 |
+| cmd/picoclaw/internal/model | `TestSetDefaultModel_SaveConfigError` | 用 chmod 造只读目录使写配置失败，Windows 忽略 chmod；**该用例失败后 panic，整个包提前中断**，故该包其余用例在 Windows 上「是否通过」不可证 |
+
+### 基线用法
+
+1. 改前改后各跑一次全量，把 `--- FAIL` 行按「包+用例名」归集取集合，做差集；差集为空才算无回归。
+2. 差集中**不得出现新增条目**，出现即视为回归——不因「看着像环境问题」而豁免。
+3. 反向同样成立：本表条目若**消失**，说明环境变了（例如装上了 `deltachat-rpc-server`），应更新本表，而不是记作「修好了」。
+4. 权威判定仍应在 Linux 部署机跑一次全量；本表只是 Windows 开发机的等价替代。
+
+> 原始输出：`%TEMP%\pc_full_tests.txt`；复跑脚本：`%TEMP%\pc_full_tests.bat`。
+
+---
+
+## C.7 工具与上下文热路径优化 —— 完成（2026-09-21，非路线图批次）
+
+本轮不属于建议路线图的任何批次，起因是「流水线/上下文/工具还有哪些可优化」的排查；只做实测有收益、且**不改变任何语义**的三项。fork 红线（开放默认三件套、`streamRoundTripper`、`*bool` 配置指针、命令路径无超时写锁）全部未触碰。
+
+| 项 | 改动 | 证据 |
+| --- | --- | --- |
+| 工具定义缓存 | `ToolRegistry.ToProviderDefs()`（`registry.go`）按 `version` 记忆化；`PromoteTools`/`TickTTL` 在**可见集真正变化时**才 bump version（TTL 1→0 才失效，同一 TTL 纪元内的 tick 不失效） | `go test -bench BenchmarkToProviderDefs`：缓存路径 **509 ns / 1 alloc / 2387 B**，非缓存 **10.2 µs / 122 allocs / 16.7 KB**（20 个工具）；流水线每回合调用 3~5 次 |
+| trim 预算算法 | `trimHistoryToFitContextWindow`（`context_budget.go`）：候选切点先枚举一次（不重建 prompt），再对其做二分探测；工具 token 提到循环外只算一次（`isOverContextBudgetWithToolTokens`） | 差分测试 `TestTrimHistoryToFitContextWindow_MatchesLinearScan` 在 273 个预算点（≥3 个不同切点）上与旧线性扫描逐点比对「保留历史 / 重建结果 / fit」完全一致；`..._RebuildsAreSublinear` 断言重建次数（实测二分 **6** 次 vs 线性 **23** 次，24 回合中丢弃 22 回合） |
+| `TruncateTail` 前插 | `truncate.go` 改为「倒序收集 + `slices.Reverse`」，消除每行一次整片复制 | 4 个 `TestTruncateTail*`（含 UTF-8 半行、字节上限、notice）全绿，输出与顺序不变 |
+
+**缓存的三条硬约束（已写入代码注释，勿回退）**：① 返回的切片 `cap == len`，使调用方 `append` 必然重新分配——`pipeline_llm.restoreToolDefinition` 会对该切片做 `append(current, tool)`；② 顺序仍由 `sortedToolNames` 决定，不得改为 map 遍历（KV 前缀稳定性）；③ 切片是浅拷贝，`Function.Parameters` map 与缓存**共享**——调用方只读，任何原地修改会静默泄漏到后续所有读者（深拷贝会吃掉缓存收益，故以契约而非拷贝兜底；`TestToProviderDefs_ConcurrentMutatorsKeepCacheConsistent` 同时固化了锁升级路径的并发一致性）。
+
+**本轮未做（非遗漏）**：seahorse bootstrap 只覆盖默认 agent（多 agent 场景仅静态推断，无复现用例）；工具输出截断无统一出口（MCP/第三方）；当轮图片每迭代重复 stat+base64；`TruncateHead` 无生产调用者（保留待 scout 规则变化）。以上均无本轮实测收益，不做。
+
+验证：`gofmt -l` 干净、`go vet` 绿、新增 4 个用例与全量失败集差集为空（仍为 25 条白名单，见 C.6）。
+
+> 评审修订（同日）：① 补第三条硬约束——`Parameters` map 与缓存共享、只读，此前注释只声明了切片层约束，map 层变更会静默污染缓存且 race detector 不可靠；② 固化并发一致性测试（4 读 × 50 轮 promote/expire，收尾断言缓存与 fresh build 一致）；③ 修正 `trimCandidateStarts` 注释——中途 turn 边界异常时新实现保留已枚举候选、仅追加「全丢」兼底，与旧线性「立即全丢」不同且严格更优，原注释「同一序列」表述不准。
+
+---
+
+## C.8 seahorse 惰性 bootstrap + 工具输出出口预算 —— 完成（2026-09-21，同日第二批次）
+
+体检批次 3、4、5 号发现里的第 3、4 项实现；第 5 项（resolveMediaRefs memo）挂起，理由见后。用户确认当前部署为单 agent，第 3 项按防御性修复落地。
+
+### 第 3 项：seahorse bootstrap 只覆盖默认 agent（正确性，静默丢历史）
+
+**影响面修正**（静态推断 vs 实测）：DB 是持久 SQLite，运行期 Ingest 按 sessionKey 入库与 agent 无关，纯重启不丢。真正丢失窗口是「DB 需要从 JSONL 重建」的时刻：默认 manager 切 seahorse 的迁移、seahorse.db 丢失/损坏/换 workspace、运行时新增 agent 的存量会话。致命放大器：`Assemble → GetOrCreateConversation` 首次访问即建空壳，此后逐条 Ingest 只补新消息，旧历史永久缺席且无日志。
+
+**实现**（`context_seahorse.go` + `short_engine.go`）：
+
+- `Assemble` 入口惰性 bootstrap：`sync.Map.LoadOrStore` 单飞标记（engine.Bootstrap 无 session 级锁，调用方必须保证单飞）→ `ShouldPersistSession`（新暴露，ignore/stateless 短路）→ `agentForSession` 解析 owner → `bootstrapFromStore`（原构造期 bootstrapSession 参数化，两者共用）。
+- 构造期仍只走默认 agent 的 store，但对已处理 session 预设标记，已知会话零惰性成本。
+- **不预判「DB 是否有消息」**：直接交给 `engine.Bootstrap` 的 reconcile 语义（同步则 fast-path no-op、部分落后补尾、不匹配 clear 重建）。评审中间版本曾用「DB 有消息即跳过」预判，被「DB 部分落后于 JSONL」用例击穿后移除——JSONL 双写是完整恢复源，每 session 每进程一次全量读的代价换语义完备。
+- 顺手修复：`manager.Assemble` 对 engine 忽略会话的 `nil, nil` 返回无判空（`seahorseToProviderMessages(nil)` 会 panic；生产 heartbeat 走 NoHistory 不可达，直接调用/自定义 stateless pattern 可达）。
+
+**测试**（`context_seahorse_bootstrap_test.go`，5 用例）：路由 agent 会话 Assemble 非空（钉死用，实现前红）；DB 部分落后时 reconcile 不重复；空壳 conversation 仍触发（判断 messages 而非 conversation 存在性）；heartbeat 忽略会话不 bootstrap 且不 panic；默认 agent 行为不变。
+
+**同根因顺手修复**：白名单里 pkg/agent 4× TestSeahorse*（TempDir 清理 sqlite 句柄）实为 engine 未 Close——新测试与 4 个旧测试均补 `t.Cleanup(engine.Close)`，Windows 基线 **25 → 21 条**，`./pkg/agent/` 全绿。
+
+### 第 4 项：工具输出截断统一出口 + 日志卫生
+
+**实现**：
+
+- `pkg/tools/output_budget.go`：`ApplyOutputBudget`（保尾 + UTF-8 边界安全 + `[output truncated: kept the last N of M bytes]` 前置提示，与 shell 的 TruncateTail 保尾语义一致）；`DefaultToolOutputBytes = 128KB`，刻意高于全部内置工具自身预算（read_file 64KB、shell 50KB）——内置工具永不触发、无双层截断提示，纯拀 MCP/第三方无预算输出。
+- 配置 `tools.max_tool_output_bytes`（0=默认 128KB，负=无限制，env `PICOCLAW_TOOLS_MAX_TOOL_OUTPUT_BYTES`）；`ToolRegistry.SetMaxOutputBytes` 注入，`ExecuteWithContext` 在 `normalizeToolResult` 之后仅截 `ForLLM`（ForUser 走聊天侧不进上下文，不动）。
+- **两条路径都覆盖**：同步路走 registry 出口；async 回调（`pipeline_execute_loop.go`）绕过 registry 同步出口，在 `ContentForLLM()` 后补 ApplyOutputBudget。
+- 日志卫生：`ExecuteWithContext` 的 Info 级全量 args（shell 命令带 token 会落盘）改为 `utils.Truncate(json, 200)` 预览，与 toolloop.go/流式面板同构。
+
+**测试**（`output_budget_test.go`，5 用例）：未超限/禁用原样；保尾+提示+原始大小；UTF-8 多字节 rune 不劈开（3000×「世」截 4097B 验证）；默认值高于内置预算的不变量；registry 出口端到端（截断 + unlimited 全量）。
+
+### 第 5 项：resolveMediaRefs memo —— 挂起
+
+第 2 项（trim 二分）落地后重算热点：当轮 tool 图片的 base64 只发生在 `pipeline_llm.go:40` 迭代路径（SetupTurn/trim 的 build 执行时当轮 tool 消息尚不存在，不触发编码），每回合重复编码次数 ≈ 迭代次数 3–5 次，2MB 图 ×4 ≈ 8MB IO，几十毫秒级。收益/成本比不足以支撑改 resolveMediaRefs 签名 + 3 调用点 + turn 级 memo 生命周期，等真实卡顿证据再决。
+
+### 验证
+
+- `go build -tags goolm,stdjson ./pkg/... ./cmd/...` 绿；`go vet` 绿；`gofmt -l` 触碰文件全净。
+- 失败集对比：`./pkg/agent/` **全绿**（白名单减 4）；`./pkg/tools/` 仍为白名单 7 条 ShellTool（PowerShell 语义），无新增；`./pkg/config/`、`./pkg/seahorse/` ok。
+- Linux 部署机全量仍待跑（本机 TSan 分配失败，-race 不可用）。
+
+---
+
+*执行人：pico（AI）。批次 1/2 于 2026-09-20 完成；批次 3（CallLLM 拆分）待开始，前置：降级路径回归测试。C.7 为路线图外的热路径优化；C.8 为体检第 3、4 项实现。*

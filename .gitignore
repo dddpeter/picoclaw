@@ -73,6 +73,7 @@ web/backend/dist/*
 docker/data
 
 .omc/
+.ohmyagent/
 .worktrees/
 .playwright-mcp/
 
