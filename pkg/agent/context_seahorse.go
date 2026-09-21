@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/logger"
@@ -21,6 +22,13 @@ type seahorseContextManager struct {
 	engine   *seahorse.Engine
 	sessions session.SessionStore // for startup bootstrap
 	al       *AgentLoop           // for resolving the agent that owns a session
+
+	// bootstrapped tracks session keys whose bootstrap decision has been
+	// made — either by the startup walk of the default agent's store, or by
+	// the lazy probe on first Assemble. LoadOrStore guarantees a single
+	// flyer per session, which engine.Bootstrap (no session-level locking)
+	// requires from its callers.
+	bootstrapped sync.Map
 }
 
 // newSeahorseContextManager creates a seahorse-backed ContextManager.
@@ -56,11 +64,15 @@ func newSeahorseContextManager(_ json.RawMessage, al *AgentLoop) (ContextManager
 	al.RegisterTool(seahorse.NewGrepTool(retrieval))
 	al.RegisterTool(seahorse.NewExpandTool(retrieval))
 
-	// Bootstrap all existing sessions at startup
+	// Bootstrap all existing sessions of the default agent at startup and mark
+	// them as handled. Sessions owned by routed agents are covered lazily on
+	// first Assemble (see lazyBootstrapSession): the registry may not be fully
+	// populated here, and agents added at runtime would be missed otherwise.
 	if agent.Sessions != nil {
 		ctx := context.Background()
 		for _, sessionKey := range agent.Sessions.ListSessions() {
-			mgr.bootstrapSession(ctx, sessionKey)
+			mgr.bootstrapFromStore(ctx, agent.Sessions, sessionKey)
+			mgr.bootstrapped.Store(sessionKey, struct{}{})
 		}
 	}
 
@@ -94,6 +106,12 @@ func (m *seahorseContextManager) Assemble(ctx context.Context, req *AssembleRequ
 		return nil, fmt.Errorf("seahorse assemble: nil request")
 	}
 
+	// Recover history the startup bootstrap could not have covered: sessions
+	// owned by routed (non-default) agents, agents registered after startup,
+	// or a seahorse DB rebuilt after loss/corruption. JSONL is dual-written on
+	// every turn, so it is always the complete recovery source.
+	m.lazyBootstrapSession(ctx, req.SessionKey)
+
 	budget := req.Budget
 	if budget <= 0 {
 		budget = 100000
@@ -114,6 +132,12 @@ func (m *seahorseContextManager) Assemble(ctx context.Context, req *AssembleRequ
 	})
 	if err != nil {
 		return nil, fmt.Errorf("seahorse assemble: %w", err)
+	}
+	if result == nil {
+		// Ignored/stateless sessions: the engine returns nil, nil. Heartbeat
+		// turns run with NoHistory so this is defensive, but a direct Assemble
+		// (or a user-configured stateless pattern) must not panic.
+		return &AssembleResponse{}, nil
 	}
 
 	history := seahorseToProviderMessages(result)
@@ -178,13 +202,44 @@ func (m *seahorseContextManager) Clear(ctx context.Context, sessionKey string) e
 	return nil
 }
 
-// bootstrapSession reconciles JSONL session history into seahorse SQLite.
-func (m *seahorseContextManager) bootstrapSession(ctx context.Context, sessionKey string) {
-	if m.sessions == nil {
+// lazyBootstrapSession runs once per session key (LoadOrStore): reconcile the
+// owning agent's JSONL history into SQLite before the first assembly. Covers
+// what the startup bootstrap misses — routed-agent sessions, agents
+// registered after startup, or a seahorse DB that lost ground to the JSONL
+// dual-write (migration, corruption, partial rebuild). engine.Bootstrap is
+// reconcile semantics, so the steady state (DB already in sync) is a no-op
+// compare; JSONL is dual-written every turn, making it the complete source.
+// The done-marker keeps the steady-state cost at a map load plus one JSONL
+// read for the lifetime of the process.
+func (m *seahorseContextManager) lazyBootstrapSession(ctx context.Context, sessionKey string) {
+	if m.al == nil {
+		return
+	}
+	if _, done := m.bootstrapped.LoadOrStore(sessionKey, struct{}{}); done {
+		return
+	}
+	if !m.engine.ShouldPersistSession(sessionKey) {
+		return
+	}
+	// agentForSession walks every agent's store to locate the owner; run it
+	// only on the miss path, mirroring how Clear resolves the owner.
+	owner := m.al.agentForSession(sessionKey)
+	if owner == nil || owner.Sessions == nil {
+		return
+	}
+	m.bootstrapFromStore(ctx, owner.Sessions, sessionKey)
+}
+
+// bootstrapFromStore reconciles a session's JSONL history (from the given
+// store) into seahorse SQLite. engine.Bootstrap is reconcile semantics:
+// longest matching prefix plus delta, clear-and-rebuild on mismatch — safe to
+// call against a DB that already holds part of the history.
+func (m *seahorseContextManager) bootstrapFromStore(ctx context.Context, store session.SessionStore, sessionKey string) {
+	if store == nil {
 		return
 	}
 
-	history := m.sessions.GetHistory(sessionKey)
+	history := store.GetHistory(sessionKey)
 	if len(history) == 0 {
 		return
 	}
@@ -200,7 +255,14 @@ func (m *seahorseContextManager) bootstrapSession(ctx context.Context, sessionKe
 			"session": sessionKey,
 			"error":   err.Error(),
 		})
+		return
 	}
+	// Debug, not info: the reconcile no-ops when DB and JSONL are already in
+	// sync, which is the common case on every fresh session's first Assemble.
+	logger.DebugCF("seahorse", "bootstrapped session from JSONL", map[string]any{
+		"session":  sessionKey,
+		"messages": len(msgs),
+	})
 }
 
 // providerToSeahorseMessage converts a providers.Message to a seahorse.Message.

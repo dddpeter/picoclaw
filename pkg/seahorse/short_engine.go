@@ -409,6 +409,14 @@ func (e *Engine) ClearSession(ctx context.Context, sessionKey string) error {
 	return e.store.ClearConversation(ctx, conv.ConversationID)
 }
 
+// ShouldPersistSession reports whether the engine stores context for the
+// given session key: sessions matching ignore or stateless patterns are not
+// persisted by Ingest/Assemble/Bootstrap and must not be bootstrapped from
+// external (JSONL) history either.
+func (e *Engine) ShouldPersistSession(sessionKey string) bool {
+	return !e.shouldIgnoreSession(sessionKey) && !e.isStatelessSession(sessionKey)
+}
+
 // Bootstrap reconciles a session's messages with the database.
 // Called once at startup for each known session.
 // Bootstrap reconciles JSONL history with SQLite by ingesting only the delta.

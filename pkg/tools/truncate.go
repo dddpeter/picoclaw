@@ -7,6 +7,7 @@ package tools
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -127,6 +128,8 @@ func TruncateTail(content string, opts TruncationOptions) TruncationResult {
 		}
 	}
 
+	// Collect newest-first and reverse once at the end: prepending each line
+	// would recopy the accumulated slice on every iteration.
 	kept := make([]string, 0, maxLines)
 	outputBytes := 0
 	truncatedBy := TruncatedByLines
@@ -146,9 +149,10 @@ func TruncateTail(content string, opts TruncationOptions) TruncationResult {
 			}
 			break
 		}
-		kept = append([]string{lines[i]}, kept...)
+		kept = append(kept, lines[i])
 		outputBytes += lineBytes
 	}
+	slices.Reverse(kept)
 
 	output := strings.Join(kept, "\n")
 	return TruncationResult{

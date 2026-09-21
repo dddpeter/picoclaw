@@ -880,6 +880,171 @@ func TestTrimHistoryToFitContextWindow_DropsOldestTurns(t *testing.T) {
 	}
 }
 
+// linearTrimReference is the pre-optimization scan: rebuild the prompt once per
+// dropped turn. It is kept here as the oracle for the binary-search trim.
+func linearTrimReference(
+	history []providers.Message,
+	build func([]providers.Message) []providers.Message,
+	contextWindow int,
+	toolDefs []providers.ToolDefinition,
+	maxTokens int,
+) ([]providers.Message, []providers.Message, bool) {
+	messages := build(history)
+	if !isOverContextBudget(contextWindow, messages, toolDefs, maxTokens) {
+		return history, messages, true
+	}
+
+	trimmedHistory := append([]providers.Message(nil), history...)
+	for len(trimmedHistory) > 0 {
+		dropUntil := nextHistoryTrimStart(trimmedHistory)
+		if dropUntil <= 0 || dropUntil >= len(trimmedHistory) {
+			trimmedHistory = nil
+		} else {
+			trimmedHistory = append([]providers.Message(nil), trimmedHistory[dropUntil:]...)
+		}
+
+		messages = build(trimmedHistory)
+		if !isOverContextBudget(contextWindow, messages, toolDefs, maxTokens) {
+			return trimmedHistory, messages, true
+		}
+	}
+
+	return nil, messages, false
+}
+
+// trimTestHistory builds alternating user/assistant turns of equal size.
+func trimTestHistory(turns int) []providers.Message {
+	history := make([]providers.Message, 0, turns*2)
+	for i := range turns {
+		history = append(
+			history,
+			msgUser(fmt.Sprintf("u%d %s", i, strings.Repeat("x", 60))),
+			msgAssistant(fmt.Sprintf("a%d %s", i, strings.Repeat("y", 60))),
+		)
+	}
+	return history
+}
+
+func sameMessages(a, b []providers.Message) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Role != b[i].Role || a[i].Content != b[i].Content {
+			return false
+		}
+	}
+	return true
+}
+
+func trimTestToolDefs() []providers.ToolDefinition {
+	return []providers.ToolDefinition{{
+		Type: "function",
+		Function: providers.ToolFunctionDefinition{
+			Name:        "tool_x",
+			Description: "A useful tool",
+			Parameters:  map[string]any{"type": "object"},
+		},
+	}}
+}
+
+// The binary-search trim must pick exactly the cut the linear scan picked, for
+// every budget that lands between two cut points.
+func TestTrimHistoryToFitContextWindow_MatchesLinearScan(t *testing.T) {
+	history := trimTestHistory(12)
+	build := func(h []providers.Message) []providers.Message {
+		return append([]providers.Message(nil), h...)
+	}
+	tools := trimTestToolDefs()
+
+	cutOutcomes := map[int]struct{}{}
+	fits := 0
+
+	for window := 1; window <= 3000; window += 11 {
+		wantHistory, wantMessages, wantFit := linearTrimReference(history, build, window, tools, 32)
+		gotHistory, gotMessages, gotFit := trimHistoryToFitContextWindow(history, build, window, tools, 32)
+
+		if gotFit != wantFit {
+			t.Fatalf("window %d: fit = %v, want %v", window, gotFit, wantFit)
+		}
+		if !sameMessages(gotHistory, wantHistory) {
+			t.Fatalf("window %d: kept %d messages, want %d", window, len(gotHistory), len(wantHistory))
+		}
+		if !sameMessages(gotMessages, wantMessages) {
+			t.Fatalf("window %d: rebuilt prompt has %d messages, want %d",
+				window, len(gotMessages), len(wantMessages))
+		}
+
+		cutOutcomes[len(gotHistory)] = struct{}{}
+		if gotFit {
+			fits++
+		}
+	}
+
+	if fits == 0 {
+		t.Fatal("sweep produced no fitting window: the comparison proved nothing")
+	}
+	if len(cutOutcomes) < 3 {
+		t.Fatalf("sweep only reached %d distinct cuts, want at least 3", len(cutOutcomes))
+	}
+}
+
+// The trim used to rebuild the prompt once per dropped turn; it now rebuilds a
+// logarithmic number of times. Assert the count, not the wall clock.
+func TestTrimHistoryToFitContextWindow_RebuildsAreSublinear(t *testing.T) {
+	const turns = 24
+	history := trimTestHistory(turns)
+	keep := history[len(history)-4:] // only the newest two turns may survive
+
+	window := 8 // slack, so keeping the newest turns is the winning cut
+	for _, m := range keep {
+		window += EstimateMessageTokens(m)
+	}
+
+	newBuilds := 0
+	gotHistory, _, fit := trimHistoryToFitContextWindow(
+		history,
+		func(h []providers.Message) []providers.Message {
+			newBuilds++
+			return append([]providers.Message(nil), h...)
+		},
+		window,
+		nil,
+		0,
+	)
+
+	referenceBuilds := 0
+	wantHistory, _, wantFit := linearTrimReference(
+		history,
+		func(h []providers.Message) []providers.Message {
+			referenceBuilds++
+			return append([]providers.Message(nil), h...)
+		},
+		window,
+		nil,
+		0,
+	)
+
+	if !fit || !wantFit {
+		t.Fatalf("both trims must find a fitting cut: got %v, reference %v", fit, wantFit)
+	}
+	if !sameMessages(gotHistory, wantHistory) || !sameMessages(gotHistory, keep) {
+		t.Fatalf("expected the newest %d messages to be kept, got %d", len(keep), len(gotHistory))
+	}
+	if newBuilds >= referenceBuilds {
+		t.Fatalf("prompt rebuilds: got %d, want fewer than the linear scan's %d", newBuilds, referenceBuilds)
+	}
+	if newBuilds > 8 {
+		t.Fatalf("expected a logarithmic number of rebuilds, got %d", newBuilds)
+	}
+	if referenceBuilds < turns/2 {
+		t.Fatalf("reference scan should show the quadratic behaviour, got %d rebuilds", referenceBuilds)
+	}
+
+	t.Logf("prompt rebuilds: binary search %d, linear scan %d (dropped %d turns)",
+		newBuilds, referenceBuilds, (len(history)-len(keep))/2)
+}
+
 func TestTrimHistoryToFitContextWindow_ClearsSingleOversizedTurn(t *testing.T) {
 	history := []providers.Message{
 		msgUser(strings.Repeat("oversized ", 200)),

@@ -105,20 +105,42 @@ func isOverContextBudget(
 	toolDefs []providers.ToolDefinition,
 	maxTokens int,
 ) bool {
+	return isOverContextBudgetWithToolTokens(
+		contextWindow,
+		messages,
+		EstimateToolDefsTokens(toolDefs),
+		maxTokens,
+	)
+}
+
+// isOverContextBudgetWithToolTokens is isOverContextBudget with the tool
+// definition cost supplied by the caller. Callers that test several candidate
+// histories against one fixed tool set use this to avoid re-marshaling every
+// tool schema once per candidate.
+func isOverContextBudgetWithToolTokens(
+	contextWindow int,
+	messages []providers.Message,
+	toolTokens int,
+	maxTokens int,
+) bool {
 	msgTokens := 0
 	for _, m := range messages {
 		msgTokens += EstimateMessageTokens(m)
 	}
 
-	toolTokens := EstimateToolDefsTokens(toolDefs)
-	total := msgTokens + toolTokens + maxTokens
-
-	return total > contextWindow
+	return msgTokens+toolTokens+maxTokens > contextWindow
 }
 
 // trimHistoryToFitContextWindow rebuilds the prompt from progressively newer
 // history slices until it fits within the context window. Oldest complete turns
 // are dropped first so tool-call sequences remain intact.
+//
+// The candidate cut points are enumerated once (cheap — no prompt rebuild) and
+// then probed by binary search, because the prompt rebuild dominates the cost:
+// the previous scan rebuilt the whole prompt once per dropped turn. The result
+// is the first candidate that fits, exactly the cut the linear scan chose; the
+// search relies on the token count being monotone in the cut index, which holds
+// because dropping a whole turn only removes messages.
 func trimHistoryToFitContextWindow(
 	history []providers.Message,
 	build func([]providers.Message) []providers.Message,
@@ -127,26 +149,68 @@ func trimHistoryToFitContextWindow(
 	maxTokens int,
 ) ([]providers.Message, []providers.Message, bool) {
 	messages := build(history)
-	if !isOverContextBudget(contextWindow, messages, toolDefs, maxTokens) {
+	toolTokens := EstimateToolDefsTokens(toolDefs)
+	if !isOverContextBudgetWithToolTokens(contextWindow, messages, toolTokens, maxTokens) {
 		return history, messages, true
 	}
 
-	trimmedHistory := append([]providers.Message(nil), history...)
-	for len(trimmedHistory) > 0 {
-		dropUntil := nextHistoryTrimStart(trimmedHistory)
-		if dropUntil <= 0 || dropUntil >= len(trimmedHistory) {
-			trimmedHistory = nil
-		} else {
-			trimmedHistory = append([]providers.Message(nil), trimmedHistory[dropUntil:]...)
-		}
+	candidates := trimCandidateStarts(history)
 
-		messages = build(trimmedHistory)
-		if !isOverContextBudget(contextWindow, messages, toolDefs, maxTokens) {
-			return trimmedHistory, messages, true
+	best := -1
+	var bestMessages []providers.Message
+
+	for lo, hi := 0, len(candidates)-1; lo <= hi; {
+		mid := lo + (hi-lo)/2
+		candidateMessages := build(sliceFromStart(history, candidates[mid]))
+		if isOverContextBudgetWithToolTokens(contextWindow, candidateMessages, toolTokens, maxTokens) {
+			lo = mid + 1
+			continue
 		}
+		best = mid
+		bestMessages = candidateMessages
+		hi = mid - 1
 	}
 
-	return nil, messages, false
+	if best >= 0 {
+		return sliceFromStart(history, candidates[best]), bestMessages, true
+	}
+
+	// Nothing fits, not even an empty history: report the empty prompt so the
+	// caller can log what the model would have seen.
+	return nil, build(nil), false
+}
+
+// trimCandidateStarts enumerates the successive "drop the oldest remaining
+// turn" cut points in ascending order, always ending with a cut that drops
+// everything. This matches the sequence the previous incremental loop walked
+// with one deliberate difference: when a turn boundary cannot be found
+// mid-history (nextHistoryTrimStart <= 0), the old loop dropped everything
+// immediately, while this keeps the cuts enumerated so far and appends the
+// "drop everything" fallback — strictly better, because an earlier cut may
+// already fit.
+func trimCandidateStarts(history []providers.Message) []int {
+	starts := make([]int, 0, 8)
+	remaining := history
+	offset := 0
+	for len(remaining) > 0 {
+		dropUntil := nextHistoryTrimStart(remaining)
+		if dropUntil <= 0 || dropUntil >= len(remaining) {
+			return append(starts, len(history))
+		}
+		offset += dropUntil
+		starts = append(starts, offset)
+		remaining = remaining[dropUntil:]
+	}
+	return append(starts, len(history))
+}
+
+// sliceFromStart returns the copy of history[start:] that the trim hands back
+// to callers, or nil once the cut drops everything.
+func sliceFromStart(history []providers.Message, start int) []providers.Message {
+	if start >= len(history) {
+		return nil
+	}
+	return append([]providers.Message(nil), history[start:]...)
 }
 
 func nextHistoryTrimStart(history []providers.Message) int {

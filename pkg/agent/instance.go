@@ -132,6 +132,9 @@ func NewAgentInstance(
 	agentMCPServerAllowlist := resolveAgentMCPServerAllowlist(definition)
 
 	toolsRegistry := tools.NewToolRegistry()
+	// Last-resort cap on what any single tool result may inject into the
+	// model context (MCP/third-party backstop; see tools.ApplyOutputBudget).
+	toolsRegistry.SetMaxOutputBytes(cfg.Tools.MaxToolOutputBytes)
 	toolsRegistry.SetAllowlist(agentToolAllowlist)
 
 	if cfg.Tools.IsToolEnabled("read_file") {

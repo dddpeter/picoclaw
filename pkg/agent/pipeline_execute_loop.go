@@ -482,6 +482,10 @@ func (p *Pipeline) runToolInvocation(
 			return
 		}
 
+		// The async callback bypasses the registry's synchronous exit, so the
+		// output budget backstop is applied here too.
+		content = tools.ApplyOutputBudget(asyncToolName, content, ts.agent.Tools.OutputBudget())
+
 		content = al.cfg.FilterSensitiveData(content)
 
 		logger.InfoCF("agent", "Async tool completed, publishing result",

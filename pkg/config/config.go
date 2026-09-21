@@ -501,22 +501,22 @@ type AgentDefaults struct {
 	// cancel) so a hung turn can finalize and release the session. If the
 	// turn still shows no activity one heartbeat interval later, a hard
 	// abort follows. 0 disables the watchdog (fork feature).
-	ProgressStallInterruptSeconds int `json:"progress_stall_interrupt_seconds,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_PROGRESS_STALL_INTERRUPT_SECONDS"`
-	SummarizeMessageThreshold int                 `json:"summarize_message_threshold"      env:"PICOCLAW_AGENTS_DEFAULTS_SUMMARIZE_MESSAGE_THRESHOLD"`
-	SummarizeTokenPercent     int                 `json:"summarize_token_percent"          env:"PICOCLAW_AGENTS_DEFAULTS_SUMMARIZE_TOKEN_PERCENT"`
-	MaxMediaSize              int                 `json:"max_media_size,omitempty"         env:"PICOCLAW_AGENTS_DEFAULTS_MAX_MEDIA_SIZE"`
-	Routing                   *RoutingConfig      `json:"routing,omitempty"`
-	SteeringMode              string              `json:"steering_mode,omitempty"          env:"PICOCLAW_AGENTS_DEFAULTS_STEERING_MODE"`      // "one-at-a-time" (default) or "all"
-	MaxParallelTurns          int                 `json:"max_parallel_turns"               env:"PICOCLAW_AGENTS_DEFAULTS_MAX_PARALLEL_TURNS"` // Max concurrent turns (0 or 1 = sequential)
-	SubTurn                   SubTurnConfig       `json:"subturn"                                                                                      envPrefix:"PICOCLAW_AGENTS_DEFAULTS_SUBTURN_"`
-	ToolFeedback              ToolFeedbackConfig  `json:"tool_feedback,omitempty"`
-	SplitOnMarker             bool                `json:"split_on_marker"                  env:"PICOCLAW_AGENTS_DEFAULTS_SPLIT_ON_MARKER"` // split messages on <|[SPLIT]|> marker
-	ContextManager            string              `json:"context_manager,omitempty"        env:"PICOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER"`
-	ContextManagerConfig      json.RawMessage     `json:"context_manager_config,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER_CONFIG"`
-	TurnProfile               TurnProfileConfig   `json:"turn_profile,omitempty"`
-	MaxLLMRetries             int                 `json:"max_llm_retries,omitempty"        env:"PICOCLAW_AGENTS_DEFAULTS_MAX_LLM_RETRIES"`
-	LLMRetryBackoffSecs       int                 `json:"llm_retry_backoff_secs,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_LLM_RETRY_BACKOFF_SECS"`
-	LoopDetection             LoopDetectionConfig `json:"loop_detection,omitempty"`
+	ProgressStallInterruptSeconds int                 `json:"progress_stall_interrupt_seconds,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_PROGRESS_STALL_INTERRUPT_SECONDS"`
+	SummarizeMessageThreshold     int                 `json:"summarize_message_threshold"      env:"PICOCLAW_AGENTS_DEFAULTS_SUMMARIZE_MESSAGE_THRESHOLD"`
+	SummarizeTokenPercent         int                 `json:"summarize_token_percent"          env:"PICOCLAW_AGENTS_DEFAULTS_SUMMARIZE_TOKEN_PERCENT"`
+	MaxMediaSize                  int                 `json:"max_media_size,omitempty"         env:"PICOCLAW_AGENTS_DEFAULTS_MAX_MEDIA_SIZE"`
+	Routing                       *RoutingConfig      `json:"routing,omitempty"`
+	SteeringMode                  string              `json:"steering_mode,omitempty"          env:"PICOCLAW_AGENTS_DEFAULTS_STEERING_MODE"`      // "one-at-a-time" (default) or "all"
+	MaxParallelTurns              int                 `json:"max_parallel_turns"               env:"PICOCLAW_AGENTS_DEFAULTS_MAX_PARALLEL_TURNS"` // Max concurrent turns (0 or 1 = sequential)
+	SubTurn                       SubTurnConfig       `json:"subturn"                                                                                      envPrefix:"PICOCLAW_AGENTS_DEFAULTS_SUBTURN_"`
+	ToolFeedback                  ToolFeedbackConfig  `json:"tool_feedback,omitempty"`
+	SplitOnMarker                 bool                `json:"split_on_marker"                  env:"PICOCLAW_AGENTS_DEFAULTS_SPLIT_ON_MARKER"` // split messages on <|[SPLIT]|> marker
+	ContextManager                string              `json:"context_manager,omitempty"        env:"PICOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER"`
+	ContextManagerConfig          json.RawMessage     `json:"context_manager_config,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER_CONFIG"`
+	TurnProfile                   TurnProfileConfig   `json:"turn_profile,omitempty"`
+	MaxLLMRetries                 int                 `json:"max_llm_retries,omitempty"        env:"PICOCLAW_AGENTS_DEFAULTS_MAX_LLM_RETRIES"`
+	LLMRetryBackoffSecs           int                 `json:"llm_retry_backoff_secs,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_LLM_RETRY_BACKOFF_SECS"`
+	LoopDetection                 LoopDetectionConfig `json:"loop_detection,omitempty"`
 	// RestartRecovery controls post-restart sealing/notification for sessions
 	// whose turn was interrupted by a gateway restart (fork feature).
 	RestartRecovery RestartRecoveryConfig `json:"restart_recovery,omitempty"`
@@ -1409,11 +1409,16 @@ type ToolsConfig struct {
 	// FilterMinLength is the minimum content length required for filtering.
 	// Content shorter than this will be returned unchanged for performance.
 	// Default: 8
-	FilterMinLength int               `json:"filter_min_length" yaml:"-"                env:"PICOCLAW_TOOLS_FILTER_MIN_LENGTH"`
-	Web             WebToolsConfig    `json:"web"               yaml:"web,omitempty"`
-	Cron            CronToolsConfig   `json:"cron"              yaml:"-"`
-	Exec            ExecConfig        `json:"exec"              yaml:"-"`
-	Skills          SkillsToolsConfig `json:"skills"            yaml:"skills,omitempty"`
+	FilterMinLength int `json:"filter_min_length" yaml:"-"                env:"PICOCLAW_TOOLS_FILTER_MIN_LENGTH"`
+	// MaxToolOutputBytes caps the ForLLM content of any single tool result as
+	// a last-resort backstop (tools that have no budget of their own: MCP
+	// servers, third-party tools). Built-in tools stay below the default.
+	// 0 = default (128KB), negative = unlimited.
+	MaxToolOutputBytes int               `json:"max_tool_output_bytes,omitempty" yaml:"-" env:"PICOCLAW_TOOLS_MAX_TOOL_OUTPUT_BYTES"`
+	Web                WebToolsConfig    `json:"web"               yaml:"web,omitempty"`
+	Cron               CronToolsConfig   `json:"cron"              yaml:"-"`
+	Exec               ExecConfig        `json:"exec"              yaml:"-"`
+	Skills             SkillsToolsConfig `json:"skills"            yaml:"skills,omitempty"`
 	// Lsp configures language-server diagnostics/fix tooling (fork
 	// feature, docs/design/lsp-support-design.zh.md). Absent = enabled with
 	// the built-in server catalog (missing commands are skipped silently).

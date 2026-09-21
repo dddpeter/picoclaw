@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/media"
 	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
 type ToolEntry struct {
@@ -26,6 +28,20 @@ type ToolRegistry struct {
 	version    atomic.Uint64 // incremented on Register/RegisterHidden for cache invalidation
 	mediaStore media.MediaStore
 	allowlist  map[string]struct{}
+
+	// defsCache memoizes ToProviderDefs for one registry version. The pipeline
+	// asks for tool definitions several times per turn (setup, pre-LLM,
+	// retries, usage accounting) and every rebuild sorts all tool names and
+	// re-creates each tool's schema map. Guarded by mu; invalidated by version
+	// changes, which include the TTL updates that change tool visibility.
+	defsCache        []providers.ToolDefinition
+	defsCacheVersion uint64
+	defsCacheValid   bool
+
+	// maxOutputBytes caps the ForLLM content of any single tool result
+	// (ApplyOutputBudget). Set once at agent construction from config;
+	// 0 = DefaultToolOutputBytes, negative = unlimited.
+	maxOutputBytes atomic.Int64
 }
 
 type mediaStoreAware interface {
@@ -137,13 +153,21 @@ func (r *ToolRegistry) PromoteTools(names []string, ttl int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	promoted := 0
+	visibilityChanged := false
 	for _, name := range names {
 		if entry, exists := r.tools[name]; exists {
 			if !entry.IsCore {
+				if entry.TTL != ttl {
+					visibilityChanged = true
+				}
 				entry.TTL = ttl
 				promoted++
 			}
 		}
+	}
+	if visibilityChanged {
+		// The visible tool set changed: invalidate cached definitions.
+		r.version.Add(1)
 	}
 	logger.DebugCF(
 		"tools",
@@ -152,14 +176,24 @@ func (r *ToolRegistry) PromoteTools(names []string, ttl int) {
 	)
 }
 
-// TickTTL decreases TTL only for non-core tools
+// TickTTL decreases TTL only for non-core tools. A decrement that reaches zero
+// hides the tool, so it bumps the registry version (invalidating cached
+// definitions); decrements that leave the TTL positive do not, so the cache
+// survives the ticks inside one TTL epoch.
 func (r *ToolRegistry) TickTTL() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	expired := false
 	for _, entry := range r.tools {
 		if !entry.IsCore && entry.TTL > 0 {
 			entry.TTL--
+			if entry.TTL == 0 {
+				expired = true
+			}
 		}
+	}
+	if expired {
+		r.version.Add(1)
 	}
 }
 
@@ -240,6 +274,17 @@ func (r *ToolRegistry) Get(name string) (Tool, bool) {
 	return entry.Tool, true
 }
 
+// SetMaxOutputBytes configures the per-result tool output budget from the
+// raw config value (0 = default, negative = unlimited).
+func (r *ToolRegistry) SetMaxOutputBytes(n int) {
+	r.maxOutputBytes.Store(int64(n))
+}
+
+// OutputBudget returns the effective per-result output budget in bytes.
+func (r *ToolRegistry) OutputBudget() int {
+	return effectiveOutputBudget(int(r.maxOutputBytes.Load()))
+}
+
 func (r *ToolRegistry) Execute(ctx context.Context, name string, args map[string]any) *ToolResult {
 	return r.ExecuteWithContext(ctx, name, args, "", "", nil)
 }
@@ -255,10 +300,15 @@ func (r *ToolRegistry) ExecuteWithContext(
 	channel, chatID string,
 	asyncCallback AsyncCallback,
 ) *ToolResult {
+	// Full args at Info level would persist secrets (a shell command with an
+	// inline token, a URL with a key) into logs; a 200-char preview is enough
+	// to identify the invocation. Same pattern as toolloop.go / the streaming
+	// panel.
+	argsJSON, _ := json.Marshal(args)
 	logger.InfoCF("tool", "Tool execution started",
 		map[string]any{
 			"tool": name,
-			"args": args,
+			"args": utils.Truncate(string(argsJSON), 200),
 		})
 
 	tool, ok := r.Get(name)
@@ -333,6 +383,12 @@ func (r *ToolRegistry) ExecuteWithContext(
 
 	result = normalizeToolResult(result, name, r.mediaStore, channel, chatID)
 
+	// Last-resort context backstop: after media/base64 sanitization, cap what
+	// this result may inject into the model context. Built-in tools stay
+	// below the default; this catches MCP servers and other unbounded
+	// producers. ForUser is untouched — it goes to the chat, not the context.
+	result.ForLLM = ApplyOutputBudget(name, result.ForLLM, r.OutputBudget())
+
 	duration := time.Since(start)
 
 	// Log based on result type
@@ -374,6 +430,17 @@ func (r *ToolRegistry) sortedToolNames() []string {
 	return names
 }
 
+// cloneToolDefs copies defs with capacity exactly len(defs): a caller that
+// appends to the result must not be able to write into the registry's cache.
+// The copy is shallow on purpose — Function.Parameters maps stay shared with
+// the cache, because deep-copying them on every call would cost the very
+// allocations the cache exists to avoid. Mutation contract: see ToProviderDefs.
+func cloneToolDefs(defs []providers.ToolDefinition) []providers.ToolDefinition {
+	out := make([]providers.ToolDefinition, len(defs))
+	copy(out, defs)
+	return out
+}
+
 func (r *ToolRegistry) GetDefinitions() []map[string]any {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -394,10 +461,39 @@ func (r *ToolRegistry) GetDefinitions() []map[string]any {
 
 // ToProviderDefs converts tool definitions to provider-compatible format.
 // This is the format expected by LLM provider APIs.
+//
+// Results are memoized per registry version. Callers receive a fresh slice
+// with capacity exactly len() — so appending to it allocates instead of
+// writing into the cache — holding definitions in sortedToolNames order, the
+// ordering that keeps the provider's prompt-prefix cache stable. The
+// Function.Parameters maps inside remain SHARED with the cache: callers may
+// read them but must never mutate them — a mutated map leaks into every later
+// reader of the cached definitions, silently and without a race detector
+// guarantee. Callers must not assume slice identity across calls.
 func (r *ToolRegistry) ToProviderDefs() []providers.ToolDefinition {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
+	if r.defsCacheValid && r.defsCacheVersion == r.version.Load() {
+		cached := cloneToolDefs(r.defsCache)
+		r.mu.RUnlock()
+		return cached
+	}
+	r.mu.RUnlock()
 
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	// Another goroutine may have filled the cache before the lock upgrade.
+	if r.defsCacheValid && r.defsCacheVersion == r.version.Load() {
+		return cloneToolDefs(r.defsCache)
+	}
+	r.defsCache = r.buildProviderDefsLocked()
+	r.defsCacheVersion = r.version.Load()
+	r.defsCacheValid = true
+	return cloneToolDefs(r.defsCache)
+}
+
+// buildProviderDefsLocked builds provider definitions from the current registry
+// contents. Callers must hold r.mu.
+func (r *ToolRegistry) buildProviderDefsLocked() []providers.ToolDefinition {
 	sorted := r.sortedToolNames()
 	definitions := make([]providers.ToolDefinition, 0, len(sorted))
 	for _, name := range sorted {
