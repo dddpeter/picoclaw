@@ -555,6 +555,13 @@ func (p *Provider) Chat(
 		return nil, err
 	}
 	splitInlineThink(response)
+	if cleaned := sanitizeMinimaxToolLeak(response.Content); cleaned != response.Content {
+		logger.WarnCF("openai_compat", "stripped MiniMax tool-call leak from content", map[string]any{
+			"orig_len":  len(response.Content),
+			"clean_len": len(cleaned),
+		})
+		response.Content = cleaned
+	}
 	return response, nil
 }
 
@@ -790,7 +797,9 @@ func parseStreamResponse(
 			if aText != "" {
 				textContent.WriteString(aText)
 				if onChunk != nil {
-					onChunk(StreamChunk{Content: textContent.String()})
+					// Accumulated frame: sanitize so streaming UIs never render the
+					// MiniMax tool-call leak (idempotent on the full text).
+					onChunk(StreamChunk{Content: sanitizeMinimaxToolLeak(textContent.String())})
 				}
 			}
 		}
@@ -905,7 +914,7 @@ func parseStreamResponse(
 		if aRemain != "" {
 			textContent.WriteString(aRemain)
 			if onChunk != nil {
-				onChunk(StreamChunk{Content: textContent.String()})
+				onChunk(StreamChunk{Content: sanitizeMinimaxToolLeak(textContent.String())})
 			}
 		}
 	}
@@ -914,8 +923,15 @@ func parseStreamResponse(
 		finishReason = "stop"
 	}
 
+	finalContent := sanitizeMinimaxToolLeak(textContent.String())
+	if finalContent != textContent.String() {
+		logger.WarnCF("openai_compat", "stripped MiniMax tool-call leak from content", map[string]any{
+			"orig_len":  len(textContent.String()),
+			"clean_len": len(finalContent),
+		})
+	}
 	return &LLMResponse{
-		Content:          textContent.String(),
+		Content:          finalContent,
 		ReasoningContent: reasoningContent.String(),
 		Reasoning:        reasoning.String(),
 		ReasoningDetails: reasoningDetails,
