@@ -582,9 +582,6 @@ func (b *cappedOutputBuffer) Len() int {
 }
 
 func (b *cappedOutputBuffer) String() string {
-	if b.dropped == 0 {
-		return string(b.head)
-	}
 	// Reassemble the retained tail in stream order from the ring.
 	tail := make([]byte, 0, b.tailLen)
 	start := (b.tailPos - b.tailLen + len(b.tail)) % len(b.tail)
@@ -594,7 +591,14 @@ func (b *cappedOutputBuffer) String() string {
 	}
 	tail = append(tail, b.tail[start:start+first]...)
 	tail = append(tail, b.tail[:b.tailLen-first]...)
-	marker := fmt.Sprintf("\n…[%s of output truncated; re-run with output redirected to a file for full capture]…\n", formatBytes(b.dropped))
+	// dropped counts every byte routed past the head, including the ones
+	// still retained in the ring above — only the difference is actually
+	// lost, so an output of exactly `limit` bytes reports no truncation.
+	lost := b.dropped - int64(b.tailLen)
+	if lost <= 0 {
+		return string(b.head) + string(tail)
+	}
+	marker := fmt.Sprintf("\n…[%s of output truncated; re-run with output redirected to a file for full capture]…\n", formatBytes(lost))
 	return string(b.head) + marker + string(tail)
 }
 
