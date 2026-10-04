@@ -31,6 +31,7 @@
 | 回合尾压缩异步化（A+C） | `<2026-09-19>` | `pkg/agent/compact_schedule.go`、`pkg/agent/pipeline_finalize.go`、`pkg/agent/pipeline_execute.go`、`pkg/seahorse/short_constants.go` | 本文 §14 |
 | LSP 诊断与源码修复 | `<2026-09-19>` | `pkg/lsp/`（client/pool/position/edits/fakeserver）、`pkg/tools/lsp*.go`、`pkg/config/lsp.go` | 本文 §15、`docs/design/lsp-support-design.zh.md` |
 | 飞书流式卡片 bug 修复五件套 | `<2026-10-04>` | `pkg/channels/feishu/`、`pkg/channels/interfaces.go`、`pkg/channels/manager.go`、`pkg/agent/progress_heartbeat.go`、`pkg/bus` | 本文 §18、`docs/design/2026-10-04-feishu-streaming-card-bug-review.zh.md` |
+| TUI 终端客户端（网关客户端型） | `<2026-10-04>` | `pkg/picoclient/`、`cmd/picoclaw/internal/tui/`、`cmd/picoclaw/main.go` | 本文 §19、`docs/design/tui-client-design.zh.md` |
 
 ## 1. 飞书 CardKit v2 流式卡片
 
@@ -270,6 +271,7 @@
 - 合并后跑 `go test ./pkg/agent/ ./pkg/tools/ ./pkg/providers/... ./pkg/commands/ ./pkg/cron/ ./pkg/evolution/` 验证 fork 测试（文件名含 `_test.go` 且测试名带 `NewResets`/`NewArchives`/`NeverBlocks`/`ResponseHeaderTimeout`/`CleanCommandOutput`/`ReloadsStore`/`WakeGate`/`ApplyLearn`/`Suggest`/`AutoContinue`/`RestartRecovery`/`ProgressHeartbeat`/`PerCallTimeout` 的均为 fork 独有）；前端改动需另跑 `pnpm build` 验证。
 - 配置模板兼容（2026-09-14）是 fork 对上游缺陷的修复：上游结构与模板均未改。同步上游时若 `config.example.json` 被上游改动，同步后必须保证 `TestExampleTemplateLoadsStrict` 仍过（模板不得引入结构体不认识的字段，`_comment` 除外）；`pkg/config/diagnostics.go` 的 `_comment` 白名单与四 provider 的 `LegacyAPIKey` 折叠保留 fork 语义，不要按上游"修"掉。
 - MiniMax 工具调用泄漏清洗（2026-09-24，§5）：`pkg/providers/openai_compat/minimax_clean.go` 全文件 + `provider.go` 的四处挂载（流式 onChunk 两处、流式最终 Content、非流式 Chat 出口）——上游若重构 `parseStreamResponse`/`Chat` 出口，同步时保留清洗语义；`TestSanitizeMinimaxToolLeak*`/`TestProviderChat*StripsMinimaxToolLeak` 钉住行为，不要按上游裸透传"修"掉。
+- TUI 终端客户端（2026-10-04，§19）：`pkg/picoclient/` 全包、`cmd/picoclaw/internal/tui/` 全包、`cmd/picoclaw/main.go` 的 tui 子命令注册、go.mod 的 charm v2 依赖与 go 1.26.0 指令、`x/cellbuf` v0.0.15 升级——均为 fork 新增（上游无此功能，同步时整块保留）；`pkg/channels/pico` 服务端未动，上游若改其协议常量，`pkg/picoclient` 引用的导出常量随之更新即可。
 
 
 ## 16. Agent Plugins Spec 1.0 兼容客户端 + launcher 管理（2026-09-19）
@@ -323,3 +325,13 @@
 - **B5**：图片 URL 正则改一层括号配平 + 禁空白（`((?:[^()\s]|\([^()\s]*\))+)`），同行多图不融合、含括号 URL 不再截断。
 - 测试锚点：`TestFinalizeOversizedAnswerSealsAndSplits`、`TestFinalizeFallsBackToMinimalSealWhenCardRejected`、`TestCancelOversizedAnswerClampsInCard`、`TestRefreshAnswerSnapshotClamped`、`TestBeginStreamSealsStaleStreamer`、`TestFinalizeDeleteIsCASScoped`、`TestConcurrentTurnsGetDistinctCards`、`TestGetStreamerPassesSessionScope`、`TestProgressBeatDoesNotPinNarration`、`TestTruncateReasoningCountsRunes`、`TestSanitizeImagesWithParenURL`；httptest 假 Feishu 服务端（`newFakeFeishuServer`）沉淀为常驻测试工具。
 - 遗留：pico/telegram 是否同型 B2 缺口待单独排查（若同病接入 SessionScopedBeginStreamer 即可）。
+
+## 19. TUI 终端客户端（网关客户端型，2026-10-04）
+
+`picoclaw tui` 子命令：连接**运行中网关**的 `/pico/ws`（Pico Protocol），终端里的聊天界面。设计与实现对照：`docs/design/tui-client-design.zh.md`（协议映射/布局/指令集/分期）。
+
+- **`pkg/picoclient`**（新包，可独立复用）：Pico Protocol WS 客户端——Bearer 鉴权、指数退避重连（1s→5s 封顶）、`SetSessionID` 换会话重拨、`Events()` 输出无状态解码事件（`Decode`：kind/tool_calls/attachments/context_usage/usage/error，坏 payload 永不 panic）。纯传输层，turn 语义全部留在网关。
+- **`cmd/picoclaw/internal/tui`**：bubbletea v2 应用。timeline（用户/thought 折叠块/工具行/工具反馈/答案打字机 dim 流式）、statusbar（连接态/session/模型/ctx 用量/生成中 spinner）、composer、progress_note 覆盖式状态行（不入时间线，防"假完成"）；快捷键 Enter/Esc(停止)/Ctrl+C(生成中先停回合，双击退出)/Ctrl+N(新会话)/Ctrl+O(思考折叠)/PgUp/PgDn/Ctrl+L；本地命令 `:help :q :stop :new :clear`，`/` 前缀直通服务端命令。会话 ID 持久化在 `~/.picoclaw/tui_session`（0600，只存 ID 不存 token），`--new`/`--session`/`--gateway-url`/`--token` 可覆盖。
+- **零服务端改动**：不碰 `pkg/channels/pico` 服务端、agent、commands；fork 的 steering/busy/封口/watchdog 语义经网关天然继承。web 与 TUI 同会话同时在线可用（pico 渠道多连接广播）。
+- **依赖**：新增 charm v2 全家桶（`charm.land/bubbletea/v2`、`bubbles/v2`、`lipgloss/v2`，与既有 lipgloss v1 共存）；`github.com/charmbracelet/x/cellbuf` 升至 v0.0.15（lipgloss v2 链路要求，新 ansi v0.11.8 不兼容旧 cellbuf）；**go 指令升至 1.26.0**（bubbletea v2 要求，本机工具链 go1.27.0，Linux 部署机需 ≥1.26 或 GOTOOLCHAIN=auto）。
+- 测试锚点：`pkg/picoclient` 的 `TestClient_EventSequence`（对假 WS 服务端的整 turn 事件序列）、`TestClient_AuthBearer`、`TestClient_AuthRejectedKeepsReconnecting`、`TestClient_Reconnect`、`TestClient_Send`、`TestDecode_*`（tool_calls/progress_note/placeholder/legacy thought/error/坏 payload 不 panic）；`internal/tui` 的 `TestState_*`（turn 生命周期/progress_note 不入时间线/steering/error 移除 pending/delete/usage 捕获）。构建须带 `-tags goolm,stdjson`（本机无 libolm，见 Windows 构建技能）。

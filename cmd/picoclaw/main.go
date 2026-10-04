@@ -30,6 +30,7 @@ import (
 	plugin "github.com/sipeed/picoclaw/cmd/picoclaw/internal/plugin"
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/skills"
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/status"
+	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/tui"
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/version"
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/updater"
@@ -143,6 +144,7 @@ picoclaw --no-color status`,
 		skills.NewSkillsCommand(),
 		plugin.NewPluginCommand(),
 		model.NewModelCommand(),
+		tui.NewTUICommand(),
 		updater.NewUpdateCommand("picoclaw"),
 		version.NewVersionCommand(),
 	)
