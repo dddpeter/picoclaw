@@ -272,6 +272,19 @@
 - 配置模板兼容（2026-09-14）是 fork 对上游缺陷的修复：上游结构与模板均未改。同步上游时若 `config.example.json` 被上游改动，同步后必须保证 `TestExampleTemplateLoadsStrict` 仍过（模板不得引入结构体不认识的字段，`_comment` 除外）；`pkg/config/diagnostics.go` 的 `_comment` 白名单与四 provider 的 `LegacyAPIKey` 折叠保留 fork 语义，不要按上游"修"掉。
 - MiniMax 工具调用泄漏清洗（2026-09-24，§5）：`pkg/providers/openai_compat/minimax_clean.go` 全文件 + `provider.go` 的四处挂载（流式 onChunk 两处、流式最终 Content、非流式 Chat 出口）——上游若重构 `parseStreamResponse`/`Chat` 出口，同步时保留清洗语义；`TestSanitizeMinimaxToolLeak*`/`TestProviderChat*StripsMinimaxToolLeak` 钉住行为，不要按上游裸透传"修"掉。
 - TUI 终端客户端（2026-10-04，§19）：`pkg/picoclient/` 全包、`cmd/picoclaw/internal/tui/` 全包、`cmd/picoclaw/main.go` 的 tui 子命令注册、go.mod 的 charm v2 依赖与 go 1.26.0 指令、`x/cellbuf` v0.0.15 升级——均为 fork 新增（上游无此功能，同步时整块保留）；`pkg/channels/pico` 服务端未动，上游若改其协议常量，`pkg/picoclient` 引用的导出常量随之更新即可。
+- 全仓 bug 修复同步登记（2026-10-04，评审文档 `docs/design/2026-10-04-full-bug-review.zh.md`，提交 58a2244e），以下语义上游没有、同步时会被"修"掉，一律保留 fork 行为：
+  - **T2 系统目录保护的路径别名规范化**：`pkg/tools/fs/system_paths.go` 的 `stripExtendedPathPrefix`（`\\?\`/`\\?\UNC\`/`\\.\UNC\` 大小写不敏感剥离）与 `normalizeLocalUNC`（指向本机的 UNC 管理共享 `\\localhost\C$\…`/`ADMIN$` 折回本地盘路径再比对，`isLocalServerName` 接受 localhost/127.0.0.1/::1/本机名及 FQDN 变体）。测试锚点：`TestSystemPathProtectionLocalUNCAliases`、`TestSystemPathPrefixCaseFolding`。
+  - **T3 runSync 有界输出缓冲**：`pkg/tools/shell.go` 的 `cappedOutputBuffer`（head `limit/2` + tail 环 `limit/2` + 截断标记，`syncOutputRetainLimit=4MB`；标记报告真实丢失字节 = dropped − 环内驻留）。测试锚点：`TestCappedOutputBuffer_*`、`TestFormatBytes`。
+  - **T4 后台非 PTY 并发 drain + 5s 宽限放弃**：`pkg/tools/shell.go` 非 PTY 后台路径用 `cmd.Process.Wait` 自行收割（`exec.Cmd.Wait` 会在进程退出即关读端、丢失尾部输出）、stdout/stderr 并发 drain、`execIOWaitDelay` 宽限后关闭读端放弃——与 runSync 的 `cmd.WaitDelay` 是**有意的两套实现**，不要"统一"。测试锚点：`TestShellTool_BackgroundDaemonHoldingPipesCompletes`（Windows-only）。
+  - **T5 相对路径 workspace 锚定**：`pkg/tools/fs/filesystem.go` 的 `resolveRelative`（开放模式文件工具的相对路径锚定 workspace 而非进程 CWD；盘符相对 `C:x` 与根号相对 `\x` 直通）。测试锚点：`TestResolveRelativeAnchorsAtWorkspace`。
+  - **T6 会话清理按 finishedAt**：`pkg/tools/session.go` 的 `finishedAt` 字段与 `cleanupOldSessions`（退出后 30 分钟窗口，长任务不被 StartTime 误删）。测试锚点：`TestCleanupOldSessionsKeysOnFinishedAt`。
+  - **T8 写文件保留既有权限**：`pkg/tools/fs/filesystem.go` host/sandbox 两套 WriteFile 覆盖既有文件时保留原 perm（仅新文件 0600）。
+  - **T9 BM25 缓存加锁**：`pkg/tools/search_tool.go` 的 `getOrBuildEngine` 双检锁（快路径读也在 `cacheMu` 内）。测试锚点：`TestBM25GetOrBuildEngineConcurrent`。
+  - **P1 finish_reason 透传**：截断护栏以 `finish_reason=="length"` 为键（`pkg/agent/pipeline_execute.go`），providers 透传原生 finish_reason；**不要重新引入 "length"→"truncated" 归一化**（会使护栏失效）。
+  - **F3 技能安装文件名净化**：`pkg/skills/installer.go` 的 `sanitizeRemoteFileName`（远端 listing 名必须是单一路径组件）。测试锚点：`TestSanitizeRemoteFileName`。
+  - **F4 会话 meta 自愈**：`pkg/memory/jsonl.go` 的 `readMeta` 损坏降级零值（不 brick 会话），下次写入覆盖自愈。测试锚点：`TestCorruptMetaSelfHeals`。
+  - **F5 cron 时区**：`pkg/cron/service.go` 的 schedule `tz` 字段（按 IANA 时区墙钟计算 + AddJob/UpdateJob 校验 + 持久化比较含 TZ），配置说明在 `docs/guides/configuration.zh.md`「时区」节。
+  - **picoclient 即时停连**（2026-10-04 二轮修复）：`pkg/picoclient/client.go` readLoop 的 ctx 监视 goroutine（ctx 取消关连接打断 ReadMessage，`Stop()` 不再等 60s 读超时）、服务端 ping 刷新读超时（空闲连接不再每 60s 误重连）、拨号窗口 SetSessionID 竞态检测（stale 连接立即弃用）。测试锚点：`TestClient_StopInterruptsIdleReadQuickly`、`TestClient_ServerPingsKeepIdleConnectionAlive`。
 
 
 ## 16. Agent Plugins Spec 1.0 兼容客户端 + launcher 管理（2026-09-19）

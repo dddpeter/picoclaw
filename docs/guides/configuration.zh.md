@@ -1174,6 +1174,10 @@ PicoClaw 通过 `cron` 工具支持 cron 风格的定时任务。Agent 可以设
 
 `AddJob`/`UpdateJob`（工具与 CLI 两条路径都）会校验 schedule：残缺表达式（如 `45 16`，只有 4 个字段）现在会被**立即拒绝**并返回明确错误，不再被静默接受后永不匹配。存量 store 里已存在的坏表达式 job 不受影响（更新其 schedule 时才校验新值）。
 
+#### 时区（fork）
+
+任务的 schedule 可携带 `tz` 字段（IANA 时区名，如 `"Asia/Shanghai"`）：cron 表达式按该时区的墙钟计算触发时刻，而不是网关所在时区。缺省不填 = 服务器本地时间。`tz` 在 `AddJob`/`UpdateJob` 时一并校验，非法时区名会被立即拒绝；运行期遇到无法加载的时区（如系统时区数据库缺失）会记日志并回退服务器本地时间。
+
 #### 预执行脚本与唤醒门（fork，借鉴 hermes-agent）
 
 任务可携带 `script` 字段（工具参数 `script`）：每次触发时先执行脚本，脚本的 stdout 会作为「Pre-run script output」上下文块注入 agent 回合的提示词。**唤醒门**：当脚本输出的最后一个非空行是 JSON `{"wakeAgent": false}` 时，本次运行整体跳过——不跑 LLM、不执行 command、不投递，用于巡检类任务“无事不做”省钱。解析为 fail-open：非 JSON、缺字段、无输出都正常唤醒。脚本需要 `tools.exec.enabled`，并受与 `command` 相同的通道安全约束（内部通道 / `command_allowed_remotes` / `allow_command=false` 时需 `command_confirm=true`）。
