@@ -175,7 +175,8 @@ func TestFinalize_CompactAsync(t *testing.T) {
 	defaultAgent := pipeline.al.registry.GetDefaultAgent()
 	wantBudget := defaultAgent.ContextWindow - defaultAgent.MaxTokens
 	if wantBudget <= 0 {
-		wantBudget = defaultAgent.ContextWindow
+		// Mirror CompactionBudget's degenerate-config fallback exactly.
+		wantBudget = defaultAgent.ContextWindow / 2
 	}
 	if req.Budget != wantBudget {
 		t.Fatalf("unexpected budget %d, want %d", req.Budget, wantBudget)

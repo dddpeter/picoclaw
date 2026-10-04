@@ -112,7 +112,7 @@ func (p *Provider) Chat(
 		return nil, fmt.Errorf("claude API call: %w", err)
 	}
 
-	return parseResponse(resp), nil
+	return parseResponse(resp)
 }
 
 func (p *Provider) chatStreaming(
@@ -134,7 +134,7 @@ func (p *Provider) chatStreaming(
 		return nil, fmt.Errorf("claude API call: %w", err)
 	}
 
-	return parseResponse(&msg), nil
+	return parseResponse(&msg)
 }
 
 func (p *Provider) GetDefaultModel() string {
@@ -352,7 +352,19 @@ func translateTools(tools []ToolDefinition) []anthropic.ToolUnionParam {
 	return result
 }
 
-func parseResponse(resp *anthropic.Message) *LLMResponse {
+func parseResponse(resp *anthropic.Message) (*LLMResponse, error) {
+	// A 200 with no content blocks and no stop_reason is never a legitimate
+	// answer (real Messages responses always carry a stop_reason): typically
+	// a gateway silently dropping an over-limit or malformed request. Error
+	// so the fallback chain rotates candidates; an explicit stop_reason with
+	// empty content is still a legitimate empty answer (mirrors
+	// anthropic_messages, fork 2026-10-04).
+	if len(resp.Content) == 0 && resp.StopReason == "" {
+		return nil, &common.EmptyCompletionError{
+			Detail: "anthropic SDK response had no content blocks and no stop_reason",
+		}
+	}
+
 	var content strings.Builder
 	var reasoning strings.Builder
 	var toolCalls []ToolCall
@@ -400,5 +412,5 @@ func parseResponse(resp *anthropic.Message) *LLMResponse {
 			CompletionTokens: int(resp.Usage.OutputTokens),
 			TotalTokens:      int(resp.Usage.InputTokens + resp.Usage.OutputTokens),
 		},
-	}
+	}, nil
 }

@@ -499,3 +499,20 @@ func (e *FallbackExhaustedError) Error() string {
 	}
 	return sb.String()
 }
+
+// Unwrap exposes the per-attempt errors so errors.As can see through the
+// aggregate (fork, 2026-10-04). Without it the chain stops here: CallLLM's
+// empty-completion recovery could not detect that every candidate returned
+// an EmptyCompletionError, and ClassifyError fell back to string-matching
+// the aggregate message. All attempts recorded past the retriable gate are
+// *FailoverError (non-retriable errors return directly and never aggregate),
+// so unwrap consumers only ever see classified, retriable failures.
+func (e *FallbackExhaustedError) Unwrap() error {
+	errs := make([]error, 0, len(e.Attempts))
+	for _, a := range e.Attempts {
+		if a.Error != nil {
+			errs = append(errs, a.Error)
+		}
+	}
+	return errors.Join(errs...)
+}

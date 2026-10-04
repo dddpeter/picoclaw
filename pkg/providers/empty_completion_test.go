@@ -6,6 +6,7 @@
 package providers
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/sipeed/picoclaw/pkg/providers/common"
@@ -31,5 +32,39 @@ func TestClassifyError_EmptyCompletion(t *testing.T) {
 	if failErr.Provider != "test-provider" || failErr.Model != "test-model" {
 		t.Fatalf("Provider/Model = %q/%q, want test-provider/test-model",
 			failErr.Provider, failErr.Model)
+	}
+}
+
+// TestFallbackExhaustedError_UnwrapEmptyCompletion pins the aggregate error's
+// chain exposure (fork, 2026-10-04): when every fallback candidate returned
+// an EmptyCompletionError, errors.As must see through FallbackExhaustedError
+// (via Unwrap -> errors.Join of the per-attempt errors) so CallLLM's
+// compression recovery can route it — previously the chain stopped at the
+// aggregate and classification fell back to string-matching its message.
+func TestFallbackExhaustedError_UnwrapEmptyCompletion(t *testing.T) {
+	inner := &common.EmptyCompletionError{}
+	exhausted := &FallbackExhaustedError{
+		Attempts: []FallbackAttempt{
+			{Provider: "p1", Model: "m1", Error: ClassifyError(inner, "p1", "m1"), Reason: FailoverOverloaded},
+			{Provider: "p2", Model: "m2", Error: ClassifyError(inner, "p2", "m2"), Reason: FailoverOverloaded},
+		},
+	}
+
+	var emptyErr *common.EmptyCompletionError
+	if !errors.As(exhausted, &emptyErr) {
+		t.Fatal("errors.As must see EmptyCompletionError through FallbackExhaustedError")
+	}
+
+	// The structured chain replaces message string-matching: the first
+	// attempt's classified FailoverError is returned directly.
+	failErr := ClassifyError(exhausted, "", "")
+	if failErr == nil {
+		t.Fatal("ClassifyError() = nil for aggregated empty completions")
+	}
+	if failErr.Reason != FailoverOverloaded {
+		t.Fatalf("Reason = %q, want %q from the structured chain", failErr.Reason, FailoverOverloaded)
+	}
+	if !failErr.IsRetriable() {
+		t.Fatal("aggregated empty completions must stay retriable")
 	}
 }

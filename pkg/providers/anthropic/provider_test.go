@@ -2,6 +2,8 @@ package anthropicprovider
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -10,6 +12,8 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	anthropicoption "github.com/anthropics/anthropic-sdk-go/option"
+
+	"github.com/sipeed/picoclaw/pkg/providers/common"
 )
 
 func TestBuildParams_BasicMessage(t *testing.T) {
@@ -225,12 +229,19 @@ func TestBuildParams_WithTools(t *testing.T) {
 func TestParseResponse_TextOnly(t *testing.T) {
 	resp := &anthropic.Message{
 		Content: []anthropic.ContentBlockUnion{},
+		// stop_reason present: an explicitly finished (empty) answer is
+		// legitimate; without it the empty-completion guard fires (fork,
+		// 2026-10-04 — see TestParseResponse_EmptyCompletion).
+		StopReason: anthropic.StopReasonEndTurn,
 		Usage: anthropic.Usage{
 			InputTokens:  10,
 			OutputTokens: 20,
 		},
 	}
-	result := parseResponse(resp)
+	result, err := parseResponse(resp)
+	if err != nil {
+		t.Fatalf("parseResponse() error = %v", err)
+	}
 	if result.Usage.PromptTokens != 10 {
 		t.Errorf("PromptTokens = %d, want 10", result.Usage.PromptTokens)
 	}
@@ -239,6 +250,25 @@ func TestParseResponse_TextOnly(t *testing.T) {
 	}
 	if result.FinishReason != "stop" {
 		t.Errorf("FinishReason = %q, want %q", result.FinishReason, "stop")
+	}
+}
+
+// TestParseResponse_EmptyCompletion pins the empty-completion guard (fork,
+// 2026-10-04): no content blocks AND no stop_reason is a gateway fault, not
+// a legitimate answer, and must surface as common.EmptyCompletionError so
+// the fallback chain rotates candidates; the stop_reason-present counterpart
+// is pinned by TestParseResponse_TextOnly above.
+func TestParseResponse_EmptyCompletion(t *testing.T) {
+	resp := &anthropic.Message{
+		Content: []anthropic.ContentBlockUnion{},
+	}
+	_, err := parseResponse(resp)
+	if err == nil {
+		t.Fatal("parseResponse() = nil error, want EmptyCompletionError")
+	}
+	var emptyErr *common.EmptyCompletionError
+	if !errors.As(err, &emptyErr) {
+		t.Fatalf("error = %T (%v), want *common.EmptyCompletionError", err, err)
 	}
 }
 
@@ -255,7 +285,10 @@ func TestParseResponse_StopReasons(t *testing.T) {
 		resp := &anthropic.Message{
 			StopReason: tt.stopReason,
 		}
-		result := parseResponse(resp)
+		result, err := parseResponse(resp)
+		if err != nil {
+			t.Fatalf("StopReason %q: parseResponse() error = %v", tt.stopReason, err)
+		}
 		if result.FinishReason != tt.want {
 			t.Errorf("StopReason %q: FinishReason = %q, want %q", tt.stopReason, result.FinishReason, tt.want)
 		}
@@ -343,22 +376,26 @@ func TestProvider_ChatUsesTokenSource(t *testing.T) {
 		var reqBody map[string]any
 		json.NewDecoder(r.Body).Decode(&reqBody)
 
-		resp := map[string]any{
-			"id":          "msg_test",
-			"type":        "message",
-			"role":        "assistant",
-			"model":       reqBody["model"],
-			"stop_reason": "end_turn",
-			"content": []map[string]any{
-				{"type": "text", "text": "ok"},
-			},
-			"usage": map[string]any{
-				"input_tokens":  1,
-				"output_tokens": 1,
-			},
+		// tokenSource routes through chatStreaming, so the stub must answer
+		// with SSE events the SDK can accumulate — the previous plain-JSON
+		// body accumulated nothing and only "passed" via the silent
+		// empty-response success guarded in 2026-10-04.
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		events := []string{
+			fmt.Sprintf("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_ts\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":%q,\"stop_reason\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":0}}}\n\n", reqBody["model"]),
+			"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+			"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\n",
+			"event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+			"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\n",
+			"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		for _, e := range events {
+			w.Write([]byte(e))
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
 	}))
 	defer server.Close()
 

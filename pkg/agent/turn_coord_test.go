@@ -226,6 +226,42 @@ func (p *failOnceLLMProvider) GetDefaultModel() string {
 	return "fail-once-model"
 }
 
+// failFirstNLLMProvider fails its first failCount calls with a fixed error,
+// then succeeds — for multi-candidate exhaustion tests where several calls
+// must fail before the turn recovers.
+type failFirstNLLMProvider struct {
+	err       error
+	response  string
+	failCount int
+	callCount int
+	mu        sync.Mutex
+}
+
+func (p *failFirstNLLMProvider) Chat(
+	ctx context.Context,
+	messages []providers.Message,
+	tools []providers.ToolDefinition,
+	model string,
+	opts map[string]any,
+) (*providers.LLMResponse, error) {
+	p.mu.Lock()
+	p.callCount++
+	callCount := p.callCount
+	p.mu.Unlock()
+
+	if callCount <= p.failCount {
+		return nil, p.err
+	}
+	return &providers.LLMResponse{
+		Content:      p.response,
+		FinishReason: "stop",
+	}, nil
+}
+
+func (p *failFirstNLLMProvider) GetDefaultModel() string {
+	return "fail-first-n-model"
+}
+
 // =============================================================================
 // Test Helper Functions
 // =============================================================================
@@ -746,6 +782,68 @@ func TestPipeline_CallLLM_EmptyCompletionCompactsAndRetries(t *testing.T) {
 	}
 	if req.SessionKey != "test-session" {
 		t.Fatalf("Compact session key = %q, want test-session", req.SessionKey)
+	}
+}
+
+// TestPipeline_CallLLM_EmptyCompletionFallbackExhaustedCompacts pins the
+// multi-candidate counterpart (fork, 2026-10-04): when EVERY fallback
+// candidate returns an EmptyCompletionError, the chain exhausts into
+// FallbackExhaustedError. The aggregate's Unwrap must expose the underlying
+// EmptyCompletionError so the C4 recovery routes it through compression —
+// before the fix the aggregate was string-classified as overloaded and the
+// identical over-limit payload was resent unchanged.
+func TestPipeline_CallLLM_EmptyCompletionFallbackExhaustedCompacts(t *testing.T) {
+	// Two candidates, both fail on the first pass (callCount 1 and 2); the
+	// post-compression retry then succeeds on call 3.
+	provider := &failFirstNLLMProvider{
+		err:       &common.EmptyCompletionError{},
+		response:  "Recovered after exhausted-chain compaction",
+		failCount: 2,
+	}
+	al, _, cleanup := newTurnCoordTestLoop(t, provider)
+	defer cleanup()
+	if al.fallback == nil {
+		t.Fatal("expected fallback chain on test loop")
+	}
+
+	fcm := newFakeContextManagerForCompact()
+	al.contextManager = fcm
+
+	pipeline := NewPipeline(al)
+	ts := newCompactTurnState(t, al, "test-session", makeTestProcessOpts("test-session"))
+
+	exec, err := pipeline.SetupTurn(context.Background(), ts)
+	if err != nil {
+		t.Fatalf("SetupTurn failed: %v", err)
+	}
+	// Two candidates on the same provider so providerForFallbackCandidate
+	// resolves both to the shared active provider (ConfigKey empty,
+	// ConfigIndex 0, same provider name).
+	exec.activeCandidates = []providers.FallbackCandidate{
+		{Provider: "openai", Model: "test-model"},
+		{Provider: "openai", Model: "test-model-b"},
+	}
+
+	ctrl, err := pipeline.CallLLM(context.Background(), context.Background(), ts, exec, 1)
+	if err != nil {
+		t.Fatalf("expected exhausted-chain empty completions to recover via compaction, got error: %v", err)
+	}
+	if ctrl != ControlBreak {
+		t.Fatalf("expected ControlBreak, got %v", ctrl)
+	}
+	if exec.finalContent != "Recovered after exhausted-chain compaction" {
+		t.Fatalf("finalContent = %q, want recovered response", exec.finalContent)
+	}
+	if provider.callCount != 3 {
+		t.Fatalf("callCount = %d, want 3 (two failed candidates + one recovered retry)", provider.callCount)
+	}
+
+	req, ok := fcm.lastCall()
+	if !ok {
+		t.Fatal("expected a Compact call after the fallback chain exhausted on empty completions")
+	}
+	if req.Reason != ContextCompressReasonRetry {
+		t.Fatalf("Compact reason = %q, want %q", req.Reason, ContextCompressReasonRetry)
 	}
 }
 
