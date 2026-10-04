@@ -316,6 +316,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			apiBase,
 			userAgent,
 			cfg.RequestTimeout,
+			cfg.Proxy,
 		), modelID, cfg)
 
 	case "alibaba-coding-anthropic":
@@ -332,6 +333,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			apiBase,
 			userAgent,
 			cfg.RequestTimeout,
+			cfg.Proxy,
 		), modelID, cfg)
 
 	case "antigravity":

@@ -333,19 +333,15 @@ func ParseResponse(body io.Reader) (*LLMResponse, error) {
 		Reasoning:        choice.Message.Reasoning,
 		ReasoningDetails: choice.Message.ReasoningDetails,
 		ToolCalls:        toolCalls,
-		FinishReason:     normalizeFinishReason(choice.FinishReason),
-		Usage:            apiResponse.Usage,
+		// FinishReason is passed through verbatim: the agent's
+		// truncated-by-token-limit guard keys on "length" (matching every
+		// other provider and the streaming parse path), so rewriting it to
+		// "truncated" would silently disable the guard on this path.
+		FinishReason: choice.FinishReason,
+		Usage:        apiResponse.Usage,
 	}, nil
 }
 
-// normalizeFinishReason normalizes finish_reason values across providers.
-// Converts "length" to "truncated" for consistent handling.
-func normalizeFinishReason(reason string) string {
-	if reason == "length" {
-		return "truncated"
-	}
-	return reason
-}
 
 // DecodeToolCallArguments decodes a tool call's arguments from raw JSON.
 func DecodeToolCallArguments(raw json.RawMessage, name string) map[string]any {

@@ -48,6 +48,14 @@ type ProcessSession struct {
 	outputBuffer    *bytes.Buffer
 	outputTruncated bool
 	ptyMaster       *os.File
+	// terminator, when set, kills the whole process tree (job object on
+	// Windows); nil falls back to the pid-based killProcessGroup.
+	terminator func() error
+	// finishedAt records when the process was reaped; cleanupOldSessions
+	// keys on it so long-running tasks keep their output for the promised
+	// window after exit (StartTime alone would delete a 40-minute task
+	// minutes after it finished).
+	finishedAt int64
 
 	// ptyKeyMode tracks arrow key encoding mode (CSI vs SS3)
 	ptyKeyMode PtyKeyMode
@@ -108,7 +116,14 @@ func (s *ProcessSession) killProcess() error {
 		return ErrSessionNotFound
 	}
 
-	if err := killProcessGroup(pid); err != nil {
+	// Prefer the session's own tree terminator (job object on Windows): a
+	// pid-chain walk misses orphaned grandchildren whose intermediate parent
+	// already exited.
+	if s.terminator != nil {
+		if err := s.terminator(); err != nil {
+			return err
+		}
+	} else if err := killProcessGroup(pid); err != nil {
 		return err
 	}
 
@@ -207,14 +222,26 @@ func (sm *SessionManager) Stop() {
 	})
 }
 
-// cleanupOldSessions removes sessions that are done and older than 30 minutes
+// cleanupOldSessions removes sessions that are done and whose process
+// finished more than 30 minutes ago (keyed on the exit time, not StartTime —
+// a task that ran for hours must still keep its output for the promised
+// window after it exits).
 func (sm *SessionManager) cleanupOldSessions() {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
 	cutoff := time.Now().Add(-30 * time.Minute)
 	for id, session := range sm.sessions {
-		if session.IsDone() && session.StartTime < cutoff.Unix() {
+		if !session.IsDone() {
+			continue
+		}
+		session.mu.Lock()
+		finished := session.finishedAt
+		session.mu.Unlock()
+		if finished == 0 {
+			finished = session.StartTime
+		}
+		if finished < cutoff.Unix() {
 			delete(sm.sessions, id)
 		}
 	}

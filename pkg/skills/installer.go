@@ -15,6 +15,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/fileutil"
 	"github.com/sipeed/picoclaw/pkg/utils"
+	"log"
 )
 
 // GitHubContent represents a file or directory in GitHub API response
@@ -491,7 +492,18 @@ func (si *SkillInstaller) getGithubDirAllFiles(ctx context.Context, apiURL, loca
 	}
 
 	for _, item := range items {
-		localPath := filepath.Join(localDir, item.Name)
+		// The name comes from a remote API response (git allows backslashes
+		// in filenames, and a third-party base_url can return anything), so
+		// it must never be trusted as a path component: on Windows a
+		// backslash in the name would escape localDir, and "../x" escapes it
+		// anywhere. Skip offending entries instead of writing outside the
+		// skill directory.
+		name, err := sanitizeRemoteFileName(item.Name)
+		if err != nil {
+			log.Printf("[skills] skipping entry with unsafe name %q: %v", item.Name, err)
+			continue
+		}
+		localPath := filepath.Join(localDir, name)
 
 		switch item.Type {
 		case "file":
@@ -577,6 +589,22 @@ func (si *SkillInstaller) downloadFile(ctx context.Context, url, localPath strin
 
 // shouldDownload determines if a file should be downloaded
 // root: true if we're at the skill root directory
+// sanitizeRemoteFileName validates a file or directory name returned by a
+// remote listing API before it is joined into a local path. Names must be
+// plain single components: no separators (a backslash is a separator on
+// Windows even when git happily stores it), no dot-dot, no drive prefixes.
+func sanitizeRemoteFileName(name string) (string, error) {
+	if name == "" || name == "." {
+		return "", fmt.Errorf("empty name")
+	}
+	cleaned := filepath.Clean(name)
+	if cleaned == ".." || strings.ContainsAny(cleaned, "/\\") ||
+		filepath.VolumeName(cleaned) != "" || strings.HasPrefix(cleaned, "\\") {
+		return "", fmt.Errorf("name is not a safe single path component")
+	}
+	return cleaned, nil
+}
+
 func shouldDownload(name string, root bool) bool {
 	if root {
 		return name == "SKILL.md"

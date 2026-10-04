@@ -72,10 +72,11 @@ type SessionScopedBeginStreamer interface {
 
 // SteeringNotifyCapable — streaming channels that can acknowledge a steering
 // message (a user message queued for the active turn) on the turn's streaming
-// surface. NotifySteeringInChat returns false when there is no active
-// streaming surface for the chat.
+// surface. sessionKey scopes the surface to the steering target's session;
+// NotifySteeringInChat returns false when there is no active streaming
+// surface for the chat.
 type SteeringNotifyCapable interface {
-	NotifySteeringInChat(ctx context.Context, chatID, preview string) bool
+	NotifySteeringInChat(ctx context.Context, chatID, sessionKey, preview string) bool
 }
 
 // Streamer is defined in pkg/bus to avoid circular imports.

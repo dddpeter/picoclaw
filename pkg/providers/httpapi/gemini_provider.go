@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/providers/common"
@@ -18,6 +19,9 @@ const (
 	geminiDefaultAPIBase                = "https://generativelanguage.googleapis.com/v1beta"
 	geminiDefaultModel                  = "gemini-2.0-flash"
 	geminiDefaultStreamingReadIdleLimit = 5 * time.Minute
+	// geminiDefaultStreamResponseHeaderTimeout bounds how long a streaming
+	// request may wait for the first response byte (mirrors openai_compat).
+	geminiDefaultStreamResponseHeaderTimeout = 90 * time.Second
 )
 
 type GeminiProvider struct {
@@ -27,6 +31,9 @@ type GeminiProvider struct {
 	extraBody     map[string]any
 	customHeaders map[string]string
 	userAgent     string
+
+	streamTransportOnce sync.Once
+	streamTransport     http.RoundTripper
 }
 
 func NewGeminiProvider(
@@ -58,6 +65,29 @@ func NewGeminiProvider(
 
 func (p *GeminiProvider) GetDefaultModel() string {
 	return geminiDefaultModel
+}
+
+// streamRoundTripper returns a transport dedicated to streaming requests,
+// cloned with a response-header timeout (mirrors openai_compat's
+// streamRoundTripper; see the ChatStream call site for rationale).
+func (p *GeminiProvider) streamRoundTripper() http.RoundTripper {
+	p.streamTransportOnce.Do(func() {
+		base := p.httpClient.Transport
+		if base == nil {
+			base = http.DefaultTransport
+		}
+		tr, ok := base.(*http.Transport)
+		if !ok {
+			// A custom round tripper cannot be cloned safely; keep the
+			// previous behavior (no header timeout) for it.
+			p.streamTransport = base
+			return
+		}
+		cloned := tr.Clone()
+		cloned.ResponseHeaderTimeout = geminiDefaultStreamResponseHeaderTimeout
+		p.streamTransport = cloned
+	})
+	return p.streamTransport
 }
 
 func (p *GeminiProvider) SupportsThinking() bool {
@@ -159,7 +189,14 @@ func (p *GeminiProvider) ChatStreamEvents(
 	req.Header.Set("Accept", "text/event-stream")
 
 	// Streaming should not use a whole-request timeout; context cancellation is the guard.
-	streamClient := &http.Client{Transport: p.httpClient.Transport}
+	// But without any bound a gateway that accepts the connection and never
+	// returns response headers hangs the turn forever (context cancellation
+	// is the only way out and not every caller context gets cancelled) —
+	// same trap openai_compat's streamRoundTripper fixes. A dedicated
+	// transport with ResponseHeaderTimeout covers exactly the vulnerable
+	// window: it stops at the first response byte and leaves the body reads
+	// to the streaming idle timeout below.
+	streamClient := &http.Client{Transport: p.streamRoundTripper()}
 	resp, err := streamClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
@@ -537,10 +574,12 @@ func parseGeminiStreamResponse(
 		}
 
 		line := scanner.Text()
-		if !strings.HasPrefix(line, "data: ") {
+		// SSE allows "data:" with or without the space (mirrors the
+		// openai_compat parser); compatible gateways may emit either form.
+		if !strings.HasPrefix(line, "data:") {
 			continue
 		}
-		data := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		if data == "" {
 			continue
 		}

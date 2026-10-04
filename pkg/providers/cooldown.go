@@ -59,9 +59,11 @@ func (ct *CooldownTracker) MarkFailure(provider string, reason FailoverReason) {
 // minimum retry delay (from the Retry-After header). The hint acts as a
 // floor: the effective cooldown is max(standard exponential backoff, hint)
 // for non-billing reasons, so a candidate is never retried before the server
-// allows it. Hints only apply to rate-limit class failures — billing
-// outages have their own (much longer) disable schedule and auth/format
-// errors are not retryable at all.
+// allows it. Hints apply to rate-limit and timeout/failover-class failures
+// (an overloaded 5xx upstream that sends "Retry-After: 600" must not be
+// hammered again after the one-minute standard backoff) — billing outages
+// have their own (much longer) disable schedule and auth/format errors are
+// not retryable at all.
 func (ct *CooldownTracker) MarkFailureWithHint(provider string, reason FailoverReason, hint time.Duration) {
 	ct.mu.Lock()
 	defer ct.mu.Unlock()
@@ -91,7 +93,7 @@ func (ct *CooldownTracker) MarkFailureWithHint(provider string, reason FailoverR
 	}
 
 	cooldown := calculateStandardCooldown(entry.ErrorCount)
-	if reason == FailoverRateLimit && hint > cooldown {
+	if (reason == FailoverRateLimit || reason == FailoverTimeout) && hint > cooldown {
 		cooldown = hint
 	}
 	entry.CooldownEnd = now.Add(cooldown)

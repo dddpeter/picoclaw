@@ -327,6 +327,14 @@ func (c *DiscordChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMes
 	}
 	done := make(chan mediaResult, 1)
 	go func() {
+		// The goroutine owns the readers' lifetime: discordgo reads them for
+		// as long as the upload runs (it has no context here), so closing
+		// from the select branches below would race an in-flight Read.
+		for _, f := range files {
+			if closer, ok := f.Reader.(*os.File); ok {
+				defer closer.Close()
+			}
+		}
 		sentMsg, err := c.session.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
 			Content: caption,
 			Files:   files,
@@ -340,12 +348,6 @@ func (c *DiscordChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMes
 
 	select {
 	case r := <-done:
-		// Close all file readers
-		for _, f := range files {
-			if closer, ok := f.Reader.(*os.File); ok {
-				closer.Close()
-			}
-		}
 		if r.err != nil {
 			return nil, fmt.Errorf("discord send media: %w", channels.ErrTemporary)
 		}
@@ -354,15 +356,9 @@ func (c *DiscordChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMes
 		}
 		return []string{r.id}, nil
 	case <-sendCtx.Done():
-		// Close all file readers
-		for _, f := range files {
-			if closer, ok := f.Reader.(*os.File); ok {
-				closer.Close()
-			}
-		}
-		// The send goroutine keeps running without a context, so the
-		// message may still land after the timeout — retrying could
-		// duplicate it. Report permanent (B6).
+		// The send goroutine keeps running without a context and closes its
+		// own readers when the upload unwinds, so the message may still land
+		// after the timeout — retrying could duplicate it. Report permanent (B6).
 		return nil, fmt.Errorf("discord send media timed out (delivery status unknown): %w", channels.ErrSendFailed)
 	}
 }

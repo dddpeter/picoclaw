@@ -129,6 +129,14 @@ func (t *AppendFileTool) Execute(ctx context.Context, args map[string]any) *Tool
 	return SilentResult(fmt.Sprintf("Appended to %s", path))
 }
 
+// maxEditFileSize bounds edit_file/append_file inputs. The edit pipeline
+// holds several full-size copies at once (raw, decoded, replaced,
+// re-encoded), so a multi-hundred-MB target would spike gateway memory ~4x.
+// The guard sits after the single read allocation but before decoding —
+// read_file's paged reads (or shell redirection) are the supported path for
+// very large files.
+const maxEditFileSize = 64 * 1024 * 1024
+
 // editFile reads the file via sysFs, performs the replacement, and writes back.
 // It uses a fileSystem interface, allowing the same logic for both restricted and unrestricted modes.
 //
@@ -140,6 +148,9 @@ func editFile(sysFs fileSystem, path, oldText, newText string) ([]byte, []byte, 
 	raw, err := sysFs.ReadFile(path)
 	if err != nil {
 		return nil, nil, err
+	}
+	if len(raw) > maxEditFileSize {
+		return nil, nil, fmt.Errorf("file too large to edit in place (%d bytes > %d limit)", len(raw), maxEditFileSize)
 	}
 
 	text, enc := decodeText(raw)
@@ -169,6 +180,9 @@ func appendFile(sysFs fileSystem, path, appendContent string) error {
 	raw, err := sysFs.ReadFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
+	}
+	if len(raw) > maxEditFileSize {
+		return fmt.Errorf("file too large to append in place (%d bytes > %d limit)", len(raw), maxEditFileSize)
 	}
 
 	text, enc := decodeText(raw)

@@ -112,9 +112,9 @@ func TestBeginStreamSealsStaleStreamer(t *testing.T) {
 	old.msgID = "om_old"
 	old.state.LLMCalls = 1
 	_ = old.Update(context.Background(), "第一轮回答")
-	ch.streams.Store("chat-stale", old)
+	ch.streams.Store(streamMapKey("chat-stale", ""), old)
 	old.mu.Lock()
-	old.lastAt = time.Now().Add(-3 * time.Minute) // TTL expired
+	old.lastAt = time.Now().Add(-feishuStreamReuseTTL - time.Minute) // TTL expired
 	old.mu.Unlock()
 
 	newS, err := ch.BeginStream(context.Background(), "chat-stale")
@@ -254,7 +254,7 @@ func TestConcurrentTurnsGetDistinctCards(t *testing.T) {
 
 	// Stale card (any session) → sealed superseded, new card returned.
 	fb.mu.Lock()
-	fb.lastAt = time.Now().Add(-3 * time.Minute)
+	fb.lastAt = time.Now().Add(-feishuStreamReuseTTL - time.Minute)
 	fb.mu.Unlock()
 	c, err := ch.BeginStreamForSession(context.Background(), "chat-matrix", "s1")
 	if err != nil {

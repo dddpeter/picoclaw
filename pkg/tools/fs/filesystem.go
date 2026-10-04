@@ -1120,7 +1120,26 @@ type fileSystem interface {
 }
 
 // hostFs is an unrestricted fileReadWriter that operates directly on the host filesystem.
-type hostFs struct{}
+type hostFs struct {
+	// workspace anchors relative paths. Empty keeps the legacy behavior.
+	workspace string
+}
+
+// resolveRelative anchors a relative path at the workspace root. The file
+// tools advertise workspace-relative paths (exec's default cwd is the
+// workspace too), but an unresolved relative path would silently hit the
+// gateway process CWD instead — typically HOME under systemd, so
+// write_file("config.json") would clobber an unrelated file. Absolute paths
+// (and Windows drive-relative oddities) pass through untouched.
+func (h *hostFs) resolveRelative(path string) string {
+	if h.workspace == "" || path == "" || filepath.IsAbs(path) {
+		return path
+	}
+	if vol := filepath.VolumeName(path); vol != "" {
+		return path
+	}
+	return filepath.Join(h.workspace, path)
+}
 
 // checkProtectedSystemPath guards the unrestricted (host) filesystem: with
 // restrict_to_workspace off by default this is where the system-directory
@@ -1135,6 +1154,7 @@ func (h *hostFs) checkProtectedSystemPath(path string) error {
 }
 
 func (h *hostFs) ReadFile(path string) ([]byte, error) {
+	path = h.resolveRelative(path)
 	if err := h.checkProtectedSystemPath(path); err != nil {
 		return nil, err
 	}
@@ -1155,6 +1175,7 @@ func (h *hostFs) ReadFile(path string) ([]byte, error) {
 }
 
 func (h *hostFs) ReadDir(path string) ([]os.DirEntry, error) {
+	path = h.resolveRelative(path)
 	if err := h.checkProtectedSystemPath(path); err != nil {
 		return nil, err
 	}
@@ -1162,6 +1183,7 @@ func (h *hostFs) ReadDir(path string) ([]os.DirEntry, error) {
 }
 
 func (h *hostFs) WriteFile(path string, data []byte) error {
+	path = h.resolveRelative(path)
 	if err := h.checkProtectedSystemPath(path); err != nil {
 		return err
 	}
@@ -1169,11 +1191,18 @@ func (h *hostFs) WriteFile(path string, data []byte) error {
 		return err
 	}
 	// Use unified atomic write utility with explicit sync for flash storage reliability.
-	// Using 0o600 (owner read/write only) for secure default permissions.
-	return fileutil.WriteFileAtomic(path, data, 0o600)
+	// New files get 0o600 (owner read/write only) as the secure default;
+	// an existing target keeps its own mode — a rename-based overwrite would
+	// otherwise silently strip e.g. the executable bit from an edited script.
+	perm := os.FileMode(0o600)
+	if info, statErr := os.Stat(path); statErr == nil {
+		perm = info.Mode().Perm()
+	}
+	return fileutil.WriteFileAtomic(path, data, perm)
 }
 
 func (h *hostFs) Open(path string) (fs.File, error) {
+	path = h.resolveRelative(path)
 	if err := h.checkProtectedSystemPath(path); err != nil {
 		return nil, err
 	}
@@ -1257,7 +1286,9 @@ func (r *sandboxFs) WriteFile(path string, data []byte) error {
 		}
 
 		// Use atomic write pattern with explicit sync for flash storage reliability.
-		// Using 0o600 (owner read/write only) for secure default permissions.
+		// Using 0o600 (owner read/write only) for secure default permissions;
+		// an existing target's mode is carried over below so overwriting an
+		// executable script does not strip its bit.
 		// The atomic counter guarantees uniqueness even when the platform clock
 		// (Windows time granularity can be coarse) hands out identical
 		// UnixNano values to concurrent writers.
@@ -1273,6 +1304,12 @@ func (r *sandboxFs) WriteFile(path string, data []byte) error {
 			_ = tmpFile.Close()
 			root.Remove(tmpRelPath)
 			return fmt.Errorf("failed to write temp file: %w", err)
+		}
+
+		// Carry over the previous target mode so the rename does not reset
+		// permissions (no-op on platforms without full chmod support).
+		if info, statErr := root.Stat(relPath); statErr == nil {
+			_ = tmpFile.Chmod(info.Mode().Perm())
 		}
 
 		// CRITICAL: Force sync to storage medium before rename.
@@ -1388,7 +1425,7 @@ func (w *whitelistFs) Open(path string) (fs.File, error) {
 // settings and optional path whitelist patterns.
 func buildFs(workspace string, restrict bool, patterns []*regexp.Regexp) fileSystem {
 	if !restrict {
-		return &hostFs{}
+		return &hostFs{workspace: workspace}
 	}
 	sandbox := &sandboxFs{workspace: workspace}
 	if len(patterns) > 0 {

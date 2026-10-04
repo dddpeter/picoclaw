@@ -614,7 +614,7 @@ func (m *Manager) NotifySteering(ctx context.Context, channelName, chatID, sessi
 	if !ok {
 		return false
 	}
-	return notifier.NotifySteeringInChat(ctx, chatID, preview)
+	return notifier.NotifySteeringInChat(ctx, chatID, sessionKey, preview)
 }
 
 // GetStreamer implements bus.StreamDelegate.

@@ -180,12 +180,31 @@ func feishuAnswerFlushIntervalFor(answerBytes int) time.Duration {
 // again by a later BeginStream. Aborted turns normally cancel their streamer,
 // but if that cleanup ever fails (process restart aside), a stale card must
 // not swallow the next turn.
-const feishuStreamReuseTTL = 2 * time.Minute
+//
+// The TTL must stay comfortably above the progress-heartbeat interval
+// (180s by default): a heartbeat beats at least that often while a turn is
+// alive, so any card silent for longer than this TTL is genuinely ownerless.
+// At the earlier 2min value a living turn's quiet span (up to one heartbeat
+// interval plus drift) could exceed the TTL and let another turn's sweep
+// seal its card as "superseded" — silently swallowing the eventual answer.
+const feishuStreamReuseTTL = 5 * time.Minute
 
 // feishuCancelSuperseded marks a stale streaming card sealed because a new
 // turn's BeginStream refused to reuse it (B2b stopgap): the card had seen no
 // activity for a full reuse TTL and nothing else would ever seal it.
 const feishuCancelSuperseded = "superseded"
+
+// streamMapKey keys the streams map. Entries are scoped per session (each
+// session's turn owns its card for the whole turn — BeginStream runs per LLM
+// iteration, so a chatID-only key would make concurrent same-chat sessions
+// overwrite each other's entry and orphan mid-turn cards); unscoped legacy
+// entries (empty sessionKey) keep the bare chatID key.
+func streamMapKey(chatID, sessionKey string) string {
+	if sessionKey == "" {
+		return chatID
+	}
+	return chatID + "\x00" + sessionKey
+}
 
 // BeginStream implements channels.StreamingCapable. The manager may call this
 // once per LLM iteration within a turn; we reuse the in-flight card for the
@@ -197,24 +216,27 @@ func (c *FeishuChannel) BeginStream(ctx context.Context, chatID string) (channel
 }
 
 // BeginStreamForSession implements channels.SessionScopedBeginStreamer.
-// The sessionKey scopes card reuse so concurrent turns from different
+// The sessionKey scopes card ownership so concurrent turns from different
 // sessions in one chat each stream on their own card (B2a); an empty key
-// keeps the legacy unscoped behavior. Reuse matrix for an existing card:
+// keeps the legacy unscoped behavior. The streams map is keyed per session
+// (streamMapKey), so this session's entry is looked up by its own key and
+// other sessions' cards are never overwritten — mid-turn cards from other
+// sessions stay addressable and get sealed by their own owner. Reuse matrix:
 //
-//	unsealed + fresh + same session → reuse (next LLM iteration)
-//	unsealed + fresh + other session → new card, leave the old one alone
-//	                                        (its owner is live and will seal it)
-//	unsealed + stale (≥ reuse TTL, any session) → new card + best-effort
-//	                                        seal of the old one (nobody else will)
+//	unsealed + fresh (own key) → reuse (next LLM iteration)
+//	unsealed + stale (own key, ≥ reuse TTL) → new card + best-effort seal of
+//	                                        the old one (nobody else will)
+//	other-session cards of this chat: stale ones are sealed best-effort
+//	                                        (sweep), fresh ones left alone
+//	                                        (their owner is live and will seal them)
 //	sealed  → new card
 func (c *FeishuChannel) BeginStreamForSession(ctx context.Context, chatID, sessionKey string) (channels.Streamer, error) {
-	if v, ok := c.streams.Load(chatID); ok {
+	key := streamMapKey(chatID, sessionKey)
+	if v, ok := c.streams.Load(key); ok {
 		if s, ok := v.(*feishuCardStreamer); ok {
 			s.mu.Lock()
-			sameSession := sessionKey == "" || s.sessionKey == sessionKey
 			fresh := time.Since(s.lastAt) < feishuStreamReuseTTL
-			reusable := !s.done && sameSession && fresh
-			stale := !s.done && !reusable && (sameSession || !fresh)
+			reusable := !s.done && fresh
 			if reusable {
 				// One BeginStream per LLM call: reuse means another iteration.
 				s.state.LLMCalls++
@@ -224,8 +246,8 @@ func (c *FeishuChannel) BeginStreamForSession(ctx context.Context, chatID, sessi
 			if reusable {
 				return s, nil
 			}
-			if stale {
-				// B2b: the previous card saw no streamer activity for a full
+			if !s.done {
+				// B2b: our previous card saw no streamer activity for a full
 				// reuse TTL — nobody will seal it (its turn is gone or stuck).
 				// Seal best-effort on a detached context: synchronously it
 				// could block this LLM-call path for two 10s CardKit timeouts;
@@ -236,6 +258,11 @@ func (c *FeishuChannel) BeginStreamForSession(ctx context.Context, chatID, sessi
 			}
 		}
 	}
+	// Sweep other sessions' stale cards of this chat. With per-session keys
+	// their entries are no longer overwritten by this call, so a fresh
+	// other-session card keeps its owner; only genuinely stale ones (silent
+	// for a full TTL — heartbeat keeps live turns fresher) get sealed here.
+	c.sealStaleStreamersForChat(chatID, key)
 
 	cardJSON, err := json.Marshal(buildFeishuStreamingCard())
 	if err != nil {
@@ -274,7 +301,7 @@ func (c *FeishuChannel) BeginStreamForSession(ctx context.Context, chatID, sessi
 	s.msgID = msgID
 	s.sessionKey = sessionKey
 	s.state.LLMCalls = 1
-	c.streams.Store(chatID, s)
+	c.streams.Store(key, s)
 	logger.DebugCF("feishu", "streaming card created", map[string]any{
 		"chat_id": chatID,
 		"card_id": cardID,
@@ -282,17 +309,61 @@ func (c *FeishuChannel) BeginStreamForSession(ctx context.Context, chatID, sessi
 	return s, nil
 }
 
+// sealStaleStreamersForChat seals (best-effort, async) every unsealed card of
+// chatID other than excludeKey that has been silent for a full reuse TTL.
+func (c *FeishuChannel) sealStaleStreamersForChat(chatID, excludeKey string) {
+	c.streams.Range(func(k, v any) bool {
+		if k == excludeKey {
+			return true
+		}
+		s, ok := v.(*feishuCardStreamer)
+		if !ok || s.chatID != chatID {
+			return true
+		}
+		s.mu.Lock()
+		stale := !s.done && time.Since(s.lastAt) >= feishuStreamReuseTTL
+		s.mu.Unlock()
+		if stale {
+			go s.CancelWithReason(context.Background(), feishuCancelSuperseded)
+		}
+		return true
+	})
+}
+
 // NotifySteeringInChat implements channels.SteeringNotifyCapable: records a
-// steering acknowledgement on the chat's active streaming card so the user
-// sees their mid-turn message was heard. Returns false when no card is active.
+// steering acknowledgement on the session's active streaming card (falling
+// back to the chat's most recently active card) so the user sees their
+// mid-turn message was heard. Returns false when no card is active.
 //
 // The panel refresh runs asynchronously: this method is called from the
 // agent's inbound loop, which must never wait on a card API call — a hung
 // request there would freeze all message processing (including /stop).
-func (c *FeishuChannel) NotifySteeringInChat(ctx context.Context, chatID, preview string) bool {
-	v, ok := c.streams.Load(chatID)
+func (c *FeishuChannel) NotifySteeringInChat(ctx context.Context, chatID, sessionKey, preview string) bool {
+	v, ok := c.streams.Load(streamMapKey(chatID, sessionKey))
 	if !ok {
-		return false
+		// The scoped entry is gone (or the key is legacy): aim for the most
+		// recently active unsealed card of this chat so the notice still
+		// lands on a live surface instead of being dropped.
+		var newest *feishuCardStreamer
+		var newestAt time.Time
+		c.streams.Range(func(_, v any) bool {
+			s, ok := v.(*feishuCardStreamer)
+			if !ok || s.chatID != chatID {
+				return true
+			}
+			s.mu.Lock()
+			active := !s.done
+			lastAt := s.lastAt
+			s.mu.Unlock()
+			if active && (newest == nil || lastAt.After(newestAt)) {
+				newest, newestAt = s, lastAt
+			}
+			return true
+		})
+		if newest == nil {
+			return false
+		}
+		v = newest
 	}
 	s, ok := v.(*feishuCardStreamer)
 	if !ok {
@@ -416,19 +487,22 @@ func (c *FeishuChannel) handleCardAction(_ context.Context, event *callback.Card
 }
 
 // chatHasActiveStreamer reports whether the chat still has an unsealed
-// streaming card (i.e. a stoppable turn).
+// streaming card (i.e. a stoppable turn). Cards are keyed per session, so
+// scan the map for any entry of this chat.
 func (c *FeishuChannel) chatHasActiveStreamer(chatID string) bool {
-	v, ok := c.streams.Load(chatID)
-	if !ok {
-		return false
-	}
-	s, ok := v.(*feishuCardStreamer)
-	if !ok {
-		return false
-	}
-	s.mu.Lock()
-	active := s.streamerActiveLocked()
-	s.mu.Unlock()
+	var active bool
+	c.streams.Range(func(_, v any) bool {
+		s, ok := v.(*feishuCardStreamer)
+		if !ok || s.chatID != chatID {
+			return true
+		}
+		s.mu.Lock()
+		if s.streamerActiveLocked() {
+			active = true
+		}
+		s.mu.Unlock()
+		return !active
+	})
 	return active
 }
 
@@ -719,6 +793,9 @@ func (s *feishuCardStreamer) FinalizeWithContext(ctx context.Context, content st
 	}
 	// The sealed card never shows the waiting-model tail.
 	s.state.WaitingModel = false
+	// The sealed card never shows a stale progress line either: the last
+	// heartbeat beat ("⚠️ 进度：…") would contradict the "✓ 已完成" footer.
+	s.state.ProgressNote = ""
 	// Fold any in-progress reasoning round so the sealed panel is complete.
 	if s.state.CurReasoning != "" {
 		s.eventSeq++
@@ -739,14 +816,14 @@ func (s *feishuCardStreamer) FinalizeWithContext(ctx context.Context, content st
 	streamingLost := s.streamingLost
 	s.done = true
 	s.mu.Unlock()
-	defer s.ch.streams.CompareAndDelete(s.chatID, s)
+	defer s.ch.streams.CompareAndDelete(streamMapKey(s.chatID, s.sessionKey), s)
 
 	card := buildFeishuFinalCardComposed(&state, inCard, answer, false, elapsed, "")
 	if err := s.updateCard(ctx, cardID, card, seq); err != nil {
 		// Last-resort seal (B1-B): retry with a minimal card (no panel,
 		// hard-clamped answer) — it must always fit, so the card is sealed
 		// even when the regular seal card is rejected.
-		hardIn, _ := clampFeishuAnswerForCard(composed, feishuAnswerHardBudget, feishuAnswerCancelNote)
+		hardIn, hardRest := clampFeishuAnswerForCard(composed, feishuAnswerHardBudget, feishuAnswerCancelNote)
 		minimal := buildFeishuMinimalFinalCard(&state, hardIn, false, elapsed, "")
 		s.mu.Lock()
 		retrySeq := s.nextSeqLocked()
@@ -754,6 +831,10 @@ func (s *feishuCardStreamer) FinalizeWithContext(ctx context.Context, content st
 		if retryErr := s.updateCard(ctx, cardID, minimal, retrySeq); retryErr != nil {
 			return err
 		}
+		// The minimal card carries only the first hard-budget slice, so the
+		// remainder must restart from that cut — delivering the 24KB-budget
+		// remainder here would silently drop the [hard, card) span.
+		remainder = hardRest
 		logger.WarnCF("feishu", "final seal card rejected; sealed via minimal card", map[string]any{
 			"chat_id": s.chatID,
 			"card_id": cardID,
@@ -815,6 +896,7 @@ func (s *feishuCardStreamer) CancelWithReason(ctx context.Context, reason string
 	// The sealed card never shows the waiting-model tail; fold the
 	// in-progress reasoning round so the panel stays consistent.
 	s.state.WaitingModel = false
+	s.state.ProgressNote = ""
 	if s.state.CurReasoning != "" {
 		s.eventSeq++
 		s.state.Rounds = append(s.state.Rounds, feishuReasoningRound{Text: s.state.CurReasoning, Seq: s.eventSeq})
@@ -840,7 +922,7 @@ func (s *feishuCardStreamer) CancelWithReason(ctx context.Context, reason string
 	s.aborted = true
 	s.done = true
 	s.mu.Unlock()
-	defer s.ch.streams.CompareAndDelete(s.chatID, s)
+	defer s.ch.streams.CompareAndDelete(streamMapKey(s.chatID, s.sessionKey), s)
 
 	if emptyCard && msgID != "" {
 		derr := s.deleteMessage(ctx, s.chatID, msgID)

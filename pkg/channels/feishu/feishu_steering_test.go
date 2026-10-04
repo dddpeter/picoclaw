@@ -22,7 +22,7 @@ func TestNotifySteeringInChatRecordsWithoutBlocking(t *testing.T) {
 	ch.streams.Store("chat-1", s)
 
 	start := time.Now()
-	if !ch.NotifySteeringInChat(context.Background(), "chat-1", "你好") {
+	if !ch.NotifySteeringInChat(context.Background(), "chat-1", "", "你好") {
 		t.Fatal("expected steering notice to be accepted")
 	}
 	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
@@ -42,7 +42,7 @@ func TestNotifySteeringInChatRecordsWithoutBlocking(t *testing.T) {
 
 func TestNotifySteeringInChatNoActiveCard(t *testing.T) {
 	ch := &FeishuChannel{}
-	if ch.NotifySteeringInChat(context.Background(), "chat-none", "hi") {
+	if ch.NotifySteeringInChat(context.Background(), "chat-none", "", "hi") {
 		t.Fatal("expected false when no streaming card is active")
 	}
 }
@@ -51,7 +51,7 @@ func TestNotifySteeringInChatDoneCard(t *testing.T) {
 	ch := &FeishuChannel{}
 	s := &feishuCardStreamer{ch: ch, chatID: "chat-2", done: true}
 	ch.streams.Store("chat-2", s)
-	if ch.NotifySteeringInChat(context.Background(), "chat-2", "hi") {
+	if ch.NotifySteeringInChat(context.Background(), "chat-2", "", "hi") {
 		t.Fatal("expected false when the card is already sealed")
 	}
 }

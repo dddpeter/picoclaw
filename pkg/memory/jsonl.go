@@ -129,9 +129,15 @@ func (s *JSONLStore) readMeta(key string) (SessionMeta, error) {
 		return SessionMeta{}, fmt.Errorf("memory: read meta: %w", err)
 	}
 	var meta SessionMeta
-	err = json.Unmarshal(data, &meta)
-	if err != nil {
-		return SessionMeta{}, fmt.Errorf("memory: decode meta: %w", err)
+	if err := json.Unmarshal(data, &meta); err != nil {
+		// A corrupt meta file degrades to the zero value rather than
+		// failing: metadata carries only titles/timestamps, and a hard
+		// failure would brick the whole session (no history, no appends)
+		// until someone manually deleted the file. The zero value is exactly
+		// the not-yet-titled state, and the next writeMeta overwrites the
+		// corrupt bytes (self-healing).
+		log.Printf("[memory] corrupt meta file for %s, resetting to defaults: %v", key, err)
+		return SessionMeta{Key: key}, nil
 	}
 	if meta.Key == "" {
 		meta.Key = key

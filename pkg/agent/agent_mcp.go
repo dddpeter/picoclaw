@@ -21,6 +21,11 @@ import (
 )
 
 type mcpRuntime struct {
+	// doMu serializes initOnce.Do against reset()'s Once replacement: reset
+	// must not swap the Once while an initialization is in flight, and the
+	// Do call must not race the swap. Lock order is always doMu → mu (the
+	// init body itself takes mu via setManager/setInitErr), so no deadlock.
+	doMu     sync.Mutex
 	initOnce sync.Once
 	mu       sync.Mutex
 	manager  *mcp.Manager
@@ -28,12 +33,14 @@ type mcpRuntime struct {
 }
 
 func (r *mcpRuntime) reset() *mcp.Manager {
+	r.doMu.Lock()
 	r.mu.Lock()
 	manager := r.manager
 	r.manager = nil
 	r.initErr = nil
 	r.initOnce = sync.Once{}
 	r.mu.Unlock()
+	r.doMu.Unlock()
 	return manager
 }
 
@@ -114,6 +121,7 @@ func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
 		return nil
 	}
 
+	al.mcp.doMu.Lock()
 	al.mcp.initOnce.Do(func() {
 		mcpManager := mcp.NewManager(mcp.WithRuntimeEvents(al.runtimeEvents))
 
@@ -273,6 +281,7 @@ func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
 
 		al.mcp.setManager(mcpManager)
 	})
+	al.mcp.doMu.Unlock()
 
 	return al.mcp.getInitErr()
 }

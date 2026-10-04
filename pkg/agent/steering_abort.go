@@ -30,6 +30,13 @@ func (al *AgentLoop) sealAbortedTurnSession(ts *turnState) {
 	if ts.session == nil {
 		return
 	}
+	// Serialize against tool-result persistence (persistMu): a real tool
+	// result landing between our Get and Set would be lost, and one landing
+	// after a seal we wrote would follow the synthetic note (duplicate
+	// tool_call_id). Under the mutex both orders are safe — the seal sees
+	// the persisted result (not dangling) or the persist gate sees the abort.
+	ts.persistMu.Lock()
+	defer ts.persistMu.Unlock()
 	history := ts.session.GetHistory(ts.sessionKey)
 	if sealed := sealDanglingToolCalls(history); len(sealed) != len(history) {
 		ts.session.SetHistory(ts.sessionKey, sealed)

@@ -224,6 +224,11 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 		}
 		messages = exec.messages
 		pendingMessages = exec.pendingMessages
+		// Take ownership: nil out exec's reference so the next iteration's
+		// `append(pendingMessages, exec.pendingMessages...)` cannot append a
+		// slice to itself (which would double every steering message when
+		// CallLLM's direct-answer path deposited them).
+		exec.pendingMessages = nil
 		finalContent = exec.finalContent
 
 		switch ctrl {

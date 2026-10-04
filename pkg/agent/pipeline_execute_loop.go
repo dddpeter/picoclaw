@@ -61,14 +61,21 @@ type toolLoopState struct {
 
 // appendToolResultMessage appends a tool-role message and, when history is
 // recorded, persists and ingests it. gateOnToolPersist mirrors the
-// hook-respond condition (!NoHistory && persistsToolMessages()).
+// hook-respond condition (!NoHistory && persistsToolMessages()); the gate
+// check and the persist happen under persistMu so a concurrent hard abort
+// cannot seal the session between them (which would duplicate the
+// tool_call_id).
 func (ls *toolLoopState) appendToolResultMessage(msg providers.Message, gateOnToolPersist bool) {
 	ls.messages = append(ls.messages, msg)
 	if ls.ts.opts.NoHistory {
 		return
 	}
-	if gateOnToolPersist && !ls.ts.persistsToolMessages() {
-		return
+	if gateOnToolPersist {
+		ls.ts.persistMu.Lock()
+		defer ls.ts.persistMu.Unlock()
+		if !ls.ts.persistsToolMessages() {
+			return
+		}
 	}
 	ls.ts.agent.Sessions.AddFullMessage(ls.ts.sessionKey, msg)
 	ls.ts.recordPersistedMessage(msg)
@@ -76,14 +83,19 @@ func (ls *toolLoopState) appendToolResultMessage(msg providers.Message, gateOnTo
 }
 
 // appendToolNoticeMessage appends a tool-role notice (deny / skip) and
-// persists it without ingesting it into the context manager.
+// persists it without ingesting it into the context manager. Gate check and
+// persist are serialized under persistMu (see appendToolResultMessage).
 func (ls *toolLoopState) appendToolNoticeMessage(msg providers.Message, gateOnToolPersist bool) {
 	ls.messages = append(ls.messages, msg)
 	if ls.ts.opts.NoHistory {
 		return
 	}
-	if gateOnToolPersist && !ls.ts.persistsToolMessages() {
-		return
+	if gateOnToolPersist {
+		ls.ts.persistMu.Lock()
+		defer ls.ts.persistMu.Unlock()
+		if !ls.ts.persistsToolMessages() {
+			return
+		}
 	}
 	ls.ts.agent.Sessions.AddFullMessage(ls.ts.sessionKey, msg)
 	ls.ts.recordPersistedMessage(msg)

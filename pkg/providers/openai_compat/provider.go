@@ -10,6 +10,7 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -868,13 +869,17 @@ func parseStreamResponse(
 		}
 	}
 
-	// Assemble tool calls from accumulated deltas
+	// Assemble tool calls from accumulated deltas. Indexes are not assumed
+	// to start at 0 or be contiguous — some gateways number tool_call deltas
+	// differently — so walk the map's own keys in sorted order.
+	toolIndexes := make([]int, 0, len(activeTools))
+	for idx := range activeTools {
+		toolIndexes = append(toolIndexes, idx)
+	}
+	sort.Ints(toolIndexes)
 	var toolCalls []ToolCall
-	for i := 0; i < len(activeTools); i++ {
-		acc, ok := activeTools[i]
-		if !ok {
-			continue
-		}
+	for _, i := range toolIndexes {
+		acc := activeTools[i]
 		args := make(map[string]any)
 		raw := acc.argsJSON.String()
 		if raw != "" {

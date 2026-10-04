@@ -520,6 +520,95 @@ func resolveRunTimeout(toolDefault time.Duration, args map[string]any) time.Dura
 	return time.Duration(secs * float64(time.Second))
 }
 
+// syncOutputRetainLimit caps how much output runSync retains in memory per
+// stream (head + tail around a marker). Background sessions already cap
+// their output buffer; the synchronous path had no bound, so a chatty
+// command (`yes`, a runaway loop) accumulated unbounded bytes.Buffer data
+// within its timeout window — enough to OOM the gateway. Full-fidelity
+// capture of huge outputs remains available via shell redirection.
+const syncOutputRetainLimit = 4 * 1024 * 1024
+
+// cappedOutputBuffer is an io.Writer that retains at most limit bytes: the
+// first limit/2 bytes and a rolling tail of the last limit/2 bytes, with a
+// truncation marker in between. Concurrency-safe (the reader goroutines of
+// the shell tool may share one instance).
+type cappedOutputBuffer struct {
+	limit   int
+	written int64
+	head    []byte
+	tail    []byte
+	tailPos int
+	tailLen int
+	dropped int64
+}
+
+func newCappedOutputBuffer(limit int) *cappedOutputBuffer {
+	if limit < 64 {
+		limit = 64
+	}
+	return &cappedOutputBuffer{limit: limit, tail: make([]byte, limit/2)}
+}
+
+func (b *cappedOutputBuffer) Write(p []byte) (int, error) {
+	total := len(p)
+	b.written += int64(total)
+	half := b.limit / 2
+	if len(b.head) < half {
+		space := half - len(b.head)
+		if len(p) <= space {
+			b.head = append(b.head, p...)
+			return total, nil
+		}
+		b.head = append(b.head, p[:space]...)
+		p = p[space:]
+	}
+	if len(b.tail) == 0 {
+		return total, nil
+	}
+	b.dropped += int64(len(p))
+	for len(p) > 0 {
+		n := copy(b.tail[b.tailPos:], p)
+		b.tailPos = (b.tailPos + n) % len(b.tail)
+		if b.tailLen < len(b.tail) {
+			b.tailLen += n
+		}
+		p = p[n:]
+	}
+	return total, nil
+}
+
+func (b *cappedOutputBuffer) Len() int {
+	return int(b.written)
+}
+
+func (b *cappedOutputBuffer) String() string {
+	if b.dropped == 0 {
+		return string(b.head)
+	}
+	// Reassemble the retained tail in stream order from the ring.
+	tail := make([]byte, 0, b.tailLen)
+	start := (b.tailPos - b.tailLen + len(b.tail)) % len(b.tail)
+	first := len(b.tail) - start
+	if first > b.tailLen {
+		first = b.tailLen
+	}
+	tail = append(tail, b.tail[start:start+first]...)
+	tail = append(tail, b.tail[:b.tailLen-first]...)
+	marker := fmt.Sprintf("\n…[%s of output truncated; re-run with output redirected to a file for full capture]…\n", formatBytes(b.dropped))
+	return string(b.head) + marker + string(tail)
+}
+
+func formatBytes(n int64) string {
+	switch {
+	case n >= 1024*1024:
+		return fmt.Sprintf("%.1fMB", float64(n)/(1024*1024))
+	case n >= 1024:
+		return fmt.Sprintf("%.1fKB", float64(n)/1024)
+	default:
+		return fmt.Sprintf("%dB", n)
+	}
+}
+
 // execIOWaitDelay bounds how long runSync waits for the command's output
 // pipes to close after the process exits or is killed. Children that inherit
 // the pipe write handles (daemons, browsers, npm shim chains) can keep them
@@ -559,9 +648,10 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string, timeout tim
 	// alongside the output collected so far.
 	cmd.WaitDelay = execIOWaitDelay
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := newCappedOutputBuffer(syncOutputRetainLimit)
+	stderr := newCappedOutputBuffer(syncOutputRetainLimit)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	// Route shell execution through the shared isolation entry point so exec tool
 	// subprocesses receive the same isolation policy as other integrations.
@@ -753,6 +843,7 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 	var stdoutReader io.ReadCloser
 	var stderrReader io.ReadCloser
 	var stdinWriter io.WriteCloser
+	var ptyTTY *os.File
 
 	if ptyEnabled {
 		ptmx, tty, err := pty.Open()
@@ -769,6 +860,7 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 		setSysProcAttrForPty(cmd)
 
 		session.ptyMaster = ptmx
+		ptyTTY = tty
 	} else {
 		var err error
 		stdoutReader, err = cmd.StdoutPipe()
@@ -787,17 +879,33 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 		session.stdinWriter = stdinWriter
 	}
 
-	// Background sessions use the same startup path so isolation stays consistent
-	// with synchronous exec runs.
+	// Background sessions use the same startup path so isolation stays
+	// consistent with synchronous exec runs.
 	if err := isolation.Start(cmd); err != nil {
 		if session.ptyMaster != nil {
 			_ = session.ptyMaster.Close()
 		}
+		if ptyTTY != nil {
+			_ = ptyTTY.Close()
+		}
 		return ErrorResult(fmt.Sprintf("failed to start command: %v", err))
+	}
+	if ptyTTY != nil {
+		// The child dup'ed its own slave descriptors at exec; the parent's
+		// copy must go or the master never sees EOF and both the fd and the
+		// reader goroutine below leak for the lifetime of the process.
+		_ = ptyTTY.Close()
 	}
 
 	session.PID = cmd.Process.Pid
 	t.sessionManager.Add(session)
+	// Track the whole tree so a later kill reaches orphaned grandchildren
+	// (job object on Windows, process group on Unix); the handle is released
+	// in the wait goroutines once the process is reaped.
+	trackProcessTree(cmd)
+	session.mu.Lock()
+	session.terminator = func() error { return terminateProcessTree(cmd) }
+	session.mu.Unlock()
 
 	session.outputBuffer = &bytes.Buffer{}
 
@@ -819,11 +927,17 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 				}
 			}()
 			cmd.Wait() // Wait for process to exit
+			releaseProcessTree(cmd)
+			// The child is gone: close the master so the reader goroutine's
+			// Read unblocks (EOF/EIO) and the fd is released. The session is
+			// done, so no writer can race this (Write rejects done sessions).
+			_ = session.ptyMaster.Close()
 			session.mu.Lock()
 			if cmd.ProcessState != nil {
 				session.ExitCode = cmd.ProcessState.ExitCode()
 			}
 			session.Status = "done"
+			session.finishedAt = time.Now().Unix()
 			session.mu.Unlock()
 		}()
 
@@ -863,9 +977,15 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 			}
 		}()
 	} else {
-		// Non-PTY mode: single goroutine reads pipes.
-		// When Read() returns EOF (pipe closed), we break.
-		// When process exits, OS closes pipe write end → Read() returns EOF → we exit.
+		// Non-PTY mode: stdout and stderr are drained concurrently — the old
+		// sequential drain (stdout to EOF, then stderr) kept stderr invisible
+		// for as long as the process kept stdout open. The child is reaped
+		// via os.Process.Wait rather than exec.Cmd.Wait: the latter closes
+		// our pipe read ends as soon as the process exits, racing the final
+		// drain (lost tail output). A grandchild inheriting the pipe write
+		// ends must not wedge the session in "running" forever either: after
+		// the process is reaped, the copiers get a grace period to hit EOF,
+		// then the read ends are closed to unblock them.
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
@@ -876,59 +996,79 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 						})
 				}
 			}()
-			buf := make([]byte, 4096)
 
-			// Read stdout
-			for {
-				n, err := stdoutReader.Read(buf)
-				if n > 0 {
-					session.mu.Lock()
-					if session.outputBuffer.Len() >= maxOutputBufferSize {
-						if !session.outputTruncated {
-							session.outputBuffer.WriteString(outputTruncateMarker)
-							session.outputTruncated = true
-						}
-					} else {
-						session.outputBuffer.Write(buf[:n])
+			appendOutput := func(data []byte) {
+				session.mu.Lock()
+				if session.outputBuffer.Len() >= maxOutputBufferSize {
+					if !session.outputTruncated {
+						session.outputBuffer.WriteString(outputTruncateMarker)
+						session.outputTruncated = true
 					}
-					session.mu.Unlock()
+				} else {
+					session.outputBuffer.Write(data)
 				}
-				if err != nil {
-					break
-				}
+				session.mu.Unlock()
 			}
 
-			// Read stderr
-			for {
-				n, err := stderrReader.Read(buf)
-				if n > 0 {
-					session.mu.Lock()
-					if session.outputBuffer.Len() >= maxOutputBufferSize {
-						if !session.outputTruncated {
-							session.outputBuffer.WriteString(outputTruncateMarker)
-							session.outputTruncated = true
-						}
-					} else {
-						session.outputBuffer.Write(buf[:n])
-					}
-					session.mu.Unlock()
+			var wg sync.WaitGroup
+			drain := func(r io.ReadCloser) {
+				defer wg.Done()
+				if r == nil {
+					return
 				}
-				if err != nil {
-					break
+				buf := make([]byte, 4096)
+				for {
+					n, err := r.Read(buf)
+					if n > 0 {
+						appendOutput(buf[:n])
+					}
+					if err != nil {
+						return
+					}
 				}
 			}
+			wg.Add(2)
+			go drain(stdoutReader)
+			go drain(stderrReader)
 
-			// All pipes closed, get exit status
+			// Reap the child without touching the session pipes.
+			type waitResult struct {
+				state *os.ProcessState
+			}
+			reaped := make(chan waitResult, 1)
+			go func() {
+				state, _ := cmd.Process.Wait()
+				reaped <- waitResult{state: state}
+			}()
+			exitState := (<-reaped).state
+			releaseProcessTree(cmd)
+
+			drained := make(chan struct{})
+			go func() {
+				wg.Wait()
+				close(drained)
+			}()
+			select {
+			case <-drained:
+			case <-time.After(execIOWaitDelay):
+				// Grandchildren hold the write ends; abandon the pipes like
+				// runSync's WaitDelay does.
+				_ = stdoutReader.Close()
+				_ = stderrReader.Close()
+				<-drained
+			}
+			_ = stdoutReader.Close()
+			_ = stderrReader.Close()
 			if stdinWriter != nil {
 				_ = stdinWriter.Close()
 			}
-			cmd.Wait()
 
 			session.mu.Lock()
-			if cmd.ProcessState != nil {
-				session.ExitCode = cmd.ProcessState.ExitCode()
+			if exitState != nil {
+				session.ExitCode = exitState.ExitCode()
 			}
 			session.Status = "done"
+			session.finishedAt = time.Now().Unix()
 			session.mu.Unlock()
 		}()
 	}

@@ -405,7 +405,35 @@ func HtmlToMarkdown(htmlStr string) (string, error) {
 	// Strip a single leading space from lines that are NOT list indentation.
 	// "(?m)^([ \t])([^ \t\n])" matches exactly one space/tab at line start followed
 	// by a non-whitespace char, so "    - nested" (4 spaces) is left untouched.
-	res = reLeadingLineSpace.ReplaceAllString(res, "$2")
+	// Fenced code blocks are excluded: stripping a single leading space inside
+	// a fence silently rewrites code (YAML indentation, aligned comments).
+	res = stripLeadingLineSpaceOutsideFences(res)
 
 	return res, nil
+}
+
+// stripLeadingLineSpaceOutsideFences applies reLeadingLineSpace line by
+// line, skipping lines inside ``` / ~~~ fences (fence lines toggle the
+// state; an unclosed fence keeps the rest of the document fenced, matching
+// CommonMark).
+func stripLeadingLineSpaceOutsideFences(s string) string {
+	lines := strings.Split(s, "\n")
+	inFence := false
+	fenceMarker := ""
+	for i, line := range lines {
+		trimmed := strings.TrimLeft(line, " \t")
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			marker := trimmed[:3]
+			if !inFence {
+				inFence, fenceMarker = true, marker
+			} else if marker == fenceMarker {
+				inFence, fenceMarker = false, ""
+			}
+			continue
+		}
+		if !inFence {
+			lines[i] = reLeadingLineSpace.ReplaceAllString(line, "$2")
+		}
+	}
+	return strings.Join(lines, "\n")
 }

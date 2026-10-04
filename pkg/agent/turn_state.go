@@ -261,6 +261,12 @@ type turnState struct {
 
 	persistedMessages []providers.Message
 
+	// persistMu serializes tool-result persistence against the hard-abort
+	// seal (sealAbortedTurnSession): without it the check-then-act window in
+	// appendToolResultMessage can land a real tool result after the seal
+	// note, duplicating a tool_call_id (next LLM request would 400).
+	persistMu sync.Mutex
+
 	// SubTurn support (from HEAD)
 	depth                int                    // SubTurn depth (0 for root turn)
 	parentTurnID         string                 // Parent turn ID (empty for root turn)

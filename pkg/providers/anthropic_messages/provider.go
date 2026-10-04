@@ -50,24 +50,28 @@ type Provider struct {
 
 // NewProvider creates a new Anthropic Messages API provider.
 func NewProvider(apiKey, apiBase, userAgent string) *Provider {
-	return NewProviderWithTimeout(apiKey, apiBase, userAgent, 0)
+	return NewProviderWithTimeout(apiKey, apiBase, userAgent, 0, "")
 }
 
 // NewProviderWithTimeout creates a provider with custom request timeout.
-func NewProviderWithTimeout(apiKey, apiBase, userAgent string, timeoutSeconds int) *Provider {
+// proxy may be empty; when set, requests are routed through it (same
+// mounting as common.NewHTTPClient — the factory passes cfg.Proxy for
+// parity with the openai/gemini/azure branches).
+func NewProviderWithTimeout(apiKey, apiBase, userAgent string, timeoutSeconds int, proxy string) *Provider {
 	baseURL := common.NormalizeBaseURL(apiBase, defaultBaseURL, true)
 	timeout := defaultRequestTimeout
 	if timeoutSeconds > 0 {
 		timeout = time.Duration(timeoutSeconds) * time.Second
 	}
 
+	httpClient := common.NewHTTPClient(proxy)
+	httpClient.Timeout = timeout
+
 	return &Provider{
-		apiKey:    apiKey,
-		apiBase:   baseURL,
-		userAgent: userAgent,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
+		apiKey:     apiKey,
+		apiBase:    baseURL,
+		userAgent:  userAgent,
+		httpClient: httpClient,
 	}
 }
 

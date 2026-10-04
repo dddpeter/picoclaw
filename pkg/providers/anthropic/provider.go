@@ -100,6 +100,13 @@ func (p *Provider) Chat(
 		return p.chatStreaming(ctx, params, opts)
 	}
 
+	// The SDK defaults to http.DefaultClient (no timeout): a non-streaming
+	// call against a black-holed upstream would hang the turn forever and
+	// the fallback chain could never rotate. Bound the non-streaming request
+	// like anthropic_messages does (streaming stays unbounded by design —
+	// context cancellation and the streaming idle timeout guard it).
+	opts = append(opts, option.WithRequestTimeout(common.DefaultRequestTimeout))
+
 	resp, err := p.client.Messages.New(ctx, params, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("claude API call: %w", err)

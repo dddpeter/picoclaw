@@ -80,6 +80,28 @@ func isDarwinPlatform() bool {
 	return runtime.GOOS == "darwin"
 }
 
+// stripExtendedPathPrefix removes the Windows extended-path prefixes
+// (`\\?\`, `\\?\UNC\`, `\\.\`) so prefix matching sees the plain Win32 path.
+// filepath.Clean, GetLongPathName and EvalSymlinks all preserve the prefix,
+// which makes every hasPathPrefix check miss — the `\\?\C:\Windows\...`
+// alias would sail straight past the guard (exec's guardCommand strips the
+// same alias, so the two layers must agree).
+func stripExtendedPathPrefix(p string) string {
+	if !isWindowsPlatform() {
+		return p
+	}
+	if strings.HasPrefix(p, `\\?\UNC\`) {
+		return `\\` + p[len(`\\?\UNC\`):]
+	}
+	if strings.HasPrefix(p, `\\?\`) {
+		return p[len(`\\?\`):]
+	}
+	if strings.HasPrefix(p, `\\.\`) {
+		return p[len(`\\.\`):]
+	}
+	return p
+}
+
 // IsProtectedSystemPath reports whether p is at or inside a protected OS
 // system directory. Both the literal path and its symlink resolution are
 // checked, so links pointing into e.g. C:\Windows are refused too; for
@@ -89,7 +111,10 @@ func IsProtectedSystemPath(p string) bool {
 	if p == "" {
 		return false
 	}
-	cleaned := filepath.Clean(p)
+	// Extended-path aliases are normalized first: every candidate below
+	// derives from this cleaned form, so `\\?\`-prefixed inputs are checked
+	// against the same prefixes as their plain equivalents.
+	cleaned := filepath.Clean(stripExtendedPathPrefix(p))
 	candidates := []string{cleaned}
 	// 8.3 short names (C:\PROGRA~1) are a Windows path alias EvalSymlinks
 	// does not expand; resolve them before matching prefixes.

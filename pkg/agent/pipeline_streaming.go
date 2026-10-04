@@ -452,6 +452,12 @@ func (p *streamingChunkPublisher) Update(ctx context.Context, accumulated string
 	if p.ts != nil {
 		p.ts.touchActivity()
 	}
+	// publishMu covers the streamer call so the answer write's seq read and
+	// API send cannot interleave with a heartbeat panel flush (AppendToolStep
+	// holds the same mutex): feishu CardKit rejects out-of-order seqs, and a
+	// rejected answer write surfaces as a visible turn failure.
+	p.publishMu.Lock()
+	defer p.publishMu.Unlock()
 	if setter, ok := p.streamer.(interface{ SetModelName(modelName string) }); ok {
 		setter.SetModelName(p.modelName)
 	}
@@ -481,6 +487,10 @@ func (p *streamingChunkPublisher) UpdateReasoning(ctx context.Context, accumulat
 	if !ok {
 		return
 	}
+	// Same publishMu discipline as Update: keep reasoning writes ordered
+	// against heartbeat panel flushes.
+	p.publishMu.Lock()
+	defer p.publishMu.Unlock()
 	if err := reasoningStreamer.UpdateReasoning(ctx, accumulated); err != nil {
 		p.err = err
 		logger.WarnCF("agent", "stream reasoning update failed", map[string]any{

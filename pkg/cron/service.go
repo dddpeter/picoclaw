@@ -275,6 +275,13 @@ func (cs *CronService) executeJobByID(jobID string) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
+	// Re-read the store first if the file changed while the job ran (the job
+	// execution above can hold no lock for minutes). The final save below
+	// writes this in-memory store wholesale — without the reload it would
+	// clobber jobs added/edited via the CLI during the run and refresh
+	// storeMod so the mtime probe never notices the rollback.
+	cs.reloadStoreIfChangedLocked()
+
 	var job *CronJob
 	for i := range cs.store.Jobs {
 		if cs.store.Jobs[i].ID == jobID {
@@ -347,8 +354,35 @@ func (cs *CronService) computeNextRun(schedule *CronSchedule, nowMS int64) *int6
 			return nil
 		}
 
-		// Use gronx to calculate next run time
 		now := time.UnixMilli(nowMS)
+		// gronx evaluates the expression against the wall-clock fields of
+		// the reference time and preserves its location, so evaluating in
+		// the schedule's zone makes the fields mean local time there. The
+		// result is reinterpreted in the same zone before converting to
+		// epoch millis. Without this the configured zone was silently
+		// ignored (jobs fired on server-local time).
+		if tz := strings.TrimSpace(schedule.TZ); tz != "" {
+			loc, err := time.LoadLocation(tz)
+			if err != nil {
+				log.Printf("[cron] invalid timezone %q for expr '%s': %v (falling back to server-local)", tz, schedule.Expr, err)
+			} else {
+				now = now.In(loc)
+				nextTime, err := gronx.NextTickAfter(schedule.Expr, now, false)
+				if err != nil {
+					log.Printf("[cron] failed to compute next run for expr '%s': %v", schedule.Expr, err)
+					return nil
+				}
+				inZone := time.Date(
+					nextTime.Year(), nextTime.Month(), nextTime.Day(),
+					nextTime.Hour(), nextTime.Minute(), nextTime.Second(),
+					0, loc,
+				)
+				nextMS := inZone.UnixMilli()
+				return &nextMS
+			}
+		}
+
+		// Use gronx to calculate next run time
 		nextTime, err := gronx.NextTickAfter(schedule.Expr, now, false)
 		if err != nil {
 			log.Printf("[cron] failed to compute next run for expr '%s': %v", schedule.Expr, err)
@@ -427,6 +461,21 @@ func (cs *CronService) reloadStoreIfChanged() {
 		return
 	}
 
+	if err := cs.loadStore(); err != nil {
+		log.Printf("[cron] failed to reload store after external change: %v", err)
+		return
+	}
+	cs.recomputeNextRuns()
+	log.Printf("[cron] reloaded store from disk (external change detected)")
+}
+
+// reloadStoreIfChangedLocked is reloadStoreIfChanged for callers already
+// holding cs.mu (executeJobByID's post-run state update).
+func (cs *CronService) reloadStoreIfChangedLocked() {
+	mod, ok := cs.statStoreModTime()
+	if !ok || mod.Equal(cs.storeMod) {
+		return
+	}
 	if err := cs.loadStore(); err != nil {
 		log.Printf("[cron] failed to reload store after external change: %v", err)
 		return
@@ -521,6 +570,11 @@ func ValidateSchedule(schedule CronSchedule) error {
 		}
 		if !gronx.IsValid(expr) {
 			return fmt.Errorf("invalid cron expression %q: expected 5 fields (e.g. \"0 9 * * *\")", expr)
+		}
+		if tz := strings.TrimSpace(schedule.TZ); tz != "" {
+			if _, err := time.LoadLocation(tz); err != nil {
+				return fmt.Errorf("invalid timezone %q (IANA name expected, e.g. \"Asia/Shanghai\")", tz)
+			}
 		}
 		schedule.Expr = expr
 		return nil

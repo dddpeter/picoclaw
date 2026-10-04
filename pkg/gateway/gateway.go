@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -911,6 +913,13 @@ func setupCronTool(
 	if cronTool != nil {
 		cronService.SetOnJob(func(job *cron.CronJob) (string, error) {
 			result := cronTool.ExecuteJob(context.Background(), job)
+			// ExecuteJob encodes failures in the returned string ("Error: …"
+			// from the wake gate and the agent turn); surfacing them as an
+			// error is what marks LastStatus/LastError in jobs.json — without
+			// this a failing job is recorded as "ok" forever.
+			if strings.HasPrefix(result, "Error: ") {
+				return result, errors.New(result)
+			}
 			return result, nil
 		})
 	}

@@ -318,6 +318,19 @@ func (p *Pipeline) CallLLM(
 			exec.abortedByHardAbort = true
 			return ControlBreak, nil
 		}
+		// Stall watchdog gracefully cancelled the in-flight call to unblock
+		// the turn: treat it as a checkpoint, not an LLM failure. Continuing
+		// re-enters the loop with a fresh provider context so the model gets
+		// its promised wrap-up call; if it stalls again the watchdog's
+		// hard-abort escalation bounds the loop.
+		if graceful, hint := ts.gracefulInterruptRequested(); graceful && errors.Is(err, context.Canceled) {
+			logger.WarnCF("agent", "LLM call cancelled by graceful interrupt; continuing turn for wrap-up",
+				map[string]any{
+					"agent_id": ts.agent.ID,
+					"hint":     hint,
+				})
+			return ControlContinue, nil
+		}
 		if isConfiguredStreamingVisibleError(err) {
 			break
 		}

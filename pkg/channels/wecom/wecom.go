@@ -283,6 +283,10 @@ func (c *WeComChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMessa
 			if err != nil {
 				return
 			}
+			// The media part is delivered: count it before the caption push
+			// so a caption failure reports sent>0 (permanent — retrying the
+			// batch would re-send the already-delivered media, B6).
+			sent++
 			if caption := strings.TrimSpace(part.Caption); caption != "" {
 				err = c.sendActivePush(chatID, chatType, caption)
 			}
@@ -290,7 +294,6 @@ func (c *WeComChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMessa
 		if err != nil {
 			return nil, channels.MediaSendErr(sent, err)
 		}
-		sent++
 	}
 
 	return nil, nil

@@ -659,7 +659,10 @@ func (c *TelegramChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMe
 				"count": len(msg.Parts),
 				"error": err.Error(),
 			})
-			return nil, err
+			// messageIDs already holds the leading caption chunks (sent
+			// before the group) — counting them makes the error permanent so
+			// the manager never retries a batch that would re-send them (B6).
+			return messageIDs, channels.MediaSendErr(len(messageIDs), err)
 		}
 		if len(groupIDs) > 0 {
 			messageIDs = append(messageIDs, groupIDs...)
@@ -899,7 +902,9 @@ func (c *TelegramChannel) sendCaptionText(
 			useMarkdownV2: false,
 		})
 		if err != nil {
-			return nil, err
+			// Chunks before this one are already in the chat — classify so
+			// the manager never retries and duplicates them (B6).
+			return messageIDs, channels.MediaSendErr(len(messageIDs), err)
 		}
 		messageIDs = append(messageIDs, msgID)
 	}

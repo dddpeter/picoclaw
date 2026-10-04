@@ -224,9 +224,13 @@ type feishuStreamState struct {
 }
 
 func (s *feishuStreamState) hasPanelContent() bool {
+	// ProgressNote deliberately does not count: it is a transient heartbeat
+	// line, not user-visible panel content. Counting it would defeat the
+	// empty-card deletion in CancelWithReason — a turn that failed before any
+	// output but after one heartbeat would leave an "⚠ 已中断" card behind
+	// instead of being deleted. Sealed cards clear ProgressNote anyway.
 	return len(s.Rounds) > 0 || strings.TrimSpace(s.CurReasoning) != "" ||
-		len(s.Tools) > 0 || s.SteeringCount > 0 || s.RunningTool != nil ||
-		s.ProgressNote != ""
+		len(s.Tools) > 0 || s.SteeringCount > 0 || s.RunningTool != nil
 }
 
 func (s *feishuStreamState) reasoningTotal() time.Duration {
