@@ -324,6 +324,73 @@ func TestClient_SetSessionIDRedials(t *testing.T) {
 	}
 }
 
+// pingLoopServer hands back a handler that keeps the connection alive with
+// WS ping frames only — an idle session with zero data traffic, the exact
+// shape that starves a ReadMessage without a deadline refresh.
+func pingLoopServer(t *testing.T) *fakePicoServer {
+	return newFakePicoServer(t, false, func(_ *testing.T, conn *websocket.Conn, _ *http.Request) {
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(time.Second)); err != nil {
+				return
+			}
+			<-ticker.C
+		}
+	})
+}
+
+// Regression: Stop() used to block for a full ReadTimeout (60s) because the
+// read loop parks in ReadMessage and server pings never surface there; the
+// ctx watcher must close the conn and unblock it immediately.
+func TestClient_StopInterruptsIdleReadQuickly(t *testing.T) {
+	fs := pingLoopServer(t)
+	c := New(Config{URL: fs.url(), Token: "test-token"})
+	c.Start(t.Context())
+
+	for {
+		if s := waitState(t, c); s == StateConnected {
+			break
+		}
+	}
+
+	done := make(chan struct{})
+	start := time.Now()
+	go func() { c.Stop(); close(done) }()
+	select {
+	case <-done:
+		if elapsed := time.Since(start); elapsed > 5*time.Second {
+			t.Fatalf("Stop() took %s on an idle ping-kept connection, want immediate", elapsed)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Stop() blocked: ReadMessage not interrupted by ctx cancellation")
+	}
+}
+
+// Regression: server pings must refresh the read deadline. With a 1s
+// ReadTimeout and 200ms pings the connection has to survive several
+// timeout windows; previously the untouched absolute deadline severed a
+// healthy idle connection every ReadTimeout.
+func TestClient_ServerPingsKeepIdleConnectionAlive(t *testing.T) {
+	fs := pingLoopServer(t)
+	c := New(Config{URL: fs.url(), Token: "test-token", ReadTimeout: time.Second})
+	c.Start(t.Context())
+	t.Cleanup(c.Stop)
+
+	for {
+		if s := waitState(t, c); s == StateConnected {
+			break
+		}
+	}
+
+	time.Sleep(3 * time.Second) // three ReadTimeout windows of pings-only traffic
+	select {
+	case s := <-c.States():
+		t.Fatalf("idle ping-kept connection dropped: state %v", s)
+	default:
+	}
+}
+
 func TestDecode_ToolCallsAndKinds(t *testing.T) {
 	msg := pico.PicoMessage{
 		Type: pico.TypeMessageCreate,

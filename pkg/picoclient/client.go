@@ -40,10 +40,13 @@ const (
 	defaultBackoffMax     = 5 * time.Second
 	defaultDialTimeout    = 10 * time.Second
 	// Must stay above the server's ping interval (default 30s) so a healthy
-	// connection is never dropped: the gateway pings and gorilla auto-pongs.
+	// connection is never dropped: the gateway pings, gorilla auto-pongs and
+	// our ping handler below refreshes this deadline on every server ping.
 	defaultReadTimeout = 60 * time.Second
-	eventBuffer        = 256
-	stateBuffer        = 16
+	// Bounds control-frame writes (pong replies) from the read goroutine.
+	writeControlTimeout = 10 * time.Second
+	eventBuffer         = 256
+	stateBuffer         = 16
 )
 
 // ErrNotConnected is returned by Send when no connection is up. Callers that
@@ -63,7 +66,8 @@ type Config struct {
 	BackoffMax     time.Duration
 	// DialTimeout bounds the initial WS handshake (default 10s).
 	DialTimeout time.Duration
-	// ReadTimeout bounds idle reads; refreshed by server pings (default 60s).
+	// ReadTimeout bounds idle reads; refreshed by each data message and by
+	// every server ping (default 60s).
 	ReadTimeout time.Duration
 }
 
@@ -177,6 +181,9 @@ func (c *Client) run() {
 		}
 		c.setState(StateConnecting)
 
+		c.mu.Lock()
+		dialSession := c.sessionID
+		c.mu.Unlock()
 		conn, err := c.dial()
 		if err != nil {
 			c.setState(StateDisconnected)
@@ -190,10 +197,18 @@ func (c *Client) run() {
 
 		c.mu.Lock()
 		c.conn = conn
+		// SetSessionID may have fired while the handshake was completing:
+		// it found c.conn still nil and closed nothing, so detect the
+		// session change here and drop the stale connection ourselves
+		// instead of waiting out the read deadline.
+		stale := c.sessionID != dialSession
 		c.mu.Unlock()
-		c.setState(StateConnected)
-
-		c.readLoop(conn)
+		if !stale {
+			c.setState(StateConnected)
+			c.readLoop(conn)
+		} else {
+			_ = conn.Close()
+		}
 
 		c.mu.Lock()
 		c.conn = nil
@@ -232,7 +247,30 @@ func (c *Client) dial() (*websocket.Conn, error) {
 func (c *Client) readLoop(conn *websocket.Conn) {
 	defer conn.Close()
 
+	// Closing the conn is the only way to interrupt a ReadMessage parked on
+	// an idle session: the gateway's pings are consumed inside gorilla's
+	// read machinery and never surface as messages, so the ctx checks in
+	// this loop would otherwise only fire after the full ReadTimeout. The
+	// watcher keeps the dial-to-assignment window race-free too.
+	watcherDone := make(chan struct{})
+	defer close(watcherDone)
+	go func() {
+		select {
+		case <-c.ctx.Done():
+			_ = conn.Close()
+		case <-watcherDone:
+		}
+	}()
+
 	_ = conn.SetReadDeadline(time.Now().Add(c.cfg.ReadTimeout))
+	// The client never pings, so pongs never arrive; server pings are the
+	// idle-session keepalive and must refresh the read deadline (the default
+	// ping handler auto-pongs but leaves the deadline untouched, which would
+	// needlessly sever a healthy idle connection every ReadTimeout).
+	conn.SetPingHandler(func(appData string) error {
+		_ = conn.SetReadDeadline(time.Now().Add(c.cfg.ReadTimeout))
+		return conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(writeControlTimeout))
+	})
 	conn.SetPongHandler(func(string) error {
 		return conn.SetReadDeadline(time.Now().Add(c.cfg.ReadTimeout))
 	})
