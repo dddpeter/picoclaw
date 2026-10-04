@@ -69,7 +69,7 @@ func TestProgressHeartbeat_PublishesAfterIdle(t *testing.T) {
 	}
 	found := false
 	for _, s := range rs.steps {
-		if s.Kind == bus.ToolStepKindText && strings.Contains(fmt.Sprint(s.Result), "进度") {
+		if s.Kind == bus.ToolStepKindProgress && strings.Contains(fmt.Sprint(s.Result), "进度") {
 			found = true
 		}
 	}
@@ -247,7 +247,7 @@ func TestProgressHeartbeat_StallWatchdogInterrupts(t *testing.T) {
 	}
 	notices := 0
 	for _, s := range rs.steps {
-		if s.Kind == bus.ToolStepKindText && strings.Contains(fmt.Sprint(s.Result), "收尾") {
+		if s.Kind == bus.ToolStepKindProgress && strings.Contains(fmt.Sprint(s.Result), "收尾") {
 			notices++
 		}
 	}

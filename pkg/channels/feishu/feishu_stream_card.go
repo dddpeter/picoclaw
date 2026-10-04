@@ -28,10 +28,12 @@ const (
 	feishuElementLimitMargin = 5
 )
 
-// feishuInvalidImageKeyRe matches markdown image refs whose key is not a valid
-// Feishu image_key (must be img_v2_/img_v3_... uploaded via the image API).
-// CardKit rejects the whole card with 200570 otherwise.
-var feishuImageRefRe = regexp.MustCompile(`!\[[^\]]*\]\(([^)]+)\)`)
+// feishuImageRefRe matches markdown image refs. The URL part allows one
+// level of balanced parentheses (wiki-style "a_(1).png") and excludes
+// whitespace, so two images on one line never fuse into a single match;
+// refs whose key is not a real Feishu image_key are degraded to links so
+// the card never fails validation (code=200570).
+var feishuImageRefRe = regexp.MustCompile(`!\[[^\]]*\]\(((?:[^()\s]|\([^()\s]*\))+)\)`)
 
 // sanitizeFeishuMarkdownImages rewrites image refs that use local filenames or
 // URLs instead of real Feishu image_keys into plain-text file references so
@@ -207,6 +209,11 @@ type feishuStreamState struct {
 	// the panel timeline. Cleared by UpdateReasoning/Update and at seal.
 	WaitingModel bool
 
+	// ProgressNote is the latest transient progress beat (heartbeat / stall
+	// notice, ToolStepKindProgress): one replaceable grey status line at the
+	// timeline tail — never a narration pin, never a timeline archive (B3).
+	ProgressNote string
+
 	// Context usage snapshot at finalize, for the footer.
 	ContextUsed   int
 	ContextTotal  int
@@ -215,7 +222,8 @@ type feishuStreamState struct {
 
 func (s *feishuStreamState) hasPanelContent() bool {
 	return len(s.Rounds) > 0 || strings.TrimSpace(s.CurReasoning) != "" ||
-		len(s.Tools) > 0 || s.SteeringCount > 0 || s.RunningTool != nil
+		len(s.Tools) > 0 || s.SteeringCount > 0 || s.RunningTool != nil ||
+		s.ProgressNote != ""
 }
 
 func (s *feishuStreamState) reasoningTotal() time.Duration {
@@ -293,6 +301,7 @@ func degradeFeishuCardConfig(card map[string]any) {
 // element's typewriter survives the replacement. spinnerKey, when non-empty,
 // swaps the status line icon for the animated amber spinner.
 func buildFeishuRefreshCard(state *feishuStreamState, answer, phase string, panelBudget int, spinnerKey string) map[string]any {
+	answerContent := clampFeishuRefreshSnapshot(sanitizeFeishuMarkdownImages(composeFeishuAnswer(state.Narration, answer)))
 	card := map[string]any{
 		"schema": "2.0",
 		"config": feishuStreamingCardConfig(),
@@ -301,7 +310,7 @@ func buildFeishuRefreshCard(state *feishuStreamState, answer, phase string, pane
 				buildFeishuPanelBudget(state, true, panelBudget),
 				map[string]any{
 					"tag":        "markdown",
-					"content":    sanitizeFeishuMarkdownImages(composeFeishuAnswer(state.Narration, answer)),
+					"content":    answerContent,
 					"text_align": "left",
 					"text_size":  "normal_v2",
 					"element_id": feishuAnswerElementID,
@@ -547,6 +556,13 @@ func buildFeishuPanelBudget(state *feishuStreamState, expanded bool, textBudget 
 	}
 	if state.WaitingModel && state.RunningTool == nil && strings.TrimSpace(state.CurReasoning) == "" {
 		children = append(children, feishuWaitingModelElement())
+	}
+	if note := strings.TrimSpace(state.ProgressNote); note != "" {
+		children = append(children, map[string]any{
+			"tag":       "markdown",
+			"content":   fmt.Sprintf("<font color='grey'>%s</font>", note),
+			"text_size": "notation",
+		})
 	}
 	if len(children) == 0 {
 		children = append(children, map[string]any{"tag": "markdown", "content": " "})
@@ -857,9 +873,49 @@ func feishuIndentedLarkMD(content string) map[string]any {
 // The panel folds on seal ("收起来即可"): reasoning text stays flat inside,
 // one click on the header reveals every round.
 func buildFeishuFinalCard(state *feishuStreamState, answer string, aborted bool, elapsed time.Duration, cancelReason string) map[string]any {
+	return buildFeishuFinalCardComposed(state, composeFeishuAnswer(state.Narration, answer), answer, aborted, elapsed, cancelReason)
+}
+
+// buildFeishuFinalCardComposed seals with pre-composed answer content: the
+// narration trail and answer already joined (and typically clamped to the
+// card budget) by the caller. summarySource is the un-clamped answer used
+// for the card summary preview.
+func buildFeishuFinalCardComposed(state *feishuStreamState, composed, summarySource string, aborted bool, elapsed time.Duration, cancelReason string) map[string]any {
 	return buildFeishuCardWithinSize(func(panelBudget int) map[string]any {
-		return buildFeishuFinalCardBudget(state, answer, aborted, elapsed, cancelReason, panelBudget)
+		return buildFeishuFinalCardBudget(state, composed, summarySource, aborted, elapsed, cancelReason, panelBudget)
 	})
+}
+
+// buildFeishuMinimalFinalCard is the last-resort seal (B1): answer + footer
+// only, no process panel, with the answer already hard-clamped by the
+// caller so the card always fits the 30KB cap. Used when the regular seal
+// card is rejected (panel scaffolding + answer overflowed): a sealed
+// minimal card beats a card stuck in streaming mode forever.
+func buildFeishuMinimalFinalCard(state *feishuStreamState, content string, aborted bool, elapsed time.Duration, cancelReason string) map[string]any {
+	elements := []any{}
+	if strings.TrimSpace(content) != "" {
+		elements = append(elements, map[string]any{
+			"tag":        "markdown",
+			"content":    content,
+			"text_align": "left",
+			"text_size":  "normal_v2",
+			"element_id": feishuAnswerElementID,
+		})
+	} else if !state.hasPanelContent() {
+		elements = append(elements, feishuVerdictElement(aborted, cancelReason))
+	}
+	elements = append(elements, buildFeishuFooter(state, aborted, elapsed, cancelReason)...)
+	card := map[string]any{
+		"schema": "2.0",
+		"config": map[string]any{
+			"streaming_mode": false,
+			"locales":        []string{"zh_cn", "en_us"},
+			"summary":        feishuCardSummary(content),
+		},
+		"body": map[string]any{"elements": elements},
+	}
+	enforceFeishuElementLimit(card)
+	return card
 }
 
 // feishuCancelReasonText maps stable cancellation codes to display text.
@@ -879,6 +935,8 @@ func feishuCancelReasonText(reason string) string {
 		return "硬中断"
 	case "turn_aborted":
 		return "回合中止"
+	case feishuCancelSuperseded:
+		return "已被新任务取代"
 	case "":
 		return ""
 	default:
@@ -886,14 +944,14 @@ func feishuCancelReasonText(reason string) string {
 	}
 }
 
-func buildFeishuFinalCardBudget(state *feishuStreamState, answer string, aborted bool, elapsed time.Duration, cancelReason string, panelBudget int) map[string]any {
+func buildFeishuFinalCardBudget(state *feishuStreamState, composed, summarySource string, aborted bool, elapsed time.Duration, cancelReason string, panelBudget int) map[string]any {
 	elements := []any{}
 	if state.hasPanelContent() {
 		elements = append(elements, buildFeishuPanelBudget(state, false, panelBudget))
 	}
 	// The answer element carries the narration trail above the final answer;
 	// the card summary below previews the final answer alone.
-	if composed := composeFeishuAnswer(state.Narration, answer); strings.TrimSpace(composed) != "" {
+	if strings.TrimSpace(composed) != "" {
 		elements = append(elements, map[string]any{
 			"tag":        "markdown",
 			"content":    composed,
@@ -902,18 +960,7 @@ func buildFeishuFinalCardBudget(state *feishuStreamState, answer string, aborted
 			"element_id": feishuAnswerElementID,
 		})
 	} else if !state.hasPanelContent() {
-		content := "✓ 已完成"
-		if aborted {
-			content = "⚠ 已中断"
-			if text := feishuCancelReasonText(cancelReason); text != "" {
-				content += " · " + text
-			}
-		}
-		elements = append(elements, map[string]any{
-			"tag":       "markdown",
-			"content":   content,
-			"text_size": "normal_v2",
-		})
+		elements = append(elements, feishuVerdictElement(aborted, cancelReason))
 	}
 	elements = append(elements, buildFeishuFooter(state, aborted, elapsed, cancelReason)...)
 
@@ -922,12 +969,29 @@ func buildFeishuFinalCardBudget(state *feishuStreamState, answer string, aborted
 		"config": map[string]any{
 			"streaming_mode": false,
 			"locales":        []string{"zh_cn", "en_us"},
-			"summary":        feishuCardSummary(answer),
+			"summary":        feishuCardSummary(summarySource),
 		},
 		"body": map[string]any{"elements": elements},
 	}
 	enforceFeishuElementLimit(card)
 	return card
+}
+
+// feishuVerdictElement is the placeholder shown when a sealed card carries
+// neither answer text nor a process panel.
+func feishuVerdictElement(aborted bool, cancelReason string) map[string]any {
+	content := "✓ 已完成"
+	if aborted {
+		content = "⚠ 已中断"
+		if text := feishuCancelReasonText(cancelReason); text != "" {
+			content += " · " + text
+		}
+	}
+	return map[string]any{
+		"tag":       "markdown",
+		"content":   content,
+		"text_size": "normal_v2",
+	}
 }
 
 func buildFeishuFooter(state *feishuStreamState, aborted bool, elapsed time.Duration, cancelReason string) []any {
@@ -1145,11 +1209,59 @@ func formatFeishuElapsed(d time.Duration) string {
 
 var feishuBacktickRunRe = regexp.MustCompile("`+")
 
+// Answer-in-card budgets (B1): Feishu caps the whole card JSON at 30KB and
+// the panel scaffolding shares that budget with the answer, so an
+// oversized answer must be clamped for the card while its remainder is
+// delivered as follow-up messages — a sealed card with a split tail beats
+// a card stuck in streaming mode forever.
+const (
+	// feishuAnswerCardBudget clamps the answer in a regular seal/refresh
+	// card; leaves ~6KB for panel scaffolding under the 30KB cap.
+	feishuAnswerCardBudget = 24000
+	// feishuAnswerHardBudget clamps the answer in the minimal-seal fallback
+	// card (no panel): small enough that the card always fits.
+	feishuAnswerHardBudget = 12000
+	// feishuRemainderPartRunes bounds each follow-up message part of a split
+	// answer remainder (markdown card message, well under the card cap).
+	feishuRemainderPartRunes = 4000
+)
+
+// Tail notes appended to a clamped answer so users know where the rest is.
+const (
+	feishuAnswerSplitNote  = "⏬ 内容过长，卡片内已截断；余下部分见后续消息"
+	feishuAnswerCancelNote = "⏬ 内容过长，卡片内已截断"
+)
+
+// clampFeishuAnswerForCard bounds composed answer content to budget bytes
+// (rune-safe cut) and returns the remainder to deliver as follow-up
+// messages. tailNote is appended only when content was actually clamped.
+func clampFeishuAnswerForCard(content string, budget int, tailNote string) (inCard, remainder string) {
+	if len(content) <= budget {
+		return content, ""
+	}
+	cut := strings.TrimRight(cutOnRuneBoundary(content, budget), " \t\r\n")
+	remainder = strings.TrimLeft(content[len(cut):], " \t\r\n")
+	if tailNote != "" {
+		cut += "\n\n" + tailNote
+	}
+	return cut, remainder
+}
+
+// clampFeishuRefreshSnapshot bounds the answer snapshot carried by a
+// mid-stream full-card refresh: past the card budget the refreshes would
+// keep failing on Feishu's 30KB cap and silently freeze the panel. The
+// truncation is display-only — the typewriter element keeps receiving the
+// full text, and the sealed card delivers the remainder.
+func clampFeishuRefreshSnapshot(content string) string {
+	inCard, _ := clampFeishuAnswerForCard(content, feishuAnswerCardBudget, "…（内容过长，此处已截断；完整内容以封卡为准）")
+	return inCard
+}
+
 func truncateFeishuReasoning(text string) string {
 	if len(text) <= feishuReasoningDisplayLimit {
 		return text
 	}
-	suffix := fmt.Sprintf("…（已截断，共 %d 字）", len(text))
+	suffix := fmt.Sprintf("…（已截断，共 %d 字）", utf8.RuneCountInString(text))
 	return cutOnRuneBoundary(text, feishuReasoningDisplayLimit-len(suffix)) + suffix
 }
 

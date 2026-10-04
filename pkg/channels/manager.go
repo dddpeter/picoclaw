@@ -633,7 +633,16 @@ func (m *Manager) GetStreamer(ctx context.Context, channelName, chatID, sessionK
 		return nil, false
 	}
 
-	streamer, err := sc.BeginStream(ctx, chatID)
+	// Session-scoped begin when the channel supports it (B2-2): keeps
+	// concurrent turns from different sessions in one chat on distinct
+	// streaming surfaces. Falls back to the legacy unscoped BeginStream.
+	beginStream := func(beginCtx context.Context) (bus.Streamer, error) {
+		if sb, ok := ch.(SessionScopedBeginStreamer); ok {
+			return sb.BeginStreamForSession(beginCtx, chatID, sessionKey)
+		}
+		return sc.BeginStream(beginCtx, chatID)
+	}
+	streamer, err := beginStream(ctx)
 	if err != nil {
 		logger.DebugCF("channels", "Streaming unavailable, falling back to placeholder", map[string]any{
 			"channel": channelName,
@@ -695,7 +704,7 @@ func (m *Manager) GetStreamer(ctx context.Context, channelName, chatID, sessionK
 		return &splitMarkerStreamer{
 			current:     streamer,
 			reasoning:   reasoningStreamerFrom(streamer),
-			begin:       func(beginCtx context.Context) (bus.Streamer, error) { return sc.BeginStream(beginCtx, chatID) },
+			begin:       beginStream,
 			onFinalize:  onFinalize,
 			clearMarker: clearMarker,
 		}, true

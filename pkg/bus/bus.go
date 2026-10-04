@@ -125,6 +125,10 @@ const (
 	// only until the next iteration overwrites it, so the process panel
 	// keeps a copy.
 	ToolStepKindText = "text"
+	// ToolStepKindProgress marks a transient progress beat (heartbeat /
+	// stall notices): channels render it as a replaceable status line, not
+	// as a timeline entry or a narration pin.
+	ToolStepKindProgress = "progress"
 )
 
 // ToolStep describes a single tool execution for streaming panels that render

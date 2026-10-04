@@ -574,9 +574,11 @@ func (p *streamingChunkPublisher) AppendToolStep(ctx context.Context, step bus.T
 	if p == nil || p.streamer == nil {
 		return
 	}
-	// Mid-turn text archives (ToolStepKindText) carry no tool name by design;
-	// only they may pass the gate unnamed.
-	if strings.TrimSpace(step.Tool) == "" && step.Kind != bus.ToolStepKindText {
+	// Mid-turn text archives (ToolStepKindText) and progress beats
+	// (ToolStepKindProgress) carry no tool name by design; only they may
+	// pass the gate unnamed.
+	if strings.TrimSpace(step.Tool) == "" &&
+		step.Kind != bus.ToolStepKindText && step.Kind != bus.ToolStepKindProgress {
 		return
 	}
 	toolStepStreamer, ok := p.streamer.(bus.ToolStepStreamer)

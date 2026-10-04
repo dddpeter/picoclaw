@@ -60,6 +60,16 @@ type StreamingCapable interface {
 	BeginStream(ctx context.Context, chatID string) (Streamer, error)
 }
 
+// SessionScopedBeginStreamer — optional StreamingCapable extension for
+// channels that key streaming surfaces by chatID: the manager passes the
+// turn's sessionKey so reuse can be scoped to one session. Without it,
+// concurrent turns from different sessions in one chat (sender-scoped
+// session dimensions) would share — and fight over — a single surface
+// (docs/design/2026-10-04-feishu-streaming-card-bug-review.zh.md §3).
+type SessionScopedBeginStreamer interface {
+	BeginStreamForSession(ctx context.Context, chatID, sessionKey string) (Streamer, error)
+}
+
 // SteeringNotifyCapable — streaming channels that can acknowledge a steering
 // message (a user message queued for the active turn) on the turn's streaming
 // surface. NotifySteeringInChat returns false when there is no active

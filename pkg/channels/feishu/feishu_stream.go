@@ -54,6 +54,9 @@ type feishuCardStreamer struct {
 	ch     *FeishuChannel
 	chatID string
 	cardID string
+	// sessionKey scopes card reuse to one session (B2-2); empty = unscoped
+	// legacy behavior (any caller may pick the card up).
+	sessionKey string
 	// msgID is the message that delivered the card into the chat. Cancelling
 	// a card that never showed content deletes this message instead of
 	// sealing an "interrupted" marker.
@@ -100,6 +103,9 @@ type feishuCardStreamer struct {
 	reopenStreaming func(ctx context.Context, cardID string, sequence int) error
 	closeStreaming  func(ctx context.Context, cardID string, summary map[string]any, sequence int) error
 	deleteMessage   func(ctx context.Context, chatID, messageID string) error
+	// deliverPart sends one follow-up message part (the oversized-answer
+	// remainder split out of the sealed card, B1) as an ordinary message.
+	deliverPart func(ctx context.Context, chatID, content string) error
 
 	// spinnerKey is the uploaded amber spinner image_key for the status
 	// line's custom icon (empty = standard icon). Snapshot per streamer so
@@ -127,6 +133,7 @@ func newFeishuCardStreamer(ch *FeishuChannel, chatID, cardID, spinnerKey string)
 		reopenStreaming: ch.cardkitReopenStreaming,
 		closeStreaming:  ch.cardkitCloseStreaming,
 		deleteMessage:   ch.DeleteMessage,
+		deliverPart:     ch.deliverCardOrText,
 	}
 }
 
@@ -157,14 +164,39 @@ func (s *feishuCardStreamer) pinNarrationLocked(text string) {
 // not swallow the next turn.
 const feishuStreamReuseTTL = 2 * time.Minute
 
+// feishuCancelSuperseded marks a stale streaming card sealed because a new
+// turn's BeginStream refused to reuse it (B2b stopgap): the card had seen no
+// activity for a full reuse TTL and nothing else would ever seal it.
+const feishuCancelSuperseded = "superseded"
+
 // BeginStream implements channels.StreamingCapable. The manager may call this
 // once per LLM iteration within a turn; we reuse the in-flight card for the
 // same chat so the whole turn stays on one card and is sealed on Finalize.
+// BeginStream implements channels.StreamingCapable (legacy, unscoped):
+// delegates to BeginStreamForSession with an empty session key.
 func (c *FeishuChannel) BeginStream(ctx context.Context, chatID string) (channels.Streamer, error) {
+	return c.BeginStreamForSession(ctx, chatID, "")
+}
+
+// BeginStreamForSession implements channels.SessionScopedBeginStreamer.
+// The sessionKey scopes card reuse so concurrent turns from different
+// sessions in one chat each stream on their own card (B2a); an empty key
+// keeps the legacy unscoped behavior. Reuse matrix for an existing card:
+//
+//	unsealed + fresh + same session → reuse (next LLM iteration)
+//	unsealed + fresh + other session → new card, leave the old one alone
+//	                                        (its owner is live and will seal it)
+//	unsealed + stale (≥ reuse TTL, any session) → new card + best-effort
+//	                                        seal of the old one (nobody else will)
+//	sealed  → new card
+func (c *FeishuChannel) BeginStreamForSession(ctx context.Context, chatID, sessionKey string) (channels.Streamer, error) {
 	if v, ok := c.streams.Load(chatID); ok {
 		if s, ok := v.(*feishuCardStreamer); ok {
 			s.mu.Lock()
-			reusable := !s.done && time.Since(s.lastAt) < feishuStreamReuseTTL
+			sameSession := sessionKey == "" || s.sessionKey == sessionKey
+			fresh := time.Since(s.lastAt) < feishuStreamReuseTTL
+			reusable := !s.done && sameSession && fresh
+			stale := !s.done && !reusable && (sameSession || !fresh)
 			if reusable {
 				// One BeginStream per LLM call: reuse means another iteration.
 				s.state.LLMCalls++
@@ -173,6 +205,16 @@ func (c *FeishuChannel) BeginStream(ctx context.Context, chatID string) (channel
 			s.mu.Unlock()
 			if reusable {
 				return s, nil
+			}
+			if stale {
+				// B2b: the previous card saw no streamer activity for a full
+				// reuse TTL — nobody will seal it (its turn is gone or stuck).
+				// Seal best-effort on a detached context: synchronously it
+				// could block this LLM-call path for two 10s CardKit timeouts;
+				// asynchronously the worst case is a seal racing the new card,
+				// which per-streamer sequencing and the CAS map delete keep
+				// harmless. CancelWithReason deletes empty cards outright.
+				go s.CancelWithReason(context.Background(), feishuCancelSuperseded)
 			}
 		}
 	}
@@ -212,6 +254,7 @@ func (c *FeishuChannel) BeginStream(ctx context.Context, chatID string) (channel
 
 	s := newFeishuCardStreamer(c, chatID, cardID, c.spinnerIconKey(ctx))
 	s.msgID = msgID
+	s.sessionKey = sessionKey
 	s.state.LLMCalls = 1
 	c.streams.Store(chatID, s)
 	logger.DebugCF("feishu", "streaming card created", map[string]any{
@@ -537,6 +580,16 @@ func (s *feishuCardStreamer) AppendToolStep(ctx context.Context, step bus.ToolSt
 	s.lastAt = time.Now()
 	s.setPhaseLocked(feishuPhaseThinking)
 	s.panelDirty = true
+	if step.Kind == bus.ToolStepKindProgress {
+		// Progress beat (B3): a transient, replaceable status line — not a
+		// narration pin, not a timeline archive. The write doubles as the
+		// 200850 keep-alive (lastAt refresh + panel flush).
+		s.state.ProgressNote = strings.TrimSpace(step.Result)
+		err := s.refreshPanelLocked(ctx)
+		s.mu.Unlock()
+		s.logPanelErr("progress note", err)
+		return nil
+	}
 	if step.Kind == bus.ToolStepKindText && !step.Running {
 		s.pinNarrationLocked(step.Result)
 	}
@@ -652,24 +705,69 @@ func (s *feishuCardStreamer) FinalizeWithContext(ctx context.Context, content st
 	}
 	state := s.state
 	answer := sanitizeFeishuMarkdownImages(s.answer)
+	// Composed answer (narration trail + answer) clamped to the card budget
+	// (B1): an oversized seal card is rejected by Feishu's 30KB cap and would
+	// leave the card stuck in streaming mode forever — the remainder is
+	// delivered as follow-up messages instead.
+	composed := sanitizeFeishuMarkdownImages(composeFeishuAnswer(state.Narration, s.answer))
+	inCard, remainder := clampFeishuAnswerForCard(composed, feishuAnswerCardBudget, feishuAnswerSplitNote)
 	elapsed := time.Since(s.startAt)
 	cardID := s.cardID
 	seq := s.nextSeqLocked()
-	seqClose := s.nextSeqLocked()
 	streamingLost := s.streamingLost
 	s.done = true
 	s.mu.Unlock()
-	defer s.ch.streams.Delete(s.chatID)
+	defer s.ch.streams.CompareAndDelete(s.chatID, s)
 
-	card := buildFeishuFinalCard(&state, answer, false, elapsed, "")
+	card := buildFeishuFinalCardComposed(&state, inCard, answer, false, elapsed, "")
 	if err := s.updateCard(ctx, cardID, card, seq); err != nil {
-		return err
+		// Last-resort seal (B1-B): retry with a minimal card (no panel,
+		// hard-clamped answer) — it must always fit, so the card is sealed
+		// even when the regular seal card is rejected.
+		hardIn, _ := clampFeishuAnswerForCard(composed, feishuAnswerHardBudget, feishuAnswerCancelNote)
+		minimal := buildFeishuMinimalFinalCard(&state, hardIn, false, elapsed, "")
+		s.mu.Lock()
+		retrySeq := s.nextSeqLocked()
+		s.mu.Unlock()
+		if retryErr := s.updateCard(ctx, cardID, minimal, retrySeq); retryErr != nil {
+			return err
+		}
+		logger.WarnCF("feishu", "final seal card rejected; sealed via minimal card", map[string]any{
+			"chat_id": s.chatID,
+			"card_id": cardID,
+			"error":   err.Error(),
+		})
 	}
+	// Remainder of an oversized answer: best-effort follow-up messages —
+	// never fail the LLM call over them (the card already carries the head).
+	s.deliverAnswerRemainder(ctx, remainder)
 	if streamingLost {
 		// Streaming mode was already closed by the server; nothing to seal.
 		return nil
 	}
-	return s.closeStreaming(ctx, cardID, feishuCardSummary(answer), seqClose)
+	s.mu.Lock()
+	closeSeq := s.nextSeqLocked()
+	s.mu.Unlock()
+	return s.closeStreaming(ctx, cardID, feishuCardSummary(answer), closeSeq)
+}
+
+// deliverAnswerRemainder sends the clamped-off tail of an oversized answer
+// as split follow-up messages (B1). Best effort: failures are logged and
+// delivery stops at the first failing part.
+func (s *feishuCardStreamer) deliverAnswerRemainder(ctx context.Context, remainder string) {
+	if remainder == "" || s.deliverPart == nil {
+		return
+	}
+	for i, part := range channels.SplitMessage(remainder, feishuRemainderPartRunes) {
+		if err := s.deliverPart(ctx, s.chatID, part); err != nil {
+			logger.WarnCF("feishu", "oversized answer remainder delivery failed", map[string]any{
+				"chat_id": s.chatID,
+				"part":    i + 1,
+				"error":   err.Error(),
+			})
+			return
+		}
+	}
 }
 
 // Cancel seals the card in an interrupted state (best effort).
@@ -702,13 +800,16 @@ func (s *feishuCardStreamer) CancelWithReason(ctx context.Context, reason string
 	}
 	state := s.state
 	answer := sanitizeFeishuMarkdownImages(s.answer)
+	composed := sanitizeFeishuMarkdownImages(composeFeishuAnswer(state.Narration, s.answer))
+	// Cancel never split-delivers the clamped tail: the turn was interrupted,
+	// the tail lives on in session history and can be resumed on request.
+	inCard, _ := clampFeishuAnswerForCard(composed, feishuAnswerCardBudget, feishuAnswerCancelNote)
 	elapsed := time.Since(s.startAt)
 	cardID := s.cardID
 	msgID := s.msgID
 	emptyCard := strings.TrimSpace(answer) == "" &&
 		!state.hasPanelContent() && len(state.Narration) == 0
 	seq := s.nextSeqLocked()
-	seqClose := s.nextSeqLocked()
 	streamingLost := s.streamingLost
 	if reason != "" {
 		s.cancelReasn = reason
@@ -717,7 +818,7 @@ func (s *feishuCardStreamer) CancelWithReason(ctx context.Context, reason string
 	s.aborted = true
 	s.done = true
 	s.mu.Unlock()
-	defer s.ch.streams.Delete(s.chatID)
+	defer s.ch.streams.CompareAndDelete(s.chatID, s)
 
 	if emptyCard && msgID != "" {
 		derr := s.deleteMessage(ctx, s.chatID, msgID)
@@ -734,18 +835,35 @@ func (s *feishuCardStreamer) CancelWithReason(ctx context.Context, reason string
 		})
 	}
 
-	card := buildFeishuFinalCard(&state, answer, true, elapsed, reason)
+	card := buildFeishuFinalCardComposed(&state, inCard, answer, true, elapsed, reason)
 	if err := s.updateCard(ctx, cardID, card, seq); err != nil {
-		logger.WarnCF("feishu", "streaming card cancel seal failed", map[string]any{
+		// Minimal-seal fallback (B1-B): retry without the panel so an
+		// oversized cancel card cannot leave the card streaming forever.
+		hardIn, _ := clampFeishuAnswerForCard(composed, feishuAnswerHardBudget, feishuAnswerCancelNote)
+		minimal := buildFeishuMinimalFinalCard(&state, hardIn, true, elapsed, reason)
+		s.mu.Lock()
+		retrySeq := s.nextSeqLocked()
+		s.mu.Unlock()
+		if retryErr := s.updateCard(ctx, cardID, minimal, retrySeq); retryErr != nil {
+			logger.WarnCF("feishu", "streaming card cancel seal failed", map[string]any{
+				"chat_id": s.chatID,
+				"error":   err.Error(),
+			})
+			return
+		}
+		logger.WarnCF("feishu", "cancel seal card rejected; sealed via minimal card", map[string]any{
 			"chat_id": s.chatID,
+			"card_id": cardID,
 			"error":   err.Error(),
 		})
-		return
 	}
 	if streamingLost {
 		return // streaming mode was already closed by the server
 	}
-	_ = s.closeStreaming(ctx, cardID, feishuCardSummary(answer), seqClose)
+	s.mu.Lock()
+	closeSeq := s.nextSeqLocked()
+	s.mu.Unlock()
+	_ = s.closeStreaming(ctx, cardID, feishuCardSummary(answer), closeSeq)
 }
 
 func (s *feishuCardStreamer) SetModelName(modelName string) {
@@ -842,6 +960,21 @@ func (c *FeishuChannel) cardkitUpdateCard(ctx context.Context, cardID string, ca
 		return fmt.Errorf("feishu cardkit update api error (code=%d msg=%s): %w", resp.Code, resp.Msg, channels.ErrTemporary)
 	}
 	return nil
+}
+
+// deliverCardOrText sends one content part as an interactive card message,
+// falling back to plain text when the card send is rejected (table limits
+// etc.). Used for oversized-answer remainders split out of the sealed card
+// (B1); deliberately below the tool-feedback machinery so remainder parts
+// can never hijack a tracked progress message.
+func (c *FeishuChannel) deliverCardOrText(ctx context.Context, chatID, content string) error {
+	if cardContent, err := buildMarkdownCard(content); err == nil {
+		if _, sendErr := c.sendCard(ctx, chatID, cardContent); sendErr == nil {
+			return nil
+		}
+	}
+	_, err := c.sendText(ctx, chatID, content)
+	return err
 }
 
 // cardkitCloseStreaming turns streaming mode off and sets the card summary.
