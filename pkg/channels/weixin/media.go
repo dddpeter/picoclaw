@@ -1117,6 +1117,7 @@ func (c *WeixinChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMess
 		)
 	}
 
+	sent := 0
 	for _, part := range msg.Parts {
 		localPath, filename, contentType, cleanup, err := c.resolveOutboundPart(ctx, part)
 		if err != nil {
@@ -1125,7 +1126,7 @@ func (c *WeixinChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMess
 				"ref":     part.Ref,
 				"error":   err.Error(),
 			})
-			return nil, fmt.Errorf("weixin send media: %w", basechannels.ErrSendFailed)
+			return nil, basechannels.MediaSendErr(sent, fmt.Errorf("weixin send media: %w", basechannels.ErrSendFailed))
 		}
 		func() {
 			if cleanup != nil {
@@ -1147,10 +1148,13 @@ func (c *WeixinChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMess
 				"error":   err.Error(),
 			})
 			if c.remainingPause() > 0 {
-				return nil, fmt.Errorf("weixin send media: %w", basechannels.ErrSendFailed)
+				return nil, basechannels.MediaSendErr(sent, fmt.Errorf("weixin send media: %w", basechannels.ErrSendFailed))
 			}
-			return nil, fmt.Errorf("weixin send media: %w", basechannels.ErrTemporary)
+			// Earlier parts may already be in the chat — never retry the
+			// batch (B6).
+			return nil, basechannels.MediaSendErr(sent, fmt.Errorf("weixin send media: %w", basechannels.ErrTemporary))
 		}
+		sent++
 	}
 
 	return nil, nil

@@ -518,17 +518,21 @@ func (c *FeishuChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMess
 		return nil, fmt.Errorf("no media store available: %w", channels.ErrSendFailed)
 	}
 
-	caption := firstMediaCaption(msg.Parts)
-	sentAny := false
+	caption := mediaCaptions(msg.Parts)
+	sent := 0
 	for _, part := range msg.Parts {
 		if err := c.sendMediaPartFn(ctx, msg.ChatID, part, store); err != nil {
-			return nil, err
+			// Partial delivery: retrying the batch would duplicate the parts
+		// already in the chat, so the manager must not retry (B6).
+			return nil, channels.MediaSendErr(sent, err)
 		}
-		sentAny = true
+		sent++
 	}
-	if sentAny && caption != "" {
+	if sent > 0 && caption != "" {
 		if _, err := c.sendTextFn(ctx, msg.ChatID, caption); err != nil {
-			return nil, err
+			// All media is already in the chat; a failed caption must not
+			// trigger a full-batch retry (B6).
+			return nil, channels.MediaSendErr(sent, err)
 		}
 	}
 
@@ -586,13 +590,17 @@ func (c *FeishuChannel) sendMediaPart(
 	return nil
 }
 
-func firstMediaCaption(parts []bus.MediaPart) string {
+// mediaCaptions joins every non-empty part caption (each trimmed) with
+// newlines — media parts may each carry one, and dropping all but the
+// first loses tool-provided context.
+func mediaCaptions(parts []bus.MediaPart) string {
+	var captions []string
 	for _, part := range parts {
 		if caption := strings.TrimSpace(part.Caption); caption != "" {
-			return caption
+			captions = append(captions, caption)
 		}
 	}
-	return ""
+	return strings.Join(captions, "\n")
 }
 
 // --- Inbound message handling ---

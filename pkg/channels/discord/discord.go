@@ -360,7 +360,10 @@ func (c *DiscordChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMes
 				closer.Close()
 			}
 		}
-		return nil, sendCtx.Err()
+		// The send goroutine keeps running without a context, so the
+		// message may still land after the timeout — retrying could
+		// duplicate it. Report permanent (B6).
+		return nil, fmt.Errorf("discord send media timed out (delivery status unknown): %w", channels.ErrSendFailed)
 	}
 }
 

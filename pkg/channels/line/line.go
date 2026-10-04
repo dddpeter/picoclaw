@@ -522,6 +522,7 @@ func (c *LINEChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMessag
 
 	// LINE Messaging API requires publicly accessible URLs for media messages.
 	// Since we only have local file paths, send caption text as fallback.
+	sent := 0
 	for _, part := range msg.Parts {
 		caption := part.Caption
 		if caption == "" {
@@ -534,8 +535,11 @@ func (c *LINEChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMessag
 			Messages: []messaging_api.MessageInterface{&textMsg},
 		}, "")
 		if sdkErr := classifySDKError(resp, err); sdkErr != nil {
-			return nil, sdkErr
+			// Earlier fallback texts are already in the chat — never retry
+			// the batch (B6).
+			return nil, channels.MediaSendErr(sent, sdkErr)
 		}
+		sent++
 	}
 
 	return nil, nil

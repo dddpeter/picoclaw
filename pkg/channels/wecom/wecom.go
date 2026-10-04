@@ -230,12 +230,14 @@ func (c *WeComChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMessa
 		chatID = msg.ChatID
 	}
 
+	sent := 0
 	for _, part := range msg.Parts {
 		if strings.TrimSpace(part.Ref) == "" {
 			if caption := strings.TrimSpace(part.Caption); caption != "" {
 				if err := c.sendActivePush(chatID, chatType, caption); err != nil {
-					return nil, err
+					return nil, channels.MediaSendErr(sent, err)
 				}
+				sent++
 			}
 			continue
 		}
@@ -286,8 +288,9 @@ func (c *WeComChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMessa
 			}
 		}()
 		if err != nil {
-			return nil, err
+			return nil, channels.MediaSendErr(sent, err)
 		}
+		sent++
 	}
 
 	return nil, nil

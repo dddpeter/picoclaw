@@ -189,7 +189,7 @@ func (c *SlackChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMessa
 	}
 
 	caption := slackFirstMediaCaption(msg.Parts)
-	sentAny := false
+	sent := 0
 	for _, part := range msg.Parts {
 		localPath, err := store.Resolve(part.Ref)
 		if err != nil {
@@ -222,14 +222,18 @@ func (c *SlackChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMessa
 				"filename": filename,
 				"error":    err.Error(),
 			})
-			return nil, fmt.Errorf("slack send media: %w", channels.ErrTemporary)
+			// Earlier parts may already be in the channel — never retry the
+			// batch (B6).
+			return nil, channels.MediaSendErr(sent, fmt.Errorf("slack send media: %w", channels.ErrTemporary))
 		}
-		sentAny = true
+		sent++
 	}
 
-	if sentAny && caption != "" {
+	if sent > 0 && caption != "" {
 		if err := c.postTextFn(ctx, channelID, threadTS, caption); err != nil {
-			return nil, fmt.Errorf("slack send media caption fallback: %w", channels.ErrTemporary)
+			// All files are already posted; a failed caption must not
+			// trigger a full-batch retry (B6).
+			return nil, channels.MediaSendErr(sent, fmt.Errorf("slack send media caption fallback: %w", channels.ErrTemporary))
 		}
 	}
 

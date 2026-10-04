@@ -346,7 +346,9 @@ func (c *QQChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMessage)
 			if errors.Is(err, channels.ErrSendFailed) {
 				return nil, err
 			}
-			return nil, fmt.Errorf("qq send media: %w", channels.ErrTemporary)
+			// Earlier parts may already be in the chat — never retry the
+			// batch (B6).
+			return nil, channels.MediaSendErr(len(messageIDs), fmt.Errorf("qq send media: %w", channels.ErrTemporary))
 		}
 
 		sentMsg, err := c.sendUploadedMedia(ctx, chatKind, msg.ChatID, part, fileInfo)
@@ -356,7 +358,7 @@ func (c *QQChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMessage)
 				"chat_id": msg.ChatID,
 				"error":   err.Error(),
 			})
-			return nil, fmt.Errorf("qq send media: %w", channels.ErrTemporary)
+			return nil, channels.MediaSendErr(len(messageIDs), fmt.Errorf("qq send media: %w", channels.ErrTemporary))
 		}
 		if sentMsg != nil && sentMsg.ID != "" {
 			messageIDs = append(messageIDs, sentMsg.ID)

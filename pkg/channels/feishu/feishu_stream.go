@@ -158,6 +158,24 @@ func (s *feishuCardStreamer) pinNarrationLocked(text string) {
 	s.answerSentAt = time.Time{}
 }
 
+// feishuAnswerFlushIntervalFor adapts the element-write throttle to the
+// accumulated answer size: the CardKit element API carries the FULL
+// content on every write, so each flush costs O(answer) bytes — stretch
+// the interval once the answer grows big (the typewriter's print pacing
+// keeps the display smooth regardless). pinNarrationLocked resets
+// answerSentAt, so a pinned iteration boundary still writes through
+// immediately at any size.
+func feishuAnswerFlushIntervalFor(answerBytes int) time.Duration {
+	switch {
+	case answerBytes > 48000:
+		return time.Second
+	case answerBytes > 24000:
+		return 500 * time.Millisecond
+	default:
+		return feishuAnswerFlushInterval
+	}
+}
+
 // feishuStreamReuseTTL bounds how long an unfinished card may be picked up
 // again by a later BeginStream. Aborted turns normally cancel their streamer,
 // but if that cleanup ever fails (process restart aside), a stale card must
@@ -451,14 +469,18 @@ func (s *feishuCardStreamer) Update(ctx context.Context, content string) error {
 		return nil
 	}
 	cardID := s.cardID
-	throttled := time.Since(s.answerSentAt) < feishuAnswerFlushInterval
+	// Compose + sanitize only on a write-through: chunks arrive far faster
+	// than the flush interval and the regex scans the whole accumulated
+	// answer, so doing it per throttled chunk was pure waste (O(n²) per turn).
+	var (
+		seq           int
+		answerContent string
+	)
+	throttled := time.Since(s.answerSentAt) < feishuAnswerFlushIntervalFor(len(s.answer))
 	if !throttled {
 		s.answerSentAt = time.Now()
-	}
-	answerContent := sanitizeFeishuMarkdownImages(composeFeishuAnswer(s.state.Narration, s.answer))
-	seq := 0
-	if !throttled {
 		seq = s.nextSeqLocked()
+		answerContent = sanitizeFeishuMarkdownImages(composeFeishuAnswer(s.state.Narration, s.answer))
 	}
 	s.mu.Unlock()
 

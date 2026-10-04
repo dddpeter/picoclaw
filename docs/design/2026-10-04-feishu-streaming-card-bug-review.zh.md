@@ -1,6 +1,6 @@
 # 飞书流式卡片 Bug 排查与评审（2026-10-04）
 
-状态：**已修复（三批次全部落地，待提交后部署验证）**｜排查与评审 2026-10-04，修复执行 2026-10-04｜排查基线：`a5ee5057`
+状态：**已修复（三批次 + 第二批 B6/优化全部落地）**｜排查与评审 2026-10-04，修复执行 2026-10-04｜排查基线：`a5ee5057`
 
 本文记录对飞书 CardKit 流式卡片链路的一次端到端排查：通道侧（`pkg/channels/feishu/`）+
 streamer 包装（`pkg/channels/manager.go`）+ 管线侧（`pkg/agent/pipeline_streaming.go`、
@@ -216,6 +216,30 @@ lark.WithTokenCache(newTokenCache()))`。
   B2 `TestBeginStreamSealsStaleStreamer`/`TestFinalizeDeleteIsCASScoped`/
   `TestConcurrentTurnsGetDistinctCards`；B3 `TestProgressBeatDoesNotPinNarration`；
   B4 `TestTruncateReasoningCountsRunes`；B5 `TestSanitizeImagesWithParenURL`。
+
+## 9. 第二批（同日）：B6 跨通道媒体重试去重 + 流式卡片三项优化
+
+### 9.1 B6（中危，跨通道）：SendMedia 部分成功后整批重试 → 媒体重复发送
+
+- 契约：`manager.go` `sendMediaWithRetry` 对非 `ErrNotRunning/ErrSendFailed` 的失败一律重试（≤3 次）。
+- 违反：各通道 SendMedia 逐 part 发送——任一 part（或尾随 caption）失败时返回 `ErrTemporary`，但此前的 part **已在聊天里** → 重试把已送达部分重复发 1-3 次。触发面恰是限流/网关抖动（manager 认为重试能救的那类）。
+- 同型通道（逐行核实 feishu/telegram，模式核实其余）：feishu（含 caption 路径）、telegram（含 media group 分块）、deltachat、discord（超时路径：发送 goroutine 无 ctx，超时后仍可能送达）、line（文本兜底循环）、matrix、qq、slack（含 caption 兜底）、wecom、weixin。原子单发（无此问题）：onebot、pico。
+- 修复（方案 A）：`pkg/channels/media_send.go` 统一助手 `MediaSendErr(sent, err)`——`sent>0` 降级为 `ErrSendFailed`（永久、不重试）并保留原错误链（双 %w）；sent=0 保留原临时分类可安全重试。discord 超时路径特殊处理：发送状态未知 → 直接报永久。
+- 顺手修：feishu `mediaCaptions` 合并全部 part caption（原先只取第一个，其余静默丢弃）。
+- 测试锚点：`TestMediaSendErr*`（3）、feishu `TestSendMediaPartialFailureIsPermanent`、`TestSendMediaFirstPartFailureStaysRetryable`、`TestSendMediaCaptionFailureAfterDeliveryIsPermanent`、`TestSendMediaJoinsAllCaptions`。
+
+### 9.2 流式卡片三项优化（O1-O3）
+
+- **O1**：`Update` 的 compose+sanitize 移到节流判定之后——原先每个 chunk（远快于 200ms 节流窗口）都对全长累积答案跑一次正则，纯浪费（每 turn O(n²)）；现在只在真正写遇时计算。
+- **O2**：`sanitizeFeishuMarkdownImages` 无 `![` 快速路径直接返回原文。
+- **O3**：`feishuAnswerFlushIntervalFor` 自适应节流——元素 API 每次写遇携带**全量**累积内容，长答案时每 200ms 一次 O(answer) 字节负载；>24KB → 500ms、>48KB → 1s（打字机自身的 print pacing 保显示平滑）；`pinNarrationLocked` 重置 answerSentAt 的写遇语义不变。
+- 测试锚点：`TestAnswerFlushIntervalForAdaptsToSize`、`TestUpdateThrottledSkipsCompose`、`TestSanitizeFastPathEquivalence`。
+
+### 9.3 已评估未实施（proposal-only）
+
+- 面板刷新持锁期间 API 调用（≤10s）会阻塞并发 Update：改为锁外发送需引入 seq 到达序保证，风险大于收益，不动。
+- Update 的 streamContent seq 与面板刷新 seq 共用计数器但 API 在锁外发出，理论上有乱序到达被拒的小窗口（非致命、有日志），不动。
+- 遗留项更新：pico/telegram `BeginStream` 每次新建 streamer（无 map 复用），**无 B2 同型丢答案风险**——上轮遗留项关闭。
 
 ## 8. 执行记录（2026-10-04，三批次全部完成）
 

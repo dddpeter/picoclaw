@@ -659,7 +659,7 @@ func (c *TelegramChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMe
 				"count": len(msg.Parts),
 				"error": err.Error(),
 			})
-			return nil, fmt.Errorf("telegram send media group: %w", channels.ErrTemporary)
+			return nil, err
 		}
 		if len(groupIDs) > 0 {
 			messageIDs = append(messageIDs, groupIDs...)
@@ -762,7 +762,9 @@ func (c *TelegramChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMe
 				"type":  part.Type,
 				"error": err.Error(),
 			})
-			return nil, fmt.Errorf("telegram send media: %w", channels.ErrTemporary)
+			// Parts before this one are already in the chat — never retry
+			// the batch (B6).
+			return nil, channels.MediaSendErr(len(messageIDs), fmt.Errorf("telegram send media: %w", channels.ErrTemporary))
 		}
 	}
 
@@ -802,7 +804,9 @@ func (c *TelegramChannel) sendImageMediaGroups(
 		}
 		groupIDs, err := c.sendSingleImageMediaGroup(ctx, chatID, threadID, store, parts[start:end])
 		if err != nil {
-			return nil, err
+			// Earlier groups may already be in the chat: classify so the
+			// manager never retries a partially delivered batch (B6).
+			return messageIDs, channels.MediaSendErr(len(messageIDs), fmt.Errorf("telegram send media group: %w", channels.ErrTemporary))
 		}
 		messageIDs = append(messageIDs, groupIDs...)
 	}

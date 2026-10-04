@@ -39,6 +39,9 @@ var feishuImageRefRe = regexp.MustCompile(`!\[[^\]]*\]\(((?:[^()\s]|\([^()\s]*\)
 // URLs instead of real Feishu image_keys into plain-text file references so
 // the card never fails validation (code=200570).
 func sanitizeFeishuMarkdownImages(content string) string {
+	if !strings.Contains(content, "![") {
+		return content // fast path: nothing that could be an image ref
+	}
 	return feishuImageRefRe.ReplaceAllStringFunc(content, func(m string) string {
 		key := feishuImageRefRe.FindStringSubmatch(m)[1]
 		if strings.HasPrefix(key, "img_v2_") || strings.HasPrefix(key, "img_v3_") {
