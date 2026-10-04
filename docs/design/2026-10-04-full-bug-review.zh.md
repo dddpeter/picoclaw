@@ -587,3 +587,20 @@ turn-llm-failure-resilience §3.1、飞书卡片评审 §6）：
 ①"已占用会话上 system 消息重投队列"的止血方案，或 ②异步回执改走 steering
 通道注入当前 turn 的结构方案；两者都涉及异步结果投递语义与 cron
 ProcessDirect 的交互，不宜顺手改。
+
+## 9. 活体验证（2026-10-04，本机安装版 D:\apps\PicoClaw）
+
+构建 `v0.4.0-106-gb3dab79e-dirty` 装入本机并启动后，对可在本机验证的 6 项
+修复做了端到端测试（其余项依赖外部渠道/网络黑洞/竞态时序，由单测覆盖）：
+
+| 项 | 测试方法 | 结果 |
+|----|----------|------|
+| F5 | jobs.json 外部编辑给 cron 任务加 `tz=America/New_York`（表达式 `51 4 * * *`），网关热重载 | ✅ 任务在北京 16:51:00 触发（=纽约 04:51）；TZ 无效时按旧行为应永远不会在当天触发 |
+| F2 | 同批任务之一 payload.script=`exit 1`（wake gate 失败路径） | ✅ jobs.json 落盘 `lastStatus:"error"` + `lastError:"Error: pre-run script failed…"`；ok 路径任务记录 `"ok"` |
+| F1 | 90s 阻塞脚本制造执行窗口（`wakeAgent:false` 免模型调用），窗口内 CLI 插入金丝雀任务，等待任务完成保存 | ✅ 金丝雀在完成保存后存活（旧构建会被旧快照覆写静默抹掉），任务自身状态亦正确落盘 |
+| T2 | agent 对话驱动 `read_file("\\?\C:\Windows\win.ini")`（网关日志核实真实前缀传入） | ✅ `access denied: path is inside a protected system directory` |
+| T5 | agent 对话驱动 `list_dir(".")`（明确相对路径） | ✅ 返回 workspace 内容（.agents/AGENT.md/42end.txt…），非进程 CWD |
+| T4 | agent 对话驱动 exec：background 运行双流命令 → poll → read | ✅ 会话到达 done，read 同时拿到 `stdout-line` 与 `stderr-line` |
+
+测试任务/会话已清理（6 个 bugfix-* cron 任务全数移除）。另外：本批改动已被
+本机 picoclaw agent 自查后提交为 `58a2244e`（fix: whole-repo bug sweep）。
