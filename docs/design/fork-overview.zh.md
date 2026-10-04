@@ -30,6 +30,7 @@
 | 文件工具 Windows 兼容性 | `<2026-09-19>` | `pkg/tools/fs/text_compat.go`、`pkg/tools/fs/encoding.go`、`pkg/tools/fs/windows_names_*.go`、`pkg/fileutil/rename*.go` | 本文 §13 |
 | 回合尾压缩异步化（A+C） | `<2026-09-19>` | `pkg/agent/compact_schedule.go`、`pkg/agent/pipeline_finalize.go`、`pkg/agent/pipeline_execute.go`、`pkg/seahorse/short_constants.go` | 本文 §14 |
 | LSP 诊断与源码修复 | `<2026-09-19>` | `pkg/lsp/`（client/pool/position/edits/fakeserver）、`pkg/tools/lsp*.go`、`pkg/config/lsp.go` | 本文 §15、`docs/design/lsp-support-design.zh.md` |
+| 飞书流式卡片 bug 修复五件套 | `<2026-10-04>` | `pkg/channels/feishu/`、`pkg/channels/interfaces.go`、`pkg/channels/manager.go`、`pkg/agent/progress_heartbeat.go`、`pkg/bus` | 本文 §18、`docs/design/2026-10-04-feishu-streaming-card-bug-review.zh.md` |
 
 ## 1. 飞书 CardKit v2 流式卡片
 
@@ -262,6 +263,7 @@
 - cron 增强三件套（2026-09-13，§11）：`pkg/cron/service.go` 的 mtime 热重载（`reloadStoreIfChanged`/`storePollInterval`）+ due-job-only 落盘 + `ValidateSchedule`、`pkg/cron/suggestions.go`（consent-first 提案存储）、`pkg/cron/blueprints.go`、`pkg/tools/cron.go` 的 `script` 唤醒门与 `suggestions`/`blueprints` 动作、`pkg/evolution/cron_suggester.go` + `Runtime.SetCronSuggester`、`pkg/commands/cmd_cron.go`/`cmd_learn.go`、`pkg/agent/agent_command.go` 的 `applyLearnCommand`——均为 fork 行为，上游同步时保留 fork 语义；`hot_reload_test.go`/`cron_wakegate_test.go`/`cron_suggestions_test.go`/`learn_command_test.go` 钉住行为。
 - 长任务四件套（2026-09-18，§12）：`pkg/tools/shell.go` 的 `resolveRunTimeout`/超时参数化、`pkg/agent/agent.go` runAgentLoop 的**续段循环**、`pkg/agent/turn_coord.go` 的 `IterationLimitResponse` 覆盖与 `startProgressHeartbeat` 挂载、`pkg/agent/steering_abort.go` 的 `detectDanglingToolCalls`/`sealDanglingWith` 抽取（重构后既有 seal 测试必须仍过）、`pkg/agent/restart_recovery.go` 全文件、`pkg/agent/progress_heartbeat.go` 全文件、`pkg/agent/agent_message.go` 的 `cancelRecoveryReminder` 钩子、`pkg/gateway/gateway.go` 的启动挂载、`pkg/memory/jsonl.go`/`pkg/session/jsonl_backend.go` 的 `LastModified`、`pkg/config` 三个新配置项——均为 fork 行为，上游同步时保留 fork 语义；测试锚点见 §12。
 - 卡死三层防护（2026-09-20，§12 第三批）：`pkg/agent/progress_heartbeat.go` 的 stall watchdog 分支（两级升级、`cancelProviderCall`、`markStallInterrupted` CAS、2×interval 钳制）、`pkg/agent/turn_state.go` 的 `stallInterrupt*` 字段与方法、`pkg/config` 的 `progress_stall_interrupt_seconds`（默认 600）、`pkg/channels/pico/protocol.go`+`pico.go` 的 `progress_note` kind（含 `outboundMessageFinalizesTrackedToolFeedback` 排除）、web 前端 `use-turn-stall.ts` + `lastTurnActivityAt` 维护 + `AssistantMessageKind` 增补——均为 fork 行为，上游同步时保留；`TestProgressHeartbeat_StallWatchdog*` 钉住行为。
+- 飞书流式卡片 bug 修复五件套（2026-10-04，§18）：`pkg/channels/feishu/feishu_stream.go` 的答案预算/分段补发/最小封卡/TTL 封旧卡/CAS 删除/sessionKey 复用矩阵/Progress 状态行、`feishu_stream_card.go` 的 clamp 与正则修复、`pkg/channels/interfaces.go` 的 `SessionScopedBeginStreamer`、`pkg/channels/manager.go` 的 GetStreamer 会话传递、`pkg/agent/progress_heartbeat.go`+`pipeline_streaming.go` 的 Progress kind、`pkg/bus` 的 `ToolStepKindProgress`——均为 fork 行为，上游同步时保留；§18 测试锚点必须全过；尤其不要把 heartbeat 的 Progress kind 改回 KindText（会重新污染叙事轨）。
 - seahorse 惰性 bootstrap + 工具出口预算（2026-09-21，体检第 3/4 项）：`pkg/agent/context_seahorse.go` 的 `lazyBootstrapSession`/`bootstrapFromStore`/`bootstrapped` 标记（Assemble 入口单飞，补齐多 agent/DB 重建场景的 JSONL→SQLite 恢复；不预判 DB 有无消息，直接靠 `engine.Bootstrap` reconcile；同步修复 nil-result panic 防御）、`pkg/seahorse/short_engine.go` 的 `ShouldPersistSession`、`pkg/tools/output_budget.go` 全文件 + `registry.go` 的 `maxOutputBytes`/args 预览、`pipeline_execute_loop.go` 的 async 路径 ApplyOutputBudget、`pkg/config` 的 `max_tool_output_bytes`——均为 fork 行为，上游同步时保留；`TestSeahorseAssemble{BootstrapsRouted,Reconciles,BootstrapsEmptyShell,SkipsIgnored,DefaultAgent}*` 与 `TestApplyOutputBudget_*`/`TestExecuteWithContext_AppliesOutputBudget` 钉住。另：seahorse 测试必须 `t.Cleanup(engine.Close)`（Windows TempDir sqlite 句柄）。
 - 合并后跑 `go test ./pkg/agent/ ./pkg/tools/ ./pkg/providers/... ./pkg/commands/ ./pkg/cron/ ./pkg/evolution/` 验证 fork 测试（文件名含 `_test.go` 且测试名带 `NewResets`/`NewArchives`/`NeverBlocks`/`ResponseHeaderTimeout`/`CleanCommandOutput`/`ReloadsStore`/`WakeGate`/`ApplyLearn`/`Suggest`/`AutoContinue`/`RestartRecovery`/`ProgressHeartbeat`/`PerCallTimeout` 的均为 fork 独有）；前端改动需另跑 `pnpm build` 验证。
 - 配置模板兼容（2026-09-14）是 fork 对上游缺陷的修复：上游结构与模板均未改。同步上游时若 `config.example.json` 被上游改动，同步后必须保证 `TestExampleTemplateLoadsStrict` 仍过（模板不得引入结构体不认识的字段，`_comment` 除外）；`pkg/config/diagnostics.go` 的 `_comment` 白名单与四 provider 的 `LegacyAPIKey` 折叠保留 fork 语义，不要按上游"修"掉。
@@ -306,3 +308,15 @@
 | `pkg/events` | **运行时事件总线**：进程内组件观测事件，与消息路由无关（见其 doc.go） |
 
 包级角色注释已固化在 `pkg/memory/doc.go`、`pkg/session/doc.go`、`pkg/bus/doc.go`（`pkg/events` 本就有 doc.go）。
+
+## 18. 飞书流式卡片 bug 修复五件套（2026-10-04）
+
+排查/评审/修复全程见 `docs/design/2026-10-04-feishu-streaming-card-bug-review.zh.md`（含故障链、决策表与复现方法）。五项：
+
+- **B1 超长答案必封卡**：最终回答组合内容（灰字轨迹+答案）超过卡片预算（24KB）时 rune 安全截断 + 尾注，余量经 `channels.SplitMessage`（4000 rune/段）由 `deliverCardOrText`（卡片→纯文本降级）best-effort 补发；封卡被拒时降级重试**最小封卡**（无面板 + 12KB 硬预算，必定 ≤ 30KB）；Cancel 同样带预算但不补发；refresh 卡答案快照同步 clamp（仅显示层，打字机元素仍收全文）——彻底消除「卡片永久转圈 + 用户零反馈」形态（该形态源于 visible-error 双重抑制的隐含前提「卡片已封」在超长答案路径上失效）。
+- **B2 streams map 会话身份**：①止血——TTL（2min）拒绝复用且旧卡未封时，`BeginStreamForSession` 异步 `CancelWithReason("superseded")`（文案「已被新任务取代」，空卡走既有删除）封旧卡；Finalize/Cancel 的 map 删除改 `CompareAndDelete`（CAS，只删自己的条目）。②结构——新增 `channels.SessionScopedBeginStreamer` 可选能力接口，`Manager.GetStreamer`（含 splitMarker 的 re-begin 闭包）传递 sessionKey，feishu 复用矩阵：同会话新鲜→复用；异会话新鲜→新卡不动旧卡；陈旧（≥TTL）→新卡+异步封旧。默认 dims=`["chat"]` 不受影响；`dm_scope=per-channel-peer`/`per-peer` 下不再抢卡/丢答案。
+- **B3 心跳不污染叙事轨**：新增 `bus.ToolStepKindProgress`；心跳改发 Progress 步（publisher 无名门禁同步放行）；feishu 渲染为面板尾部一条可覆盖灰色状态行（`ProgressNote`），不进叙事轨/不进时间线/不计标题统计（计入 hasPanelContent 防空卡误删）；lastAt 刷新 + 面板刷新保留（200850 keep-alive 不变）。
+- **B4**：`truncateFeishuReasoning` 后缀改 `utf8.RuneCountInString`（字节冒充字数）。
+- **B5**：图片 URL 正则改一层括号配平 + 禁空白（`((?:[^()\s]|\([^()\s]*\))+)`），同行多图不融合、含括号 URL 不再截断。
+- 测试锚点：`TestFinalizeOversizedAnswerSealsAndSplits`、`TestFinalizeFallsBackToMinimalSealWhenCardRejected`、`TestCancelOversizedAnswerClampsInCard`、`TestRefreshAnswerSnapshotClamped`、`TestBeginStreamSealsStaleStreamer`、`TestFinalizeDeleteIsCASScoped`、`TestConcurrentTurnsGetDistinctCards`、`TestGetStreamerPassesSessionScope`、`TestProgressBeatDoesNotPinNarration`、`TestTruncateReasoningCountsRunes`、`TestSanitizeImagesWithParenURL`；httptest 假 Feishu 服务端（`newFakeFeishuServer`）沉淀为常驻测试工具。
+- 遗留：pico/telegram 是否同型 B2 缺口待单独排查（若同病接入 SessionScopedBeginStreamer 即可）。
