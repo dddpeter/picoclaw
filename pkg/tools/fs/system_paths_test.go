@@ -71,3 +71,54 @@ func TestSystemPathProtectionSymlinkEscape(t *testing.T) {
 		t.Fatal("path through a symlink into /etc must be protected")
 	}
 }
+
+// Local-machine UNC admin shares are the same files under another spelling:
+// `\\localhost\C$\Windows\win.ini` is C:\Windows\win.ini. Every alias must
+// hit the guard, while remote hosts and non-system targets stay allowed.
+func TestSystemPathProtectionLocalUNCAliases(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows UNC admin shares")
+	}
+	if os.Getenv("SystemRoot") == "" {
+		t.Skip("SystemRoot not set")
+	}
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		t.Skip("hostname unavailable")
+	}
+	protected := []string{
+		`\\localhost\C$\Windows\win.ini`,
+		`\\localhost\c$\windows\win.ini`,
+		`\\127.0.0.1\C$\Windows\System32\cmd.exe`,
+		`\\` + host + `\C$\Windows\win.ini`,
+		`\\?\UNC\localhost\C$\Windows\win.ini`,
+		`\\?\unc\localhost\c$\Windows\win.ini`,
+		`\\?\UNC\localhost\ADMIN$\System32\drivers\etc\hosts`,
+		`\\localhost\ADMIN$\win.ini`,
+		`\\.\UNC\localhost\C$\Windows\win.ini`,
+	}
+	for _, p := range protected {
+		if !IsProtectedSystemPath(p) {
+			t.Errorf("IsProtectedSystemPath(%q) = false, want true", p)
+		}
+	}
+	allowed := []string{
+		`\\localhost\C$\Users\picoclaw-test\file.txt`,
+		`\\definitely-not-this-host\C$\Windows\win.ini`,
+		`\\localhost\IPC$`,
+		`\\localhost\share\file.txt`,
+	}
+	for _, p := range allowed {
+		if IsProtectedSystemPath(p) {
+			t.Errorf("IsProtectedSystemPath(%q) = true, want false", p)
+		}
+	}
+
+	// The guard must fire through the real read path too, not just the
+	// predicate: this is what read_file/write_file go through.
+	ws := t.TempDir()
+	_, err = ValidatePathWithAllowPaths(`\\localhost\C$\Windows\win.ini`, ws, false, nil)
+	if err == nil || !strings.Contains(err.Error(), "protected system directory") {
+		t.Fatalf("read via local admin share should hit the system guard, got err=%v", err)
+	}
+}
