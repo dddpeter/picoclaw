@@ -101,7 +101,9 @@ func SetLanguage(lang string) {
 		lang = lang[:idx]
 	}
 
-	if lang == "zh" || lang == "zh-cn" || lang == "chinese" {
+	// Any Chinese locale (zh, zh-CN/TW/HK/SG, "chinese") maps to the one
+	// Chinese table; every other language falls back to English.
+	if lang == "zh" || strings.HasPrefix(lang, "zh-") || lang == "chinese" {
 		currentLang = LanguageChinese
 	} else {
 		currentLang = LanguageEnglish
@@ -124,9 +126,22 @@ func T(key TranslationKey, args ...any) string {
 	return string(key)
 }
 
-// Initialize i18n from environment variable
+// Initialize i18n from the environment, falling back to the OS UI language.
 func init() {
-	if lang := os.Getenv("LANG"); lang != "" {
-		SetLanguage(lang)
+	SetLanguage(detectLanguage(os.Getenv, osUILanguage))
+}
+
+// detectLanguage picks the launcher language: an explicit LANGUAGE/LANG
+// environment override first (unix convention; Git/MSYS2 shells set it),
+// then the OS UI language. LANG alone never decides on Windows — it is not
+// a Windows convention and is essentially never set there, which used to
+// leave the tray menu in English on localized Windows installs.
+func detectLanguage(getenv func(string) string, osLang func() string) string {
+	if lang := strings.TrimSpace(getenv("LANGUAGE")); lang != "" {
+		return lang
 	}
+	if lang := strings.TrimSpace(getenv("LANG")); lang != "" {
+		return lang
+	}
+	return osLang()
 }

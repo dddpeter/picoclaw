@@ -466,6 +466,7 @@ func main() {
 	if *lang != "" {
 		SetLanguage(*lang)
 	}
+	logger.InfoC("web", fmt.Sprintf("Launcher language: %s (tray menu follows)", GetLanguage()))
 
 	// Resolve config path
 	configPath := utils.GetDefaultConfigPath()
