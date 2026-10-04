@@ -1138,6 +1138,13 @@ func (h *hostFs) resolveRelative(path string) string {
 	if vol := filepath.VolumeName(path); vol != "" {
 		return path
 	}
+	// A leading separator without a volume (Windows `\foo`) is drive-root
+	// relative under OS semantics, not workspace relative — joining it onto
+	// the workspace dir would rewrite it to a different file. Pass it
+	// through; the system-path guard still applies to the resolved target.
+	if path[0] == filepath.Separator || path[0] == '/' {
+		return path
+	}
 	return filepath.Join(h.workspace, path)
 }
 
