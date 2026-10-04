@@ -170,8 +170,15 @@ func TestFinalize_CompactAsync(t *testing.T) {
 	if req.Reason != ContextCompressReasonSummarize {
 		t.Fatalf("unexpected reason %q", req.Reason)
 	}
-	if req.Budget != pipeline.al.registry.GetDefaultAgent().ContextWindow {
-		t.Fatalf("unexpected budget %d", req.Budget)
+	// Finalize now passes the compaction budget (window minus output
+	// reserve) so the seahorse engine's history-only comparison matches.
+	defaultAgent := pipeline.al.registry.GetDefaultAgent()
+	wantBudget := defaultAgent.ContextWindow - defaultAgent.MaxTokens
+	if wantBudget <= 0 {
+		wantBudget = defaultAgent.ContextWindow
+	}
+	if req.Budget != wantBudget {
+		t.Fatalf("unexpected budget %d, want %d", req.Budget, wantBudget)
 	}
 }
 

@@ -535,6 +535,15 @@ type AgentDefaults struct {
 	// default 128).
 	CompactUsageThreshold float64 `json:"compact_usage_threshold,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_COMPACT_USAGE_THRESHOLD"`
 	FreshTailMessages     int     `json:"fresh_tail_messages,omitempty"     env:"PICOCLAW_AGENTS_DEFAULTS_FRESH_TAIL_MESSAGES"`
+	// TrustConfiguredContextWindow opts out of the context-window sanity clamp
+	// (fork feature). agents.defaults.context_window is often set from
+	// marketing numbers (e.g. 1M) while the real model window is far smaller;
+	// every compaction gate then trusts the inflated value and never fires,
+	// which surfaces as silent empty responses on long sessions. Default
+	// (false): a configured window above 256k is clamped to 256k and a
+	// warning is logged. Set true only for models whose real window truly
+	// exceeds the clamp.
+	TrustConfiguredContextWindow bool `json:"trust_configured_context_window,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_TRUST_CONFIGURED_CONTEXT_WINDOW"`
 	// CooldownEnabled disables per-candidate failure cooldowns when false
 	// (fork feature). Nil (omitted) keeps cooldowns enabled — the default
 	// protects against 429 storms; personal deployments that prefer

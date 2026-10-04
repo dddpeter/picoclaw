@@ -924,11 +924,18 @@ func parseStreamResponse(
 		}
 	}
 
+	finalContent := sanitizeMinimaxToolLeak(textContent.String())
 	if finishReason == "" {
+		if finalContent == "" && len(toolCalls) == 0 && reasoningContent.Len() == 0 && reasoning.Len() == 0 {
+			// Stream ended with no finish_reason, no content, no tool calls,
+			// and no reasoning: never a legitimate empty answer. Common when
+			// an upstream silently drops an over-limit prompt (200 + empty
+			// stream). Surface it as an error so the fallback chain rotates
+			// candidates instead of turning it into a silent empty response.
+			return nil, &common.EmptyCompletionError{Detail: "stream ended without finish_reason, content, tool calls, or reasoning"}
+		}
 		finishReason = "stop"
 	}
-
-	finalContent := sanitizeMinimaxToolLeak(textContent.String())
 	if finalContent != textContent.String() {
 		logger.WarnCF("openai_compat", "stripped MiniMax tool-call leak from content", map[string]any{
 			"orig_len":  len(textContent.String()),

@@ -8,9 +8,12 @@ package anthropicmessages
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/sipeed/picoclaw/pkg/providers/common"
 )
 
 func TestBuildRequestBody(t *testing.T) {
@@ -764,6 +767,23 @@ func TestParseResponseBodyEdgeCases(t *testing.T) {
 			},
 		},
 		{
+			// Fork (2026-10-04): no content blocks AND no stop_reason is a
+			// gateway fault (a real Anthropic response always carries a
+			// stop_reason), and must surface as EmptyCompletionError so the
+			// fallback chain rotates candidates instead of a silent empty
+			// answer. The end_turn case above pins the legitimate counterpart.
+			name: "no content and no stop reason errors",
+			body: []byte(`{
+				"id": "msg-ghost",
+				"type": "message",
+				"role": "assistant",
+				"content": [],
+				"model": "test-model",
+				"usage": {"input_tokens": 5, "output_tokens": 0}
+			}`),
+			wantErr: true,
+		},
+		{
 			name: "multiple tool use blocks",
 			body: []byte(`{
 				"id": "msg-multi",
@@ -802,6 +822,21 @@ func TestParseResponseBodyEdgeCases(t *testing.T) {
 				tt.check(t, got)
 			}
 		})
+	}
+}
+
+// TestParseResponseBody_EmptyCompletionErrorType pins the concrete error type:
+// providers.ClassifyError keys off *common.EmptyCompletionError, so a generic
+// error here would lose the retriable/fallback classification (fork,
+// 2026-10-04).
+func TestParseResponseBody_EmptyCompletionErrorType(t *testing.T) {
+	_, err := parseResponseBody([]byte(`{"content":[],"model":"m"}`))
+	if err == nil {
+		t.Fatal("parseResponseBody() = nil error, want EmptyCompletionError")
+	}
+	var emptyErr *common.EmptyCompletionError
+	if !errors.As(err, &emptyErr) {
+		t.Fatalf("error = %T (%v), want *common.EmptyCompletionError", err, err)
 	}
 }
 

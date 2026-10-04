@@ -2,6 +2,7 @@ package common
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -279,14 +280,15 @@ func TestParseResponse_BasicContent(t *testing.T) {
 func TestParseResponse_EmptyChoices(t *testing.T) {
 	body := `{"choices":[]}`
 	out, err := ParseResponse(strings.NewReader(body))
-	if err != nil {
-		t.Fatalf("ParseResponse() error = %v", err)
+	if err == nil {
+		t.Fatal("ParseResponse() with zero choices must return an error, got nil")
 	}
-	if out.Content != "" {
-		t.Errorf("Content = %q, want empty", out.Content)
+	var emptyErr *EmptyCompletionError
+	if !errors.As(err, &emptyErr) {
+		t.Fatalf("error = %T, want *EmptyCompletionError", err)
 	}
-	if out.FinishReason != "stop" {
-		t.Errorf("FinishReason = %q, want %q", out.FinishReason, "stop")
+	if out != nil {
+		t.Errorf("response = %v, want nil", out)
 	}
 }
 

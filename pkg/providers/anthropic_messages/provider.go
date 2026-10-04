@@ -336,6 +336,17 @@ func parseResponseBody(body []byte) (*LLMResponse, error) {
 		return nil, fmt.Errorf("parsing JSON response: %w", err)
 	}
 
+	// A 200 with no content blocks and no stop_reason is never a legitimate
+	// answer (real Anthropic responses always carry a stop_reason): typically
+	// a gateway silently dropping an over-limit or malformed request. Error
+	// so the fallback chain rotates candidates; an explicit stop_reason with
+	// empty content is still a legitimate empty answer.
+	if len(resp.Content) == 0 && resp.StopReason == "" {
+		return nil, &common.EmptyCompletionError{
+			Detail: "anthropic messages response had no content blocks and no stop_reason",
+		}
+	}
+
 	// Extract content and tool calls
 	var content strings.Builder
 	toolCalls := make([]ToolCall, 0) // Initialize as empty slice (not nil) for consistent JSON serialization

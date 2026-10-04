@@ -16,6 +16,14 @@ import (
 
 // shouldCompactNow reports whether post-turn compaction should run. nil
 // usage (unknown) conservatively compacts — the old behavior.
+//
+// The baseline is HistoryTokens (raw history only), not UsedTokens
+// (history+system+tools): seahorse's summarize/condensed engine measures the
+// same history-only quantity (GetContextTokenCount), so gating UsedTokens
+// against a window-derived threshold double-counted system+tools and fired
+// the gate up to ~3x later than the engine it schedules work for. The
+// summarizeAt semantics (history vs contextWindow percent) are preserved:
+// gate when history tokens reach threshold × (window − maxTokens).
 func shouldCompactNow(threshold float64, usage *bus.ContextUsage, agent *AgentInstance) bool {
 	if threshold <= 0 || threshold > 0.98 {
 		threshold = 0.75
@@ -27,7 +35,7 @@ func shouldCompactNow(threshold float64, usage *bus.ContextUsage, agent *AgentIn
 	if window <= 0 {
 		window = agent.ContextWindow
 	}
-	return usage.UsedTokens >= int(float64(window)*threshold)
+	return usage.HistoryTokens >= int(float64(window)*threshold)
 }
 
 const (

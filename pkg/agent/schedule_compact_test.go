@@ -88,8 +88,11 @@ func TestScheduleCompactDedup(t *testing.T) {
 }
 
 // TestShouldCompactNow pins the usage-gate math (pi-style raw-history
-// preservation): below the threshold compaction is skipped, at/above it
-// runs, and unknown usage conservatively compacts.
+// preservation, history-only baseline): below the threshold compaction is
+// skipped, at/above it runs, and unknown usage conservatively compacts. The
+// gate measures HistoryTokens (matching seahorse's engine-side token count),
+// NOT UsedTokens (history+system+tools) — a large system prompt or tool set
+// must not delay compaction past what the engine can act on.
 func TestShouldCompactNow(t *testing.T) {
 	agent := &AgentInstance{ContextWindow: 100_000, MaxTokens: 8_192, CompactUsageThreshold: 0.75}
 	window := 100_000 - 8_192
@@ -100,10 +103,13 @@ func TestShouldCompactNow(t *testing.T) {
 		want  bool
 	}{
 		{"nil usage compacts", nil, true},
-		{"far below skips", &bus.ContextUsage{UsedTokens: window / 2}, false},
-		{"just below skips", &bus.ContextUsage{UsedTokens: int(float64(window) * 0.74)}, false},
-		{"at threshold compacts", &bus.ContextUsage{UsedTokens: int(float64(window) * 0.75)}, true},
-		{"above compacts", &bus.ContextUsage{UsedTokens: window + 5_000}, true},
+		{"far below skips", &bus.ContextUsage{HistoryTokens: window / 2}, false},
+		{"just below skips", &bus.ContextUsage{HistoryTokens: int(float64(window) * 0.74)}, false},
+		{"at threshold compacts", &bus.ContextUsage{HistoryTokens: int(float64(window) * 0.75)}, true},
+		{"above compacts", &bus.ContextUsage{HistoryTokens: window + 5_000}, true},
+		// UsedTokens alone (system+tools inflation) must not trigger the gate:
+		// the engine-side budget it feeds compares history tokens only.
+		{"used tokens high but history low skips", &bus.ContextUsage{HistoryTokens: window / 10, UsedTokens: window * 2}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -115,7 +121,7 @@ func TestShouldCompactNow(t *testing.T) {
 
 	// Zero threshold falls back to the 0.75 default.
 	agent.CompactUsageThreshold = 0
-	if shouldCompactNow(0, &bus.ContextUsage{UsedTokens: window / 2}, agent) {
+	if shouldCompactNow(0, &bus.ContextUsage{HistoryTokens: window / 2}, agent) {
 		t.Fatal("zero threshold must behave as the 0.75 default (skip at 50%)")
 	}
 }

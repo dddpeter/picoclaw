@@ -99,7 +99,7 @@ func (p *Pipeline) Finalize(
 	// summarize LLM call (observed 10-30s+ per turn on long sessions).
 	contextUsage := computeContextUsage(ts.agent, ts.sessionKey)
 	if !ts.opts.NoHistory && ts.opts.EnableSummary {
-		al.scheduleCompactWithUsage(ts.agent, ts.sessionKey, ts.agent.ContextWindow, ts.opts, contextUsage)
+		al.scheduleCompactWithUsage(ts.agent, ts.sessionKey, ts.agent.CompactionBudget(), ts.opts, contextUsage)
 	}
 	streamErr := finalizeConfiguredStreamingLLM(turnCtx, ts, exec, finalContent, contextUsage)
 	// Text fallback (hermes-style last resort): when the card could not be

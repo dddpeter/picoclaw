@@ -43,6 +43,16 @@ type AgentInstance struct {
 	CompactUsageThreshold     float64
 	SummarizeMessageThreshold int
 	SummarizeTokenPercent     int
+
+	// CompactionBudget returns the token budget handed to context compaction
+	// and assembly: the context window minus the output reserve (MaxTokens).
+	// Seahorse's summarize/condensed engine compares its history token count
+	// directly against this budget (tokensBefore > budget triggers condensed
+	// compaction), so passing the raw window made the condensed phase
+	// unreachable and let raw history grow until the real model window
+	// overflowed into empty upstream responses. CompactionRequest callers
+	// should use this instead of the raw ContextWindow.
+	CompactionBudget func() int
 	Provider                  providers.LLMProvider
 	Sessions                  session.SessionStore
 	ContextBuilder            *ContextBuilder
@@ -240,7 +250,11 @@ func NewAgentInstance(
 
 	// defaultContextWindowFloor bounds the derived context window when
 	// agents.defaults.context_window is unset: at least 256k tokens (see the
-	// heuristic comment in resolveAgentDefaultsContext below).
+	// heuristic comment in resolveAgentDefaultsContext below). It also caps a
+	// configured window unless trust_configured_context_window is set: config
+	// values are often marketing numbers (e.g. 1M) far above the model's real
+	// window, and every compaction gate trusting the inflated value never
+	// fires — long sessions then overflow into silent empty responses.
 	const defaultContextWindowFloor = 256_000
 
 	maxTokens := defaults.MaxTokens
@@ -261,6 +275,16 @@ func NewAgentInstance(
 		// of a tiny budget. Overshoot past a model's real window is still
 		// handled reactively by forceCompression on context-overflow errors.
 		contextWindow = max(maxTokens*4, defaultContextWindowFloor)
+	} else if contextWindow > defaultContextWindowFloor && !defaults.TrustConfiguredContextWindow {
+		// Clamp an inflated configured window to the floor (fork: 2026-10-04).
+		// The clamp protects every compaction gate (proactive budget check,
+		// post-turn usage gate, seahorse condensed compaction, assemble budget)
+		// from a config value the model cannot actually serve.
+		logger.WarnCF("agent", "context_window exceeds sanity clamp; clamping (set trust_configured_context_window=true to override)", map[string]any{
+			"configured": contextWindow,
+			"clamped_to": defaultContextWindowFloor,
+		})
+		contextWindow = defaultContextWindowFloor
 	}
 
 	temperature := 0.7
@@ -378,6 +402,14 @@ func NewAgentInstance(
 		loopDetection = defaults.EffectiveLoopDetection()
 	}
 
+	compactionBudget := func() int {
+		budget := contextWindow - maxTokens
+		if budget <= 0 {
+			budget = contextWindow / 2
+		}
+		return budget
+	}
+
 	return &AgentInstance{
 		modelMu:                   &sync.RWMutex{},
 		ID:                        agentID,
@@ -394,6 +426,7 @@ func NewAgentInstance(
 		CompactUsageThreshold:     compactUsageThreshold,
 		SummarizeMessageThreshold: summarizeMessageThreshold,
 		SummarizeTokenPercent:     summarizeTokenPercent,
+		CompactionBudget:          compactionBudget,
 		Provider:                  provider,
 		Sessions:                  sessions,
 		ContextBuilder:            contextBuilder,

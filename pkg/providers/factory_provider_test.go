@@ -1419,13 +1419,22 @@ func TestCreateProviderFromConfig_UserAgent(t *testing.T) {
 			wantUA:    "MyAgent/1.2.3",
 		},
 		{
+			// The "anthropic" HTTP provider delegates to the OpenAI-compatible
+			// parser, so the stub must return OpenAI format (the previous
+			// anthropic-format body only "passed" via the silent empty-choices
+			// success that was fixed 2026-10-04).
 			name:     "anthropic default user agent",
 			model:    "anthropic/claude-sonnet-4-20250514",
 			apiKey:   "test-key",
-			response: anthropicResponse,
+			response: openaiCompatResponse,
 			wantUA:   defaultUA,
 		},
 		{
+			// anthropic-messages speaks the native Messages protocol: the
+			// stub must be Anthropic format. It briefly "passed" with an
+			// OpenAI-format body only because the native parser silently
+			// returned an empty answer — now guarded (2026-10-04), the
+			// mismatch surfaces as EmptyCompletionError.
 			name:     "anthropic-messages default user agent",
 			model:    "anthropic-messages/claude-sonnet-4-20250514",
 			apiKey:   "test-key",

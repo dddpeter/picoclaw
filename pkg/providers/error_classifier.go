@@ -183,6 +183,19 @@ func ClassifyError(err error, provider, model string) *FailoverError {
 		return classified
 	}
 
+	// Empty completion (200 + zero choices, or an empty stream): typically an
+	// upstream silently dropping an over-limit prompt or a transient gateway
+	// fault. Retriable and fallback-eligible, but not worth a long cooldown.
+	var emptyCompletion *common.EmptyCompletionError
+	if errors.As(err, &emptyCompletion) {
+		return &FailoverError{
+			Reason:   FailoverOverloaded,
+			Provider: provider,
+			Model:    model,
+			Wrapped:  err,
+		}
+	}
+
 	// Context deadline exceeded: treat as timeout, always fallback.
 	if err == context.DeadlineExceeded {
 		return &FailoverError{

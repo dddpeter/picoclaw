@@ -240,6 +240,25 @@ func ParseDataAudioURL(mediaURL string) (format, data string, ok bool) {
 
 // --- Response parsing ---
 
+// EmptyCompletionError reports a successful upstream response that carried no
+// completion at all: zero choices (non-streaming), or a stream that ended
+// with no content, no tool calls, no reasoning, and no finish_reason
+// (streaming). This is the typical shape of an upstream silently rejecting an
+// over-limit prompt (200 + empty instead of a 400), and must not be mistaken
+// for a legitimate empty answer — those always come with a choice/finish_reason.
+// Classified as FailoverOverloaded (retriable, rotates the fallback chain).
+type EmptyCompletionError struct {
+	// Detail optionally describes where the emptiness was detected.
+	Detail string
+}
+
+func (e *EmptyCompletionError) Error() string {
+	if e.Detail == "" {
+		return "upstream returned an empty completion (no choices)"
+	}
+	return "upstream returned an empty completion: " + e.Detail
+}
+
 // ParseResponse parses a JSON chat completion response body into an LLMResponse.
 func ParseResponse(body io.Reader) (*LLMResponse, error) {
 	var apiResponse struct {
@@ -275,10 +294,11 @@ func ParseResponse(body io.Reader) (*LLMResponse, error) {
 	}
 
 	if len(apiResponse.Choices) == 0 {
-		return &LLMResponse{
-			Content:      "",
-			FinishReason: "stop",
-		}, nil
+		// A 200 with zero choices is never a legitimate answer: the model
+		// produced neither content nor tool calls. Return an error so the
+		// fallback chain rotates candidates and the retry loop backs off,
+		// instead of surfacing a silent empty response to the user.
+		return nil, &EmptyCompletionError{}
 	}
 
 	choice := apiResponse.Choices[0]

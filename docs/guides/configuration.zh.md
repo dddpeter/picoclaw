@@ -540,10 +540,18 @@ Agent 将每隔 30 分钟（可配置）读取此文件，并使用可用工具�
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
-| `compact_usage_threshold` | `0.75` | 回合尾压缩的使用率门槛：上下文用量（历史+系统+工具定义）低于 `该比例 × (context_window - max_tokens)` 时**完全跳过压缩**，原始历史原样保留；达到后才异步压缩。溢出错误仍有 forceCompression 兜底。有效范围 (0, 0.98]，超出回退 0.75 |
+| `compact_usage_threshold` | `0.75` | 回合尾压缩的使用率门槛：**历史 token**（与 seahorse 引擎计数同基准，不含系统提示与工具定义）低于 `该比例 × (context_window - max_tokens)` 时**完全跳过压缩**，原始历史原样保留；达到后才异步压缩。溢出错误仍有 forceCompression 兜底。有效范围 (0, 0.98]，超出回退 0.75 |
 | `fresh_tail_messages` | `128` | seahorse 压缩时**永不摘要**的最近消息条数（原 32——编码会话里 32 条只够几轮工具往返，模型反复重读刚读过又被摘要掉的文件，是编码慢的主因之一）。0 或正数无效时用默认 |
 
 配套：`context_window` 未配置时推导为 `max(max_tokens×4, 256k)`（现代模型默认值）；`max_tool_iterations` 默认 20→**40**（编码回合常见 30+ 次工具调用）。
+### 上下文窗口可信开关 (trust_configured_context_window)
+
+`agents.defaults.context_window` 常被填成营销数字（如 1M），而模型真实窗口小得多——所有压缩门信任虚高值后永不触发，长会话最终以「上游返回 200 + 空响应」形式溢出（2026-10-04 排查结论）。
+
+- **默认（false）**：配置的窗口超过 256k 时在构造期**钳到 256k** 并打告警日志，所有压缩门按钳后值工作。
+- **`trust_configured_context_window: true`**：完全信任配置值（真支持 >256k 窗口的模型用）。
+
+注意：未配置 `context_window` 时不走钳制，仍按 `max(max_tokens×4, 256k)` 推导。若确认所用模型真实窗口大于 256k，才设 true。
 
 ### 模型故障冷却 (cooldown_enabled)
 

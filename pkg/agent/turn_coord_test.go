@@ -10,6 +10,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/picoclaw/pkg/providers/common"
 	"github.com/sipeed/picoclaw/pkg/routing"
 	"github.com/sipeed/picoclaw/pkg/session"
 )
@@ -692,6 +693,60 @@ func TestPipeline_CallLLM_ContextLengthError(t *testing.T) {
 	_, err = pipeline.CallLLM(context.Background(), context.Background(), ts, exec, 1)
 	// May succeed after compression or fail - either is acceptable
 	t.Logf("CallLLM result after context error: err=%v", err)
+}
+
+// TestPipeline_CallLLM_EmptyCompletionCompactsAndRetries pins the fork's
+// empty-completion recovery path (2026-10-04): a 200-with-zero-choices
+// response (common.EmptyCompletionError) is typically an upstream silently
+// dropping an over-limit prompt, so the retry loop must route it through
+// context compression — NOT the plain transient retry, which would resend
+// the identical over-limit payload and get the same emptiness back.
+func TestPipeline_CallLLM_EmptyCompletionCompactsAndRetries(t *testing.T) {
+	provider := &failOnceLLMProvider{
+		err:      &common.EmptyCompletionError{},
+		response: "Recovered after compaction",
+	}
+	al, _, cleanup := newTurnCoordTestLoop(t, provider)
+	defer cleanup()
+
+	fcm := newFakeContextManagerForCompact()
+	al.contextManager = fcm
+
+	pipeline := NewPipeline(al)
+	// newCompactTurnState sets opts.Dispatch.SessionKey — the field
+	// newTurnState actually reads into ts.sessionKey.
+	ts := newCompactTurnState(t, al, "test-session", makeTestProcessOpts("test-session"))
+
+	exec, err := pipeline.SetupTurn(context.Background(), ts)
+	if err != nil {
+		t.Fatalf("SetupTurn failed: %v", err)
+	}
+
+	ctrl, err := pipeline.CallLLM(context.Background(), context.Background(), ts, exec, 1)
+	if err != nil {
+		t.Fatalf("expected empty-completion compaction to recover, got error: %v", err)
+	}
+	if ctrl != ControlBreak {
+		t.Fatalf("expected ControlBreak, got %v", ctrl)
+	}
+	if exec.finalContent != "Recovered after compaction" {
+		t.Fatalf("finalContent = %q, want recovered response", exec.finalContent)
+	}
+	if provider.callCount != 2 {
+		t.Fatalf("callCount = %d, want 2 (fail once, recover once)", provider.callCount)
+	}
+
+	// The empty completion must have gone through the compression path.
+	req, ok := fcm.lastCall()
+	if !ok {
+		t.Fatal("expected a Compact call for the empty completion")
+	}
+	if req.Reason != ContextCompressReasonRetry {
+		t.Fatalf("Compact reason = %q, want %q", req.Reason, ContextCompressReasonRetry)
+	}
+	if req.SessionKey != "test-session" {
+		t.Fatalf("Compact session key = %q, want test-session", req.SessionKey)
+	}
 }
 
 func TestPipeline_CallLLM_NetworkErrorRetry(t *testing.T) {

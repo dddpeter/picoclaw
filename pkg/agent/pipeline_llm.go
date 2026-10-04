@@ -14,6 +14,7 @@ import (
 	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/picoclaw/pkg/providers/common"
 )
 
 // CallLLM performs an LLM call with fallback support, hook invocation, and retry logic.
@@ -344,7 +345,16 @@ func (p *Pipeline) CallLLM(
 
 		errMsg := strings.ToLower(err.Error())
 		retryReason, isTransientError := transientLLMRetryReason(err)
-		isContextError := !isTransientError && (strings.Contains(errMsg, "context_length_exceeded") ||
+		// An empty completion (200 + zero choices / an empty stream) is
+		// typically an upstream silently dropping an over-limit prompt:
+		// resending the identical payload returns the same emptiness. When
+		// there is history to compress, route it to the compression path
+		// below instead of the plain transient retry; NoHistory turns keep
+		// the transient retry (nothing to compress, a gateway glitch is then
+		// the likelier cause).
+		var emptyCompletion *common.EmptyCompletionError
+		isEmptyCompletion := !ts.opts.NoHistory && errors.As(err, &emptyCompletion)
+		isContextError := isEmptyCompletion || (!isTransientError && (strings.Contains(errMsg, "context_length_exceeded") ||
 			strings.Contains(errMsg, "context window") ||
 			strings.Contains(errMsg, "context_window") ||
 			strings.Contains(errMsg, "maximum context length") ||
@@ -353,9 +363,9 @@ func (p *Pipeline) CallLLM(
 			strings.Contains(errMsg, "max_tokens") ||
 			strings.Contains(errMsg, "invalidparameter") ||
 			strings.Contains(errMsg, "prompt is too long") ||
-			strings.Contains(errMsg, "request too large"))
+			strings.Contains(errMsg, "request too large")))
 
-		if isTransientError && retry < maxRetries {
+		if isTransientError && !isEmptyCompletion && retry < maxRetries {
 			backoff := time.Duration(retry+1) * time.Duration(backoffSecs) * time.Second
 			al.emitEvent(
 				runtimeevents.KindAgentLLMRetry,
@@ -415,7 +425,7 @@ func (p *Pipeline) CallLLM(
 			if compactErr := p.ContextManager.Compact(ctx, &CompactRequest{
 				SessionKey: ts.sessionKey,
 				Reason:     ContextCompressReasonRetry,
-				Budget:     ts.agent.ContextWindow,
+				Budget:     ts.agent.CompactionBudget(),
 			}); compactErr != nil {
 				logger.WarnCF("agent", "Context overflow compact failed", map[string]any{
 					"session_key": ts.sessionKey,
