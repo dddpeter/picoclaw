@@ -1,6 +1,6 @@
 # Split-Turn 摘要化设计（长任务上下文管理第三块）
 
-> 状态：设计稿（未实现）。日期：2026-10-05。
+> 状态：**已实现**（2026-10-05，同日设计同日落地；实现要点与设计差异见文末"实现记录"）。日期：2026-10-05。
 > 前置阅读：`docs/design/tui-client-design.zh.md` 无关；本设计的参照系是 pi 的
 > `packages/coding-agent/src/core/compaction/compaction.ts` 与本仓
 > `pkg/agent/iteration_compact.go`（①迭代边界压缩，已实现）。
@@ -110,3 +110,17 @@ CallLLM 迭代边界检查
 1. 摘要质量决定模型能否延续任务——提示词需要用真实代码评审会话调优（先上灰度：日志记录 split 前后的 token 与后续 turn 的失败率）；
 2. 阈值交互：keepRecentTokens 太小 → 模型丢失正在做的事的细节；太大 → 降载不足。默认 8k 是 pi 经验值（20k）与窗口占比的折中，需实测；
 3. `EstimateMessageTokens` 估算偏差在切点选择上被放大——切点吸附加 8k safety 已缓冲，超窗兜底仍是 fit=false 显式失败，无静默路径。
+
+
+## 7. 实现记录（2026-10-05）
+
+与设计的差异与落地要点：
+
+- **触发接线**：`compactBeforeLLMCall`（iteration_compact.go）第一段压缩重装后重估算，仍超窗即调 `doSplitTurnCompact`——包括「rebuild 不保形、请求视图未替换」的情形（旧视图直接进第二段）。
+- **重装保形验证**（实现中发现的必要防御）：`BuildMessagesFromPrompt` 重建可能折叠/归组 turn 消息（实测 8 条→6 条），`currentTurnStart = len−tailLen` 算术失真甚至为负。重装后用 `matchingTurnMessageTail(rebuilt, activeTail) == len(activeTail)` 验证保形，不保形则保持旧请求视图（压缩经 exec.history 下回合生效），本次超窗由 split-turn 在旧视图上处理。
+- **currentTurnStart 守卫**：`<0 || >= len-1`（stable 为空合法——ContextBuilder 为 nil 的路径重装后 stable 可为空）。
+- **摘要调用**：`exec.activeProvider.Chat` 单次直调（不经 fallback 链），`max_tokens=4096, temperature=0.3`；EmptyCompletionError/空内容一律视为失败、fail-open 不断路、节流不置位；`stop_reason=length` 的截断摘要接受。
+- **切点吸附**：从尾累计 keepTokens 后向前扫过 tool 消息（`isToolResultMessage`：role=tool 或带 ToolCallID），落在 user/assistant 边界。
+- **落盘隔离**：只改 exec.messages/callMessages/currentTurnStart，store 与 JSONL 不动。
+- 测试锚点：`TestFindSplitTurnCutPoint_{NeverLandsOnToolResult,TailUnderBudgetReturnsMinusOne}`、`TestBuildSplitTurnMessages`、`TestDoSplitTurnCompact_{RewritesRequestView,ThrottledOncePerTurn,FailureKeepsContext,DisabledByConfig}`、`TestSerializeTurnPrefix_CapsToolResults`、`TestSplitTurnConfigDefaults`、`TestCompactBeforeLLMCall_SecondStageFiresSplitTurn`。
+- 遗留调优项：摘要提示词（turnPrefixSummarizationPrompt）未经真实代码评审会话调优；`keep_recent_tokens` 默认 8192 待实测校准（pi 用 20k）。

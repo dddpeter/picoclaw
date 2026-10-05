@@ -226,10 +226,14 @@ type turnState struct {
 	userMessage string
 	media       []string
 
-	phase        TurnPhase
-	iteration    int
-	startedAt    time.Time
-	finalContent string
+	phase     TurnPhase
+	iteration int
+	// splitTurnDone records that this turn already went through split-turn
+	// prefix summarization once — the reducer is throttled to one shot per
+	// turn so a still-over-limit payload cannot loop summarization.
+	splitTurnDone bool
+	startedAt     time.Time
+	finalContent  string
 	// iterationLimit records that this turn ended by exhausting
 	// max_tool_iterations (set in turn_coord before Finalize).
 	iterationLimit bool

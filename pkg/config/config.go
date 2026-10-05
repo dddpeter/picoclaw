@@ -476,6 +476,32 @@ type ToolFeedbackConfig struct {
 	SeparateMessages bool `json:"separate_messages" env:"PICOCLAW_AGENTS_DEFAULTS_TOOL_FEEDBACK_SEPARATE_MESSAGES"`
 }
 
+// SplitTurnConfig configures split-turn prefix summarization: when the
+// active turn's tail alone exceeds the window after regular compaction,
+// summarize the older prefix of the turn and keep only the recent tail in
+// the request (see docs/design/split-turn-compaction-design.zh.md).
+type SplitTurnConfig struct {
+	// Enabled gates split-turn summarization. Nil (unset) = enabled —
+	// the fork's opt-out-by-config convention.
+	Enabled *bool `json:"enabled,omitempty"`
+	// KeepRecentTokens is the token budget of the preserved turn tail
+	// (default 8192).
+	KeepRecentTokens int `json:"keep_recent_tokens,omitempty"`
+}
+
+// EffectiveEnabled reports whether split-turn is on (nil = on).
+func (c *SplitTurnConfig) EffectiveEnabled() bool {
+	return c == nil || c.Enabled == nil || *c.Enabled
+}
+
+// EffectiveKeepRecentTokens returns the tail budget (default 8192).
+func (c *SplitTurnConfig) EffectiveKeepRecentTokens() int {
+	if c == nil || c.KeepRecentTokens <= 0 {
+		return 8192
+	}
+	return c.KeepRecentTokens
+}
+
 type AgentDefaults struct {
 	Workspace                 string   `json:"workspace"                        env:"PICOCLAW_AGENTS_DEFAULTS_WORKSPACE"`
 	RestrictToWorkspace       bool     `json:"restrict_to_workspace"            env:"PICOCLAW_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE"`
@@ -534,6 +560,10 @@ type AgentDefaults struct {
 	// controls how many recent messages seahorse never summarizes (0 =
 	// default 128).
 	CompactUsageThreshold float64 `json:"compact_usage_threshold,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_COMPACT_USAGE_THRESHOLD"`
+	// SplitTurn configures mid-turn prefix summarization for long heavy
+	// turns whose active-turn tail alone overflows the context window
+	// (fork feature). Nil = enabled with default keep_recent_tokens.
+	SplitTurn *SplitTurnConfig `json:"split_turn,omitempty"`
 	FreshTailMessages     int     `json:"fresh_tail_messages,omitempty"     env:"PICOCLAW_AGENTS_DEFAULTS_FRESH_TAIL_MESSAGES"`
 	// TrustConfiguredContextWindow opts out of the context-window sanity clamp
 	// (fork feature). agents.defaults.context_window is often set from

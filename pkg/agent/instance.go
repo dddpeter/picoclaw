@@ -44,6 +44,13 @@ type AgentInstance struct {
 	SummarizeMessageThreshold int
 	SummarizeTokenPercent     int
 
+	// Split-turn prefix summarization (fork, 2026-10-05): when the active
+	// turn tail alone overflows the window after regular compaction, the
+	// older turn prefix is summarized and only the recent tail stays in the
+	// request view. See docs/design/split-turn-compaction-design.zh.md.
+	SplitTurnEnabled    bool
+	SplitTurnKeepTokens int
+
 	// CompactionBudget returns the token budget handed to context compaction
 	// and assembly: the context window minus the output reserve (MaxTokens).
 	// Seahorse's summarize/condensed engine compares its history token count
@@ -63,17 +70,17 @@ type AgentInstance struct {
 	// fork's conservative compaction bound. Zero means "same as
 	// ContextWindow" (agents hand-built in tests).
 	DeclaredContextWindow int
-	Provider                  providers.LLMProvider
-	Sessions                  session.SessionStore
-	ContextBuilder            *ContextBuilder
-	Tools                     *tools.ToolRegistry
-	Definition                AgentContextDefinition
-	Subagents                 *config.SubagentsConfig
-	SkillsFilter              []string
-	MCPServerAllowlist        map[string]struct{}
-	Candidates                []providers.FallbackCandidate
-	ImageCandidates           []providers.FallbackCandidate
-	LoopDetection             config.LoopDetectionConfig
+	Provider              providers.LLMProvider
+	Sessions              session.SessionStore
+	ContextBuilder        *ContextBuilder
+	Tools                 *tools.ToolRegistry
+	Definition            AgentContextDefinition
+	Subagents             *config.SubagentsConfig
+	SkillsFilter          []string
+	MCPServerAllowlist    map[string]struct{}
+	Candidates            []providers.FallbackCandidate
+	ImageCandidates       []providers.FallbackCandidate
+	LoopDetection         config.LoopDetectionConfig
 
 	// Router is non-nil when model routing is configured and the light model
 	// was successfully resolved. It scores each incoming message and decides
@@ -442,6 +449,8 @@ func NewAgentInstance(
 		ContextWindow:             contextWindow,
 		DeclaredContextWindow:     declaredContextWindow,
 		CompactUsageThreshold:     compactUsageThreshold,
+		SplitTurnEnabled:          defaults.SplitTurn.EffectiveEnabled(),
+		SplitTurnKeepTokens:       defaults.SplitTurn.EffectiveKeepRecentTokens(),
 		SummarizeMessageThreshold: summarizeMessageThreshold,
 		SummarizeTokenPercent:     summarizeTokenPercent,
 		CompactionBudget:          compactionBudget,

@@ -33,7 +33,7 @@ func TestStripToolCallParrot(t *testing.T) {
 		},
 		{
 			name: "parrot removed, prose kept",
-			in: "[tool_use: exec, args: {\"command\":\"ls\"}]\n\n我先看一下文件，再给你结论。\n\n[tool_result for call_1: total 0]\n\n结论：目录是空的。",
+			in:   "[tool_use: exec, args: {\"command\":\"ls\"}]\n\n我先看一下文件，再给你结论。\n\n[tool_result for call_1: total 0]\n\n结论：目录是空的。",
 			want: "我先看一下文件，再给你结论。\n\n结论：目录是空的。",
 		},
 		{

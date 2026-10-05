@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
@@ -88,22 +89,43 @@ func (p *Pipeline) compactBeforeLLMCall(
 	}
 
 	// 重装（与重试循环的 compact-rebuild 同模式）：splitHistoryForActiveTurn
-	// 找出本轮尚未落盘的活动尾部（工具调用/结果），压缩只作用于稳定历
-	// 史；重建后的 messages = 新稳定历史 + 活动尾部，currentTurnStart
-	// 指向活动尾部起点，封口/中止语义不漂移。
+	// 找出本轮已落盘的活动尾部（工具调用/结果），压缩只作用于稳定历
+	// 史。ContextBuilder 重建后必须验证保形——重建把 [History+尾部] 折叠
+	// 成别的请求形状时（工具消息归组/合并），currentTurnStart 的算术
+	// （len−tailLen）会失真甚至为负；不保形则保持旧请求视图不动（稳定
+	// 历史的压缩经由 exec.history 在下回合生效），本次的超窗交给第二段
+	// split-turn 在旧视图上处理。
 	_, activeTail := splitHistoryForActiveTurn(exec.messages, ts.persistedMessagesSnapshot())
-	if ts.agent.ContextBuilder != nil {
-		fullHistory := append(append([]providers.Message(nil), asmResp.History...), activeTail...)
-		rebuildReq := promptBuildRequestForTurn(ts, fullHistory, asmResp.Summary, "", nil, p.Cfg)
-		exec.messages = ts.agent.ContextBuilder.BuildMessagesFromPrompt(rebuildReq)
-	} else {
-		exec.messages = append(append([]providers.Message(nil), asmResp.History...), activeTail...)
-	}
 	exec.history = asmResp.History
-	exec.currentTurnStart = len(exec.messages) - len(activeTail)
-	exec.callMessages = exec.messages
-	if exec.gracefulTerminal {
-		exec.callMessages = append(append([]providers.Message(nil), exec.messages...), ts.interruptHintMessage())
+	if len(activeTail) > 0 {
+		var rebuilt []providers.Message
+		if ts.agent.ContextBuilder != nil {
+			fullHistory := append(append([]providers.Message(nil), asmResp.History...), activeTail...)
+			rebuildReq := promptBuildRequestForTurn(ts, fullHistory, asmResp.Summary, "", nil, p.Cfg)
+			rebuilt = ts.agent.ContextBuilder.BuildMessagesFromPrompt(rebuildReq)
+		} else {
+			rebuilt = append(append([]providers.Message(nil), asmResp.History...), activeTail...)
+		}
+		if matchingTurnMessageTail(rebuilt, activeTail) == len(activeTail) {
+			exec.messages = rebuilt
+			exec.currentTurnStart = len(rebuilt) - len(activeTail)
+			exec.callMessages = exec.messages
+			if exec.gracefulTerminal {
+				exec.callMessages = append(append([]providers.Message(nil), exec.messages...), ts.interruptHintMessage())
+			}
+		} else {
+			logger.WarnCF("agent", "Post-compact rebuild changed the turn tail shape; keeping current request view", map[string]any{
+				"session_key": ts.sessionKey,
+				"tail_msgs":   len(activeTail),
+				"rebuilt":     len(rebuilt),
+			})
+		}
+	}
+
+	// 第二段（design ②）：稳定历史压完仍超窗——活动尾部独占窗口，唯一
+	// 出路是把尾部的老前缀摘要化（不丢弃、不落盘），保留 recent tail。
+	if estimateCallTokens(exec)+ts.agent.MaxTokens+iterationCompactSafetyTokens > window {
+		p.doSplitTurnCompact(ctx, ts, exec)
 	}
 	return true
 }
@@ -143,4 +165,238 @@ func estimateCallTokens(exec *turnExecution) int {
 		msgTokens += EstimateMessageTokens(m)
 	}
 	return msgTokens + EstimateToolDefsTokens(exec.providerToolDefs)
+}
+
+// ─── Split-turn prefix summarization (design ②, 2026-10-05) ───
+//
+// docs/design/split-turn-compaction-design.zh.md：当稳定历史压缩后活动
+// turn 尾部仍独占超窗时，把尾部的老前缀摘要化（而非整体保护），只保留
+// recent tail 在请求视图里。协议安全靠切点吸附保证：切点永不落在 tool
+// 消息上，前缀内 assistant(tool_calls) 与其结果的配对要么整体在前缀（一
+// 起被摘要）、要么整体在保留尾。摘要只改请求消息视图，不落盘——JSONL
+// 的事实记录不动，turn 结束后的常规压缩自然接管。
+
+// turnPrefixSummarizationPrompt asks the model to compress a mid-turn
+// conversation prefix so the same model can continue the task from the
+// preserved tail. Structured output per the design: task goal / completed
+// items / findings / current work / next steps.
+const turnPrefixSummarizationPrompt = `你是对话压缩助手。以下是一个 agent 执行任务过程中的对话前缀（含工具调用与结果），请压缩成结构化摘要，供模型在只保留尾部对话的情况下继续执行同一任务。
+
+必须保留：
+- 任务目标：用户最初要求做什么（含关键约束）
+- 已完成的检查/操作：编号清单，每项一句话
+- 关键发现：编号清单，保留文件路径、函数名、错误信息等具体锚点
+- 当前正在进行什么、下一步计划
+
+可以丢弃：工具输出的原文细节、重复内容、冗长堆栈。
+
+只输出摘要正文，不要任何前后缀说明或代码围栏。`
+
+// splitTurnToolResultBudget caps each tool result fed into the summarizer
+// (the summary needs facts, not full output).
+const splitTurnToolResultBudget = 2000
+
+// splitTurnSummarizeMaxTokens bounds the summary LLM call.
+const splitTurnSummarizeMaxTokens = 4096
+
+// findSplitTurnCutPoint picks the split index p (0 < p < len(tail)) so the
+// prefix tail[:p] is summarized and tail[p:] is kept verbatim. Starting
+// from the smallest p whose kept tail fits keepTokens, it then absorbs p
+// forward past tool messages — a cut may never land ON a tool result, which
+// would leave its parent assistant's tool_calls stranded in the prefix
+// while the result lands in the kept tail (or vice versa).
+func findSplitTurnCutPoint(tail []providers.Message, keepTokens int) int {
+	if len(tail) < 2 {
+		return -1
+	}
+	if keepTokens <= 0 {
+		keepTokens = 8192
+	}
+	kept := 0
+	p := len(tail)
+	for i := len(tail) - 1; i > 0; i-- {
+		kept += EstimateMessageTokens(tail[i])
+		if kept >= keepTokens {
+			p = i
+			break
+		}
+	}
+	if p <= 0 {
+		return -1 // whole tail under budget — nothing worth splitting
+	}
+	// Absorb forward off tool messages: the kept tail must start at a
+	// user/assistant boundary.
+	for p < len(tail) && isToolResultMessage(tail[p]) {
+		p++
+	}
+	if p >= len(tail) {
+		return -1
+	}
+	return p
+}
+
+func isToolResultMessage(m providers.Message) bool {
+	return m.Role == "tool" || m.ToolCallID != ""
+}
+
+// serializeTurnPrefix renders the to-be-summarized prefix as plain text for
+// the summarizer: roles labeled, tool results capped.
+func serializeTurnPrefix(prefix []providers.Message) string {
+	var b strings.Builder
+	for i := range prefix {
+		m := &prefix[i]
+		switch {
+		case m.Role == "user":
+			b.WriteString("[用户] ")
+			b.WriteString(firstNRunes(m.Content, 4000))
+			b.WriteString("\n")
+		case m.Role == "assistant" && len(m.ToolCalls) > 0:
+			for _, tc := range m.ToolCalls {
+				name := tc.Name
+				if tc.Function != nil {
+					name = tc.Function.Name
+				}
+				b.WriteString("[调用工具] ")
+				b.WriteString(name)
+				b.WriteString(" ")
+				if tc.Function != nil {
+					b.WriteString(firstNRunes(tc.Function.Arguments, 400))
+				}
+				b.WriteString("\n")
+			}
+			if c := strings.TrimSpace(m.Content); c != "" {
+				b.WriteString("[助手] ")
+				b.WriteString(firstNRunes(c, 2000))
+				b.WriteString("\n")
+			}
+		case m.Role == "assistant":
+			if m.ReasoningContent != "" {
+				b.WriteString("[助手思考] ")
+				b.WriteString(firstNRunes(m.ReasoningContent, 2000))
+				b.WriteString("\n")
+			}
+			if c := strings.TrimSpace(m.Content); c != "" {
+				b.WriteString("[助手] ")
+				b.WriteString(firstNRunes(c, 4000))
+				b.WriteString("\n")
+			}
+		case isToolResultMessage(*m):
+			b.WriteString("[工具结果] ")
+			b.WriteString(firstNRunes(m.Content, splitTurnToolResultBudget))
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+func firstNRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
+}
+
+// buildSplitTurnMessages reassembles the request view after the split:
+// stable prefix (system + compacted history) + a rewritten user message
+// carrying the turn-prefix summary + the kept tail verbatim. The summary
+// rides inside the original user message so the turn keeps its leading
+// user anchor (protocol shape), and the original message text survives
+// word-for-word for task continuity.
+func buildSplitTurnMessages(
+	stable []providers.Message,
+	turnUserText string,
+	summary string,
+	keptTail []providers.Message,
+) []providers.Message {
+	rewritten := providers.Message{Role: "user", Content: turnUserText +
+		"\n\n<history>\n" + summary + "\n</history>"}
+	out := make([]providers.Message, 0, len(stable)+1+len(keptTail))
+	out = append(out, stable...)
+	out = append(out, rewritten)
+	out = append(out, keptTail...)
+	return out
+}
+
+// turnUserText extracts the turn's original user message from the active
+// tail (first user message; empty when absent — the split then injects the
+// summary as a bare user anchor).
+func turnUserText(tail []providers.Message) string {
+	for i := range tail {
+		if tail[i].Role == "user" {
+			return tail[i].Content
+		}
+	}
+	return ""
+}
+
+// doSplitTurnCompact runs the split-turn reduction on exec's request view.
+// It fires at most once per turn (ts.splitTurnDone), requires the agent to
+// carry split-turn settings, and summarizes via a single direct provider
+// call (no fallback chain rotation — a summarization failure must not
+// switch models). Returns true when the view was rewritten.
+func (p *Pipeline) doSplitTurnCompact(
+	ctx context.Context,
+	ts *turnState,
+	exec *turnExecution,
+) bool {
+	if !ts.agent.SplitTurnEnabled || ts.splitTurnDone {
+		return false
+	}
+	if exec.currentTurnStart < 0 || exec.currentTurnStart >= len(exec.messages)-1 {
+		return false // no meaningful active tail to split (empty stable is fine)
+	}
+	tail := exec.messages[exec.currentTurnStart:]
+	p_ := findSplitTurnCutPoint(tail, ts.agent.SplitTurnKeepTokens)
+	if p_ <= 0 {
+		return false
+	}
+
+	prefix := tail[:p_]
+	kept := tail[p_:]
+
+	sumOpts := map[string]any{
+		"max_tokens":  splitTurnSummarizeMaxTokens,
+		"temperature": 0.3,
+	}
+	resp, err := exec.activeProvider.Chat(ctx,
+		[]providers.Message{{
+			Role:    "user",
+			Content: turnPrefixSummarizationPrompt + "\n\n<conversation>\n" + serializeTurnPrefix(prefix) + "\n</conversation>",
+		}},
+		nil, exec.llmModel, sumOpts)
+	if err != nil || resp == nil || strings.TrimSpace(resp.Content) == "" {
+		logger.WarnCF("agent", "Split-turn summarization failed; continuing with current context", map[string]any{
+			"session_key": ts.sessionKey,
+			"prefix_msgs": len(prefix),
+			"error":       asmErrText(err),
+		})
+		return false
+	}
+	// A length-truncated summary is still better than dropping the prefix
+	// outright — accept it (design §3.3).
+
+	stable := exec.messages[:exec.currentTurnStart]
+	newMessages := buildSplitTurnMessages(stable, turnUserText(tail), resp.Content, kept)
+	exec.messages = newMessages
+	exec.callMessages = newMessages
+	if exec.gracefulTerminal {
+		exec.callMessages = append(append([]providers.Message(nil), newMessages...), ts.interruptHintMessage())
+	}
+	exec.currentTurnStart = len(stable) + 1 // the rewritten user anchor
+	ts.splitTurnDone = true
+
+	dropped := 0
+	for i := range prefix {
+		dropped += EstimateMessageTokens(prefix[i])
+	}
+	logger.WarnCF("agent", "Split-turn prefix summarized", map[string]any{
+		"session_key":    ts.sessionKey,
+		"prefix_msgs":    len(prefix),
+		"prefix_tokens":  dropped,
+		"kept_msgs":      len(kept),
+		"summary_tokens": EstimateMessageTokens(providers.Message{Role: "user", Content: resp.Content}),
+		"turn_start_now": exec.currentTurnStart,
+	})
+	return true
 }
