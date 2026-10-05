@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
@@ -199,6 +200,16 @@ const splitTurnToolResultBudget = 2000
 // splitTurnSummarizeMaxTokens bounds the summary LLM call.
 const splitTurnSummarizeMaxTokens = 4096
 
+// splitTurnSummarizeTimeout bounds the summary call independently of the
+// turn context (review P2-4) — a wedged summarizer fails open within 60s
+// instead of stalling the turn up to the provider HTTP timeout.
+const splitTurnSummarizeTimeout = 60 * time.Second
+
+// defaultSplitTurnKeepTokens is the single source of the keep-tail budget
+// default, shared by the config helper and the cut-point fallback (review
+// P2-3: two independent 8192 magic numbers drifted apart waiting to happen).
+const defaultSplitTurnKeepTokens = 8192
+
 // findSplitTurnCutPoint picks the split index p (0 < p < len(tail)) so the
 // prefix tail[:p] is summarized and tail[p:] is kept verbatim. Starting
 // from the smallest p whose kept tail fits keepTokens, it then absorbs p
@@ -210,7 +221,7 @@ func findSplitTurnCutPoint(tail []providers.Message, keepTokens int) int {
 		return -1
 	}
 	if keepTokens <= 0 {
-		keepTokens = 8192
+		keepTokens = defaultSplitTurnKeepTokens
 	}
 	kept := 0
 	p := len(tail)
@@ -305,12 +316,17 @@ func firstNRunes(s string, n int) string {
 // word-for-word for task continuity.
 func buildSplitTurnMessages(
 	stable []providers.Message,
-	turnUserText string,
+	turnUserAnchor providers.Message,
 	summary string,
 	keptTail []providers.Message,
 ) []providers.Message {
-	rewritten := providers.Message{Role: "user", Content: turnUserText +
-		"\n\n<history>\n" + summary + "\n</history>"}
+	// Clone the ORIGINAL user message and append the summary to its content
+	// (review P1-1): rebuilding a Content-only message silently dropped
+	// Media/Attachments/SystemParts — multimodal review turns lost their
+	// images the moment split-turn fired.
+	rewritten := turnUserAnchor
+	rewritten.Content = rewritten.Content +
+		"\n\n<history>\n" + summary + "\n</history>"
 	out := make([]providers.Message, 0, len(stable)+1+len(keptTail))
 	out = append(out, stable...)
 	out = append(out, rewritten)
@@ -318,16 +334,16 @@ func buildSplitTurnMessages(
 	return out
 }
 
-// turnUserText extracts the turn's original user message from the active
-// tail (first user message; empty when absent — the split then injects the
-// summary as a bare user anchor).
-func turnUserText(tail []providers.Message) string {
+// turnUserAnchor returns the turn's original user message from the active
+// tail (first user message). ok=false when absent — the split then falls
+// back to a bare user anchor (nothing to preserve in that case).
+func turnUserAnchor(tail []providers.Message) (providers.Message, bool) {
 	for i := range tail {
 		if tail[i].Role == "user" {
-			return tail[i].Content
+			return tail[i], true
 		}
 	}
-	return ""
+	return providers.Message{}, false
 }
 
 // doSplitTurnCompact runs the split-turn reduction on exec's request view.
@@ -355,14 +371,30 @@ func (p *Pipeline) doSplitTurnCompact(
 	prefix := tail[:p_]
 	kept := tail[p_:]
 
+	// The user message sits at the head of the tail and p_ >= 1 keeps it in
+	// the serialized prefix — but make the task goal explicit at the top of
+	// the summarizer input anyway (review P2-2): it is the one input the
+	// summary cannot afford to miss, whatever future turn shapes do to the
+	// prefix layout.
+	summarizerInput := turnPrefixSummarizationPrompt
+	if anchor, ok := turnUserAnchor(tail); ok && strings.TrimSpace(anchor.Content) != "" {
+		summarizerInput += "\n\n[任务目标]\n" + firstNRunes(anchor.Content, 2000)
+	}
+	summarizerInput += "\n\n<conversation>\n" + serializeTurnPrefix(prefix) + "\n</conversation>"
+
 	sumOpts := map[string]any{
 		"max_tokens":  splitTurnSummarizeMaxTokens,
 		"temperature": 0.3,
 	}
-	resp, err := exec.activeProvider.Chat(ctx,
+	// Independent timeout (review P2-4): the summarizer must not hold the
+	// turn hostage beyond its own budget — provider HTTP timeouts bound it
+	// eventually, but 60s is all a mid-turn reduction is worth.
+	sumCtx, cancelSum := context.WithTimeout(ctx, splitTurnSummarizeTimeout)
+	defer cancelSum()
+	resp, err := exec.activeProvider.Chat(sumCtx,
 		[]providers.Message{{
 			Role:    "user",
-			Content: turnPrefixSummarizationPrompt + "\n\n<conversation>\n" + serializeTurnPrefix(prefix) + "\n</conversation>",
+			Content: summarizerInput,
 		}},
 		nil, exec.llmModel, sumOpts)
 	if err != nil || resp == nil || strings.TrimSpace(resp.Content) == "" {
@@ -377,7 +409,11 @@ func (p *Pipeline) doSplitTurnCompact(
 	// outright — accept it (design §3.3).
 
 	stable := exec.messages[:exec.currentTurnStart]
-	newMessages := buildSplitTurnMessages(stable, turnUserText(tail), resp.Content, kept)
+	anchor, hasAnchor := turnUserAnchor(tail)
+	if !hasAnchor {
+		anchor = providers.Message{Role: "user"}
+	}
+	newMessages := buildSplitTurnMessages(stable, anchor, resp.Content, kept)
 	exec.messages = newMessages
 	exec.callMessages = newMessages
 	if exec.gracefulTerminal {

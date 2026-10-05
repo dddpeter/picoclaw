@@ -89,7 +89,7 @@ func TestBuildSplitTurnMessages(t *testing.T) {
 	kept := []providers.Message{
 		{Role: "assistant", Content: "第二步完成"},
 	}
-	out := buildSplitTurnMessages(stable, "评审这个仓库", "1. 已完成扫描\n2. 发现 X", kept)
+	out := buildSplitTurnMessages(stable, providers.Message{Role: "user", Content: "评审这个仓库"}, "1. 已完成扫描\n2. 发现 X", kept)
 	if len(out) != len(stable)+1+len(kept) {
 		t.Fatalf("length = %d, want %d", len(out), len(stable)+1+len(kept))
 	}
@@ -182,8 +182,12 @@ func TestDoSplitTurnCompact_RewritesRequestView(t *testing.T) {
 		}
 	}
 	// Kept tail tool results keep their parents.
-	if len(exec.messages) != 4 { // sys + anchor + kept(c2 pair…) — see tail layout
-		t.Logf("messages = %d (info)", len(exec.messages))
+	// Shape: [sys, anchor(summary), kept…] — with keep=1000 on the fixture
+	// tail the cut absorbs past the c2 tool result, so the kept tail is the
+	// final assistant message only.
+	if len(exec.messages) != 3 {
+		t.Fatalf("messages = %d, want 3 (sys + anchor + kept assistant): %+v",
+			len(exec.messages), exec.messages)
 	}
 }
 
@@ -327,5 +331,67 @@ func TestCompactBeforeLLMCall_SecondStageFiresSplitTurn(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("rewritten user anchor missing from callMessages")
+	}
+}
+
+// TestBuildSplitTurnMessages_PreservesMediaFields pins review P1-1: the
+// rewritten anchor must carry the original user message's Media and
+// Attachments — multimodal turns must not lose their images to a split.
+func TestBuildSplitTurnMessages_PreservesMediaFields(t *testing.T) {
+	stable := []providers.Message{{Role: "system", Content: "sys"}}
+	anchor := providers.Message{
+		Role:    "user",
+		Content: "评审这张截图",
+		Media:   []string{"media://ref-1"},
+		Attachments: []providers.Attachment{{
+			Type: "image", URL: "media://ref-1", Filename: "shot.png",
+		}},
+	}
+	kept := []providers.Message{{Role: "assistant", Content: "done"}}
+
+	out := buildSplitTurnMessages(stable, anchor, "摘要", kept)
+
+	got := out[1]
+	if got.Role != "user" || !strings.Contains(got.Content, "评审这张截图") || !strings.Contains(got.Content, "摘要") {
+		t.Fatalf("anchor content wrong: %+v", got)
+	}
+	if len(got.Media) != 1 || got.Media[0] != "media://ref-1" {
+		t.Fatalf("Media lost: %+v", got.Media)
+	}
+	if len(got.Attachments) != 1 || got.Attachments[0].Filename != "shot.png" {
+		t.Fatalf("Attachments lost: %+v", got.Attachments)
+	}
+	// The original anchor in the caller's slice must stay unmutated (clone,
+	// not in-place edit).
+	if strings.Contains(anchor.Content, "摘要") {
+		t.Fatal("original anchor was mutated in place")
+	}
+}
+
+// TestDoSplitTurnCompact_DoesNotPersistSummary pins review P2-5: the split
+// summary lives only in the request view — nothing lands in the persisted
+// snapshot or the history.
+func TestDoSplitTurnCompact_DoesNotPersistSummary(t *testing.T) {
+	stub := &summarizeStubProvider{}
+	_, ts, exec := splitTurnTestExec(t, stub, activeTail())
+	pipeline := &Pipeline{}
+
+	before := ts.persistedMessagesSnapshot()
+	if !pipeline.doSplitTurnCompact(context.Background(), ts, exec) {
+		t.Fatal("expected split-turn to fire")
+	}
+	after := ts.persistedMessagesSnapshot()
+	if len(after) != len(before) {
+		t.Fatalf("persisted snapshot grew: %d → %d", len(before), len(after))
+	}
+	for _, m := range after {
+		if strings.Contains(m.Content, "<history>") || strings.Contains(m.Content, "结构化摘要") {
+			t.Fatalf("summary leaked into persisted messages: %+v", m)
+		}
+	}
+	for _, m := range exec.history {
+		if strings.Contains(m.Content, "<history>") {
+			t.Fatalf("summary leaked into exec.history: %+v", m)
+		}
 	}
 }
