@@ -249,8 +249,18 @@ type turnState struct {
 	// prefix summarization once — the reducer is throttled to one shot per
 	// turn so a still-over-limit payload cannot loop summarization.
 	splitTurnDone bool
-	startedAt     time.Time
-	finalContent  string
+	// compactContextRequested is set by the compact_context tool (fork,
+	// agentscope-go borrowing §二): the next iteration-boundary
+	// compactBeforeLLMCall consumes it and runs its window check even when
+	// the estimate is still under budget. Atomic: the tool may execute on an
+	// async-worker goroutine while the boundary check runs on the turn
+	// goroutine.
+	compactContextRequested atomic.Bool
+	// compactContextToolUses throttles the tool to at most two requests per
+	// turn so a confused model cannot loop request→compact→request.
+	compactContextToolUses atomic.Int32
+	startedAt              time.Time
+	finalContent           string
 	// iterationLimit records that this turn ended by exhausting
 	// max_tool_iterations (set in turn_coord before Finalize).
 	iterationLimit bool

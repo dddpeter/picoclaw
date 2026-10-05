@@ -151,12 +151,22 @@ func (al *AgentLoop) loadConfiguredHooks(ctx context.Context) (err error) {
 		if factoryErr != nil {
 			return fmt.Errorf("build builtin hook %q: %w", name, factoryErr)
 		}
+		// The approval builtin needs a loop-side reference so the inbound
+		// pump can route /approve /deny replies, and its HITL deadline must
+		// raise the manager-wide approval timeout (fork, §一).
+		if ah, ok := hook.(*approvalHook); ok {
+			al.approvalHook = ah
+			al.hooks.ensureApprovalTimeoutAtLeast(ah.timeout)
+		}
 		if err := al.MountHook(HookRegistration{
 			Name:     name,
 			Priority: spec.Priority,
 			Source:   HookSourceInProcess,
 			Hook:     hook,
 		}); err != nil {
+			if _, isApproval := hook.(*approvalHook); isApproval {
+				al.approvalHook = nil
+			}
 			return fmt.Errorf("mount builtin hook %q: %w", name, err)
 		}
 		mounted = append(mounted, name)

@@ -594,6 +594,7 @@ type AgentDefaults struct {
 	SummarizeMessageThreshold     int                 `json:"summarize_message_threshold"      env:"PICOCLAW_AGENTS_DEFAULTS_SUMMARIZE_MESSAGE_THRESHOLD"`
 	SummarizeTokenPercent         int                 `json:"summarize_token_percent"          env:"PICOCLAW_AGENTS_DEFAULTS_SUMMARIZE_TOKEN_PERCENT"`
 	MaxMediaSize                  int                 `json:"max_media_size,omitempty"         env:"PICOCLAW_AGENTS_DEFAULTS_MAX_MEDIA_SIZE"`
+	MaxContextImages              int                 `json:"max_context_images,omitempty"     env:"PICOCLAW_AGENTS_DEFAULTS_MAX_CONTEXT_IMAGES"`
 	Routing                       *RoutingConfig      `json:"routing,omitempty"`
 	SteeringMode                  string              `json:"steering_mode,omitempty"          env:"PICOCLAW_AGENTS_DEFAULTS_STEERING_MODE"`      // "one-at-a-time" (default) or "all"
 	MaxParallelTurns              int                 `json:"max_parallel_turns"               env:"PICOCLAW_AGENTS_DEFAULTS_MAX_PARALLEL_TURNS"` // Max concurrent turns (0 or 1 = sequential)
@@ -623,6 +624,12 @@ type AgentDefaults struct {
 	// controls how many recent messages seahorse never summarizes (0 =
 	// default 128).
 	CompactUsageThreshold float64 `json:"compact_usage_threshold,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_COMPACT_USAGE_THRESHOLD"`
+	// CompactToolTriggerRatio is the usage ratio at which the model-initiated
+	// compact_context tool agrees to request compaction. 0 = half the compact
+	// usage threshold (agentscope-go borrowing §二: the automatic path already
+	// fires at the full threshold, an identical tool threshold would leave the
+	// tool nothing to do).
+	CompactToolTriggerRatio float64 `json:"compact_tool_trigger_ratio,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_COMPACT_TOOL_TRIGGER_RATIO"`
 	// SplitTurn configures mid-turn prefix summarization for long heavy
 	// turns whose active-turn tail alone overflows the context window
 	// (fork feature). Nil = enabled with default keep_recent_tokens.
@@ -745,6 +752,21 @@ func (d *AgentDefaults) GetMaxMediaSize() int {
 		return d.MaxMediaSize
 	}
 	return DefaultMaxMediaSize
+}
+
+// DefaultMaxContextImages caps how many current-turn tool-result images are
+// base64-injected into the model context; older ones degrade to [image:/path]
+// tags the model can re-load via load_image (fork feature, agentscope-go
+// borrowing §三).
+const DefaultMaxContextImages = 8
+
+// GetMaxContextImages returns the per-turn cap on base64 tool images.
+// 0 = default (8), negative = unlimited.
+func (d *AgentDefaults) GetMaxContextImages() int {
+	if d.MaxContextImages == 0 {
+		return DefaultMaxContextImages
+	}
+	return d.MaxContextImages
 }
 
 // GetProgressHeartbeatSeconds returns the idle progress-heartbeat interval

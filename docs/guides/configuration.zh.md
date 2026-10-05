@@ -471,6 +471,40 @@ export PICOCLAW_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE=false
 
 所有路径共享相同的工作区限制——无法通过子 Agent 或定时任务绕过安全边界。
 
+### 工具审批门禁 (hooks.builtins.approval)
+
+HITL 工具审批（fork 新增，借鉴 agentscope-go，详见 `docs/design/agentscope-go-borrowing-analysis.zh.md` §一）。启用后，命中审批规则的工具调用会**暂停回合**，向会话所在渠道发一条批准请求，用户回复 `/approve` 或 `/deny` 后继续；无交互通道的回合（cron/心跳）与超时**一律按拒绝处理**（fail-closed，绝不静默放行）。
+
+```json
+{
+  "hooks": {
+    "enabled": true,
+    "builtins": {
+      "approval": {
+        "enabled": true,
+        "config": {
+          "ask_patterns": ["git push", "tool:write_file"],
+          "timeout_ms": 300000
+        }
+      }
+    }
+  }
+}
+```
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `ask_patterns` | `[]`（= 放行一切，行为与未启用完全一致） | 正则列表，语义对齐 `tools.exec.custom_deny_patterns`：`tool:` 前缀匹配**工具名**（如 `tool:write_file`），其余匹配 **exec 的命令串**（如 `git push`） |
+| `timeout_ms` | `300000`（5 分钟，贴合 IM 回复节奏） | 等待上限，超时按拒绝。挂载时 `hooks.defaults.approval_timeout_ms` 会自动抬高到不低于该值 |
+
+要点：
+
+- **只加 Ask 层**：exec 的 deny patterns（`defaultDenyPatterns` / `custom_deny_patterns`）仍是最终裁决——审批通过后命令若命中 deny 规则照样被拒。
+- 审批回答（`/approve`、`/deny`，及中文别名 `同意`/`拒绝`）在 steering 之前路由，**不进入模型上下文**；其他消息照常进 steering。
+- 回答示例：`⚠️ 需要批准：即将执行工具 exec\n git push origin main\n\n回复 /approve 允许、/deny 拒绝（超过 5m0s 未回复将按拒绝处理）`。
+- 回合被中止（`/stop` 等）时等待立即以拒绝结束，不留悬挂。
+- 环境变量无（走 `hooks.builtins` 结构配置）。
+
 ### 心跳 / 周期性任务 (Heartbeat)
 
 PicoClaw 可以自动执行周期性任务。在工作区创建 `HEARTBEAT.md` 文件：
@@ -542,8 +576,30 @@ Agent 将每隔 30 分钟（可配置）读取此文件，并使用可用工具�
 |---|---|---|
 | `compact_usage_threshold` | `0.75` | 回合尾压缩的使用率门槛：**历史 token**（与 seahorse 引擎计数同基准，不含系统提示与工具定义）低于 `该比例 × (context_window - max_tokens)` 时**完全跳过压缩**，原始历史原样保留；达到后才异步压缩。溢出错误仍有 forceCompression 兜底。有效范围 (0, 0.98]，超出回退 0.75 |
 | `fresh_tail_messages` | `128` | seahorse 压缩时**永不摘要**的最近消息条数（原 32——编码会话里 32 条只够几轮工具往返，模型反复重读刚读过又被摘要掉的文件，是编码慢的主因之一）。0 或正数无效时用默认 |
+| `compact_tool_trigger_ratio` | `compact_usage_threshold` 的一半（默认 0.375） | **模型主动压缩**（fork 新增，借鉴 agentscope-go）：seahorse 引擎下模型获得 `compact_context` 工具，历史用量达到该比例即可主动请求在下一次模型调用前压缩（自动路径仍按全门槛 0.75 触发，同值会让工具无事可做，故取一半；会被钳到不超过 `compact_usage_threshold`）。工具每回合至多 2 次；未达阈值时如实回复"未压缩、无内容丢失"；压缩后细节可用 `short_expand` 回读 |
 
 配套：`context_window` 未配置时推导为 `max(max_tokens×4, 256k)`（现代模型默认值）；`max_tool_iterations` 默认 20→**40**（编码回合常见 30+ 次工具调用）。
+
+### 上下文图片上限 (max_context_images)
+
+当前回合工具结果里 base64 进上下文的图片数量上限（fork 新增，借鉴 agentscope-go；历史消息图片本就只注入 `[image:/path]` 标签，不受影响）：
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "max_context_images": 8
+    }
+  }
+}
+```
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `max_context_images` | `8` | 超出上限时**最旧的**图片退化为 `[image:/path]` 路径标签（模型可用 `load_image` 按需回看），最新的保留 base64 直读。负数 = 不限 |
+
+同批泛化（无新配置键）：任何工具输出触发 `max_tool_output_bytes` 截断时，未截断原文自动落盘到 `<workspace>/tmp/tool-output-*.log` 并附 `Full output: <路径>` 引用（此前仅 exec 有此待遇；落盘失败退回纯截断）。
+
 ### 上下文窗口可信开关 (trust_configured_context_window)
 
 `agents.defaults.context_window` 常被填成营销数字（如 1M），而模型真实窗口小得多——所有压缩门信任虚高值后永不触发，长会话最终以「上游返回 200 + 空响应」形式溢出（2026-10-04 排查结论）。

@@ -144,3 +144,9 @@ agentscope-go 把崩溃语义写成显式契约（`checkpoint.go:23-29`），值
 
 - 2026-10-05：调研完成，本文档存档。
 - 2026-10-05：评审确认——权限方向**只补 Ask 层**（不搬五模式引擎）；§一 增补无交互通道立即拒绝语义（DontAsk 特例化）与五模式不搬论证，§五 同步。
+- 2026-10-05：**四项全部实施**（fork-overview §23）：
+  - §一 HITL 审批钩子：`pkg/agent/approval_hook.go` + `hooks.builtins.approval` 配置 + 消息泵 steering 前路由 + 无通道/超时/中止 fail-closed + 挂载时自动抬高 HookManager 审批超时。7 个测试锚点全绿。实现与设计的偏差：无"二期会话内总是允许"（未做，确认规则语义时再立项）；审批提问措辞用中文（部署主用飞书）。
+  - §二 compact_context：工具 + force 标志（`compactBeforeLLMCall` 消费，reason=`model_tool_request`）+ 阈值 `compact_tool_trigger_ratio`（钳到 ≤ 全门槛）+ 每回合 2 次限流 + split-turn/legacy prompt 五字段化。与设计的偏差：用量不可估（usage==nil）时改为保守 no-op（不盲目请求），更符合诚实性原则。
+  - §三 offload 泛化（`ApplyOutputBudgetWithOffload` + registry `SetWorkspaceDir` + 异步出口同权）+ 图片上限（`resolveMediaRefs` maxImages 参数，8 调用点；预扫描丢弃集，最旧换 `[image:/path]` 标签）。
+  - §四 契约注释写入 `restart_recovery.go` 头注。
+  - 配置文档：configuration.zh.md 新增「工具审批门禁」节、`compact_tool_trigger_ratio` 行、「上下文图片上限」节。

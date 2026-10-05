@@ -64,10 +64,11 @@ func (p *Pipeline) CallLLM(
 ) (Control, error) {
 	al := p.al
 	maxMediaSize := p.Cfg.Agents.Defaults.GetMaxMediaSize()
+	maxContextImages := p.Cfg.Agents.Defaults.GetMaxContextImages()
 
 	// PreLLM: resolve media refs (except on iteration 1 where user media is already resolved)
 	if iteration > 1 {
-		exec.messages = resolveMediaRefs(exec.messages, p.MediaStore, maxMediaSize, exec.currentTurnStart)
+		exec.messages = resolveMediaRefs(exec.messages, p.MediaStore, maxMediaSize, maxContextImages, exec.currentTurnStart)
 	}
 
 	// PreLLM: graceful terminal handling
@@ -526,6 +527,7 @@ func (p *Pipeline) CallLLM(
 					rebuilt,
 					p.MediaStore,
 					maxMediaSize,
+					maxContextImages,
 					len(rebuilt)-len(protectedTurnTail),
 				)
 			}
@@ -772,8 +774,8 @@ func (p *Pipeline) CallLLM(
 			)
 			logger.InfoCF("agent", "Parrot-only direct answer; retrying with corrective directive",
 				map[string]any{
-					"agent_id":     ts.agent.ID,
-					"iteration":    iteration,
+					"agent_id":      ts.agent.ID,
+					"iteration":     iteration,
 					"content_chars": len(responseContent),
 				})
 			return ControlContinue, nil

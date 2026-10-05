@@ -16,6 +16,7 @@ import (
 
 	"github.com/h2non/filetype"
 
+	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/media"
 	"github.com/sipeed/picoclaw/pkg/providers"
@@ -56,17 +57,26 @@ func currentTurnMessages(messages []providers.Message, currentTurnStart int) []p
 // Only tool messages from the current turn may emit the synthetic user
 // follow-up; historical tool results stay as plain path-tagged history.
 // Non-image files always get path tags regardless of role.
+// maxImages caps how many current-turn tool images enter the context as
+// base64: beyond the cap the OLDEST ones stay as [image:/path] tags (the
+// model can re-load them via load_image). 0 = default, negative = unlimited
+// (fork feature, agentscope-go borrowing §三).
 // Returns a new slice; original messages are not mutated.
 func resolveMediaRefs(
 	messages []providers.Message,
 	store media.MediaStore,
 	maxSize int,
+	maxImages int,
 	currentTurnStart int,
 ) []providers.Message {
 	if store == nil {
 		return messages
 	}
 	currentTurnStart = normalizeCurrentTurnStart(messages, currentTurnStart)
+	if maxImages == 0 {
+		maxImages = config.DefaultMaxContextImages
+	}
+	dropped := droppedToolImageRefs(messages, store, currentTurnStart, maxImages)
 
 	result := make([]providers.Message, 0, len(messages))
 	var pendingToolImages []string
@@ -124,7 +134,7 @@ func resolveMediaRefs(
 			mime := detectMIME(localPath, meta)
 			pathTags = append(pathTags, buildPathTag(mime, localPath))
 
-			if m.Role == "tool" && idx >= currentTurnStart && strings.HasPrefix(mime, "image/") {
+			if m.Role == "tool" && idx >= currentTurnStart && strings.HasPrefix(mime, "image/") && !dropped[ref] {
 				dataURL := encodeImageToDataURL(localPath, mime, info, maxSize)
 				if dataURL != "" {
 					pendingToolImages = append(pendingToolImages, dataURL)
@@ -146,6 +156,61 @@ func resolveMediaRefs(
 	}
 
 	return result
+}
+
+// droppedToolImageRefs pre-scans current-turn tool messages for image refs
+// and returns the set that must NOT be base64-encoded when more than
+// maxImages images are in flight: the OLDEST refs beyond the newest
+// maxImages are dropped (they keep their [image:/path] tags so the model can
+// still load_image them). maxImages < 0 disables the cap.
+func droppedToolImageRefs(
+	messages []providers.Message,
+	store media.MediaStore,
+	currentTurnStart int,
+	maxImages int,
+) map[string]bool {
+	if maxImages < 0 || len(messages) == 0 {
+		return nil
+	}
+	var candidates []string
+	isImage := make(map[string]bool)
+	for idx := currentTurnStart; idx < len(messages); idx++ {
+		m := messages[idx]
+		if m.Role != "tool" {
+			continue
+		}
+		for _, ref := range m.Media {
+			if !strings.HasPrefix(ref, "media://") {
+				continue
+			}
+			if known, ok := isImage[ref]; !ok {
+				localPath, meta, err := store.ResolveWithMeta(ref)
+				if err != nil {
+					continue
+				}
+				if _, err := os.Stat(localPath); err != nil {
+					continue
+				}
+				known = strings.HasPrefix(detectMIME(localPath, meta), "image/")
+				isImage[ref] = known
+			}
+			if isImage[ref] {
+				candidates = append(candidates, ref)
+			}
+		}
+	}
+	if len(candidates) <= maxImages {
+		return nil
+	}
+	dropped := make(map[string]bool, len(candidates)-maxImages)
+	for _, ref := range candidates[:len(candidates)-maxImages] {
+		dropped[ref] = true
+	}
+	if len(dropped) > 0 {
+		logger.InfoCF("agent", "Capping current-turn context images; oldest degrade to path tags",
+			map[string]any{"total": len(candidates), "kept": maxImages, "dropped": len(dropped)})
+	}
+	return dropped
 }
 
 // encodeImageToDataURL base64-encodes an image file into a data URL.

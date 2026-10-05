@@ -34,6 +34,7 @@
 | TUI 终端客户端（网关客户端型） | `<2026-10-04>` | `pkg/picoclient/`、`cmd/picoclaw/internal/tui/`、`cmd/picoclaw/main.go` | 本文 §19、`docs/design/tui-client-design.zh.md` |
 | 工具调用学舌根治链 | `<2026-10-05>` | `pkg/agent/context_seahorse.go`、`pkg/agent/tool_parrot_filter.go`、`pkg/agent/pipeline_llm.go`、`pkg/seahorse/marker_sanitize.go` | 本文 §21 |
 | 品牌层重设计（Limulus · 鲎） | `<2026-10-05>` | `pkg/env.go`、`web/frontend/public/`、`web/backend/icon.*`、`scripts/gen_brand_icons.ps1`、`assets/brand/` | 本文 §22 |
+| agentscope-go 借鉴四件套 | `<2026-10-05>` | `pkg/agent/approval_hook.go`、`pkg/agent/compact_context_tool.go`、`pkg/tools/output_budget.go`、`pkg/agent/agent_media.go`、`pkg/config/config.go` | 本文 §23、`docs/design/agentscope-go-borrowing-analysis.zh.md` |
 
 ## 1. 飞书 CardKit v2 流式卡片
 
@@ -289,6 +290,7 @@
   - **F4 会话 meta 自愈**：`pkg/memory/jsonl.go` 的 `readMeta` 损坏降级零值（不 brick 会话），下次写入覆盖自愈。测试锚点：`TestCorruptMetaSelfHeals`。
   - **F5 cron 时区**：`pkg/cron/service.go` 的 schedule `tz` 字段（按 IANA 时区墙钟计算 + AddJob/UpdateJob 校验 + 持久化比较含 TZ），配置说明在 `docs/guides/configuration.zh.md`「时区」节。
   - **picoclient 即时停连**（2026-10-04 二轮修复）：`pkg/picoclient/client.go` readLoop 的 ctx 监视 goroutine（ctx 取消关连接打断 ReadMessage，`Stop()` 不再等 60s 读超时）、服务端 ping 刷新读超时（空闲连接不再每 60s 误重连）、拨号窗口 SetSessionID 竞态检测（stale 连接立即弃用）。测试锚点：`TestClient_StopInterruptsIdleReadQuickly`、`TestClient_ServerPingsKeepIdleConnectionAlive`。
+- agentscope-go 借鉴四件套（2026-10-05，§23）：`pkg/agent/approval_hook.go` 全文件 + `agent.go` 消息泵的审批回答路由（steering 之前）+ `hook_mount.go` 的 al.approvalHook 接线与超时抬高 + `agent_event.go` UnmountHook 清理——均为 fork 行为；`compact_context` 工具（`compact_context_tool.go` + `context_seahorse.go` 注册 + `iteration_compact.go` 的 force 消费 + `turn_state.go` 的 compactContext* 原子字段）；`output_budget.go` 的 Offload 泛化（registry `workspaceDir` + 同步/异步两出口）；`agent_media.go` 的图片上限（**resolveMediaRefs 签名多了 maxImages 参数**，8 个调用点与既有测试同步改）；`config.go` 的 `max_context_images`/`compact_tool_trigger_ratio`。§23 测试锚点必须全过；尤其不要把审批的 fail-closed（无通道/超时=拒）"修"成放行，或把 `resolveMediaRefs` 的 maxImages 参数删掉。
 
 
 ## 16. Agent Plugins Spec 1.0 兼容客户端 + launcher 管理（2026-09-19）
@@ -388,3 +390,14 @@
 - **触点清单**：`pkg/env.go`（Logo/AppName）；CLI banner（`main.go`/`cliui` status/onboard/version、`version/command.go`）；TUI 品牌（`tui/render.go`/`app.go`）；agent 身份（`context.go` 系统提示词头、`prompt.go` kernel 描述、`cmd_start.go` 问候、`workspace/` 的 AGENT/SOUL/SKILL 模板）；web 前端（`index.html` title、favicon 六件套、`site.webmanifest`、i18n locale、setup-wizard、roleAssistant）；launcher（`web/backend/main.go` appName、`i18n.go` 中英文案、`winres.json`、`setup.iss`、desktop 文件）。
 - **刻意保留**：命令名语义（`picoclaw doctor`/`picoclaw agent -m` 示例、topicPrefix 默认 `/picoclaw`、`~/.picoclaw/workspace` 路径）、`docs.picoclaw.io` 链接、web/README（上游文档）。
 - **踩坑记录**：Windows PowerShell 5.1 跑 WPF 脚本三坑——①无 BOM 的 UTF-8 脚本被当 GBK 解析（中文注释炸解析器），必须 UTF-8 BOM；②函数 `return $byte[]` 会被管道枚举，调用方拿到逐元素 Object[]（须 `return , $arr` 包裹）；③`RenderTargetBitmap(px,px,96,96)` 对 512 单位画布是**裁剪**不是缩放——正确做法 dpi=96×px/512。ICO 验证读目录项时 dwBytesInRes 在 +8、dwImageOffset 在 +12，别读反。
+
+## 23. agentscope-go 借鉴四件套（2026-10-05）
+
+评估"用 agentscope-go 整体替换 agent 底层"后确定的借设计清单（不换核心），设计与决策记录见 `docs/design/agentscope-go-borrowing-analysis.zh.md`（权限方向经确认**只补 Ask 层**、五模式引擎不借）。四项互不依赖，全部不改开放默认三件套：
+
+- **① HITL 工具审批**（`pkg/agent/approval_hook.go`）：`hooks.builtins.approval` 内置钩子（builtinHookRegistry 的**第一个消费者**，此前该注册表 0 注册）。`ask_patterns` 正则（`tool:` 前缀匹配工具名，其余匹配 exec 命令串，语义对齐 `custom_deny_patterns`），**默认空 = 放行一切，行为与未启用完全一致**。命中后：向会话渠道发批准请求（经 `PublishOutbound`，5s 独立超时），阻塞等待 `/approve` `/deny`（中文别名 同意/拒绝）；**无交互通道的回合（cli/system/subagent/空，即 cron/心跳）Ask 命中立即拒绝**（DontAsk 特例化）；超时与回合中止同样拒绝（fail-closed）。审批回答在消息泵里**排在 steering 之前**路由（`agent.go` `tryHandleApprovalReply`），不进模型上下文。挂载时 `HookManager` 的全局审批超时自动抬高到不低于钩子自身超时（默认 5 分钟）。deny patterns 仍是最终裁决。配置文档：configuration.zh.md「工具审批门禁」。
+- **② 模型自主压缩 `compact_context`**（`pkg/agent/compact_context_tool.go`，seahorse 引擎下注册、与 short_expand 同列——诚实文案里的 short_expand 回读承诺只在 seahorse 下成立）：工具不直接改写历史（那是 split-turn 要规避的场景），只置 `turnState.compactContextRequested` 原子标志，由现成检查点 `compactBeforeLLMCall` 以 force 语义消化（未超窗也执行 Compact→Assemble，reason=`model_tool_request`）——不加第七条压缩机制。阈值 `compact_tool_trigger_ratio`（默认 = 使用率门一半 0.375，钳到 ≤ 全门槛）；每回合至多 2 次；**诚实性原则**：未达阈值/用量不可估时如实回复"未压缩、无内容丢失"。附带：split-turn 与 legacy 摘要 prompt 升级为五字段结构（任务目标/当前状态/已完成/关键发现/下一步与需保留上下文，对齐 agentscope schema）；seahorse 摘要 prompt 不动（其纯文本约定与 short_expand 咬合）。
+- **③ 输出 offload 泛化 + 上下文图片上限**：`ApplyOutputBudgetWithOffload`（`output_budget.go`）——任何工具输出触发预算截断时，原文落盘 `<workspace>/tmp/tool-output-*.log` 并附 `Full output: <路径>`（exec 的 `persistFullOutput` 收编为共享 `PersistOutputFile`；落盘失败退回纯截断，never-worse）；registry 增加 `workspaceDir`（`SetWorkspaceDir`），同步出口与异步回调（`pipeline_execute_loop.go`）两路都走 offload。`resolveMediaRefs` 增加 `maxImages` 参数（配置 `agents.defaults.max_context_images`，默认 8、负数不限）：当前 turn 工具结果图超出上限时**最旧的**退化为 `[image:/path]` 标签（load_image 可回读），路径标签本就无条件注入。
+- **④ checkpoint 契约注释**：`restart_recovery.go` 头注补"工具副作用跨崩溃非 exactly-once"显式契约与 marker schema 版本单向门（只借文档，不做恢复续跑——理由见借鉴分析 §四）。
+
+测试锚点：`TestApproval_*`（EmptyPatternsNoBehaviorChange / Hook_AskPatternMatches / Hook_TimeoutFailsClosed / NoInteractiveChannelDeniesImmediately / HardAbortReturnsImmediately / Reply_RoutedBeforeSteering / MountWiringAndTimeoutBump，`approval_hook_test.go`）、`TestCompactContextTool_*`（HonestNoOp / PerTurnThrottle / ForcesNextBoundaryCheck / DoesNotConflictWithSplitTurn，`compact_context_tool_test.go`）、`TestOutputBudget_OffloadsTruncatedOriginal` / `TestOutputBudget_OffloadFailureFallsBackToTruncate`、`TestMediaRefs_CapsCurrentTurnImages`（`agent_media_test.go`）。

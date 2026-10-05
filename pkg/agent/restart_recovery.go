@@ -30,6 +30,18 @@ import (
 // died mid-turn. The marker also carries the model the turn was using, which
 // recovery restores — /switch state is in-memory only and would otherwise be
 // lost, silently resuming the task on the config default model.
+//
+// Crash semantics (documented contract, borrowed from agentscope-go's
+// checkpoint design, docs/design/agentscope-go-borrowing-analysis.zh.md §四):
+// tool side effects across a crash are NOT exactly-once. A turn interrupted
+// mid-tool-loop may have executed tools whose results were never persisted —
+// the seal marks them "result unknown, re-check" precisely because re-running
+// them after "继续" may duplicate side effects. There is no mid-turn
+// checkpoint/resume in picoclaw by design: the in-flight LLM generation is
+// never persisted, IM channels favour "notify + user says 继续", and the
+// marker schema stays minimal (session/agent/model/started_at). If the
+// marker schema ever grows, follow the one-way version gate: reject markers
+// from a newer schema, keep loading older ones.
 
 const restartRecoveryNoticeSealed = "⚠ 检测到上次任务被中断（网关重启）。会话已封口保留，回复「继续」可让模型接着做。"
 

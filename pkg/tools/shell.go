@@ -785,39 +785,7 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string, timeout tim
 // workspace (so read_file can access it even under workspace sandboxing).
 // Returns the file path, or "" when persistence failed.
 func (t *ExecTool) persistFullOutput(output string) string {
-	base := strings.TrimSpace(t.workingDir)
-	if base == "" {
-		base = os.TempDir()
-	}
-	dir := filepath.Join(base, "tmp")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		logger.WarnCF("tool", "Failed to create dir for truncated command output",
-			map[string]any{"dir": dir, "error": err.Error()})
-		return ""
-	}
-
-	tmpFile, err := os.CreateTemp(dir, "shell-output-*.log")
-	if err != nil {
-		logger.WarnCF("tool", "Failed to create file for truncated command output",
-			map[string]any{"dir": dir, "error": err.Error()})
-		return ""
-	}
-	path := tmpFile.Name()
-	if _, err := tmpFile.WriteString(output); err != nil {
-		_ = tmpFile.Close()
-		_ = os.Remove(path)
-		logger.WarnCF("tool", "Failed to write truncated command output",
-			map[string]any{"path": path, "error": err.Error()})
-		return ""
-	}
-	if err := tmpFile.Close(); err != nil {
-		_ = os.Remove(path)
-		return ""
-	}
-
-	logger.InfoCF("tool", "Preserved full command output after truncation",
-		map[string]any{"path": path, "bytes": len(output)})
-	return path
+	return PersistOutputFile(t.workingDir, "shell-output-*.log", output)
 }
 
 func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEnabled bool) *ToolResult {

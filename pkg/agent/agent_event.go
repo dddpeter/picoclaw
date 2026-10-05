@@ -89,10 +89,13 @@ func (al *AgentLoop) MountHook(reg HookRegistration) error {
 	return al.hooks.Mount(reg)
 }
 
-// UnmountHook removes a previously registered in-process hook.
+// UnmountHook removes a previously mounted in-process hook.
 func (al *AgentLoop) UnmountHook(name string) {
 	if al == nil || al.hooks == nil {
 		return
+	}
+	if name == approvalHookName {
+		al.approvalHook = nil
 	}
 	al.hooks.Unmount(name)
 }

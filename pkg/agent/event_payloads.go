@@ -98,6 +98,10 @@ const (
 	// boundary — after tool results returned, before the next LLM call
 	// (fork, 2026-10-05).
 	ContextCompressReasonIteration ContextCompressReason = "iteration_boundary"
+	// ContextCompressReasonTool indicates compression requested by the model
+	// through the compact_context tool, honored at the next iteration
+	// boundary (fork, agentscope-go borrowing §二).
+	ContextCompressReasonTool ContextCompressReason = "model_tool_request"
 	// ContextCompressReasonSummarize indicates post-turn async summarization.
 	ContextCompressReasonSummarize ContextCompressReason = "summarize"
 )

@@ -64,6 +64,12 @@ func newSeahorseContextManager(_ json.RawMessage, al *AgentLoop) (ContextManager
 	retrieval := mgr.engine.GetRetrieval()
 	al.RegisterTool(seahorse.NewGrepTool(retrieval))
 	al.RegisterTool(seahorse.NewExpandTool(retrieval))
+	// Model-initiated compaction (fork, agentscope-go borrowing §二):
+	// registered alongside the seahorse retrieval tools because its honesty
+	// copy points at short_expand for recovering summarized detail — that
+	// promise only holds under the seahorse engine. The flag it raises is
+	// consumed by compactBeforeLLMCall regardless of the manager.
+	al.RegisterTool(NewCompactContextTool())
 
 	// Bootstrap all existing sessions of the default agent at startup and mark
 	// them as handled. Sessions owned by routed agents are covered lazily on

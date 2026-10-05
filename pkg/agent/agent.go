@@ -79,6 +79,12 @@ type AgentLoop struct {
 	// session (fork feature, pkg/agent/restart_recovery.go).
 	recoveryReminders sync.Map
 
+	// approvalHook references the mounted HITL approval builtin (fork,
+	// agentscope-go borrowing §一, approval_hook.go) so the inbound pump can
+	// route /approve /deny replies to its pending waiters before steering.
+	// nil unless hooks.builtins.approval is enabled.
+	approvalHook *approvalHook
+
 	turnSeq atomic.Uint64
 
 	// activeReqMu/activeReqCond/activeReqCount replace sync.WaitGroup to
@@ -209,6 +215,13 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 			}
 			if _, loaded := al.activeTurnStates.LoadOrStore(sessionKey, placeholder); loaded {
 				if al.tryHandleStopCommand(ctx, msg, sessionKey) {
+					continue
+				}
+
+				// Approval replies (/approve /deny) resolve pending HITL
+				// waiters and must never enter the model context — route
+				// them before the steering enqueue (fork, §一 approval hook).
+				if al.tryHandleApprovalReply(ctx, msg, sessionKey) {
 					continue
 				}
 

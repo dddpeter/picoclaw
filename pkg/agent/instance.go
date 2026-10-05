@@ -40,7 +40,12 @@ type AgentInstance struct {
 	// CompactUsageThreshold gates post-turn compaction (0 = default 0.75):
 	// raw history is kept until used tokens reach this fraction of the
 	// effective window.
-	CompactUsageThreshold     float64
+	CompactUsageThreshold float64
+	// CompactToolTriggerRatio gates the model-initiated compact_context tool
+	// (agentscope-go borrowing §二): the tool only requests compaction once
+	// history usage crosses this fraction of the effective window. Resolved
+	// to half the compact usage threshold when unset.
+	CompactToolTriggerRatio   float64
 	SummarizeMessageThreshold int
 	SummarizeTokenPercent     int
 
@@ -162,6 +167,9 @@ func NewAgentInstance(
 	// Last-resort cap on what any single tool result may inject into the
 	// model context (MCP/third-party backstop; see tools.ApplyOutputBudget).
 	toolsRegistry.SetMaxOutputBytes(cfg.Tools.MaxToolOutputBytes)
+	// Budget-truncated originals are offloaded under <workspace>/tmp so the
+	// model can read the full output back (generalizes exec's behavior).
+	toolsRegistry.SetWorkspaceDir(workspace)
 	toolsRegistry.SetAllowlist(agentToolAllowlist)
 
 	if cfg.Tools.IsToolEnabled("read_file") {
@@ -282,6 +290,16 @@ func NewAgentInstance(
 	compactUsageThreshold := defaults.CompactUsageThreshold
 	if compactUsageThreshold <= 0 || compactUsageThreshold > 0.98 {
 		compactUsageThreshold = 0.75
+	}
+	// compact_context tool threshold defaults to half the usage gate (see
+	// docs/design/agentscope-go-borrowing-analysis.zh.md §二); clamped to the
+	// gate so the tool can never fire later than the automatic path.
+	compactToolTriggerRatio := defaults.CompactToolTriggerRatio
+	if compactToolTriggerRatio <= 0 || compactToolTriggerRatio > 0.98 {
+		compactToolTriggerRatio = compactUsageThreshold / 2
+	}
+	if compactToolTriggerRatio > compactUsageThreshold {
+		compactToolTriggerRatio = compactUsageThreshold
 	}
 	contextWindow := defaults.ContextWindow
 	if contextWindow == 0 {
@@ -449,6 +467,7 @@ func NewAgentInstance(
 		ContextWindow:             contextWindow,
 		DeclaredContextWindow:     declaredContextWindow,
 		CompactUsageThreshold:     compactUsageThreshold,
+		CompactToolTriggerRatio:   compactToolTriggerRatio,
 		SplitTurnEnabled:          defaults.SplitTurn.EffectiveEnabled(),
 		SplitTurnKeepTokens:       defaults.SplitTurn.EffectiveKeepRecentTokens(),
 		SummarizeMessageThreshold: summarizeMessageThreshold,

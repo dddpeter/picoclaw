@@ -4,6 +4,8 @@ package tools
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -106,5 +108,68 @@ func TestExecuteWithContext_AppliesOutputBudget(t *testing.T) {
 	result = r.Execute(context.Background(), "big", map[string]any{})
 	if len(result.ForLLM) != 160*45 {
 		t.Fatalf("expected full %d bytes with unlimited budget, got %d", 160*45, len(result.ForLLM))
+	}
+}
+
+func TestOutputBudget_OffloadsTruncatedOriginal(t *testing.T) {
+	ws := t.TempDir()
+	content := "HEAD-" + strings.Repeat("o", 4096) + "-TAIL"
+
+	got := ApplyOutputBudgetWithOffload("mcp_search", content, 1024, ws)
+
+	if !strings.HasPrefix(got, "[output truncated: kept the last") {
+		t.Fatalf("expected truncation notice, got %q", got[:60])
+	}
+	idx := strings.Index(got, "\nFull output: ")
+	if idx < 0 {
+		t.Fatalf("expected offload reference in result, got %q", got)
+	}
+	path := got[idx+len("\nFull output: "):]
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("offloaded file must exist: %v", err)
+	}
+	if !strings.Contains(filepath.Base(path), "tool-output-mcp_search-") {
+		t.Fatalf("expected sanitized tool name in offload filename, got %q", filepath.Base(path))
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read offloaded file: %v", err)
+	}
+	if string(raw) != content {
+		t.Fatal("offloaded file must contain the untruncated original")
+	}
+	if strings.Contains(got[idx:], "HEAD-") {
+		t.Fatal("truncated context copy must not carry the dropped head")
+	}
+}
+
+func TestOutputBudget_OffloadFailureFallsBackToTruncate(t *testing.T) {
+	// A file (not a directory) as the workspace base makes MkdirAll fail —
+	// offload must degrade to plain truncation, never fail the result.
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	content := strings.Repeat("k", 5000)
+
+	got := ApplyOutputBudgetWithOffload("tool_x", content, 1024, blocker)
+	want := ApplyOutputBudget("tool_x", content, 1024)
+	if got != want {
+		t.Fatalf("failed offload must fall back to plain truncation:\n got %q\nwant %q", got, want)
+	}
+	if strings.Contains(got, "Full output:") {
+		t.Fatal("no reference may be appended when offload failed")
+	}
+
+	// Empty workspace behaves the same (offload disabled).
+	got = ApplyOutputBudgetWithOffload("tool_x", content, 1024, "")
+	if got != want {
+		t.Fatal("empty workspace must behave like plain truncation")
+	}
+
+	// Under-budget content is untouched even with a valid workspace.
+	got = ApplyOutputBudgetWithOffload("tool_x", "tiny", 1024, t.TempDir())
+	if got != "tiny" {
+		t.Fatalf("under-budget content must be untouched, got %q", got)
 	}
 }

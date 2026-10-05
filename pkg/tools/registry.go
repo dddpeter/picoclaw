@@ -42,6 +42,11 @@ type ToolRegistry struct {
 	// (ApplyOutputBudget). Set once at agent construction from config;
 	// 0 = DefaultToolOutputBytes, negative = unlimited.
 	maxOutputBytes atomic.Int64
+
+	// workspaceDir anchors budget-truncation offload files
+	// (ApplyOutputBudgetWithOffload writes <workspaceDir>/tmp/...). Set once
+	// at agent construction; empty = no offload (plain truncation).
+	workspaceDir string
 }
 
 type mediaStoreAware interface {
@@ -280,6 +285,20 @@ func (r *ToolRegistry) SetMaxOutputBytes(n int) {
 	r.maxOutputBytes.Store(int64(n))
 }
 
+// SetWorkspaceDir anchors offload files for budget-truncated output
+// (ApplyOutputBudgetWithOffload). Empty (default) disables offload.
+func (r *ToolRegistry) SetWorkspaceDir(dir string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.workspaceDir = dir
+}
+
+func (r *ToolRegistry) workspaceDirValue() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.workspaceDir
+}
+
 // OutputBudget returns the effective per-result output budget in bytes.
 func (r *ToolRegistry) OutputBudget() int {
 	return effectiveOutputBudget(int(r.maxOutputBytes.Load()))
@@ -387,7 +406,9 @@ func (r *ToolRegistry) ExecuteWithContext(
 	// this result may inject into the model context. Built-in tools stay
 	// below the default; this catches MCP servers and other unbounded
 	// producers. ForUser is untouched — it goes to the chat, not the context.
-	result.ForLLM = ApplyOutputBudget(name, result.ForLLM, r.OutputBudget())
+	// When truncation fires, the untruncated original is offloaded to
+	// <workspace>/tmp and referenced so the model can read it back.
+	result.ForLLM = ApplyOutputBudgetWithOffload(name, result.ForLLM, r.OutputBudget(), r.workspaceDirValue())
 
 	duration := time.Since(start)
 

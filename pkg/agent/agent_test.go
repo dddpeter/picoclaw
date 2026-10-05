@@ -6692,7 +6692,7 @@ func TestResolveMediaRefs_ImageInjectsPathTag(t *testing.T) {
 	messages := []providers.Message{
 		{Role: "user", Content: "describe this", Media: []string{ref}},
 	}
-	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, 0)
+	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, -1, 0)
 
 	if len(result[0].Media) != 0 {
 		t.Fatalf("expected 0 media (images use path tags), got %d", len(result[0].Media))
@@ -6725,7 +6725,7 @@ func TestResolveMediaRefs_ToolRoleImageAppendedAsUserMessage(t *testing.T) {
 	messages := []providers.Message{
 		toolResultPromptMessage("Image loaded", "call_tool_result_image", []string{ref}),
 	}
-	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, 0)
+	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, -1, 0)
 
 	// Tool message should have path tag but no base64
 	if len(result[0].Media) != 0 {
@@ -6773,7 +6773,7 @@ func TestResolveMediaRefs_HistoricalToolRoleImageDoesNotAppendAsUserMessage(t *t
 		toolResultPromptMessage("Image loaded", "call_historical_tool_result_image", []string{ref}),
 		{Role: "user", Content: "now summarize it in one sentence"},
 	}
-	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, 1)
+	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, -1, 1)
 
 	if len(result) != 2 {
 		t.Fatalf("expected historical tool message plus current follow-up, got %d messages", len(result))
@@ -6818,7 +6818,7 @@ func TestResolveMediaRefs_HistoricalAndCurrentToolImagesOnlyRehydrateCurrentTurn
 		{Role: "assistant", Content: "Now I will inspect a new image."},
 		toolResultPromptMessage("Current image loaded", "call_current_image", []string{currentRef}),
 	}
-	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, 1)
+	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, -1, 1)
 
 	if len(result) != 4 {
 		t.Fatalf("expected 4 messages (historical tool + assistant + current tool + synthetic user), "+
@@ -6872,7 +6872,7 @@ func TestResolveMediaRefs_MultiToolCallPreservesOrdering(t *testing.T) {
 		toolResultPromptMessage("Image loaded [image: photo]", "call_load_image_multi_tool", []string{imgRef}),
 		toolResultPromptMessage("file contents here", "call_read_file_multi_tool", nil),
 	}
-	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, 0)
+	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, -1, 0)
 
 	// assistant, tool#1, tool#2 must remain contiguous — no user in between
 	if result[0].Role != "assistant" {
@@ -6925,7 +6925,7 @@ func TestResolveMediaRefs_MultipleCurrentToolImagesShareSingleSyntheticFollowUp(
 		toolResultPromptMessage("First image loaded", "call_first_image", []string{firstRef}),
 		toolResultPromptMessage("Second image loaded", "call_second_image", []string{secondRef}),
 	}
-	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, 0)
+	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, -1, 0)
 
 	if len(result) != 4 {
 		t.Fatalf("expected assistant + 2 tool results + 1 synthetic follow-up, got %d messages", len(result))
@@ -6960,7 +6960,7 @@ func TestResolveMediaRefs_OversizedImageSkipsBase64KeepsPathTag(t *testing.T) {
 		{Role: "user", Content: "hi", Media: []string{ref}},
 	}
 	// Use a tiny limit (1KB) so the file is oversized
-	result := resolveMediaRefs(messages, store, 1024, 0)
+	result := resolveMediaRefs(messages, store, 1024, -1, 0)
 
 	if len(result[0].Media) != 0 {
 		t.Fatalf("expected 0 media (oversized), got %d", len(result[0].Media))
@@ -6985,7 +6985,7 @@ func TestResolveMediaRefs_UnknownTypeInjectsPath(t *testing.T) {
 	messages := []providers.Message{
 		{Role: "user", Content: "hi", Media: []string{ref}},
 	}
-	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, 0)
+	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, -1, 0)
 
 	if len(result[0].Media) != 0 {
 		t.Fatalf("expected 0 media entries, got %d", len(result[0].Media))
@@ -7000,7 +7000,7 @@ func TestResolveMediaRefs_PassesThroughNonMediaRefs(t *testing.T) {
 	messages := []providers.Message{
 		{Role: "user", Content: "hi", Media: []string{"https://example.com/img.png"}},
 	}
-	result := resolveMediaRefs(messages, nil, config.DefaultMaxMediaSize, 0)
+	result := resolveMediaRefs(messages, nil, config.DefaultMaxMediaSize, -1, 0)
 
 	if len(result[0].Media) != 1 || result[0].Media[0] != "https://example.com/img.png" {
 		t.Fatalf("expected passthrough of non-media:// URL, got %v", result[0].Media)
@@ -7025,7 +7025,7 @@ func TestResolveMediaRefs_DoesNotMutateOriginal(t *testing.T) {
 	}
 	originalRef := original[0].Media[0]
 
-	resolveMediaRefs(original, store, config.DefaultMaxMediaSize, 0)
+	resolveMediaRefs(original, store, config.DefaultMaxMediaSize, -1, 0)
 
 	if original[0].Media[0] != originalRef {
 		t.Fatal("resolveMediaRefs mutated original message slice")
@@ -7045,7 +7045,7 @@ func TestResolveMediaRefs_UsesMetaContentType(t *testing.T) {
 	messages := []providers.Message{
 		{Role: "user", Content: "hi", Media: []string{ref}},
 	}
-	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, 0)
+	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, -1, 0)
 
 	if len(result[0].Media) != 0 {
 		t.Fatalf("expected 0 media (images use path tags), got %d", len(result[0].Media))
@@ -7069,7 +7069,7 @@ func TestResolveMediaRefs_PDFInjectsFilePath(t *testing.T) {
 	messages := []providers.Message{
 		{Role: "user", Content: "report.pdf [file]", Media: []string{ref}},
 	}
-	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, 0)
+	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, -1, 0)
 
 	if len(result[0].Media) != 0 {
 		t.Fatalf("expected 0 media (non-image), got %d", len(result[0].Media))
@@ -7091,7 +7091,7 @@ func TestResolveMediaRefs_AudioInjectsAudioPath(t *testing.T) {
 	messages := []providers.Message{
 		{Role: "user", Content: "voice.ogg [audio]", Media: []string{ref}},
 	}
-	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, 0)
+	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, -1, 0)
 
 	if len(result[0].Media) != 0 {
 		t.Fatalf("expected 0 media, got %d", len(result[0].Media))
@@ -7113,7 +7113,7 @@ func TestResolveMediaRefs_VideoInjectsVideoPath(t *testing.T) {
 	messages := []providers.Message{
 		{Role: "user", Content: "clip.mp4 [video]", Media: []string{ref}},
 	}
-	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, 0)
+	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, -1, 0)
 
 	if len(result[0].Media) != 0 {
 		t.Fatalf("expected 0 media, got %d", len(result[0].Media))
@@ -7135,7 +7135,7 @@ func TestResolveMediaRefs_NoGenericTagAppendsPath(t *testing.T) {
 	messages := []providers.Message{
 		{Role: "user", Content: "here is my data", Media: []string{ref}},
 	}
-	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, 0)
+	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, -1, 0)
 
 	expected := "here is my data [file:" + csvPath + "]"
 	if result[0].Content != expected {
@@ -7227,7 +7227,7 @@ func TestResolveMediaRefs_JSONContentPrependsPathTag(t *testing.T) {
 	messages := []providers.Message{
 		{Role: "user", Content: jsonContent, Media: []string{ref}},
 	}
-	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, 0)
+	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, -1, 0)
 
 	want := "[image:" + pngPath + "]\n" + jsonContent
 	if result[0].Content != want {
@@ -7247,7 +7247,7 @@ func TestResolveMediaRefs_EmptyContentGetsPathTag(t *testing.T) {
 	messages := []providers.Message{
 		{Role: "user", Content: "", Media: []string{ref}},
 	}
-	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, 0)
+	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, -1, 0)
 
 	expected := "[file:" + docPath + "]"
 	if result[0].Content != expected {
@@ -7276,7 +7276,7 @@ func TestResolveMediaRefs_MixedImageAndFile(t *testing.T) {
 	messages := []providers.Message{
 		{Role: "user", Content: "check these [file]", Media: []string{imgRef, fileRef}},
 	}
-	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, 0)
+	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, -1, 0)
 
 	if len(result[0].Media) != 0 {
 		t.Fatalf("expected 0 media (all types use path tags), got %d", len(result[0].Media))

@@ -34,6 +34,9 @@ const (
 
 // compactBeforeLLMCall 在 CallLLM 的重试循环前执行：估算即将发送的上下
 // 文，超窗则同步压缩并重装。返回是否发生了压缩。
+// compact_context 工具置起的 force 标志（agentscope-go borrowing §二）会
+// 让检查在未超窗时也照常执行——模型主动请求的提前压缩走同一条
+// Compact→Assemble 路径，不另开第七条压缩机制。
 func (p *Pipeline) compactBeforeLLMCall(
 	ctx context.Context,
 	ts *turnState,
@@ -46,12 +49,13 @@ func (p *Pipeline) compactBeforeLLMCall(
 	if window <= 0 {
 		return false
 	}
+	forced := ts.compactContextRequested.CompareAndSwap(true, false)
 	msgTokens := 0
 	for _, m := range exec.callMessages {
 		msgTokens += EstimateMessageTokens(m)
 	}
 	toolTokens := EstimateToolDefsTokens(exec.providerToolDefs)
-	if msgTokens+toolTokens+ts.agent.MaxTokens+iterationCompactSafetyTokens <= window {
+	if !forced && msgTokens+toolTokens+ts.agent.MaxTokens+iterationCompactSafetyTokens <= window {
 		return false
 	}
 
@@ -63,11 +67,12 @@ func (p *Pipeline) compactBeforeLLMCall(
 		"max_tokens":    ts.agent.MaxTokens,
 		"window":        window,
 		"message_count": len(exec.callMessages),
+		"forced":        forced,
 	})
 
 	if err := p.ContextManager.Compact(ctx, &CompactRequest{
 		SessionKey: ts.sessionKey,
-		Reason:     ContextCompressReasonIteration,
+		Reason:     compactReasonFor(forced),
 		Budget:     ts.agent.CompactionBudget(),
 	}); err != nil {
 		logger.WarnCF("agent", "Iteration-boundary compact failed; continuing with current context", map[string]any{
@@ -140,6 +145,16 @@ func asmErrText(err error) string {
 	return err.Error()
 }
 
+// compactReasonFor picks the compress-reason telemetry for the iteration
+// boundary: model_tool_request when the compact_context tool forced the
+// check, iteration_boundary for the regular over-budget path.
+func compactReasonFor(forced bool) ContextCompressReason {
+	if forced {
+		return ContextCompressReasonTool
+	}
+	return ContextCompressReasonIteration
+}
+
 // clampMaxTokensToContext 按 pi 的 simple-options 模式动态钳制输出预
 // 算（fork, 2026-10-05）：每次 LLM 调用前 max_tokens =
 // min(配置值, 窗口 − 上下文估算 − 安全余量)，下限 4096（2026-10-05 从
@@ -191,15 +206,18 @@ func estimateCallTokens(exec *turnExecution) int {
 
 // turnPrefixSummarizationPrompt asks the model to compress a mid-turn
 // conversation prefix so the same model can continue the task from the
-// preserved tail. Structured output per the design: task goal / completed
-// items / findings / current work / next steps.
+// preserved tail. Structured five-field summary (aligned with the
+// agentscope-go borrowing §二 schema: task_overview / current_state /
+// completed actions / important discoveries / next steps & context to
+// preserve).
 const turnPrefixSummarizationPrompt = `你是对话压缩助手。以下是一个 agent 执行任务过程中的对话前缀（含工具调用与结果），请压缩成结构化摘要，供模型在只保留尾部对话的情况下继续执行同一任务。
 
-必须保留：
+必须保留（五个字段，逐字段一行、以字段名开头）：
 - 任务目标：用户最初要求做什么（含关键约束）
+- 当前状态：整体进展到哪一步，有无未解决的阻碍或失败
 - 已完成的检查/操作：编号清单，每项一句话
 - 关键发现：编号清单，保留文件路径、函数名、错误信息等具体锚点
-- 当前正在进行什么、下一步计划
+- 下一步与需保留的上下文：接下来准备做什么；必须原样记住的命令、ID、路径、决策
 
 可以丢弃：工具输出的原文细节、重复内容、冗长堆栈。
 

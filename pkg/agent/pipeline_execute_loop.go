@@ -495,8 +495,8 @@ func (p *Pipeline) runToolInvocation(
 		}
 
 		// The async callback bypasses the registry's synchronous exit, so the
-		// output budget backstop is applied here too.
-		content = tools.ApplyOutputBudget(asyncToolName, content, ts.agent.Tools.OutputBudget())
+		// output budget backstop (with offload) is applied here too.
+		content = tools.ApplyOutputBudgetWithOffload(asyncToolName, content, ts.agent.Tools.OutputBudget(), ts.workspace)
 
 		content = al.cfg.FilterSensitiveData(content)
 

@@ -271,6 +271,20 @@ func (hm *HookManager) ConfigureTimeouts(observer, interceptor, approval time.Du
 	}
 }
 
+// ensureApprovalTimeoutAtLeast raises the manager-wide approval timeout so a
+// mounted approval hook can wait for its own (longer) HITL deadline without
+// the goroutine wrapper cutting it off (fork, agentscope-go borrowing §一).
+func (hm *HookManager) ensureApprovalTimeoutAtLeast(d time.Duration) {
+	if hm == nil {
+		return
+	}
+	hm.mu.Lock()
+	defer hm.mu.Unlock()
+	if d > hm.approvalTimeout {
+		hm.approvalTimeout = d
+	}
+}
+
 func (hm *HookManager) Mount(reg HookRegistration) error {
 	if hm == nil {
 		return fmt.Errorf("hook manager is nil")

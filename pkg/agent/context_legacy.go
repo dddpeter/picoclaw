@@ -381,6 +381,9 @@ func (m *legacyContextManager) summarizeBatch(
 	sb.WriteString(
 		"You are a conversation summarization assistant. Summarize the conversation segment below, " +
 			"preserving core context, key points, decisions, and tool activity (files read or modified, commands run, etc.).\n" +
+			"Structure the summary with these five sections, each starting on its own line with the section name " +
+			"(omit a section only when truly empty):\n" +
+			"Task overview: | Current state: | Completed actions: | Key findings: | Next steps & context to preserve:\n" +
 			"Do NOT continue the conversation. Do NOT respond to any questions in it. ONLY output the summary.\n")
 	if existingSummary != "" {
 		sb.WriteString("Existing context: ")
