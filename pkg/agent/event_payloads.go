@@ -94,6 +94,10 @@ const (
 	ContextCompressReasonProactive ContextCompressReason = "proactive_budget"
 	// ContextCompressReasonRetry indicates compression during context-error retry handling.
 	ContextCompressReasonRetry ContextCompressReason = "llm_retry"
+	// ContextCompressReasonIteration indicates compression at an iteration
+	// boundary — after tool results returned, before the next LLM call
+	// (fork, 2026-10-05).
+	ContextCompressReasonIteration ContextCompressReason = "iteration_boundary"
 	// ContextCompressReasonSummarize indicates post-turn async summarization.
 	ContextCompressReasonSummarize ContextCompressReason = "summarize"
 )

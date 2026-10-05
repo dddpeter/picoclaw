@@ -75,8 +75,22 @@ func (p *Pipeline) CallLLM(
 		return ControlBreak, err
 	}
 
+	// Iteration-boundary compaction (fork, 2026-10-05, pi's prepareNextTurn
+	// pattern): long heavy turns grow context 60%→over-window between turn
+	// endings, which post-turn async compaction never sees. Check the
+	// assembled context here — after tool results landed, before the LLM
+	// call — and compact synchronously when it exceeds the window.
+	p.compactBeforeLLMCall(ctx, ts, exec)
+
+	// Dynamic output-budget clamp (pi's clampMaxTokensToContext): leave
+	// room for generation instead of requesting max_tokens the window
+	// cannot hold — a stuffed window with a large output budget is the
+	// classic recipe for silent empty responses on aggregate gateways.
+	clampedMaxTokens := clampMaxTokensToContext(
+		ts.agent.MaxTokens, ts.agent.ContextWindow, estimateCallTokens(exec))
+
 	exec.llmOpts = map[string]any{
-		"max_tokens":       ts.agent.MaxTokens,
+		"max_tokens":       clampedMaxTokens,
 		"temperature":      ts.agent.Temperature,
 		"prompt_cache_key": ts.agent.ID,
 	}
