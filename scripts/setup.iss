@@ -1,10 +1,10 @@
-; Inno Setup script for the PicoClaw Windows installer.
+; Inno Setup script for the Limulus (PicoClaw fork) Windows installer.
 ;
 ; Build (from repo root, after building build\picoclaw.exe and
 ; build\picoclaw-launcher.exe):
 ;   iscc /DMyAppVersion=<git describe> scripts\setup.iss
 ;
-; Output: build\PicoClawSetup-<version>.exe
+; Output: build\LimulusSetup-<version>.exe
 
 ; Override from the ISCC command line with /DMyAppVersion=...
 #ifndef MyAppVersion
@@ -12,7 +12,7 @@
 #endif
 
 #define MyAppName "Limulus Launcher"
-#define MyAppPublisher "PicoClaw"
+#define MyAppPublisher "Limulus"
 #define MyAppURL "https://github.com/sipeed/picoclaw"
 #define MyAppExeName "picoclaw-launcher.exe"
 
@@ -27,7 +27,7 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-DefaultDirName={autopf}\PicoClaw
+DefaultDirName={autopf}\Limulus
 DefaultGroupName={#MyAppName}
 ; "ArchitecturesAllowed=x64compatible" specifies that Setup cannot run
 ; on anything but x64 and Windows 11 on Arm.
@@ -50,7 +50,7 @@ CloseApplications=no
 ; Remove the following line to run in administrative install mode (install for all users.)
 PrivilegesRequired=lowest
 OutputDir=..\build
-OutputBaseFilename=PicoClawSetup-{#MyAppVersion}
+OutputBaseFilename=LimulusSetup-{#MyAppVersion}
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
@@ -125,14 +125,14 @@ begin
   for Attempts := 1 to 3 do
   begin
     if MsgBox(
-        '检测到 PicoClaw 正在运行（picoclaw.exe / picoclaw-launcher.exe），' + #13#10 +
+        '检测到 Limulus 正在运行（picoclaw.exe / picoclaw-launcher.exe），' + #13#10 +
         '需要停止它们才能完成升级安装。' + #13#10#13#10 +
         '是否现在停止这些进程？',
         mbConfirmation, MB_YESNO) = IDYES then
     begin
       if StopPicoclawProcesses() then
         exit;
-      MsgBox('未能完全停止 PicoClaw 进程，请手动关闭后点击"重试"。', mbError, MB_OK);
+      MsgBox('未能完全停止 Limulus 进程，请手动关闭后点击"重试"。', mbError, MB_OK);
     end
     else
     begin
@@ -143,7 +143,7 @@ begin
     end;
   end;
 
-  Result := 'PicoClaw 进程仍在运行，无法继续安装。请手动停止 picoclaw.exe 和 picoclaw-launcher.exe 后重新运行安装程序。';
+  Result := 'Limulus 进程仍在运行，无法继续安装。请手动停止 picoclaw.exe 和 picoclaw-launcher.exe 后重新运行安装程序。';
 end;
 
 function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo,
