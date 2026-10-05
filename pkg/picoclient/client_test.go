@@ -193,6 +193,37 @@ func TestClient_AuthRejectedKeepsReconnecting(t *testing.T) {
 	if dials := fs.dials.Load(); dials != 0 {
 		t.Fatalf("handler saw %d dials, want 0 (all rejected pre-upgrade)", dials)
 	}
+	if errText := c.LastDialError(); !strings.Contains(errText, "401") {
+		t.Fatalf("LastDialError = %q, want it to mention HTTP 401", errText)
+	}
+}
+
+func TestClient_LastDialErrorOnRefused(t *testing.T) {
+	// Port 1 on loopback: nothing listens, dial must fail with a surfaced
+	// reason instead of a bare state flip.
+	c := New(Config{
+		URL:            "ws://127.0.0.1:1/pico/ws",
+		Token:          "t",
+		BackoffInitial: 10 * time.Millisecond,
+		BackoffMax:     20 * time.Millisecond,
+	})
+	c.Start(t.Context())
+	t.Cleanup(c.Stop)
+
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case s := <-c.States():
+			if s == StateDisconnected && c.LastDialError() != "" {
+				if !strings.Contains(c.LastDialError(), "127.0.0.1:1") {
+					t.Fatalf("LastDialError = %q, want it to name the target", c.LastDialError())
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatalf("no surfaced dial error; last=%q", c.LastDialError())
+		}
+	}
 }
 
 func TestClient_Reconnect(t *testing.T) {

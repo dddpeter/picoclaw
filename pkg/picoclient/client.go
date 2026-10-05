@@ -85,6 +85,7 @@ type Client struct {
 	mu      sync.Mutex
 	conn    *websocket.Conn
 	writeMu sync.Mutex
+	lastErr string // most recent dial failure, surfaced for UI diagnostics
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -186,6 +187,7 @@ func (c *Client) run() {
 		c.mu.Unlock()
 		conn, err := c.dial()
 		if err != nil {
+			c.setLastDialError(err.Error())
 			c.setState(StateDisconnected)
 			if !c.sleep(backoff) {
 				return
@@ -194,6 +196,7 @@ func (c *Client) run() {
 			continue
 		}
 		backoff = c.cfg.BackoffInitial
+		c.setLastDialError("")
 
 		c.mu.Lock()
 		c.conn = conn
@@ -223,6 +226,21 @@ func (c *Client) run() {
 	}
 }
 
+// LastDialError returns the most recent dial failure reason (empty when the
+// last dial succeeded or none was attempted). It exists so UIs can explain a
+// stuck "disconnected" state instead of leaving the cause invisible.
+func (c *Client) LastDialError() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.lastErr
+}
+
+func (c *Client) setLastDialError(err string) {
+	c.mu.Lock()
+	c.lastErr = err
+	c.mu.Unlock()
+}
+
 func (c *Client) dial() (*websocket.Conn, error) {
 	c.mu.Lock()
 	url := c.cfg.URL + "?session_id=" + c.sessionID
@@ -239,7 +257,12 @@ func (c *Client) dial() (*websocket.Conn, error) {
 		_ = resp.Body.Close()
 	}
 	if err != nil {
-		return nil, fmt.Errorf("picoclient: dial %s: %w", c.cfg.URL, err)
+		if resp != nil {
+			err = fmt.Errorf("picoclient: dial %s: %w (HTTP %d)", c.cfg.URL, err, resp.StatusCode)
+		} else {
+			err = fmt.Errorf("picoclient: dial %s: %w", c.cfg.URL, err)
+		}
+		return nil, err
 	}
 	return conn, nil
 }

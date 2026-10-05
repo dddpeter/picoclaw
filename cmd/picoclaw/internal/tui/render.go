@@ -144,6 +144,11 @@ func renderStatusbar(m *appModel) string {
 	var b strings.Builder
 	b.WriteString("picoclaw tui ")
 	b.WriteString(dotStyle.Render(dot + " " + m.connState.String()))
+	if m.connState != picoclient.StateConnected {
+		if dialErr := tail(m.client.LastDialError(), 72); dialErr != "" {
+			b.WriteString(styleError.Render(" · " + dialErr))
+		}
+	}
 	if session := m.client.SessionID(); len(session) > 8 {
 		b.WriteString(styleHint.Render(" · " + session[:8]))
 	}
@@ -159,7 +164,19 @@ func renderStatusbar(m *appModel) string {
 		b.WriteString(styleStatusbar.Render(" · " + string(frame) + " 生成中 " +
 			elapsed(m.state.GeneratingSince)))
 	}
-	return b.String()
+	return lipgloss.NewStyle().MaxWidth(m.width).Render(b.String())
+}
+
+// tail keeps the last n runes of s (dial errors put the OS reason at the end).
+func tail(s string, n int) string {
+	if s == "" {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return "…" + string(r[len(r)-n:])
 }
 
 func elapsed(since time.Time) string {
