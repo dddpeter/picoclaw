@@ -117,6 +117,27 @@ systemd 重启/OOM/断电后，JSONL 历史在磁盘上，但进行中的 turn �
 ### 测试锚点
 `TestRunRestartRecovery_SealsAndNotifies`（封口 + 窗口内通知）、`TestRunRestartRecovery_SkipsCleanSessions`、`TestRunRestartRecovery_RespectsNotifyWindow`（窗口外只封口不通知，真实 mtime 路径）、`TestRunRestartRecovery_Disabled`、`TestRunRestartRecovery_ReminderStopsAfterMax`（按间隔重发且封顶后静默）、`TestRunRestartRecovery_ReminderCancelledByUserMessage`（cancelRecoveryReminder 生效）、`TestDetectDanglingToolCalls_FindsMissingResults`（抽函数 + 幂等；`TestSealDanglingToolCalls` 既有测试仍过）。
 
+### 9. 生成中中断补全 + 模型还原（2026-10-05，缺口修复）
+
+原方案只覆盖"工具执行中被打断"（尾部悬空 tool_calls → 封口+通知）。两个遗留缺口：
+
+**缺口 A：模型生成期间重启完全无通知。** 长推理/最终长答案阶段，assistant 消息未完成未落盘，尾部干净 → 封口不发生 → 通知也不发生，任务静默蒸发。
+**缺口 B：/switch 的模型选择不跨重启**（内存态），重启后"继续"用配置默认模型续做长任务。
+
+修复（两者共用一个机制）：
+
+1. **turn 进行中标记（write-ahead marker）**：`runAgentLoop` 在段循环前写 `<sessions>/<sanitized_key>.turnmarker.json`（`session.InflightTurnStore` 接口，JSONLBackend→memory.JSONLStore 落盘；temp+fsync+rename 原子写），内容 `{session_key, agent_id, model, started_at}`；`defer` 清除覆盖所有退出路径（错误/中止/正常完成/auto-continue 全段）。NoHistory turn 不写（无落盘状态可恢复）。子 turn 不经过该路径（父 turn 的标记覆盖会话）。
+2. **恢复判定扩展**（`recoverOneSession` 单遍处理）：中断 = 悬空 tool_calls **或** 存活标记；标记在处理后一次性消费（删除），同目录多 store 的重复扫描天然去重（不会再通知）。
+   - 标记 + 尾部是最终答案（末条 assistant 无 tool_calls）→ turn 其实已完成，静默清标记；
+   - 标记 + 无持久历史 → turn 死在首条消息落盘前，静默清标记；
+   - 标记 + 干净尾部（末条 user/tool）→ **未封口通知**："⚠ 检测到上次任务被中断（网关重启），回答未能完成。回复「继续」可让模型接着做。"（与封口通知措辞区分；重提醒携带各自内容）。
+   - 活体防误报：本进程新写的标记（`started_at > recoveryStart`）或会话当前有活跃 turn 的标记，属于在跑 turn 的 write-ahead，**跳过且不消费**。
+3. **模型还原**：标记里的 model 经 model_list 校验存在后，用 `swapAgentModelLocked`（TryLock，遵循"命令路径禁止阻塞模型写锁"纪律；busy/未知模型 → 跳过记日志）把 agent 模型还原为中断 turn 所用——"继续"续做的是同一模型。`/switch`、`/new`、网页保存的既有持久化语义不变。
+
+已知残余限制：标记写入到首条消息落盘之间的极小窗口内崩溃 → 无通知（无任何持久状态可依据）；重启两次且用户未响应 → 第二次恢复不重发首通知（标记已消费，与封口幂等同语义）。清理标记前会重新核对盘上标记的时间戳，防误删恢复期间新 turn 刚写的活体标记。**目录扫描集成**：`MigrateFromJSON` 与 legacy SessionManager 的 `loadSessions` 均显式跳过 `TurnMarkerSuffix` 文件——否则迁移会把标记改名为 `.migrated`（毁掉恢复依据）并生成垃圾空会话（`TestTurnMarker_MigrationSkipsMarkerFiles` 钉住）。
+
+测试锚点（`restart_recovery_marker_test.go` + `pkg/memory/turn_marker_test.go`）：`TestRunRestartRecovery_NotifiesCleanTailInterruption`（生成中中断→未封口通知+不加封口）、`TestRunRestartRecovery_MarkerCompletedTailSilent`（完成尾部→静默清标记）、`TestRunRestartRecovery_MarkerWithoutHistoryClearedSilently`、`TestRunRestartRecovery_MarkerPlusDanglingNotifiesOnce`（悬空+标记=同一中断恰好一次通知）、`TestRunRestartRecovery_LeavesLiveTurnMarkerAlone`（活体标记不消费）、`TestRunRestartRecovery_RestoresInterruptedModel`（模型还原+未知模型静默）、`TestRunAgentLoop_TurnMarkerLifecycle`/`TestRunAgentLoop_NoHistoryTurnWritesNoMarker`（标记生命周期，gated provider 活体观察）；memory 层 Roundtrip/覆写/损坏自清理/文件名净化。
+
 ## 4. ④ 长任务进度心跳（已实施）
 
 ### 动机

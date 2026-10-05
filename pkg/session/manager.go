@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sipeed/picoclaw/pkg/memory"
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/providers/messageutil"
 )
@@ -24,12 +25,14 @@ type SessionManager struct {
 	sessions map[string]*Session
 	mu       sync.RWMutex
 	storage  string
+	inflight inflightTurnMem
 }
 
 func NewSessionManager(storage string) *SessionManager {
 	sm := &SessionManager{
 		sessions: make(map[string]*Session),
 		storage:  storage,
+		inflight: inflightTurnMem{turns: make(map[string]InflightTurn)},
 	}
 
 	if storage != "" {
@@ -291,6 +294,13 @@ func (sm *SessionManager) loadSessions() error {
 		}
 
 		if filepath.Ext(file.Name()) != ".json" {
+			continue
+		}
+
+		// Turn-in-flight markers live in the same directory (when the legacy
+		// manager is the fallback backend over a JSONL store's dir); they are
+		// not session snapshots.
+		if strings.HasSuffix(file.Name(), memory.TurnMarkerSuffix) {
 			continue
 		}
 

@@ -54,6 +54,12 @@ func MigrateFromJSON(
 		if strings.HasSuffix(name, ".meta.json") {
 			continue
 		}
+		// Skip turn-in-flight markers: renaming one to ".migrated" would
+		// destroy the very record restart recovery needs, and importing it
+		// as a snapshot would create a garbage "<key>.turnmarker" session.
+		if strings.HasSuffix(name, TurnMarkerSuffix) {
+			continue
+		}
 		// Skip already-migrated files.
 		if strings.HasSuffix(name, ".migrated") {
 			continue

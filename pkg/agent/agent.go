@@ -592,6 +592,24 @@ func (al *AgentLoop) runAgentLoop(
 		opts.Dispatch.SessionAliases,
 	)
 
+	// Turn-in-flight marker (fork feature, pkg/agent/restart_recovery.go):
+	// write-ahead before the first segment does any work; the deferred clear
+	// runs on every exit path below (error return, abort, completion). A
+	// surviving marker after a restart means the process died mid-turn —
+	// including mid-LLM-generation, which leaves a clean tail that the
+	// dangling-tool-call seal cannot detect. NoHistory turns persist nothing,
+	// so a marker for them would be unrecoverable noise.
+	if !opts.NoHistory {
+		if markerStore, ok := agent.Sessions.(session.InflightTurnStore); ok {
+			modelMu := agent.modelStateMutex()
+			modelMu.RLock()
+			markerModel := agent.Model
+			modelMu.RUnlock()
+			markerStore.MarkTurnInFlight(opts.Dispatch.SessionKey, agent.ID, markerModel)
+			defer markerStore.ClearTurnInFlight(opts.Dispatch.SessionKey)
+		}
+	}
+
 	// Two-phase session titling: derived title now (cannot fail), light-model
 	// upgrade armed in the background. Best effort, never blocks the turn.
 	al.maybeTitleSession(agent, &opts)

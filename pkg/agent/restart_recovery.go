@@ -22,8 +22,18 @@ import (
 // those sessions (with a restart-semantics note), notifies their users that
 // replying "继续" resumes the task, and re-reminds until the user shows up
 // (bounded by reminder_max). Best effort: async at startup, failures logged.
+//
+// Interruptions that leave a CLEAN tail (killed mid-LLM-generation, before
+// any message of the turn persisted) are caught by the turn-in-flight marker
+// instead: runAgentLoop write-ahead records the marker before a turn starts
+// and clears it on every exit path, so a surviving marker means the process
+// died mid-turn. The marker also carries the model the turn was using, which
+// recovery restores — /switch state is in-memory only and would otherwise be
+// lost, silently resuming the task on the config default model.
 
-const restartRecoveryNotice = "⚠ 检测到上次任务被中断（网关重启）。会话已封口保留，回复「继续」可让模型接着做。"
+const restartRecoveryNoticeSealed = "⚠ 检测到上次任务被中断（网关重启）。会话已封口保留，回复「继续」可让模型接着做。"
+
+const restartRecoveryNoticeUnsealed = "⚠ 检测到上次任务被中断（网关重启），回答未能完成。回复「继续」可让模型接着做。"
 
 // recoveryReminder tracks one session's pending re-reminder. Entries are
 // kept (not deleted) once exhausted so recoveryReminderCount reports the
@@ -36,6 +46,7 @@ type recoveryReminder struct {
 	agentID    string
 	channel    string
 	chatID     string
+	content    string // notice text; sealed and unsealed interruptions word it differently
 	interval   time.Duration
 	max        int
 	nextAt     time.Time // guarded by mu
@@ -82,10 +93,12 @@ func (al *AgentLoop) RunRestartRecovery(ctx context.Context) {
 	if !cfg.IsEnabled() {
 		return
 	}
+	recoveryStart := time.Now()
 
 	// Dedupe by store instance: agents sharing a workspace hold distinct
-	// store objects over the same directory; the idempotent seal makes the
-	// double scan harmless, but skipping repeats avoids duplicate work.
+	// store objects over the same directory; the idempotent seal and the
+	// one-shot marker consumption make the double scan harmless, but
+	// skipping repeats avoids duplicate work.
 	reminderInterval := time.Duration(cfg.ReminderIntervalMinutes) * time.Minute
 	reminderMax := cfg.ReminderMax
 	seenStores := make(map[any]bool)
@@ -94,17 +107,62 @@ func (al *AgentLoop) RunRestartRecovery(ctx context.Context) {
 			continue
 		}
 		seenStores[agent.Sessions] = true
-		for _, key := range agent.Sessions.ListSessions() {
+		markers := al.loadInterruptedTurns(agent, recoveryStart)
+		for _, key := range sessionKeysUnion(agent.Sessions.ListSessions(), markers) {
 			if ctx.Err() != nil {
 				return
 			}
-			al.recoverOneSession(ctx, agent, key, cfg, reminderInterval, reminderMax)
+			marker, hasMarker := markers[key]
+			al.recoverOneSession(ctx, agent, key, marker, hasMarker, cfg, reminderInterval, reminderMax, recoveryStart)
 		}
 	}
 
 	if reminderInterval > 0 && reminderMax > 0 && ctx.Err() == nil {
 		al.runRecoveryReminderLoop(ctx, time.Minute)
 	}
+}
+
+// loadInterruptedTurns snapshots the surviving turn markers of one store,
+// keeping only leftovers from a previous process. Markers written after
+// recovery started, or whose session currently has an active turn, belong
+// to a live turn of THIS process and are left untouched.
+func (al *AgentLoop) loadInterruptedTurns(agent *AgentInstance, recoveryStart time.Time) map[string]session.InflightTurn {
+	markerStore, ok := agent.Sessions.(session.InflightTurnStore)
+	if !ok {
+		return nil
+	}
+	markers := make(map[string]session.InflightTurn)
+	for _, m := range markerStore.ListTurnsInFlight() {
+		if m.StartedAt.After(recoveryStart) {
+			continue
+		}
+		if al.getActiveTurnState(m.SessionKey) != nil {
+			continue
+		}
+		markers[m.SessionKey] = m
+	}
+	return markers
+}
+
+// sessionKeysUnion merges the store's session list with marker keys so
+// recovery also reaches sessions whose marker survived but whose history
+// was never created (or has since been removed).
+func sessionKeysUnion(keys []string, markers map[string]session.InflightTurn) []string {
+	seen := make(map[string]bool, len(keys)+len(markers))
+	merged := make([]string, 0, len(keys)+len(markers))
+	for _, k := range keys {
+		if !seen[k] {
+			seen[k] = true
+			merged = append(merged, k)
+		}
+	}
+	for k := range markers {
+		if !seen[k] {
+			seen[k] = true
+			merged = append(merged, k)
+		}
+	}
+	return merged
 }
 
 // recoveryAgents returns every registered agent plus the default one
@@ -131,24 +189,59 @@ func (al *AgentLoop) recoverOneSession(
 	ctx context.Context,
 	agent *AgentInstance,
 	key string,
+	marker session.InflightTurn,
+	hasMarker bool,
 	cfg config.RestartRecoveryConfig,
 	reminderInterval time.Duration,
 	reminderMax int,
+	recoveryStart time.Time,
 ) {
+	// A turn is running in this session right now — any marker on disk is
+	// its write-ahead record, not an interruption leftover.
+	if al.getActiveTurnState(key) != nil {
+		return
+	}
+
 	history := agent.Sessions.GetHistory(key)
 	sealed := sealDanglingWith(history, restartToolResultNote)
-	if len(sealed) == len(history) {
-		return // clean tail (or already sealed) — nothing to recover
+	sealedNow := len(sealed) != len(history)
+
+	if !sealedNow && !hasMarker {
+		return // clean tail, no marker — nothing to recover
 	}
+
+	// The marker is consumed below on every path past this point (deferred),
+	// so a second store over the same directory cannot re-notify.
+	if hasMarker {
+		defer al.clearInflightMarker(agent, key, recoveryStart)
+		// Model continuity first: replying "继续" should continue on the
+		// model the interrupted task was using, not the config default.
+		al.restoreInterruptedModel(agent, marker)
+	}
+
+	// A marker with no durable history: the turn died before its first
+	// message persisted — there is nothing to resume and nothing to report.
+	if len(history) == 0 {
+		return
+	}
+
 	// Decide the notification-window verdict BEFORE sealing: SetHistory
 	// rewrites the jsonl file and refreshes its mtime, so a check made
 	// after the write would see every sealed session as "just active"
 	// and notify_window_hours would never suppress anything.
 	notify := cfg.NotifyWindowHours > 0 && ctx.Err() == nil &&
 		al.sessionActiveWithin(agent, key, time.Duration(cfg.NotifyWindowHours)*time.Hour)
-	agent.Sessions.SetHistory(key, sealed)
-	logger.InfoCF("agent", "restart recovery: sealed interrupted session",
-		map[string]any{"session_key": key, "sealed_calls": len(sealed) - len(history)})
+
+	if sealedNow {
+		agent.Sessions.SetHistory(key, sealed)
+		logger.InfoCF("agent", "restart recovery: sealed interrupted session",
+			map[string]any{"session_key": key, "sealed_calls": len(sealed) - len(history)})
+	} else if historyTailIsFinalAnswer(history) {
+		// Marker present but the tail is a persisted final answer: the turn
+		// finished before the process died and the marker is merely a stale
+		// write-ahead record — nothing to report.
+		return
+	}
 
 	if !notify {
 		return // notifications disabled or stale interruption — sealed silently
@@ -157,12 +250,22 @@ func (al *AgentLoop) recoverOneSession(
 	if channel == "" || chatID == "" {
 		return // no resolvable target (internal/unknown sessions stay silent)
 	}
+	notice := restartRecoveryNoticeSealed
+	if !sealedNow {
+		notice = restartRecoveryNoticeUnsealed
+	}
+	// The marker's agent owns the session; fall back to the scanning agent
+	// for marker-less (dangling-only) interruptions.
+	outboundAgentID := agent.ID
+	if hasMarker && marker.AgentID != "" {
+		outboundAgentID = marker.AgentID
+	}
 	if err := al.bus.PublishOutbound(ctx, bus.OutboundMessage{
 		Channel:    channel,
 		ChatID:     chatID,
-		AgentID:    agent.ID,
+		AgentID:    outboundAgentID,
 		SessionKey: key,
-		Content:    restartRecoveryNotice,
+		Content:    notice,
 	}); err != nil {
 		logger.WarnCF("agent", "restart recovery: failed to notify",
 			map[string]any{"session_key": key, "error": err.Error()})
@@ -171,14 +274,99 @@ func (al *AgentLoop) recoverOneSession(
 	if reminderInterval > 0 && reminderMax > 0 {
 		al.recoveryReminders.Store(key, &recoveryReminder{
 			sessionKey: key,
-			agentID:    agent.ID,
+			agentID:    outboundAgentID,
 			channel:    channel,
 			chatID:     chatID,
+			content:    notice,
 			nextAt:     time.Now().Add(reminderInterval),
 			interval:   reminderInterval,
 			max:        reminderMax,
 		})
 	}
+}
+
+// restoreInterruptedModel best-effort restores the model the interrupted
+// turn was using. /switch state lives in memory only, so without this a
+// restart silently resumes interrupted tasks on the config default model.
+// Mirrors /switch discipline: TryLock, never block on the model-state write
+// lock — recovery must not hang behind an in-flight turn.
+func (al *AgentLoop) restoreInterruptedModel(agent *AgentInstance, marker session.InflightTurn) {
+	if marker.Model == "" {
+		return
+	}
+	if marker.AgentID != "" && marker.AgentID != agent.ID {
+		return
+	}
+	modelMu := agent.modelStateMutex()
+	modelMu.RLock()
+	current := agent.Model
+	modelMu.RUnlock()
+	if current == marker.Model {
+		return
+	}
+	cfg := al.GetConfig()
+	modelFound := false
+	for _, modelCfg := range cfg.ModelList {
+		if modelCfg != nil && modelCfg.ModelName == marker.Model {
+			modelFound = true
+			break
+		}
+	}
+	if !modelFound {
+		logger.WarnCF("agent", "restart recovery: interrupted turn's model no longer configured; keeping current model",
+			map[string]any{"model": marker.Model, "session_key": marker.SessionKey})
+		return
+	}
+	if !modelMu.TryLock() {
+		logger.InfoCF("agent", "restart recovery: model restore skipped, a task is currently running",
+			map[string]any{"model": marker.Model, "session_key": marker.SessionKey})
+		return
+	}
+	defer modelMu.Unlock()
+	if agent.Model == marker.Model {
+		return
+	}
+	if _, err := al.swapAgentModelLocked(cfg, agent, marker.Model); err != nil {
+		logger.WarnCF("agent", "restart recovery: model restore failed",
+			map[string]any{"model": marker.Model, "session_key": marker.SessionKey, "error": err.Error()})
+		return
+	}
+	logger.InfoCF("agent", "restart recovery: restored interrupted turn's model",
+		map[string]any{"model": marker.Model, "previous_model": current, "session_key": marker.SessionKey})
+}
+
+// clearInflightMarker consumes the session's turn marker (one-shot: a second
+// store scanning the same directory must not re-notify). Before deleting it
+// re-checks the on-disk marker: a turn that started while recovery was
+// processing this session has since rewritten the marker, and that live
+// write-ahead record must survive for its own exit path (and a future
+// recovery) — only the stale, pre-recovery marker is consumed.
+func (al *AgentLoop) clearInflightMarker(agent *AgentInstance, key string, recoveryStart time.Time) {
+	markerStore, ok := agent.Sessions.(session.InflightTurnStore)
+	if !ok {
+		return
+	}
+	for _, current := range markerStore.ListTurnsInFlight() {
+		if current.SessionKey == key {
+			if !current.StartedAt.After(recoveryStart) {
+				markerStore.ClearTurnInFlight(key)
+			}
+			return
+		}
+	}
+}
+
+// historyTailIsFinalAnswer reports whether the history tail looks like a
+// finished turn: a trailing assistant message without tool calls is the
+// persisted final answer. Anything else (a user message awaiting its reply,
+// a tool result mid-loop) means the turn was still in flight when the
+// process died.
+func historyTailIsFinalAnswer(history []providers.Message) bool {
+	if len(history) == 0 {
+		return false
+	}
+	last := history[len(history)-1]
+	return last.Role == "assistant" && len(last.ToolCalls) == 0
 }
 
 // runRecoveryReminderLoop polls pending reminders every tick and re-sends
@@ -215,7 +403,7 @@ func (al *AgentLoop) runRecoveryReminderLoop(ctx context.Context, tick time.Dura
 					ChatID:     reminder.chatID,
 					AgentID:    reminder.agentID,
 					SessionKey: reminder.sessionKey,
-					Content:    restartRecoveryNotice,
+					Content:    reminder.content,
 				}); err != nil {
 					logger.WarnCF("agent", "restart recovery: re-reminder failed",
 						map[string]any{"session_key": reminder.sessionKey, "error": err.Error()})
@@ -286,6 +474,7 @@ func (al *AgentLoop) registerRecoveryReminderForTest(sessionKey, channel, chatID
 		sessionKey: sessionKey,
 		channel:    channel,
 		chatID:     chatID,
+		content:    restartRecoveryNoticeSealed,
 		nextAt:     time.Now().Add(interval),
 		interval:   interval,
 		max:        max,
