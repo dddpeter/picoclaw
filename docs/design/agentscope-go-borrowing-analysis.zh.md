@@ -54,12 +54,12 @@ agentscope-go 的设计是一个"权限三明治"：
 1. **内置审批钩子 `approval`**：以 BuiltinHookFactory 注册（config 形如 `hooks.builtins.approval = {enabled, config}`）。规则集 `ask_patterns`（命令 glob / 工具名，语义对齐现有 `custom_deny_patterns` 的匹配方式），求值顺序 **defaultDenyPatterns（硬拒，不动）→ ask_patterns 命中 → 放行**。`ask_patterns` 默认空 = 行为零变化，守住开放默认三件套（fork-overview §同步注意事项）。
 2. **通道复用**：审批请求经现有外发口（`agent_outbound.go`）发到会话所在 channel（飞书卡片 / web / pico 文本）：「即将执行 `git push`，回复 `/approve` 或 `/deny`」。picoclaw 本身就是聊天网关，这是比 agentscope 更天然的落点。
 3. **回答路由**：会话存在 pending 审批时，入站消息先过审批解析器（`/approve`、`/deny`，可扩展中文别名），不匹配则走原 steering 路径（`agent.go:210-236`）。审批等待即阻塞在 ApproveTool 的同步窗口内，建议默认超时从 60s 提到适合 IM 节奏的 300s（仅审批钩子自身配置，不改全局默认）。
-4. **超时 = 拒绝**（fail-closed，借 agentscope 原则）；拒绝/超时都走 `appendDeniedToolResult`，模型可自行改道。审批等待必须挂在 turnCtx 上：hard abort 时立即返回拒绝，不留僵尸等待。
+4. **超时 = 拒绝**（fail-closed，借 agentscope 原则）；**无交互通道的会话（cron/心跳触发、无绑定 channel）Ask 命中时立即拒绝并说明原因，不空等超时**——这是 agentscope DontAsk 模式语义的特例化，也是五模式里唯一有真实对应需求的分支。拒绝/超时都走 `appendDeniedToolResult`，模型可自行改道。审批等待必须挂在 turnCtx 上：hard abort 时立即返回拒绝，不留僵尸等待。
 5. **二期**：「本次会话总是允许」——确认时可附规则，会话内存生效并落 JSONL note（picoclaw 落盘比 agentscope 的会话内 Engine 更简单）。
 
-不搬五模式引擎：picoclaw 的等价物已分散存在（deny_profile ≈ Explore 子集、restrict_to_workspace、turn profile `tools.allow`、bypass ≈ 现状默认开放），只缺 Ask 层。也不需要它的批量确认分发——picoclaw 工具循环是顺序执行，审批天然串行。
+不搬五模式引擎：五个模式里四个是 picoclaw 已有旋钮可拼出的姿态——**Default 的 Ask 层即本节 `ask_patterns`（唯一真缺口）**；AcceptEdits 弱于开放默认三件套的有意开放；Explore ≈ turn profile `tools.allow` 圈只读工具集；Bypass ≈ 现状默认开放（deny patterns 本就不可绕过）；DontAsk ≈ 无交互通道会话的立即拒绝特例（第 4 点）。整体引入会形成第二套权限优先级模型，与现有五个门禁面（deny patterns 三旋钮 / `protect_system_paths` / `restrict_to_workspace` / turn profile allow / agent allowlist）并存，且其 ask-first 默认姿态与开放默认三件套冲突。也不需要它的批量确认分发——picoclaw 工具循环是顺序执行，审批天然串行。若将来出现"会话中一键切姿态"或会话级规则集膨胀的需求，再以该引擎为参照收敛成统一门禁。
 
-测试锚点建议：`TestApprovalHook_AskPatternMatches`、`TestApprovalHook_TimeoutFailsClosed`、`TestApprovalReply_RoutedBeforeSteering`、`TestApproval_HardAbortReturnsImmediately`、`TestApproval_EmptyPatternsNoBehaviorChange`。
+测试锚点建议：`TestApprovalHook_AskPatternMatches`、`TestApprovalHook_TimeoutFailsClosed`、`TestApproval_NoInteractiveChannelDeniesImmediately`、`TestApprovalReply_RoutedBeforeSteering`、`TestApproval_HardAbortReturnsImmediately`、`TestApproval_EmptyPatternsNoBehaviorChange`。
 
 ## 二、模型自主压缩工具（优先级：中高）
 
@@ -114,7 +114,7 @@ agentscope-go 把崩溃语义写成显式契约（`checkpoint.go:23-29`），值
 | 项 | 理由 |
 |---|---|
 | 整体替换执行核心 | 见"背景"三理由；本文仅取设计 |
-| permission 五模式引擎 | picoclaw 等价物已分散存在（deny_profile / protect_system_paths / restrict_to_workspace / turn profile allow / custom patterns），只缺 Ask 层，见 §一 |
+| permission 五模式引擎 | 五个模式里四个是现有旋钮可拼出的姿态（映射见 §一"不搬五模式引擎"段），唯一真缺口 Ask 层已单列 §一；整体引入会形成与现有五个门禁面并存的第二套优先级模型，且 ask-first 默认姿态与开放默认三件套冲突（2026-10-05 确认：权限方向只补 Ask） |
 | middleware 洋葱链 / loop.Loop 接口化重构 | Pipeline + hooks 等价物已在且被 3.6 万行测试钉死；主循环重构风险大收益小。其接口切面（ModelCaller/ToolExecutor/ContextManager/ExitCondition 全注入）留作 pkg/agent 未来瘦身时的参照系 |
 | 成本追踪（定价表 / CostLedger / 预算中间件） | 个人部署收益低，逐 turn usage 展示已有；定价表是持续维护负担。其"硬中止 vs 诱导收尾 vs 只记账"三种预算哲学记入 §六 作概念储备 |
 | RunJSONL 回放/评估 | 测试密度已足够（729 个测试函数钉死 fork 行为）；需要时 `runtime_event_logger.go` 可自然演化 |
@@ -143,3 +143,4 @@ agentscope-go 把崩溃语义写成显式契约（`checkpoint.go:23-29`），值
 ## 实施状态
 
 - 2026-10-05：调研完成，本文档存档。
+- 2026-10-05：评审确认——权限方向**只补 Ask 层**（不搬五模式引擎）；§一 增补无交互通道立即拒绝语义（DontAsk 特例化）与五模式不搬论证，§五 同步。
