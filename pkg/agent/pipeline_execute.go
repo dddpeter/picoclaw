@@ -141,9 +141,11 @@ func (p *Pipeline) ExecuteTools(
 	// This iteration continues with tool calls, so the streamed answer slot
 	// will be overwritten by the next LLM iteration. Archive the mid-turn
 	// prose on the process panel before that happens — otherwise it is
-	// visible only while streaming and lost in the final card.
+	// visible only while streaming and lost in the final card. Tool-call
+	// parrot lines are stripped so the panel archives prose, not payload
+	// dumps; content that is ONLY parrot lines is not archived at all.
 	if exec.streamingPublisher != nil {
-		if content := strings.TrimSpace(exec.response.Content); content != "" {
+		if content := stripToolCallParrot(strings.TrimSpace(exec.response.Content)); content != "" {
 			exec.streamingPublisher.AppendToolStep(turnCtx, bus.ToolStep{
 				Kind:   bus.ToolStepKindText,
 				Result: utils.Truncate(content, 400),

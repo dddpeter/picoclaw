@@ -449,6 +449,13 @@ func (p *streamingChunkPublisher) Update(ctx context.Context, accumulated string
 	if p == nil || p.streamer == nil || strings.TrimSpace(accumulated) == "" {
 		return
 	}
+	// Strip seahorse tool-call parrot lines from the visible answer (models
+	// replay history tool calls as plain text; the real tool-call channel is
+	// unaffected). Session history keeps the raw content.
+	accumulated = stripToolCallParrot(accumulated)
+	if strings.TrimSpace(accumulated) == "" {
+		return
+	}
 	if p.ts != nil {
 		p.ts.touchActivity()
 	}
@@ -540,6 +547,7 @@ func (p *streamingChunkPublisher) Seal(ctx context.Context, content string, cont
 }
 
 func (p *streamingChunkPublisher) seal(ctx context.Context, content string, contextUsage *bus.ContextUsage) error {
+	content = stripToolCallParrot(content)
 	if setter, ok := p.streamer.(interface{ SetModelName(modelName string) }); ok {
 		setter.SetModelName(p.modelName)
 	}
