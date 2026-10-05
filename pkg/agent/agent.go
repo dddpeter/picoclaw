@@ -52,6 +52,9 @@ type AgentLoop struct {
 	contextManager   ContextManager
 	memoryCommitter  *memoryCommitter
 	compactScheduler *compactScheduler
+	// idleScanner holds the idle-compaction scanner when started
+	// (atomic.Value-typed via the sync primitives below; nil when off).
+	idleScanner atomic.Value
 	fallback         *providers.FallbackChain
 	channelManager   interfaces.ChannelManager
 	mediaStore       media.MediaStore

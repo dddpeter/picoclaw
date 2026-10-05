@@ -447,6 +447,10 @@ func setupAndStartServices(
 	}
 	fmt.Println("✓ Heartbeat service started")
 
+	if err = agentLoop.StartIdleCompactScanner(cfg.Agents.Defaults.IdleCompact); err != nil {
+		return nil, fmt.Errorf("error starting idle compaction scanner: %w", err)
+	}
+
 	runningServices.MediaStore = media.NewFileMediaStoreWithCleanup(media.MediaCleanerConfig{
 		Enabled:  cfg.Tools.MediaCleanup.Enabled,
 		MaxAge:   time.Duration(cfg.Tools.MediaCleanup.MaxAge) * time.Minute,
@@ -542,7 +546,7 @@ func setupAndStartServices(
 	return runningServices, nil
 }
 
-func stopAndCleanupServices(runningServices *services, shutdownTimeout time.Duration, isReload bool) {
+func stopAndCleanupServices(runningServices *services, shutdownTimeout time.Duration, isReload bool, stopIdleCompact func()) {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer shutdownCancel()
 
@@ -558,6 +562,9 @@ func stopAndCleanupServices(runningServices *services, shutdownTimeout time.Dura
 	}
 	if runningServices.HeartbeatService != nil {
 		runningServices.HeartbeatService.Stop()
+	}
+	if stopIdleCompact != nil {
+		stopIdleCompact()
 	}
 	if runningServices.CronService != nil {
 		runningServices.CronService.Stop()
@@ -582,7 +589,7 @@ func shutdownGateway(
 		cp.Close()
 	}
 
-	stopAndCleanupServices(runningServices, gracefulShutdownTimeout, false)
+	stopAndCleanupServices(runningServices, gracefulShutdownTimeout, false, agentLoop.StopIdleCompactScanner)
 
 	if fullShutdown && msgBus != nil {
 		msgBus.Close()
@@ -611,7 +618,7 @@ func handleConfigReload(
 	logger.Infof(" New model is '%s', recreating provider...", newModel)
 
 	logger.Info("  Stopping all services...")
-	stopAndCleanupServices(runningServices, serviceShutdownTimeout, true)
+	stopAndCleanupServices(runningServices, serviceShutdownTimeout, true, al.StopIdleCompactScanner)
 
 	newProvider, newModelID, err := createStartupProvider(newCfg, allowEmptyStartup)
 	if err != nil {
@@ -697,6 +704,10 @@ func restartServices(
 	runningServices.HeartbeatService.SetHandler(createHeartbeatHandler(al))
 	if err = runningServices.HeartbeatService.Start(); err != nil {
 		return fmt.Errorf("error restarting heartbeat service: %w", err)
+	}
+
+	if err = al.StartIdleCompactScanner(cfg.Agents.Defaults.IdleCompact); err != nil {
+		return fmt.Errorf("error restarting idle compaction scanner: %w", err)
 	}
 	fmt.Println("  ✓ Heartbeat service restarted")
 

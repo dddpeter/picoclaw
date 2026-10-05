@@ -1,6 +1,10 @@
 package session
 
-import "github.com/sipeed/picoclaw/pkg/providers"
+import (
+	"time"
+
+	"github.com/sipeed/picoclaw/pkg/providers"
+)
 
 // SessionStore defines the persistence operations used by the agent loop.
 // Both SessionManager (legacy JSON backend) and JSONLBackend satisfy this
@@ -29,6 +33,10 @@ type SessionStore interface {
 	Save(key string) error
 	// ListSessions returns all known session keys.
 	ListSessions() []string
+	// LastModified returns the session record's last-modified time (jsonl
+	// mtime) — the idle-compaction scanner's activity signal. ok=false when
+	// the store cannot answer (session absent, ephemeral stores).
+	LastModified(sessionKey string) (time.Time, bool)
 	// Close releases resources held by the store.
 	Close() error
 }

@@ -168,6 +168,18 @@ func (sm *SessionManager) TruncateHistory(key string, keepLast int) {
 	session.Updated = time.Now()
 }
 
+// LastModified reports the last write time for a known session (idle
+// scanner signal). Legacy in-memory manager tracks it per session.
+func (sm *SessionManager) LastModified(sessionKey string) (time.Time, bool) {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	sess, ok := sm.sessions[sessionKey]
+	if !ok {
+		return time.Time{}, false
+	}
+	return sess.Updated, true
+}
+
 func (sm *SessionManager) ListSessions() []string {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()

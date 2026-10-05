@@ -476,6 +476,58 @@ type ToolFeedbackConfig struct {
 	SeparateMessages bool `json:"separate_messages" env:"PICOCLAW_AGENTS_DEFAULTS_TOOL_FEEDBACK_SEPARATE_MESSAGES"`
 }
 
+// IdleCompactConfig configures the idle-session compaction scanner.
+// Mirrors the fork convention: block absent = defaults, Enabled nil = on.
+type IdleCompactConfig struct {
+	// Enabled gates the scanner. Nil (unset) = enabled.
+	Enabled *bool `json:"enabled,omitempty"`
+	// IdleAfterMinutes is how long a session must be idle before the
+	// scanner considers it (default 30, clamped to >= 5).
+	IdleAfterMinutes int `json:"idle_after_minutes,omitempty"`
+	// ScanIntervalSeconds is the scanner tick (default 300, clamped to >= 60).
+	ScanIntervalSeconds int `json:"scan_interval_seconds,omitempty"`
+	// MinHistoryMessages gates out sessions too small to be worth a
+	// summarization call (default 12).
+	MinHistoryMessages int `json:"min_history_messages,omitempty"`
+}
+
+// EffectiveEnabled reports whether the idle scanner is on (nil = on).
+func (c *IdleCompactConfig) EffectiveEnabled() bool {
+	return c == nil || c.Enabled == nil || *c.Enabled
+}
+
+// EffectiveIdleAfter returns the idle threshold with its floor applied.
+func (c *IdleCompactConfig) EffectiveIdleAfter() time.Duration {
+	mins := 30
+	if c != nil && c.IdleAfterMinutes > 0 {
+		mins = c.IdleAfterMinutes
+	}
+	if mins < 5 {
+		mins = 5
+	}
+	return time.Duration(mins) * time.Minute
+}
+
+// EffectiveScanInterval returns the tick interval with its floor applied.
+func (c *IdleCompactConfig) EffectiveScanInterval() time.Duration {
+	secs := 300
+	if c != nil && c.ScanIntervalSeconds > 0 {
+		secs = c.ScanIntervalSeconds
+	}
+	if secs < 60 {
+		secs = 60
+	}
+	return time.Duration(secs) * time.Second
+}
+
+// EffectiveMinHistoryMessages returns the minimum-worth gate (default 12).
+func (c *IdleCompactConfig) EffectiveMinHistoryMessages() int {
+	if c == nil || c.MinHistoryMessages <= 0 {
+		return 12
+	}
+	return c.MinHistoryMessages
+}
+
 // SplitTurnConfig configures split-turn prefix summarization: when the
 // active turn's tail alone exceeds the window after regular compaction,
 // summarize the older prefix of the turn and keep only the recent tail in
@@ -564,6 +616,12 @@ type AgentDefaults struct {
 	// turns whose active-turn tail alone overflows the context window
 	// (fork feature). Nil = enabled with default keep_recent_tokens.
 	SplitTurn *SplitTurnConfig `json:"split_turn,omitempty"`
+	// IdleCompact configures the background idle-session compaction scanner
+	// (fork feature, docs/design/idle-compaction-design.zh.md): sessions
+	// idle past the threshold get a real summarization pass so the next
+	// question starts from a compacted steady state. Nil = enabled with
+	// defaults.
+	IdleCompact *IdleCompactConfig `json:"idle_compact,omitempty"`
 	FreshTailMessages     int     `json:"fresh_tail_messages,omitempty"     env:"PICOCLAW_AGENTS_DEFAULTS_FRESH_TAIL_MESSAGES"`
 	// TrustConfiguredContextWindow opts out of the context-window sanity clamp
 	// (fork feature). agents.defaults.context_window is often set from
