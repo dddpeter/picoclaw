@@ -172,6 +172,13 @@ type turnExecution struct {
 	// writes the stitched whole to session history once.
 	answerContinuationParts []string
 
+	// parrotRetryUsed records that the parrot-only answer auto-retry already
+	// ran this turn (fork, 2026-10-05): a direct answer consisting solely of
+	// replayed tool-call marker lines is discarded and re-requested once
+	// with a corrective directive instead of ending the turn on the
+	// interception note.
+	parrotRetryUsed bool
+
 	// Phase tracking
 	phase LLMPhase
 

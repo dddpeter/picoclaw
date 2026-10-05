@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -276,6 +277,22 @@ func providerToSeahorseMessage(msg protocoltypes.Message) seahorse.Message {
 		CreatedAt:        normalizeSeahorseMessageCreatedAt(msg.CreatedAt),
 	}
 
+	// Text part (fork, 2026-10-05): AddMessageWithPartsAndReasoning derives the
+	// DB content column from Parts alone, so a message carrying tool_use/media
+	// parts used to lose its text entirely — and replay then fed the derived
+	// "[tool_use: ...]" marker lines back to the LLM as assistant prose (the
+	// tool-call parrot root cause). Storing the text as a real part keeps it
+	// retrievable and lets replay reconstruct clean content. Tool-result
+	// messages already carry their text in the tool_result part; pure-text
+	// messages keep going through the no-parts path, so bootstrap
+	// parts-matching against pre-fork rows stays stable.
+	if msg.Content != "" && msg.ToolCallID == "" && (len(msg.ToolCalls) > 0 || len(msg.Media) > 0) {
+		result.Parts = append(result.Parts, seahorse.MessagePart{
+			Type: "text",
+			Text: msg.Content,
+		})
+	}
+
 	// Convert ToolCalls → MessageParts
 	for _, tc := range msg.ToolCalls {
 		part := seahorse.MessagePart{
@@ -323,11 +340,35 @@ func seahorseToProviderMessages(result *seahorse.AssembleResult) []protocoltypes
 	// Convert assembled messages (which already include summary XML messages)
 	for _, msg := range result.Messages {
 		pm := protocoltypes.Message{
-			Role:             msg.Role,
-			Content:          msg.Content,
-			ModelName:        msg.ModelName,
-			ReasoningContent: msg.ReasoningContent,
+			Role:      msg.Role,
+			ModelName: msg.ModelName,
 		}
+
+		// Reconstruct content from text parts only (fork, 2026-10-05). The
+		// DB content column holds partsToReadableContent output whose
+		// "[tool_use: ...]"/"[tool_result ...]"/"[media: ...]" marker lines
+		// must never reach the LLM as message prose — models that see enough
+		// of them start parroting the format in their answers instead of
+		// using the tool-call channel (observed 2026-10-05, MiniMax-M3).
+		// Rows written before the text-part storage fix carry no text part;
+		// they fall back to the readable column with marker lines stripped,
+		// so legacy sessions stop feeding markers too. Tool-result text is
+		// filled from its part in the loop below.
+		if len(msg.Parts) > 0 {
+			texts := make([]string, 0, 1)
+			for _, part := range msg.Parts {
+				if part.Type == "text" && part.Text != "" {
+					texts = append(texts, part.Text)
+				}
+			}
+			pm.Content = strings.Join(texts, "\n")
+			if pm.Content == "" {
+				pm.Content = stripToolCallParrot(msg.Content)
+			}
+		} else {
+			pm.Content = msg.Content
+		}
+		pm.ReasoningContent = msg.ReasoningContent
 
 		// Reconstruct ToolCalls from parts
 		for _, part := range msg.Parts {
@@ -350,6 +391,15 @@ func seahorseToProviderMessages(result *seahorse.AssembleResult) []protocoltypes
 			if part.Type == "media" && part.MediaURI != "" {
 				pm.Media = append(pm.Media, part.MediaURI)
 			}
+		}
+
+		// Assistant turns get one more pass: a parroted answer is stored
+		// verbatim (history keeps the original), so its marker lines must be
+		// dropped here too or the self-reinforcement loop never breaks.
+		// User messages keep their content verbatim — a user quoting the
+		// format is legitimate — and tool output is ground truth.
+		if msg.Role == "assistant" {
+			pm.Content = stripToolCallParrot(pm.Content)
 		}
 
 		messages = append(messages, pm)

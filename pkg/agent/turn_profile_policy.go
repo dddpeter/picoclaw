@@ -68,7 +68,8 @@ func turnProfileToolAllowed(profile config.EffectiveTurnProfile, name string) bo
 }
 
 func toolUseSystemPromptRule() string {
-	return "**ALWAYS use tools** - When you need to perform an action (schedule reminders, send messages, execute commands, etc.), you MUST call the appropriate tool. Do NOT just say you'll do it or pretend to do it."
+	return "**ALWAYS use tools** - When you need to perform an action (schedule reminders, send messages, execute commands, etc.), you MUST call the appropriate tool. Do NOT just say you'll do it or pretend to do it. " +
+		"Tool calls go through the real tool-call mechanism only — never write tool-call syntax or tool-call records (e.g. lines starting with \"[tool_use:\" or \"[tool_result\") as your message text; such text is not executed and will be discarded."
 }
 
 func filterNamesByTurnProfile(names []string, allowed []string) []string {

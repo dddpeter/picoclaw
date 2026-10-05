@@ -34,6 +34,18 @@ func answerContinuationDirective() providers.Message {
 	}
 }
 
+// parrotRetryDirective is the request-view-only corrective message for the
+// parrot-only answer auto-retry. It is never persisted to session history —
+// the parroted draft is dropped, not shipped or stored.
+func parrotRetryDirective() providers.Message {
+	return providers.Message{
+		Role: "user",
+		Content: "（系统指令：你上一条回复把工具调用格式当作正文复述了——那些 [tool_use: ...]、[tool_result ...] 行不是真实的工具调用，" +
+			"不会被任何系统执行。请重新回答用户的问题：需要执行操作时必须通过真实的工具调用通道发起；" +
+			"绝不要在回复正文里输出这类标记行。）",
+	}
+}
+
 // CallLLM performs an LLM call with fallback support, hook invocation, and retry logic.
 // It handles PreLLM setup, the actual LLM invocation with retry, and AfterLLM processing.
 // Returns Control indicating what the coordinator should do next.
@@ -732,6 +744,38 @@ func (p *Pipeline) CallLLM(
 					"steering_count": len(steerMsgs),
 				})
 			exec.pendingMessages = append(exec.pendingMessages, steerMsgs...)
+			return ControlContinue, nil
+		}
+
+		// Parrot-only answer auto-retry (fork, 2026-10-05): a direct answer
+		// that strips to nothing under the tool-call parrot filter is the
+		// model replaying history marker lines instead of answering. Ending
+		// the turn there shows the user the interception note and asks them
+		// to re-ask; re-asking is exactly what the model needs, so do it
+		// automatically: drop the parroted draft, correct the model once,
+		// and keep the same card. If the retry parrots again the normal
+		// path takes over (filter + interception note at seal). Checked
+		// before the length continuation — continuing a parroted draft is
+		// pointless.
+		if responseContent != "" && !exec.gracefulTerminal &&
+			strings.TrimSpace(stripToolCallParrot(responseContent)) == "" &&
+			!exec.parrotRetryUsed && iteration < ts.agent.MaxIterations {
+			exec.parrotRetryUsed = true
+			// Request view only: the parroted draft must not reach history.
+			exec.messages = append(exec.messages,
+				providers.Message{
+					Role:      "assistant",
+					Content:   responseContent,
+					ModelName: exec.llmModelName,
+				},
+				parrotRetryDirective(),
+			)
+			logger.InfoCF("agent", "Parrot-only direct answer; retrying with corrective directive",
+				map[string]any{
+					"agent_id":     ts.agent.ID,
+					"iteration":    iteration,
+					"content_chars": len(responseContent),
+				})
 			return ControlContinue, nil
 		}
 

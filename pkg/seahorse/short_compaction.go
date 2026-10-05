@@ -751,6 +751,10 @@ func formatMessagesForSummary(messages []Message) string {
 		if content == "" && len(m.Parts) > 0 {
 			content = partsToReadableContent(m.Parts)
 		}
+		// Marker lines must not enter summarizer input: a summary that
+		// reproduces them gets replayed into every later context and teaches
+		// the model to parrot the bracket format (see marker_sanitize.go).
+		content = sanitizeToolMarkers(content)
 		result += fmt.Sprintf("[%s]\n%s\n\n", ts, content)
 	}
 	return result
@@ -788,6 +792,7 @@ Normal summary policy:
 Output requirements:
 - Plain text only.
 - No preamble, headings, or markdown formatting.
+- Never reproduce bracketed tool-call markers (lines like "[tool_use: ...]", "[tool_result ...]", "[media: ...]"); describe tool calls and their outcomes in plain prose instead.
 - Track file operations (created, modified, deleted, renamed) with file paths and current status.
 - If no file operations appear, include exactly: "Files: none".
 - End with exactly: "Expand for details about: <comma-separated list of what was dropped or compressed>".
@@ -810,6 +815,7 @@ Merge overlapping topics. Keep technical details intact.
 Output requirements:
 - Plain text only.
 - No preamble, headings, or markdown formatting.
+- Never reproduce bracketed tool-call markers (lines like "[tool_use: ...]", "[tool_result ...]", "[media: ...]"); describe tool calls and their outcomes in plain prose instead.
 - End with exactly: "Expand for details about: <comma-separated list>".
 - Target length: about %d tokens or less.
 
@@ -832,6 +838,7 @@ Aggressive summary policy:
 Output requirements:
 - Plain text only.
 - No preamble, headings, or markdown formatting.
+- Never reproduce bracketed tool-call markers (lines like "[tool_use: ...]", "[tool_result ...]", "[media: ...]"); describe tool calls and their outcomes in plain prose instead.
 - Track file operations (created, modified, deleted, renamed) with file paths and current status.
 - If no file operations appear, include exactly: "Files: none".
 - End with exactly: "Expand for details about: <comma-separated list of what was dropped or compressed>".
@@ -853,7 +860,7 @@ func truncateSummary(messages []Message) string {
 		if c == "" && len(m.Parts) > 0 {
 			c = partsToReadableContent(m.Parts)
 		}
-		content += c + "\n"
+		content += sanitizeToolMarkers(c) + "\n"
 	}
 	if len(content) > 2048 {
 		content = content[:2048]

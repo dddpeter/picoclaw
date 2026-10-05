@@ -344,7 +344,7 @@ func FormatSummaryXML(s *Summary, parentIDs []string) string {
 		s.Depth,
 		s.DescendantCount,
 		attrs,
-		escapeXML(s.Content),
+		escapeXML(sanitizeToolMarkers(s.Content)),
 		parentsSection,
 	)
 }
