@@ -11,7 +11,7 @@
   #define MyAppVersion "0.0.0-dev"
 #endif
 
-#define MyAppName "PicoClaw Launcher"
+#define MyAppName "Limulus Launcher"
 #define MyAppPublisher "PicoClaw"
 #define MyAppURL "https://github.com/sipeed/picoclaw"
 #define MyAppExeName "picoclaw-launcher.exe"

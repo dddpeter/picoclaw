@@ -23,5 +23,5 @@ func NewVersionCommand() *cobra.Command {
 
 func printVersion() {
 	build, goVer := config.FormatBuildInfo()
-	cliui.PrintVersion(internal.Logo, "picoclaw "+config.FormatVersion(), build, goVer)
+	cliui.PrintVersion(internal.Logo, "Limulus "+config.FormatVersion(), build, goVer)
 }

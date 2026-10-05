@@ -37,7 +37,7 @@ func PrintStatus(r StatusReport) {
 }
 
 func printStatusPlain(r StatusReport) {
-	fmt.Printf("%s picoclaw Status\n", r.Logo)
+	fmt.Printf("%s Limulus Status\n", r.Logo)
 	fmt.Printf("Version: %s\n", r.Version)
 	if r.Build != "" {
 		fmt.Printf("Build: %s\n", r.Build)
@@ -74,7 +74,7 @@ func printStatusFancy(r StatusReport) {
 	topBox := borderStyle().Width(inner)
 
 	var head strings.Builder
-	head.WriteString(titleBarStyle().Render(r.Logo + " picoclaw Status"))
+	head.WriteString(titleBarStyle().Render(r.Logo + " Limulus Status"))
 	head.WriteString("\n\n")
 	head.WriteString(kvKeyStyle().Render("Version") + "  " + kvValStyle().Render(r.Version))
 	if r.Build != "" {

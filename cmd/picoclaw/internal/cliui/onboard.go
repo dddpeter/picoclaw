@@ -17,7 +17,7 @@ func PrintOnboardComplete(logo string, encrypt bool, configPath string) {
 }
 
 func printOnboardPlain(logo string, encrypt bool, configPath string) {
-	fmt.Printf("\n%s picoclaw is ready!\n", logo)
+	fmt.Printf("\n%s Limulus is ready!\n", logo)
 	fmt.Println("\nNext steps:")
 	if encrypt {
 		fmt.Println("  1. Set your encryption passphrase before starting picoclaw:")
@@ -46,7 +46,7 @@ func printOnboardFancy(logo string, encrypt bool, configPath string) {
 	inner := InnerWidth()
 	box := borderStyle().MaxWidth(inner + 8)
 
-	ready := titleBarStyle().Render(logo+" picoclaw is ready!") + "\n"
+	ready := titleBarStyle().Render(logo+" Limulus is ready!") + "\n"
 	fmt.Println()
 	fmt.Println(box.Width(inner).Render(strings.TrimSpace(ready)))
 	fmt.Println()

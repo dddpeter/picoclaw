@@ -159,7 +159,7 @@ func renderStatusbar(m *appModel) string {
 	dot, dotSt := connIndicator(m.connState)
 
 	var b strings.Builder
-	b.WriteString(stBrand.Render("picoclaw tui"))
+	b.WriteString(stBrand.Render("鲎 Limulus tui"))
 	if v := displayVersion(m.version); v != "" {
 		b.WriteString(stHint.Render(" · " + v))
 	}
@@ -229,7 +229,7 @@ func renderWelcome(m *appModel, width int) string {
 	b.WriteString(stBorderLn.Render(strings.Repeat("─", width)))
 	b.WriteString("\n")
 
-	brand := "🦞 picoclaw tui"
+	brand := "鲎 Limulus tui"
 	if v := displayVersion(m.version); v != "" {
 		brand += " · " + v
 	}

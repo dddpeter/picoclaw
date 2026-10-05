@@ -183,13 +183,13 @@ api_key: apiKey || undefined,
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
-      aria-label={t("wizard.title", { defaultValue: "Welcome to PicoClaw 🦞" })}
+      aria-label={t("wizard.title", { defaultValue: "Welcome to Limulus 鲎" })}
     >
       <div className="bg-card w-full max-w-lg rounded-2xl border p-6 shadow-2xl">
         {step === "provider" && (
           <>
             <h2 className="text-lg font-semibold">
-              {t("wizard.title", { defaultValue: "Welcome to PicoClaw 🦞" })}
+              {t("wizard.title", { defaultValue: "Welcome to Limulus 鲎" })}
             </h2>
             <p className="text-muted-foreground mt-1 text-sm">
               {t("wizard.pickProvider", {

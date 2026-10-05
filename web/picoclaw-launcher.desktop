@@ -1,6 +1,6 @@
 [Desktop Entry]
-Name=PicoClaw Launcher
-Comment=Web-based configuration and management UI for PicoClaw
+Name=Limulus Launcher
+Comment=Web-based configuration and management UI for Limulus
 Exec=picoclaw-launcher
 Icon=picoclaw-launcher
 Terminal=false

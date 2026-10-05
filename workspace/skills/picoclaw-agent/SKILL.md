@@ -1,7 +1,7 @@
 ---
 name: picoclaw-agent
 description: "Configure, extend, debug, or contribute to PicoClaw itself. Use when the task is about PicoClaw CLI commands, config.json, gateway, auth, models, skills, MCP servers, cron, routing, sessions, self-evolution, built-in slash commands, or repository internals. Use PicoClaw-native workflows, terminology, paths, and configuration."
-metadata: {"nanobot":{"emoji":"🦞"}}
+metadata: {"nanobot":{"emoji":"鲎"}}
 ---
 
 # PicoClaw Agent

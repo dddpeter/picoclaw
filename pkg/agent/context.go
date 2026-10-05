@@ -199,9 +199,9 @@ func (cb *ContextBuilder) getIdentity(includeToolUseRule bool) string {
 	}
 
 	return fmt.Sprintf(
-		`# picoclaw 🦞 (%s)
+		`# Limulus 鲎 (%s)
 
-You are picoclaw, a helpful AI assistant.
+You are Limulus, a helpful AI assistant.
 
 ## Workspace
 Your workspace is at: %s
@@ -280,7 +280,7 @@ func (cb *ContextBuilder) buildSystemPromptParts(opts systemPromptBuildOptions) 
 		Layer:   PromptLayerKernel,
 		Slot:    PromptSlotIdentity,
 		Source:  PromptSource{ID: PromptSourceKernel, Name: "identity"},
-		Title:   "picoclaw identity",
+		Title:   "Limulus identity",
 		Content: cb.getIdentity(opts.IncludeToolUseRule),
 		Stable:  true,
 		Cache:   PromptCacheEphemeral,

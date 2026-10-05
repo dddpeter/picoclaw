@@ -33,6 +33,7 @@
 | 飞书流式卡片 bug 修复五件套 | `<2026-10-04>` | `pkg/channels/feishu/`、`pkg/channels/interfaces.go`、`pkg/channels/manager.go`、`pkg/agent/progress_heartbeat.go`、`pkg/bus` | 本文 §18、`docs/design/2026-10-04-feishu-streaming-card-bug-review.zh.md` |
 | TUI 终端客户端（网关客户端型） | `<2026-10-04>` | `pkg/picoclient/`、`cmd/picoclaw/internal/tui/`、`cmd/picoclaw/main.go` | 本文 §19、`docs/design/tui-client-design.zh.md` |
 | 工具调用学舌根治链 | `<2026-10-05>` | `pkg/agent/context_seahorse.go`、`pkg/agent/tool_parrot_filter.go`、`pkg/agent/pipeline_llm.go`、`pkg/seahorse/marker_sanitize.go` | 本文 §21 |
+| 品牌层重设计（Limulus · 鲎） | `<2026-10-05>` | `pkg/env.go`、`web/frontend/public/`、`web/backend/icon.*`、`scripts/gen_brand_icons.ps1`、`assets/brand/` | 本文 §22 |
 
 ## 1. 飞书 CardKit v2 流式卡片
 
@@ -376,3 +377,14 @@
 - **显示防线（前批，96d97a3e + 1aae0f92）**：`stripToolCallParrot` 剥离显示文本中的标记行（围栏豁免、会话历史存原文）；纯学舌响应整条不外发，seal 显示 `parrotOnlyAnswerNote` 拦截说明；截断答案自动续写（`answer_continuation_limit`，nil=3）。
 - 测试锚点：`TestProviderToSeahorseMessage_TextPart`、`TestSeahorseToProviderMessages_ReplayContentClean`（六子用例含存量行/新建行/user 引用/tool 输出）、`TestParrotOnlyAnswerAutoRetry`、seahorse 侧 `TestSanitizeToolMarkers*`、`TestFormatMessagesForSummary_SanitizesMarkers`、`TestTruncateSummary_SanitizesMarkers`、`TestFormatSummaryXML_SanitizesMarkers`、`TestSummaryPromptsForbidMarkers`；显示层锚点在 `parrot_outbound_test.go`。
 - 上游同步注意：回放 Content 从 text part 重建是 fork 语义（上游/旧行为是 content 列原样透传），同步 seahorse 存取改动时保留；`sanitizeToolMarkers` 的三处挂载与 prompt 禁令同理；`toolUseSystemPromptRule` 的追加句与 parrot 重试块（`pipeline_llm.go` 直答路径、在截断续写判定之前）不要按上游"修"掉。
+- 品牌层重设计（2026-10-05，§22）：产品显示名与图标改为 Limulus/鲎，但 binary 名 `picoclaw`、go module、`~/.picoclaw`、systemd 链路**全部不变**；上游同步时品牌字符串分散在 `pkg/env.go`、`cmd/picoclaw/`（main/cliui/version/tui）、`web/backend/`（main/i18n/winres）、`web/frontend/`（index.html/public 资产/locale）——冲突时以 fork 品牌为准重放；图标二进制资产冲突直接跑 `scripts/gen_brand_icons.ps1` 重生成（勿手改二进制）。
+
+## 22. 品牌层重设计：Limulus · 鲎（2026-10-05）
+
+产品显示名从 PicoClaw 改为 **Limulus**（鲎，4.5 亿年活化石、蓝血、扛过五次大灭绝——7×24 daemon 的图腾；「鲎 hòu」谐音「后」），CLI Logo 从 🦞 改为「鲎」。**仅品牌层**：binary 名 `picoclaw`、go module 路径、`~/.picoclaw` 配置目录、systemd 链路全部不变（改名越深 upstream merge 冲突越大，用户确认此范围）。
+
+- **视觉**：俯视鲎形几何剪影（穹顶头胸甲 + 铜橙复眼 + 负空间心区脊 + 腹甲侧刺 + 尾剑），鲎蓝渐变 `#38BDF8→#0C4A6E` 方圆底；≤20px 切简化版（穹顶+粗尾剑）。复眼用铜橙 #FB923C 是叙事彩蛋（鲎蓝血来自含铜血蓝蛋白）。
+- **资产生成**：`scripts/gen_brand_icons.ps1` 单一真源——几何定义在脚本顶部，同源写出 SVG 母版（`assets/brand/limulus.svg`/`limulus-mini.svg`）并 WPF 光栅化全部 PNG/ICO（含 favicon 全套、launcher 托盘/EXE 图标、`logo_with_text.png` 横版标），零外部依赖。改几何只需改脚本重跑。`favicon.svg` 由 90KB base64 位图包装换成 ~1KB 真矢量。
+- **触点清单**：`pkg/env.go`（Logo/AppName）；CLI banner（`main.go`/`cliui` status/onboard/version、`version/command.go`）；TUI 品牌（`tui/render.go`/`app.go`）；agent 身份（`context.go` 系统提示词头、`prompt.go` kernel 描述、`cmd_start.go` 问候、`workspace/` 的 AGENT/SOUL/SKILL 模板）；web 前端（`index.html` title、favicon 六件套、`site.webmanifest`、i18n locale、setup-wizard、roleAssistant）；launcher（`web/backend/main.go` appName、`i18n.go` 中英文案、`winres.json`、`setup.iss`、desktop 文件）。
+- **刻意保留**：命令名语义（`picoclaw doctor`/`picoclaw agent -m` 示例、topicPrefix 默认 `/picoclaw`、`~/.picoclaw/workspace` 路径）、`docs.picoclaw.io` 链接、web/README（上游文档）。
+- **踩坑记录**：Windows PowerShell 5.1 跑 WPF 脚本三坑——①无 BOM 的 UTF-8 脚本被当 GBK 解析（中文注释炸解析器），必须 UTF-8 BOM；②函数 `return $byte[]` 会被管道枚举，调用方拿到逐元素 Object[]（须 `return , $arr` 包裹）；③`RenderTargetBitmap(px,px,96,96)` 对 512 单位画布是**裁剪**不是缩放——正确做法 dpi=96×px/512。ICO 验证读目录项时 dwBytesInRes 在 +8、dwImageOffset 在 +12，别读反。

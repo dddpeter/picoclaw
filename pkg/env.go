@@ -3,9 +3,9 @@
 package pkg
 
 const (
-	Logo = "🦞"
+	Logo = "鲎"
 	// AppName is the name of the app
-	AppName = "PicoClaw"
+	AppName = "Limulus"
 
 	DefaultPicoClawHome = ".picoclaw"
 	WorkspaceName       = "workspace"

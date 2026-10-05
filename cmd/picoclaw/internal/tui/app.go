@@ -380,7 +380,7 @@ func (m *appModel) syncViewport() {
 
 func (m *appModel) View() tea.View {
 	if !m.ready {
-		return tea.NewView("正在启动 picoclaw tui…")
+		return tea.NewView("正在启动 Limulus TUI…")
 	}
 
 	var b strings.Builder
@@ -401,6 +401,6 @@ func (m *appModel) View() tea.View {
 
 	v := tea.NewView(b.String())
 	v.AltScreen = true
-	v.WindowTitle = "picoclaw tui"
+	v.WindowTitle = "Limulus tui"
 	return v
 }
