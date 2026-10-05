@@ -118,9 +118,16 @@ func picoTokenFromConfig(cfg *config.Config) string {
 }
 
 func gatewayURLFromConfig(cfg *config.Config) string {
-	host := cfg.Gateway.Host
+	host := strings.ToLower(strings.TrimSpace(cfg.Gateway.Host))
 	switch host {
 	case "", "0.0.0.0", "::":
+		host = "127.0.0.1"
+	case "localhost", "[::1]", "::1":
+		// Never dial "localhost": on some Windows sessions the system
+		// resolver pushes the name to the LAN DNS (observed: "lookup
+		// localhost on 192.168.123.1:53: no such host") and the dial dies
+		// even though the gateway is bound to loopback. 127.0.0.1 skips
+		// DNS entirely.
 		host = "127.0.0.1"
 	}
 	port := cfg.Gateway.Port
@@ -136,10 +143,15 @@ func isLocalhostURL(raw string) bool {
 	if i := strings.IndexByte(u, '/'); i >= 0 {
 		host = u[:i]
 	}
-	if i := strings.LastIndexByte(host, ':'); i >= 0 && !strings.Contains(host, "]") {
+	if i := strings.IndexByte(host, '['); i >= 0 { // [::1]:port
+		j := strings.IndexByte(host, ']')
+		if j <= i {
+			return false
+		}
+		host = host[i+1 : j]
+	} else if i := strings.LastIndexByte(host, ':'); i >= 0 { // host:port
 		host = host[:i]
 	}
-	host = strings.Trim(host, "[]")
 	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
