@@ -23,6 +23,17 @@ import (
 // capped at ~512 output tokens on MiniMax-M3).
 const truncatedAnswerNote = "\n\n⚠ 本段输出因达到输出 token 上限被截断，可回复“继续”让我补全余下内容。"
 
+// answerContinuationDirective is the request-view-only user message that
+// seeds the continuation call. It is never persisted to session history —
+// Finalize writes the stitched answer as the one assistant message.
+func answerContinuationDirective() providers.Message {
+	return providers.Message{
+		Role: "user",
+		Content: "（系统指令：你的上一条回复因输出 token 上限被截断。请从上一次输出结束的精确位置续写剩余内容：" +
+			"不要重复已输出的任何内容，不要道歉或重新开头，直接继续写到完整结束。）",
+	}
+}
+
 // CallLLM performs an LLM call with fallback support, hook invocation, and retry logic.
 // It handles PreLLM setup, the actual LLM invocation with retry, and AfterLLM processing.
 // Returns Control indicating what the coordinator should do next.
@@ -708,6 +719,12 @@ func (p *Pipeline) CallLLM(
 					_ = exec.streamingPublisher.FinalizeReasoning(turnCtx, rc)
 				}
 			}
+			// A length-truncated piece overtaken by steering must not be lost:
+			// bank it so the eventual stitched answer still carries it (the
+			// steering context supersedes the continuation directive).
+			if responseContent != "" && exec.response.FinishReason == "length" {
+				exec.answerContinuationParts = append(exec.answerContinuationParts, responseContent)
+			}
 			logger.InfoCF("agent", "Steering arrived after direct LLM response; continuing turn",
 				map[string]any{
 					"agent_id":       ts.agent.ID,
@@ -718,12 +735,56 @@ func (p *Pipeline) CallLLM(
 			return ControlContinue, nil
 		}
 
+		// Truncated-answer auto-continuation (fork, 2026-10-05): output caps
+		// that live server-side (aggregate "token plan" channels cap at a few
+		// hundred completion tokens regardless of the requested max_tokens)
+		// cut direct answers mid-sentence. Instead of ending the turn on a
+		// truncation note, keep the turn alive: append the partial answer to
+		// the request view, ask the model to continue from the cut, and
+		// stitch the pieces into the final answer. The note only appears
+		// when the continuation budget is exhausted and the text is still
+		// cut; graceful interrupts skip the loop (the user asked to stop).
+		// Budget: agents.defaults.answer_continuation_limit (nil=3, 0=off).
+		answerContinuationLimit := 3
+		if p.Cfg != nil {
+			answerContinuationLimit = p.Cfg.Agents.Defaults.GetAnswerContinuationLimit()
+		}
+		if responseContent != "" && exec.response.FinishReason == "length" &&
+			!exec.gracefulTerminal &&
+			len(exec.answerContinuationParts) < answerContinuationLimit &&
+			iteration < ts.agent.MaxIterations {
+			exec.answerContinuationParts = append(exec.answerContinuationParts, responseContent)
+			// Request view only: Finalize persists the stitched whole to
+			// history once, so the pieces must not be written separately.
+			exec.messages = append(exec.messages,
+				providers.Message{
+					Role:      "assistant",
+					Content:   responseContent,
+					ModelName: exec.llmModelName,
+				},
+				answerContinuationDirective(),
+			)
+			logger.InfoCF("agent", "Direct answer truncated by output cap; auto-continuing",
+				map[string]any{
+					"agent_id":     ts.agent.ID,
+					"iteration":    iteration,
+					"piece_chars":  len(responseContent),
+					"continuation": len(exec.answerContinuationParts),
+				})
+			return ControlContinue, nil
+		}
+		if len(exec.answerContinuationParts) > 0 {
+			exec.answerContinuationParts = append(exec.answerContinuationParts, responseContent)
+			responseContent = strings.Join(exec.answerContinuationParts, "")
+			exec.answerContinuationParts = nil
+		}
 		// A "length" finish on the direct answer means the output was cut by
 		// the token cap (config max_tokens, the dynamic context clamp, or a
-		// channel-side output limit — all surface identically here). Append
-		// an honest note so card, history, and outbound all say why the text
-		// stops mid-sentence; tool-call batches already have their own guard
-		// in ExecuteTools and are re-issued, so this is the only silent case.
+		// channel-side output limit — all surface identically here) AND the
+		// continuation budget could not mend it. Append an honest note so
+		// card, history, and outbound all say why the text stops
+		// mid-sentence; tool-call batches already have their own guard in
+		// ExecuteTools and are re-issued, so this is the only silent case.
 		if responseContent != "" && exec.response.FinishReason == "length" {
 			responseContent += truncatedAnswerNote
 		}

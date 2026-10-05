@@ -166,6 +166,12 @@ type turnExecution struct {
 	// interrupt-seal — one live card after another.
 	streamingDegraded bool
 
+	// answerContinuationParts accumulates length-truncated direct-answer
+	// pieces while the auto-continuation loop stitches a complete answer
+	// (fork, 2026-10-05). Pieces live in the request view only; Finalize
+	// writes the stitched whole to session history once.
+	answerContinuationParts []string
+
 	// Phase tracking
 	phase LLMPhase
 

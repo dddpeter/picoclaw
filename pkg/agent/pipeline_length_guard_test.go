@@ -158,101 +158,171 @@ func TestExecuteTools_RejectsToolCallsWhenTruncatedByTokenLimit(t *testing.T) {
 	}
 }
 
-// truncatedDirectAnswerProvider returns a plain answer cut by the output
-// token limit — no tool calls involved.
-type truncatedDirectAnswerProvider struct {
-	finishReason string
+// scriptedAnswerProvider replays scripted direct answers, recording the
+// message list each call received.
+type scriptedAnswerProvider struct {
+	responses []providers.LLMResponse
+	calls     [][]providers.Message
 }
 
-func (m *truncatedDirectAnswerProvider) Chat(
+func (p *scriptedAnswerProvider) Chat(
 	_ context.Context,
-	_ []providers.Message,
+	msgs []providers.Message,
 	_ []providers.ToolDefinition,
 	_ string,
 	_ map[string]any,
 ) (*providers.LLMResponse, error) {
-	return &providers.LLMResponse{Content: "写到一半的话", FinishReason: m.finishReason}, nil
+	p.calls = append(p.calls, append([]providers.Message(nil), msgs...))
+	r := p.responses[min(len(p.calls)-1, len(p.responses)-1)]
+	return &r, nil
 }
 
-func (m *truncatedDirectAnswerProvider) GetDefaultModel() string {
-	return "truncated-direct-model"
+func (p *scriptedAnswerProvider) GetDefaultModel() string {
+	return "scripted-answer-model"
 }
 
-// TestDirectAnswerTruncatedByTokenLimitGetsNote (fork, 2026-10-05): a direct
-// answer cut by the output cap carries an explicit truncation note instead of
-// silently stopping mid-sentence; a normal finish gets no note.
-func TestDirectAnswerTruncatedByTokenLimitGetsNote(t *testing.T) {
-	for _, tc := range []struct {
-		name         string
-		finishReason string
-		want         string
-	}{
-		{"length appends note", "length", "写到一半的话" + truncatedAnswerNote},
-		{"stop stays verbatim", "stop", "写到一半的话"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			tmpDir, err := os.MkdirTemp("", "agent-length-note-*")
-			if err != nil {
-				t.Fatalf("failed to create temp dir: %v", err)
+// TestDirectAnswerTruncatedByTokenLimit (fork, 2026-10-05): direct answers cut
+// by an output cap are auto-continued and stitched; the truncation note only
+// appears when the continuation budget is exhausted. A normal finish stays
+// verbatim.
+func TestDirectAnswerTruncatedByTokenLimit(t *testing.T) {
+	t.Run("continuation stitches complete answer without note", func(t *testing.T) {
+		provider := &scriptedAnswerProvider{responses: []providers.LLMResponse{
+			{Content: "第一段", FinishReason: "length"},
+			{Content: "第二段", FinishReason: "length"},
+			{Content: "，第三段完", FinishReason: "stop"},
+		}}
+		response, al := runLengthNoteTurn(t, provider, "session-len-recover")
+		if want := "第一段第二段，第三段完"; response != want {
+			t.Fatalf("response = %q, want %q", response, want)
+		}
+		if len(provider.calls) != 3 {
+			t.Fatalf("LLM calls = %d, want 3", len(provider.calls))
+		}
+		// The continuation call must see the partial answer plus the
+		// continuation directive as the trailing request messages.
+		second := provider.calls[1]
+		if len(second) < 3 || second[len(second)-2].Role != "assistant" || second[len(second)-2].Content != "第一段" {
+			t.Fatalf("continuation request misses partial assistant piece: %+v", second[len(second)-2:])
+		}
+		if last := second[len(second)-1]; last.Role != "user" || !strings.Contains(last.Content, "续写") {
+			t.Fatalf("continuation directive missing: %+v", last)
+		}
+		// History carries the stitched answer exactly once; pieces and the
+		// directive are request-view only.
+		history := al.registry.GetDefaultAgent().Sessions.GetHistory("session-len-recover")
+		assistants := 0
+		directives := 0
+		for _, m := range history {
+			if m.Role == "assistant" {
+				assistants++
+				if m.Content != "第一段第二段，第三段完" {
+					t.Fatalf("history assistant content = %q", m.Content)
+				}
 			}
-			defer os.RemoveAll(tmpDir)
+			if m.Role == "user" && strings.Contains(m.Content, "续写") {
+				directives++
+			}
+		}
+		if assistants != 1 {
+			t.Fatalf("history assistant messages = %d, want 1", assistants)
+		}
+		if directives != 0 {
+			t.Fatalf("continuation directive leaked into history %d times", directives)
+		}
+	})
 
-			cfg := &config.Config{
-				Agents: config.AgentsConfig{
-					Defaults: config.AgentDefaults{
-						Workspace:         tmpDir,
-						ModelName:         "test-model",
-						MaxTokens:         4096,
-						MaxToolIterations: 10,
-					},
-				},
-			}
-			al := NewAgentLoop(cfg, bus.NewMessageBus(), &truncatedDirectAnswerProvider{finishReason: tc.finishReason})
-			defaultAgent := al.registry.GetDefaultAgent()
-			if defaultAgent == nil {
-				t.Fatal("expected default agent")
-			}
+	t.Run("exhausted budget keeps pieces and appends note", func(t *testing.T) {
+		provider := &scriptedAnswerProvider{responses: []providers.LLMResponse{
+			{Content: "段", FinishReason: "length"},
+		}}
+		response, _ := runLengthNoteTurn(t, provider, "session-len-exhaust")
+		if want := "段段段段" + truncatedAnswerNote; response != want {
+			t.Fatalf("response = %q, want %q", response, want)
+		}
+		// 1 original + 3 default continuation rounds (config knob
+		// answer_continuation_limit is unset in this test config).
+		if len(provider.calls) != 4 {
+			t.Fatalf("LLM calls = %d, want 4", len(provider.calls))
+		}
+	})
 
-			response, err := al.runAgentLoop(context.Background(), defaultAgent, processOptions{
-				SessionKey:      "session-length-note",
-				Channel:         "cli",
-				ChatID:          "direct",
-				UserMessage:     "say something",
-				DefaultResponse: defaultResponse,
-				EnableSummary:   false,
-				SendResponse:    false,
-				InboundContext: &bus.InboundContext{
-					Channel:  "cli",
-					ChatID:   "direct",
-					ChatType: "direct",
-					SenderID: "tester",
-				},
-				RouteResult: &routing.ResolvedRoute{
-					AgentID:   "main",
-					Channel:   "cli",
-					AccountID: routing.DefaultAccountID,
-					SessionPolicy: routing.SessionPolicy{
-						Dimensions: []string{"sender"},
-					},
-					MatchedBy: "default",
-				},
-				SessionScope: &session.SessionScope{
-					Version:    session.ScopeVersionV1,
-					AgentID:    "main",
-					Channel:    "cli",
-					Account:    routing.DefaultAccountID,
-					Dimensions: []string{"sender"},
-					Values:     map[string]string{"sender": "tester"},
-				},
-			})
-			if err != nil {
-				t.Fatalf("runAgentLoop failed: %v", err)
-			}
-			if response != tc.want {
-				t.Fatalf("response = %q, want %q", response, tc.want)
-			}
-		})
+	t.Run("stop stays verbatim", func(t *testing.T) {
+		provider := &scriptedAnswerProvider{responses: []providers.LLMResponse{
+			{Content: "写到一半的话", FinishReason: "stop"},
+		}}
+		response, _ := runLengthNoteTurn(t, provider, "session-len-stop")
+		if response != "写到一半的话" {
+			t.Fatalf("response = %q, want 写到一半的话", response)
+		}
+		if len(provider.calls) != 1 {
+			t.Fatalf("LLM calls = %d, want 1", len(provider.calls))
+		}
+	})
+}
+
+func runLengthNoteTurn(t *testing.T, provider providers.LLMProvider, sessionKey string) (string, *AgentLoop) {
+	t.Helper()
+	tmpDir, err := os.MkdirTemp("", "agent-length-note-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
 	}
+	// t.Cleanup, not defer: callers assert against session history after
+	// this helper returns, so the workspace must outlive the helper.
+	t.Cleanup(func() { os.RemoveAll(tmpDir) })
+
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				ModelName:         "test-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 10,
+			},
+		},
+	}
+	al := NewAgentLoop(cfg, bus.NewMessageBus(), provider)
+	defaultAgent := al.registry.GetDefaultAgent()
+	if defaultAgent == nil {
+		t.Fatal("expected default agent")
+	}
+
+	response, err := al.runAgentLoop(context.Background(), defaultAgent, processOptions{
+		SessionKey:      sessionKey,
+		Channel:         "cli",
+		ChatID:          "direct",
+		UserMessage:     "say something",
+		DefaultResponse: defaultResponse,
+		EnableSummary:   false,
+		SendResponse:    false,
+		InboundContext: &bus.InboundContext{
+			Channel:  "cli",
+			ChatID:   "direct",
+			ChatType: "direct",
+			SenderID: "tester",
+		},
+		RouteResult: &routing.ResolvedRoute{
+			AgentID:   "main",
+			Channel:   "cli",
+			AccountID: routing.DefaultAccountID,
+			SessionPolicy: routing.SessionPolicy{
+				Dimensions: []string{"sender"},
+			},
+			MatchedBy: "default",
+		},
+		SessionScope: &session.SessionScope{
+			Version:    session.ScopeVersionV1,
+			AgentID:    "main",
+			Channel:    "cli",
+			Account:    routing.DefaultAccountID,
+			Dimensions: []string{"sender"},
+			Values:     map[string]string{"sender": "tester"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("runAgentLoop failed: %v", err)
+	}
+	return response, al
 }
 
 func TestToolStepKind(t *testing.T) {
@@ -338,5 +408,26 @@ func TestAppendToolStepAllowsUnnamedTextArchives(t *testing.T) {
 	}
 	if step := streamer.steps[0]; step.Kind != bus.ToolStepKindText || step.Result != "中间说明" {
 		t.Fatalf("unexpected surviving step: %+v", step)
+	}
+}
+
+// TestAnswerContinuationLimitConfig pins the config knob: nil defaults to 3,
+// explicit values pass through, 0 and negatives disable.
+func TestAnswerContinuationLimitConfig(t *testing.T) {
+	def := &config.AgentDefaults{}
+	if got := def.GetAnswerContinuationLimit(); got != 3 {
+		t.Fatalf("default limit = %d, want 3", got)
+	}
+	v := 7
+	if got := (&config.AgentDefaults{AnswerContinuationLimit: &v}).GetAnswerContinuationLimit(); got != 7 {
+		t.Fatalf("explicit limit = %d, want 7", got)
+	}
+	zero := 0
+	if got := (&config.AgentDefaults{AnswerContinuationLimit: &zero}).GetAnswerContinuationLimit(); got != 0 {
+		t.Fatalf("zero limit = %d, want 0 (disabled)", got)
+	}
+	neg := -2
+	if got := (&config.AgentDefaults{AnswerContinuationLimit: &neg}).GetAnswerContinuationLimit(); got != 0 {
+		t.Fatalf("negative limit = %d, want 0 (disabled)", got)
 	}
 }

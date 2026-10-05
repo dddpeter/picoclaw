@@ -576,6 +576,12 @@ type AgentDefaults struct {
 	// ends at max_tool_iterations without a final answer (fork feature:
 	// long-task auto-continue). 0 disables it.
 	AutoContinueTurns int `json:"auto_continue_turns,omitempty"     env:"PICOCLAW_AGENTS_DEFAULTS_AUTO_CONTINUE_TURNS"`
+	// AnswerContinuationLimit caps the auto-continuation rounds that stitch
+	// a direct answer cut by an output-token cap (server-side channel caps
+	// surface as finish_reason=length regardless of the requested
+	// max_tokens). nil = default (3); 0 disables continuation (the answer
+	// ends with the truncation note immediately).
+	AnswerContinuationLimit *int `json:"answer_continuation_limit,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_ANSWER_CONTINUATION_LIMIT"`
 	// ProgressHeartbeatSeconds is the idle interval for the long-task
 	// progress heartbeat on streaming cards (fork feature). 0 disables it.
 	ProgressHeartbeatSeconds int `json:"progress_heartbeat_seconds,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_PROGRESS_HEARTBEAT_SECONDS"`
@@ -765,6 +771,18 @@ func (d *AgentDefaults) GetAutoContinueTurns() int {
 		return 0
 	}
 	return d.AutoContinueTurns
+}
+
+// GetAnswerContinuationLimit resolves the truncated-answer auto-continuation
+// budget: nil = default 3; explicit 0 disables (negative is clamped to 0).
+func (d *AgentDefaults) GetAnswerContinuationLimit() int {
+	if d == nil || d.AnswerContinuationLimit == nil {
+		return 3
+	}
+	if *d.AnswerContinuationLimit < 0 {
+		return 0
+	}
+	return *d.AnswerContinuationLimit
 }
 
 // GetToolFeedbackMaxArgsLength returns the max visible text length for tool argument previews.

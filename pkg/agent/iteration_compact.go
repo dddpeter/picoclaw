@@ -142,12 +142,17 @@ func asmErrText(err error) string {
 
 // clampMaxTokensToContext 按 pi 的 simple-options 模式动态钳制输出预
 // 算（fork, 2026-10-05）：每次 LLM 调用前 max_tokens =
-// min(配置值, 窗口 − 上下文估算 − 安全余量)，下限 1024。
+// min(配置值, 窗口 − 上下文估算 − 安全余量)，下限 4096（2026-10-05 从
+// 1024 上调：推理模型的 completion 含思考 token，1024 常被思考吃光导致
+// 可见答案刚起步就 length 截断）。
 // 上下文快满时自动压缩输出空间，避免「塞满窗口 → 无空间生成 → 网关
 // 静默返回空响应/length 截断」。钳制只影响本次请求的 max_tokens 选项，
 // 不改动 ts.agent.MaxTokens（门控与其他消费方语义不变）。
+// 注意：钳制只能管住 picoclaw 自己请求的预算；服务端自设输出上限的聚合
+// 渠道（如 token-plan 套餐，实测无视 max_tokens=32768 在 ~512 处掐断）不
+// 受此影响——那种截断由直答自动续写机制兜底。
 func clampMaxTokensToContext(maxTokens, contextWindow, contextTokens int) int {
-	const minMaxTokens = 1024
+	const minMaxTokens = 4096
 	if contextWindow <= 0 || maxTokens <= 0 {
 		return maxTokens
 	}

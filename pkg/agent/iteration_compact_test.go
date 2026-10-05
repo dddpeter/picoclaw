@@ -32,7 +32,7 @@ func TestClampMaxTokensToContext(t *testing.T) {
 		want := tc.maxTokens
 		available := window - tc.contextTokens - iterationCompactSafetyTokens
 		if tc.maxTokens > 0 && available < tc.maxTokens {
-			want = max(1024, available)
+			want = max(4096, available)
 		}
 		got := clampMaxTokensToContext(tc.maxTokens, window, tc.contextTokens)
 		if got != want {
@@ -55,7 +55,7 @@ func TestClampMaxTokensToContext_MonotoneNonIncreasing(t *testing.T) {
 		if got > prev {
 			t.Fatalf("clamp increased with context at ctx=%d: %d > %d", ctx, got, prev)
 		}
-		if got < 1024 {
+		if got < 4096 {
 			t.Fatalf("clamp below floor at ctx=%d: %d", ctx, got)
 		}
 		prev = got
@@ -157,6 +157,9 @@ func TestPipeline_CallLLM_IterationBoundaryClampsMaxTokens(t *testing.T) {
 		t.Fatalf("SetupTurn failed: %v", err)
 	}
 
+	// Raise the configured budget above the clamp floor (4096) so the test
+	// exercises clamping, not the floor.
+	ts.agent.MaxTokens = 32_768
 	configured := ts.agent.MaxTokens
 	// Estimator: chars*2/5 → 400k chars ≈ 160k tokens. Window leaves less
 	// room than the configured output budget.
@@ -173,7 +176,7 @@ func TestPipeline_CallLLM_IterationBoundaryClampsMaxTokens(t *testing.T) {
 	if got >= configured {
 		t.Fatalf("max_tokens not clamped: got %d, configured %d", got, configured)
 	}
-	if got < 1024 {
+	if got < 4096 {
 		t.Fatalf("clamped max_tokens below floor: %d", got)
 	}
 }

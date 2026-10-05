@@ -84,6 +84,9 @@ func TestPipeline_CallLLM_ReclampOnRetry(t *testing.T) {
 		t.Fatalf("SetupTurn: %v", err)
 	}
 
+	// Raise the configured budget above the clamp floor (4096) so the first
+	// attempt is genuinely clamped, not floored.
+	ts.agent.MaxTokens = 32_768
 	configured := ts.agent.MaxTokens
 	// ~160k-token prompt (chars×2/5) under a 170k window: the clamp bites
 	// on the first attempt; after the retry compaction empties the history
