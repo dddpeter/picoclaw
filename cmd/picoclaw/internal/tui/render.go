@@ -144,6 +144,15 @@ func renderThought(it *Item, width int) string {
 	return header
 }
 
+// displayVersion strips the redundant "(git: xxx)" suffix that
+// config.FormatVersion appends.
+func displayVersion(v string) string {
+	if i := strings.Index(v, " (git:"); i >= 0 {
+		return v[:i]
+	}
+	return v
+}
+
 // renderStatusbar renders the top line: brand, version, connection, session,
 // title, and (when disconnected) the last dial error.
 func renderStatusbar(m *appModel) string {
@@ -151,8 +160,8 @@ func renderStatusbar(m *appModel) string {
 
 	var b strings.Builder
 	b.WriteString(stBrand.Render("picoclaw tui"))
-	if m.version != "" {
-		b.WriteString(stHint.Render(" · " + m.version))
+	if v := displayVersion(m.version); v != "" {
+		b.WriteString(stHint.Render(" · " + v))
 	}
 	b.WriteString(dotSt.Render(" " + dot + " " + m.connState.String()))
 	if session := m.client.SessionID(); len(session) > 8 {
@@ -221,8 +230,8 @@ func renderWelcome(m *appModel, width int) string {
 	b.WriteString("\n")
 
 	brand := "🦞 picoclaw tui"
-	if m.version != "" {
-		brand += " · " + m.version
+	if v := displayVersion(m.version); v != "" {
+		brand += " · " + v
 	}
 	b.WriteString(stBrand.Render(brand))
 	b.WriteString("\n")

@@ -10,6 +10,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
 	"charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/google/uuid"
 
 	"github.com/sipeed/picoclaw/pkg/picoclient"
@@ -37,6 +38,7 @@ type appModel struct {
 	version         string
 	historyLoad     func(sessionID string) SessionHistory
 	historyDone     bool
+	composerLines   int
 	initCmd         tea.Cmd
 }
 
@@ -45,19 +47,37 @@ func newAppModel(client *picoclient.Client, sessionFile, gatewayURL, version str
 	ta.Placeholder = "给 picoclaw 发消息…（:help 查看指令）"
 	ta.Prompt = "❯ "
 	ta.ShowLineNumbers = false
-	ta.SetHeight(composerHeight)
+	ta.SetHeight(1)
 	focusCmd := ta.Focus()
 
 	return &appModel{
-		client:      client,
-		state:       NewState(),
-		composer:    ta,
-		viewport:    viewport.New(),
-		sessionFile: sessionFile,
-		gatewayURL:  gatewayURL,
-		version:     version,
-		historyLoad: historyLoad,
-		initCmd:     tea.Batch(focusCmd, waitForEvent(client), waitForState(client), spin(), loadHistory(client, historyLoad)),
+		client:        client,
+		state:         NewState(),
+		composer:      ta,
+		viewport:      viewport.New(),
+		sessionFile:   sessionFile,
+		gatewayURL:    gatewayURL,
+		version:       version,
+		historyLoad:   historyLoad,
+		composerLines: 1,
+		initCmd:       tea.Batch(focusCmd, waitForEvent(client), waitForState(client), spin(), loadHistory(client, historyLoad)),
+	}
+}
+
+// syncComposerHeight 让输入框随内容行数增长（1..maxComposerLines），空态
+// 只占一行，不再出现成排的空 ❯ 提示行。
+func (m *appModel) syncComposerHeight() {
+	lines := m.composer.LineCount()
+	if lines < 1 {
+		lines = 1
+	}
+	if lines > maxComposerLines {
+		lines = maxComposerLines
+	}
+	if lines != m.composerLines {
+		m.composerLines = lines
+		m.composer.SetHeight(lines)
+		m.relayout()
 	}
 }
 
@@ -225,6 +245,7 @@ func (m *appModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case k.Code == tea.KeyEnter:
 		if k.Mod.Contains(tea.ModShift) || k.Mod.Contains(tea.ModAlt) {
 			m.composer.InsertString("\n")
+			m.syncComposerHeight()
 			return m, nil
 		}
 		return m, m.sendCurrent()
@@ -232,6 +253,7 @@ func (m *appModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	nm, cmd := m.composer.Update(msg)
 	m.composer = nm
+	m.syncComposerHeight()
 	return m, cmd
 }
 
@@ -243,6 +265,7 @@ func (m *appModel) sendCurrent() tea.Cmd {
 		return nil
 	}
 	m.composer.Reset()
+	m.syncComposerHeight()
 
 	if strings.HasPrefix(content, ":") {
 		return m.localCommand(content)
@@ -307,9 +330,10 @@ func (m *appModel) persistSession(id string) {
 
 // relayout recomputes viewport bounds from the terminal size.
 // 布局高度（行数）：statusbar(1) + viewport + progress(0/1) +
-// editor(上边框1 + composer + 下边框1) + footer(2)。
+// editor(上边框1 + composer + 下边框1) + footer(2)。composer 高度自适应
+// 输入行数（1..maxComposerLines，pi editor 的增长行为）。
 const (
-	composerHeight   = 3
+	maxComposerLines = 3
 	editorFrameLines = 2
 	footerLines      = 2
 )
@@ -323,7 +347,7 @@ func (m *appModel) relayout() {
 	if m.state.Generating && m.state.Progress != "" {
 		progressLines = 1
 	}
-	vh := m.height - 1 - progressLines - composerHeight - editorFrameLines - footerLines
+	vh := m.height - 1 - progressLines - m.composerLines - editorFrameLines - footerLines
 	if vh < 3 {
 		vh = 3
 	}
@@ -342,6 +366,11 @@ func (m *appModel) syncViewport() {
 	content := renderTimeline(m.state, m.width)
 	if len(m.state.Items) == 0 {
 		content = renderWelcome(m, m.width)
+	}
+	// 内容不足一屏时贴底排布（聊天语义：最新内容紧挨输入框），不再
+	// 顶部对齐留一大段空白。
+	if h := lipgloss.Height(content); h < m.viewport.Height() {
+		content = strings.Repeat("\n", m.viewport.Height()-h) + content
 	}
 	m.viewport.SetContent(content)
 	if follow {

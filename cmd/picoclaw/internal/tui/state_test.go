@@ -190,3 +190,35 @@ func TestState_UsageAndContextCapture(t *testing.T) {
 		t.Fatalf("usage capture wrong: model=%q ctx=%+v usage=%+v", s.ModelName, s.CtxUsage, s.Usage)
 	}
 }
+
+func TestState_ModelFromCommandReplyLine(t *testing.T) {
+	// 命令回复（如 /status）不带 model_name payload，footer 的模型 id 只能
+	// 从 "Model: <id>" 行提取。
+	s := NewState()
+	s.Apply(msg(pico.TypeMessageCreate, map[string]any{
+		"message_id": "st1",
+		"content":    "📊 Status\nVersion: v0.4.0\nModel: cbcn/deepseek-v4.1-flash (openai)\nChannels: pico, feishu",
+	}))
+	if s.ModelName != "cbcn/deepseek-v4.1-flash" {
+		t.Fatalf("model from /status reply = %q", s.ModelName)
+	}
+
+	// payload 的 model_name 优先于文本行（真实回合答复不受影响）。
+	s2 := NewState()
+	s2.Apply(msg(pico.TypeMessageCreate, map[string]any{
+		"message_id": "a1", "content": "Model: stale-model", "model_name": "live-model",
+	}))
+	if s2.ModelName != "live-model" {
+		t.Fatalf("payload model_name must win: %q", s2.ModelName)
+	}
+
+	// 普通正文里没有 Model: 行时不得改动模型。
+	s3 := NewState()
+	s3.ModelName = "keep-me"
+	s3.Apply(msg(pico.TypeMessageCreate, map[string]any{
+		"message_id": "a2", "content": "正常回答内容，不含模型信息",
+	}))
+	if s3.ModelName != "keep-me" {
+		t.Fatalf("plain content must not touch model: %q", s3.ModelName)
+	}
+}

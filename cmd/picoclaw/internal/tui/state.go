@@ -4,12 +4,18 @@
 package tui
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/picoclient"
 )
+
+// modelLineRe extracts the live model id from command replies（/status 输出
+// 的 "Model: <id> (provider)" 行）。命令回复不带 model_name payload，这是
+// footer 显示当前模型的唯一来源。
+var modelLineRe = regexp.MustCompile(`(?m)^Model:\s*([^\s(]+)`)
 
 // ItemKind classifies one timeline entry.
 type ItemKind int
@@ -201,6 +207,10 @@ func (s *State) applyMessage(ev picoclient.Event) bool {
 	}
 	if ev.ModelName != "" {
 		s.ModelName = ev.ModelName
+	} else if ev.Content != "" {
+		if mm := modelLineRe.FindStringSubmatch(ev.Content); mm != nil {
+			s.ModelName = strings.TrimSpace(mm[1])
+		}
 	}
 	if ev.ContextUsage != nil {
 		s.CtxUsage = ev.ContextUsage
