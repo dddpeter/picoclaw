@@ -49,9 +49,9 @@ Parameters:
 
 Behavior:
 - If history usage is still below the tool's threshold, nothing is compacted and the result says so honestly.
-- Otherwise compaction runs before your next model call: older messages are replaced by a structured summary.
+- Otherwise compaction runs before your next model call: older messages are replaced by a structured summary. If the compaction attempt fails, nothing is summarized and the context stays unchanged.
 - Details that were summarized stay recoverable with the short_expand tool — re-read them there if you need exact content again.
-- Usable at most 2 times per turn.`
+- Usable at most 2 times per turn; every call counts toward that limit, including no-op calls below the threshold.`
 }
 
 func (t *CompactContextTool) Parameters() map[string]any {
@@ -92,7 +92,7 @@ func (t *CompactContextTool) Execute(ctx context.Context, args map[string]any) *
 
 	ts.compactContextRequested.Store(true)
 	return tools.SilentResult(fmt.Sprintf(
-		"Compaction scheduled: history usage is about %.0f%% of the effective window (tool threshold %.0f%%); older messages will be summarized before the next model call. Summarized details stay recoverable via the short_expand tool — re-read them there if you need exact content again.",
+		"Compaction requested: history usage is about %.0f%% of the effective window (tool threshold %.0f%%). Compaction will run before your next model call and summarize older messages; if the attempt fails, nothing is summarized and the context stays unchanged. Summarized details stay recoverable via the short_expand tool — re-read them there if you need exact content again.",
 		ratio*100, threshold*100))
 }
 

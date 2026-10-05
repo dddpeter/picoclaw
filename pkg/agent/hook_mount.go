@@ -152,11 +152,10 @@ func (al *AgentLoop) loadConfiguredHooks(ctx context.Context) (err error) {
 			return fmt.Errorf("build builtin hook %q: %w", name, factoryErr)
 		}
 		// The approval builtin needs a loop-side reference so the inbound
-		// pump can route /approve /deny replies, and its HITL deadline must
-		// raise the manager-wide approval timeout (fork, §一).
-		if ah, ok := hook.(*approvalHook); ok {
-			al.approvalHook = ah
-			al.hooks.ensureApprovalTimeoutAtLeast(ah.timeout)
+		// pump can route /approve /deny replies (fork, §一).
+		approvalHook, isApproval := hook.(*approvalHook)
+		if isApproval {
+			al.approvalHook = approvalHook
 		}
 		if err := al.MountHook(HookRegistration{
 			Name:     name,
@@ -164,10 +163,15 @@ func (al *AgentLoop) loadConfiguredHooks(ctx context.Context) (err error) {
 			Source:   HookSourceInProcess,
 			Hook:     hook,
 		}); err != nil {
-			if _, isApproval := hook.(*approvalHook); isApproval {
+			if isApproval {
 				al.approvalHook = nil
 			}
 			return fmt.Errorf("mount builtin hook %q: %w", name, err)
+		}
+		// Raise the manager-wide approval timeout only after a successful
+		// mount so a failed mount leaves no widened timeout behind.
+		if isApproval {
+			al.hooks.ensureApprovalTimeoutAtLeast(approvalHook.timeout)
 		}
 		mounted = append(mounted, name)
 	}

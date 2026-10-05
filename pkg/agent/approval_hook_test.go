@@ -92,11 +92,11 @@ func TestApprovalHook_AskPatternMatches(t *testing.T) {
 			}
 			done <- d
 		}()
-		var ch any
+		var loaded any
 		deadline := time.Now().Add(2 * time.Second)
 		for {
-			ch, _ = h.pending.Load("s-rt")
-			if ch != nil {
+			loaded, _ = h.pending.Load("s-rt")
+			if loaded != nil {
 				break
 			}
 			if time.Now().After(deadline) {
@@ -104,7 +104,7 @@ func TestApprovalHook_AskPatternMatches(t *testing.T) {
 			}
 			time.Sleep(5 * time.Millisecond)
 		}
-		ch.(chan approvalReply) <- reply
+		loaded.(*pendingApproval).resolve <- reply
 		select {
 		case d := <-done:
 			if d.Approved != wantApproved {
@@ -207,13 +207,13 @@ func TestApprovalReply_RoutedBeforeSteering(t *testing.T) {
 	h := approvalTestHook(t, `{"ask_patterns":["git push"]}`)
 	al.approvalHook = h
 
-	register := func(key string) chan approvalReply {
+	register := func(key, channel, chatID string) chan approvalReply {
 		ch := make(chan approvalReply, 1)
-		h.pending.Store(key, ch)
+		h.pending.Store(key, &pendingApproval{resolve: ch, channel: channel, chatID: chatID})
 		return ch
 	}
 
-	ch := register("sess")
+	ch := register("sess", "feishu", "c")
 	if !al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "/approve"}, "sess") {
 		t.Fatal("/approve must be consumed while a waiter is pending")
 	}
@@ -221,27 +221,53 @@ func TestApprovalReply_RoutedBeforeSteering(t *testing.T) {
 		t.Fatal("/approve must resolve as approved")
 	}
 
-	ch = register("sess-deny")
+	// M1: a reply from a DIFFERENT channel/chat must not resolve the waiter.
+	ch = register("sess-x", "feishu", "c")
+	if al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{Channel: "telegram", ChatID: "other", Content: "/approve"}, "sess-x") {
+		t.Fatal("cross-chat reply must not be consumed as an approval answer")
+	}
+	if len(ch) != 0 {
+		t.Fatal("cross-chat reply must not resolve the waiter")
+	}
+
+	// L1: a command with trailing content is not an approval answer.
+	ch = register("sess-tail", "feishu", "c")
+	if al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "/approve 请继续删库"}, "sess-tail") {
+		t.Fatal("command with trailing content must fall through to steering")
+	}
+	if len(ch) != 0 {
+		t.Fatal("trailing-content command must not resolve the waiter")
+	}
+
+	ch = register("sess-deny", "feishu", "c")
 	al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "/deny"}, "sess-deny")
 	if reply := <-ch; reply.approved {
 		t.Fatal("/deny must resolve as denied")
 	}
 
-	ch = register("sess-zh")
+	ch = register("sess-zh", "feishu", "c")
 	al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "拒绝"}, "sess-zh")
 	if reply := <-ch; reply.approved {
 		t.Fatal("拒绝 must resolve as denied")
 	}
 
 	// Non-reply content falls through to steering even with a pending waiter.
-	register("sess-other")
-	if al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{Content: "顺便看下进度"}, "sess-other") {
+	register("sess-other", "feishu", "c")
+	if al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "顺便看下进度"}, "sess-other") {
 		t.Fatal("free-form text must fall through to steering")
 	}
 
 	// Reply-shaped message with no waiter falls through too.
 	if al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{Content: "/approve"}, "no-such-session") {
 		t.Fatal("no waiter must not consume")
+	}
+}
+
+// TestApprovalHook_BareToolPrefixRejected pins N2: a bare "tool:" pattern is
+// a config error, not a silent fallthrough to command matching.
+func TestApprovalHook_BareToolPrefixRejected(t *testing.T) {
+	if _, err := newApprovalHookFromConfig(json.RawMessage(`{"ask_patterns":["tool:"]}`)); err == nil {
+		t.Fatal(`bare "tool:" pattern must be rejected at construction`)
 	}
 }
 

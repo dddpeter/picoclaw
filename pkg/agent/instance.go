@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/isolation"
@@ -170,6 +171,10 @@ func NewAgentInstance(
 	// Budget-truncated originals are offloaded under <workspace>/tmp so the
 	// model can read the full output back (generalizes exec's behavior).
 	toolsRegistry.SetWorkspaceDir(workspace)
+	// Offload files are write-once artifacts; sweep entries older than a
+	// week at startup so generalizing offload to all tools cannot grow them
+	// unbounded (review M3).
+	tools.SweepStaleOffloadFiles(workspace, 7*24*time.Hour)
 	toolsRegistry.SetAllowlist(agentToolAllowlist)
 
 	if cfg.Tools.IsToolEnabled("read_file") {

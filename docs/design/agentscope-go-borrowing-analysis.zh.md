@@ -150,3 +150,9 @@ agentscope-go 把崩溃语义写成显式契约（`checkpoint.go:23-29`），值
   - §三 offload 泛化（`ApplyOutputBudgetWithOffload` + registry `SetWorkspaceDir` + 异步出口同权）+ 图片上限（`resolveMediaRefs` maxImages 参数，8 调用点；预扫描丢弃集，最旧换 `[image:/path]` 标签）。
   - §四 契约注释写入 `restart_recovery.go` 头注。
   - 配置文档：configuration.zh.md 新增「工具审批门禁」节、`compact_tool_trigger_ratio` 行、「上下文图片上限」节。
+- 2026-10-05：**评审收口**（外部审查报告，M1/M2/M3/L1/L2/L3/L5/N1/N2/N3 全部处理；L6 与 fork-overview"占位符"两条经核实为误报——agent_init 闭包是逐调用求值，`<2026-10-05>` 符合表格惯例）：
+  - M1 审批回复来源校验：pending 改带提问目标 channel/chatID，跨渠道/跨会话的 `/approve` 不生效（照常进 steering）；
+  - M2 `HookManager.approvalTimeout` 锁纪律统一（ConfigureTimeouts 加锁写、读取走 RLock 快照）；
+  - M3 offload 治理：不改"原文落盘"语义（与 exec 一致且全局过滤已被部署关闭，文档明示"未过滤原文"），新增启动清扫 >7 天的 tool-output-*/shell-output-* 落盘文件；
+  - L1 命令带尾随内容（`/approve 请继续…`）不再当作审批回答；L2 超时抬高移到挂载成功之后；L3 超过 maxSize 必被编码器跳过的图不占 cap 名额；L4 双扫描以注释明示接受；L5 工具文案从"已排程"软化为"已请求（失败则上下文不变）"；N1 Description 写明 no-op 也计数；N2 裸 `tool:` 前缀构造期报错；N3 文档补"迟到 /approve 不补生效"。
+  - 新增锚点：`TestApprovalHook_BareToolPrefixRejected`、M1/L1 用例并入 `TestApprovalReply_RoutedBeforeSteering`、`TestMediaRefs_CapIgnoresOversizedImages`、config `TestGetMaxContextImagesDefaults`。`TestCappedOutputBuffer_ConcurrentWrites` 确认为负载时序抖动（单独跑 3/3 绿，与改动无关）。

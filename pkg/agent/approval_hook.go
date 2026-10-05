@@ -62,6 +62,16 @@ type approvalReply struct {
 	approved bool
 }
 
+// pendingApproval is one session's in-flight approval waiter. channel/chatID
+// pin WHERE the question was asked: replies arriving from a different
+// channel/chat are not accepted as answers (M1 hardening) — they keep
+// flowing to steering instead.
+type pendingApproval struct {
+	resolve chan approvalReply
+	channel string
+	chatID  string
+}
+
 // approvalHook implements ToolApprover for config-driven HITL approval.
 type approvalHook struct {
 	commandAsk []*regexp.Regexp // matched against the exec command string
@@ -94,6 +104,9 @@ func newApprovalHookFromConfig(raw json.RawMessage) (*approvalHook, error) {
 		pattern = strings.TrimSpace(pattern)
 		if pattern == "" {
 			continue
+		}
+		if pattern == "tool:" {
+			return nil, fmt.Errorf(`approval ask pattern "tool:" is missing the tool name after the prefix`)
 		}
 		if rest, ok := strings.CutPrefix(pattern, "tool:"); ok && strings.TrimSpace(rest) != "" {
 			re, err := regexp.Compile(strings.TrimSpace(rest))
@@ -165,18 +178,19 @@ func (h *approvalHook) ApproveTool(ctx context.Context, req *ToolApprovalRequest
 	}
 
 	resolve := make(chan approvalReply, 1)
-	if prev, loaded := h.pending.Swap(sessionKey, resolve); loaded {
+	waiter := &pendingApproval{resolve: resolve, channel: channel, chatID: chatID}
+	if prev, loaded := h.pending.Swap(sessionKey, waiter); loaded {
 		// The tool loop is serial per session, so this only happens with a
 		// misbehaving parallel path: deny the stale waiter instead of
 		// leaving it dangling.
-		if ch, ok := prev.(chan approvalReply); ok {
+		if p, ok := prev.(*pendingApproval); ok {
 			select {
-			case ch <- approvalReply{approved: false}:
+			case p.resolve <- approvalReply{approved: false}:
 			default:
 			}
 		}
 	}
-	defer h.pending.CompareAndDelete(sessionKey, resolve)
+	defer h.pending.CompareAndDelete(sessionKey, waiter)
 
 	h.publishAsk(ctx, req, channel, chatID)
 
@@ -259,14 +273,20 @@ func (h *approvalHook) publishAsk(ctx context.Context, req *ToolApprovalRequest,
 }
 
 // parseApprovalReply recognizes explicit user answers only: /approve /deny
-// (plus yes/no aliases and Chinese 同意/拒绝). Anything else returns ok=false
-// so the message keeps flowing to steering.
+// (plus yes/no aliases and Chinese 同意/拒绝/批准). A command form only
+// counts when it is the ENTIRE message — "/approve 请继续删库" carries extra
+// intent and must not silently approve (fail-closed: better to ask again
+// than to mis-approve). Anything else returns ok=false so the message keeps
+// flowing to steering.
 func parseApprovalReply(content string) (approved, ok bool) {
 	trimmed := strings.TrimSpace(content)
 	if trimmed == "" {
 		return false, false
 	}
 	if name, isCmd := commands.CommandName(trimmed); isCmd {
+		if len(strings.Fields(trimmed)) != 1 {
+			return false, false // command plus trailing content — not an answer
+		}
 		switch strings.ToLower(name) {
 		case "approve", "yes":
 			return true, true
@@ -286,8 +306,11 @@ func parseApprovalReply(content string) (approved, ok bool) {
 
 // tryHandleApprovalReply runs in the inbound pump BEFORE steering enqueue:
 // when the session has a pending approval and the message parses as an
-// explicit answer, resolve the waiter and consume the message (it must not
-// enter the model context). Returns true when consumed.
+// explicit answer FROM THE SAME CHANNEL/CHAT the question was asked in,
+// resolve the waiter and consume the message (it must not enter the model
+// context). Replies from other surfaces fall through to steering — a
+// different chat must not be able to approve another chat's pending tool.
+// Returns true when consumed.
 func (al *AgentLoop) tryHandleApprovalReply(ctx context.Context, msg bus.InboundMessage, sessionKey string) bool {
 	hook := al.approvalHook
 	if hook == nil {
@@ -301,12 +324,20 @@ func (al *AgentLoop) tryHandleApprovalReply(ctx context.Context, msg bus.Inbound
 	if !exists {
 		return false
 	}
-	ch, ok := loaded.(chan approvalReply)
+	p, ok := loaded.(*pendingApproval)
 	if !ok {
 		return false
 	}
+	if p.channel != msg.Channel || p.chatID != msg.ChatID {
+		logger.DebugCF("agent", "Approval reply from a different chat ignored", map[string]any{
+			"session_key":  sessionKey,
+			"asked_on":     p.channel + "/" + p.chatID,
+			"replied_from": msg.Channel + "/" + msg.ChatID,
+		})
+		return false
+	}
 	select {
-	case ch <- approvalReply{approved: approved}:
+	case p.resolve <- approvalReply{approved: approved}:
 	default:
 		return false // already resolved by another reply
 	}

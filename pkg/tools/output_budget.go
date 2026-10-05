@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/sipeed/picoclaw/pkg/logger"
@@ -139,4 +140,45 @@ func sanitizeFileToken(name string) string {
 		}
 	}
 	return strings.Trim(b.String(), "_")
+}
+
+// SweepStaleOffloadFiles removes offload files (tool-output-* and exec's
+// legacy shell-output-*) older than maxAge from <workspaceDir>/tmp. Offload
+// files are never referenced twice — the model reads them back or they rot —
+// so a startup sweep bounds their growth (review M3: the generalization to
+// all tools would otherwise multiply the volume exec alone produced).
+// Best effort: unreadable dirs are skipped silently.
+func SweepStaleOffloadFiles(workspaceDir string, maxAge time.Duration) int {
+	if strings.TrimSpace(workspaceDir) == "" || maxAge <= 0 {
+		return 0
+	}
+	dir := filepath.Join(workspaceDir, "tmp")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	cutoff := time.Now().Add(-maxAge)
+	removed := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasPrefix(name, "tool-output-") && !strings.HasPrefix(name, "shell-output-") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || !info.ModTime().Before(cutoff) {
+			continue
+		}
+		if os.Remove(filepath.Join(dir, name)) == nil {
+			removed++
+		}
+	}
+	if removed > 0 {
+		logger.InfoCF("tool", "Swept stale offload files", map[string]any{
+			"dir": dir, "removed": removed, "max_age": maxAge.String(),
+		})
+	}
+	return removed
 }

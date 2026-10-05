@@ -260,6 +260,8 @@ func (hm *HookManager) ConfigureTimeouts(observer, interceptor, approval time.Du
 	if hm == nil {
 		return
 	}
+	hm.mu.Lock()
+	defer hm.mu.Unlock()
 	if observer > 0 {
 		hm.observerTimeout = observer
 	}
@@ -269,6 +271,19 @@ func (hm *HookManager) ConfigureTimeouts(observer, interceptor, approval time.Du
 	if approval > 0 {
 		hm.approvalTimeout = approval
 	}
+}
+
+// approvalTimeoutValue snapshots the approval timeout under RLock — the field
+// is written by ConfigureTimeouts (config reload) and
+// ensureApprovalTimeoutAtLeast (approval-hook mount), so readers must not
+// touch it bare.
+func (hm *HookManager) approvalTimeoutValue() time.Duration {
+	if hm == nil {
+		return 0
+	}
+	hm.mu.RLock()
+	defer hm.mu.RUnlock()
+	return hm.approvalTimeout
 }
 
 // ensureApprovalTimeoutAtLeast raises the manager-wide approval timeout so a
@@ -718,7 +733,7 @@ func (hm *HookManager) callApproveTool(
 ) (ApprovalDecision, bool) {
 	return runApprovalHook(
 		parent,
-		hm.approvalTimeout,
+		hm.approvalTimeoutValue(),
 		name,
 		"approve_tool",
 		func(ctx context.Context) (ApprovalDecision, error) {

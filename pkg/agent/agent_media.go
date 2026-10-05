@@ -76,7 +76,11 @@ func resolveMediaRefs(
 	if maxImages == 0 {
 		maxImages = config.DefaultMaxContextImages
 	}
-	dropped := droppedToolImageRefs(messages, store, currentTurnStart, maxImages)
+	// The pre-scan re-resolves current-turn tool refs (the main loop resolves
+	// them again below) — accepted double I/O: the candidate set is small
+	// (tool-result media in one turn), and caching resolution across the two
+	// passes would complicate the hot path for a marginal win (review L4).
+	dropped := droppedToolImageRefs(messages, store, currentTurnStart, maxImages, maxSize)
 
 	result := make([]providers.Message, 0, len(messages))
 	var pendingToolImages []string
@@ -162,18 +166,27 @@ func resolveMediaRefs(
 // and returns the set that must NOT be base64-encoded when more than
 // maxImages images are in flight: the OLDEST refs beyond the newest
 // maxImages are dropped (they keep their [image:/path] tags so the model can
-// still load_image them). maxImages < 0 disables the cap.
+// still load_image them). maxImages < 0 disables the cap. Candidates only
+// count images the encoder would actually emit — files already over maxSize
+// are skipped by encodeImageToDataURL anyway, so counting them would evict
+// encodable images in favor of unencodable ones (review L3).
 func droppedToolImageRefs(
 	messages []providers.Message,
 	store media.MediaStore,
 	currentTurnStart int,
 	maxImages int,
+	maxSize int,
 ) map[string]bool {
 	if maxImages < 0 || len(messages) == 0 {
 		return nil
 	}
+	type refMeta struct {
+		isImage    bool
+		encodable  bool
+		resolvedOK bool
+	}
 	var candidates []string
-	isImage := make(map[string]bool)
+	cache := make(map[string]refMeta)
 	for idx := currentTurnStart; idx < len(messages); idx++ {
 		m := messages[idx]
 		if m.Role != "tool" {
@@ -183,18 +196,26 @@ func droppedToolImageRefs(
 			if !strings.HasPrefix(ref, "media://") {
 				continue
 			}
-			if known, ok := isImage[ref]; !ok {
-				localPath, meta, err := store.ResolveWithMeta(ref)
+			meta, known := cache[ref]
+			if !known {
+				localPath, mmeta, err := store.ResolveWithMeta(ref)
 				if err != nil {
+					cache[ref] = refMeta{}
 					continue
 				}
-				if _, err := os.Stat(localPath); err != nil {
+				info, err := os.Stat(localPath)
+				if err != nil {
+					cache[ref] = refMeta{}
 					continue
 				}
-				known = strings.HasPrefix(detectMIME(localPath, meta), "image/")
-				isImage[ref] = known
+				meta = refMeta{
+					isImage:    strings.HasPrefix(detectMIME(localPath, mmeta), "image/"),
+					encodable:  info.Size() <= int64(maxSize),
+					resolvedOK: true,
+				}
+				cache[ref] = meta
 			}
-			if isImage[ref] {
+			if meta.isImage && meta.encodable {
 				candidates = append(candidates, ref)
 			}
 		}
