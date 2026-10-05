@@ -48,30 +48,13 @@ func TestProviderChatStream_EmptyStreamReturnsError(t *testing.T) {
 	}
 }
 
-// TestProviderChatStream_LegitimateEmptyContentStillSucceeds pins the
-// counterpart: a stream that explicitly finished (finish_reason present)
-// with empty content is a legitimate empty answer and must NOT error.
-func TestProviderChatStream_LegitimateEmptyContentStillSucceeds(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"\"},\"finish_reason\":\"stop\"}]}\n\n"))
-		_, _ = w.Write([]byte("data: [DONE]\n\n"))
-	}))
-	defer server.Close()
-
-	p := NewProvider("key", server.URL, "")
-	out, err := p.ChatStream(
-		t.Context(),
-		[]Message{{Role: "user", Content: "hello"}},
-		nil,
-		"gpt-4o",
-		nil,
-		nil,
-	)
-	if err != nil {
-		t.Fatalf("ChatStream() error = %v, want legitimate empty answer", err)
-	}
-	if out.FinishReason != "stop" {
-		t.Fatalf("FinishReason = %q, want stop", out.FinishReason)
-	}
-}
+// Superseded (fork, 2026-10-05): TestProviderChatStream_LegitimateEmpty
+// ContentStillSucceeds used to pin "explicit finish_reason + empty payload =
+// legitimate empty answer". That assumption was wrong in the field: the agent
+// converts ANY empty final answer into the generic defaultResponse error
+// message, so no consumer ever benefits from an empty non-error response,
+// while aggregated gateways deliver exactly this shape (finish_reason
+// "length"/"stop" + empty payload) when they silently drop an over-limit
+// prompt during long heavy turns. All-empty payloads now surface as
+// EmptyCompletionError regardless of finish_reason — see
+// empty_completion_test.go for the pinned semantics.

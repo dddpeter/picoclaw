@@ -563,7 +563,29 @@ func (p *Provider) Chat(
 		})
 		response.Content = cleaned
 	}
+	// 200 with an entirely empty payload (no content, tool calls, or
+	// reasoning) is never a legitimate assistant turn — most often an
+	// upstream silently dropping an over-limit prompt. The streaming path
+	// already guards this; without the same guard here, non-stream requests
+	// (sticky-degraded fallback after a streaming failure, or a provider
+	// without streaming) degraded into silent empty answers during long
+	// heavy turns (fork, 2026-10-05).
+	if isEmptyCompletionPayload(response) {
+		return nil, &common.EmptyCompletionError{Detail: fmt.Sprintf(
+			"non-stream response (finish_reason=%q) carried no content, tool calls, or reasoning", response.FinishReason)}
+	}
 	return response, nil
+}
+
+// isEmptyCompletionPayload reports whether a parsed response carries nothing
+// usable: no content, no tool calls, and no reasoning in any form.
+func isEmptyCompletionPayload(resp *LLMResponse) bool {
+	return resp != nil &&
+		strings.TrimSpace(resp.Content) == "" &&
+		len(resp.ToolCalls) == 0 &&
+		strings.TrimSpace(resp.ReasoningContent) == "" &&
+		strings.TrimSpace(resp.Reasoning) == "" &&
+		len(resp.ReasoningDetails) == 0
 }
 
 // splitInlineThink moves reasoning that a gateway embedded in the message
@@ -925,8 +947,10 @@ func parseStreamResponse(
 	}
 
 	finalContent := sanitizeMinimaxToolLeak(textContent.String())
+	emptyPayload := strings.TrimSpace(finalContent) == "" && len(toolCalls) == 0 &&
+		reasoningContent.Len() == 0 && reasoning.Len() == 0
 	if finishReason == "" {
-		if finalContent == "" && len(toolCalls) == 0 && reasoningContent.Len() == 0 && reasoning.Len() == 0 {
+		if emptyPayload {
 			// Stream ended with no finish_reason, no content, no tool calls,
 			// and no reasoning: never a legitimate empty answer. Common when
 			// an upstream silently drops an over-limit prompt (200 + empty
@@ -935,6 +959,16 @@ func parseStreamResponse(
 			return nil, &common.EmptyCompletionError{Detail: "stream ended without finish_reason, content, tool calls, or reasoning"}
 		}
 		finishReason = "stop"
+	}
+	// A stream can also end WITH a finish_reason (typically "length" — the
+	// upstream silently dropped an over-limit prompt) and an empty payload.
+	// That shape is just as dead as the no-finish_reason empty stream, and
+	// during long heavy turns it previously slipped through as a legitimate
+	// empty answer, surfacing only as the agent's generic defaultResponse
+	// error. Route it into the same recovery chain (fork, 2026-10-05).
+	if emptyPayload {
+		return nil, &common.EmptyCompletionError{Detail: fmt.Sprintf(
+			"stream ended with finish_reason=%q and no content, tool calls, or reasoning", finishReason)}
 	}
 	if finalContent != textContent.String() {
 		logger.WarnCF("openai_compat", "stripped MiniMax tool-call leak from content", map[string]any{
