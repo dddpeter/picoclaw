@@ -26,21 +26,26 @@ const (
 )
 
 type appModel struct {
-	client      *picoclient.Client
-	state       *State
-	connState   picoclient.ConnState
-	composer    textarea.Model
-	viewport    viewport.Model
-	width       int
-	height      int
-	ready       bool
-	spinnerIdx  int
-	lastCtrlC   time.Time
-	sessionFile string
-	initCmd     tea.Cmd
+	client          *picoclient.Client
+	state           *State
+	connState       picoclient.ConnState
+	composer        textarea.Model
+	viewport        viewport.Model
+	width           int
+	height          int
+	ready           bool
+	spinnerIdx      int
+	lastCtrlC       time.Time
+	stopRequestedAt time.Time
+	sessionFile     string
+	gatewayURL      string
+	version         string
+	historyLoad     func(sessionID string) SessionHistory
+	historyDone     bool
+	initCmd         tea.Cmd
 }
 
-func newAppModel(client *picoclient.Client, sessionFile string) *appModel {
+func newAppModel(client *picoclient.Client, sessionFile, gatewayURL, version string, historyLoad func(sessionID string) SessionHistory) *appModel {
 	ta := textarea.New()
 	ta.Placeholder = "给 picoclaw 发消息…（:help 查看指令）"
 	ta.Prompt = "❯ "
@@ -54,8 +59,28 @@ func newAppModel(client *picoclient.Client, sessionFile string) *appModel {
 		composer:    ta,
 		viewport:    viewport.New(),
 		sessionFile: sessionFile,
-		initCmd:     tea.Batch(focusCmd, waitForEvent(client), waitForState(client), spin()),
+		gatewayURL:  gatewayURL,
+		version:     version,
+		historyLoad: historyLoad,
+		initCmd:     tea.Batch(focusCmd, waitForEvent(client), waitForState(client), spin(), loadHistory(client, historyLoad)),
 	}
+}
+
+// loadHistory reads the persisted session from disk (best-effort, off the
+// UI goroutine) so a resumed session shows its past conversation.
+func loadHistory(client *picoclient.Client, load func(sessionID string) SessionHistory) tea.Cmd {
+	if load == nil {
+		return nil
+	}
+	sessionID := client.SessionID()
+	return func() tea.Msg {
+		return historyMsg{sessionID: sessionID, history: load(sessionID)}
+	}
+}
+
+type historyMsg struct {
+	sessionID string
+	history   SessionHistory
 }
 
 func waitForEvent(c *picoclient.Client) tea.Cmd {
@@ -94,10 +119,25 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case eventMsg:
-		if m.state.Apply(picoclient.Event(msg)) {
+		ev := picoclient.Event(msg)
+		if ev.Type == "typing.start" {
+			m.stopRequestedAt = time.Time{} // fresh turn: Esc/Ctrl+C stop again
+		}
+		if ev.Type == "typing.stop" || ev.Type == "error" {
+			m.stopRequestedAt = time.Time{}
+		}
+		if m.state.Apply(ev) {
 			m.syncViewport()
 		}
 		return m, waitForEvent(m.client)
+
+	case historyMsg:
+		if msg.sessionID == m.client.SessionID() {
+			m.historyDone = true
+			m.state.ApplyHistory(msg.history.Title, msg.history.Items)
+			m.syncViewport()
+		}
+		return m, nil
 
 	case stateMsg:
 		m.connState = picoclient.ConnState(msg)
@@ -128,20 +168,21 @@ func (m *appModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	switch {
 	case k.Code == 'c' && k.Mod.Contains(tea.ModCtrl):
-		// Generating: first press stops the turn, a quick second press quits.
-		// Idle: double press quits (single press shows the hint).
+		// Deterministic exit: a press within 1s of the previous one quits.
+		// Otherwise: generating → stop the turn once (after which a single
+		// Ctrl+C quits outright), idle → show the hint once (deduped).
 		now := time.Now()
-		doublePress := now.Sub(m.lastCtrlC) <= 300*time.Millisecond
+		within := now.Sub(m.lastCtrlC) <= time.Second
 		m.lastCtrlC = now
-		if m.state.Generating && !doublePress {
-			m.requestStop()
-			m.syncViewport()
-			return m, nil
-		}
-		if doublePress {
+		if within || (m.state.Generating && !m.stopRequestedAt.IsZero()) {
 			return m, tea.Quit
 		}
-		m.state.AddAction("再按一次 Ctrl+C 退出")
+		if m.state.Generating {
+			m.requestStop()
+			m.state.AddAction("已请求停止当前回合；再按一次 Ctrl+C 退出")
+		} else {
+			m.state.AddActionDeduped("再按一次 Ctrl+C 退出")
+		}
 		m.syncViewport()
 		return m, nil
 
@@ -247,6 +288,7 @@ func (m *appModel) localCommand(cmd string) tea.Cmd {
 }
 
 func (m *appModel) requestStop() {
+	m.stopRequestedAt = time.Now()
 	m.state.AddAction("⏹ 已请求停止当前回合")
 	if err := m.client.Send(context.Background(), "/stop", nil); err != nil {
 		m.state.AddLocalError("停止请求发送失败：" + err.Error())
@@ -287,13 +329,18 @@ func (m *appModel) relayout() {
 }
 
 // syncViewport re-renders the timeline, keeping the view pinned to the bottom
-// only when the user is already reading the latest output.
+// only when the user is already reading the latest output. The empty state
+// renders the welcome screen instead of a blank void.
 func (m *appModel) syncViewport() {
 	if !m.ready {
 		return
 	}
 	follow := m.viewport.AtBottom()
-	m.viewport.SetContent(renderTimeline(m.state, m.width))
+	content := renderTimeline(m.state, m.width)
+	if len(m.state.Items) == 0 {
+		content = renderWelcome(m, m.width)
+	}
+	m.viewport.SetContent(content)
 	if follow {
 		m.viewport.GotoBottom()
 	}

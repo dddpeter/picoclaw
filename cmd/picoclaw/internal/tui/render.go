@@ -152,6 +152,9 @@ func renderStatusbar(m *appModel) string {
 	if session := m.client.SessionID(); len(session) > 8 {
 		b.WriteString(styleHint.Render(" · " + session[:8]))
 	}
+	if t := strings.TrimSpace(m.state.Title); t != "" {
+		b.WriteString(styleStatusbar.Render(" · " + truncateRunes(t, 24)))
+	}
 	if m.state.ModelName != "" {
 		b.WriteString(styleStatusbar.Render(" · " + m.state.ModelName))
 	}
@@ -187,6 +190,39 @@ func elapsed(since time.Time) string {
 func renderHint(width int) string {
 	hint := "Enter 发送 · Shift+Enter 换行 · Esc 停止回合 · Ctrl+N 新会话 · Ctrl+O 展开思考 · Ctrl+C 退出"
 	return styleHint.MaxWidth(width).Render(hint)
+}
+
+// renderWelcome is the empty-timeline screen: branding, connection state and
+// a quick-start block, so a freshly connected (or resumed) session never
+// looks like a blank void.
+func renderWelcome(m *appModel, width int) string {
+	var b strings.Builder
+
+	brand := "🦞 picoclaw tui"
+	if m.version != "" {
+		brand += " · " + m.version
+	}
+	b.WriteString(styleUser.MaxWidth(width).Render(brand))
+
+	dot, color := connIndicator(m.connState)
+	dotStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
+	line := dotStyle.Render(dot) + " " + m.connState.String()
+	if m.gatewayURL != "" {
+		line += " " + styleHint.Render(m.gatewayURL)
+	}
+	b.WriteString("\n")
+	b.WriteString(lipgloss.NewStyle().MaxWidth(width).Render(line))
+
+	if session := m.client.SessionID(); session != "" {
+		b.WriteString("\n")
+		b.WriteString(styleHint.MaxWidth(width).Render("会话 " + session))
+	}
+
+	b.WriteString("\n\n")
+	b.WriteString(styleAnswer.MaxWidth(width).Render("直接输入消息开始对话；/ 开头发送服务端命令（/status /help /cron …），: 开头为本地指令。"))
+	b.WriteString("\n")
+	b.WriteString(renderHint(width))
+	return b.String()
 }
 
 func firstLine(s string) string {

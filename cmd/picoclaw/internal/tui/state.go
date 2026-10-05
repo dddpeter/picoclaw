@@ -50,6 +50,8 @@ type Item struct {
 // State is the terminal-independent turn/timeline state machine. Apply folds
 // decoded pico events into Items; the view layer renders whatever is here.
 type State struct {
+	Title string // session title from disk meta (user > llm > derived)
+
 	Items []Item
 
 	Generating      bool
@@ -66,6 +68,31 @@ type State struct {
 
 // NewState returns an empty state.
 func NewState() *State { return &State{} }
+
+// ApplyHistory prepends disk-loaded history items and adopts the session
+// title. Live items (if the user already started chatting while the load was
+// in flight) stay after the history block.
+func (s *State) ApplyHistory(title string, items []Item) {
+	if title != "" {
+		s.Title = title
+	}
+	if len(items) == 0 {
+		return
+	}
+	s.Items = append(items, s.Items...)
+}
+
+// AddActionDeduped appends an action line unless the previous item is the
+// same action text (repeated Ctrl+C hints must not spam the timeline).
+func (s *State) AddActionDeduped(text string) {
+	if n := len(s.Items); n > 0 {
+		last := &s.Items[n-1]
+		if last.Kind == ItemAction && last.Content == text {
+			return
+		}
+	}
+	s.AddAction(text)
+}
 
 // AddUser appends a user message, marking it steering when a turn is active.
 func (s *State) AddUser(content string) {

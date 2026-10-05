@@ -53,11 +53,15 @@ func runTUI(ctx context.Context, cmd *cobra.Command, opts *tuiOptions) error {
 	token := opts.Token
 	gatewayURL := opts.GatewayURL
 
+	// Loaded lazily; nil when both --gateway-url and --token are explicit
+	// (history loading then has no workspace to read from).
+	var cfg *config.Config
 	if token == "" || gatewayURL == "" {
-		cfg, cfgErr := internal.LoadConfig()
+		loaded, cfgErr := internal.LoadConfig()
 		if cfgErr != nil {
 			return fmt.Errorf("读取配置失败（%v）；可改用 --gateway-url 与 --token 显式指定", cfgErr)
 		}
+		cfg = loaded
 		if token == "" {
 			token = picoTokenFromConfig(cfg)
 			if token == "" {
@@ -88,7 +92,15 @@ func runTUI(ctx context.Context, cmd *cobra.Command, opts *tuiOptions) error {
 	})
 	client.Start(ctx)
 
-	model := newAppModel(client, sessionFile)
+	// Session history is read from the same workspace the gateway writes to
+	// (same machine); best-effort — misses just leave an empty timeline.
+	historyLoad := func(sid string) SessionHistory {
+		if cfg == nil {
+			return SessionHistory{}
+		}
+		return LoadSessionHistory(cfg, sid)
+	}
+	model := newAppModel(client, sessionFile, gatewayURL, config.FormatVersion(), historyLoad)
 	program := bubbletea.NewProgram(model, bubbletea.WithContext(ctx))
 	if _, runErr := program.Run(); runErr != nil {
 		client.Stop()
