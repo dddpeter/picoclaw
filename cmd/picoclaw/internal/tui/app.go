@@ -20,11 +20,6 @@ type stateMsg picoclient.ConnState
 type spinnerTickMsg struct{}
 type streamClosedMsg struct{}
 
-const (
-	composerHeight = 3
-	hintHeight     = 1
-)
-
 type appModel struct {
 	client          *picoclient.Client
 	state           *State
@@ -311,6 +306,14 @@ func (m *appModel) persistSession(id string) {
 }
 
 // relayout recomputes viewport bounds from the terminal size.
+// 布局高度（行数）：statusbar(1) + viewport + progress(0/1) +
+// editor(上边框1 + composer + 下边框1) + footer(2)。
+const (
+	composerHeight   = 3
+	editorFrameLines = 2
+	footerLines      = 2
+)
+
 func (m *appModel) relayout() {
 	if m.width <= 0 || m.height <= 0 {
 		return
@@ -320,7 +323,7 @@ func (m *appModel) relayout() {
 	if m.state.Generating && m.state.Progress != "" {
 		progressLines = 1
 	}
-	vh := m.height - 1 - progressLines - composerHeight - hintHeight
+	vh := m.height - 1 - progressLines - composerHeight - editorFrameLines - footerLines
 	if vh < 3 {
 		vh = 3
 	}
@@ -356,16 +359,16 @@ func (m *appModel) View() tea.View {
 	b.WriteString("\n")
 
 	if m.state.Generating && m.state.Progress != "" {
-		b.WriteString(styleProgress.MaxWidth(m.width).Render("⏱ " + m.state.Progress))
+		b.WriteString(stWarning.MaxWidth(m.width).Render("· " + m.state.Progress))
 		b.WriteString("\n")
 	}
 
 	m.relayout() // keep bounds fresh for progress-line toggling
 	b.WriteString(m.viewport.View())
 	b.WriteString("\n")
-	b.WriteString(m.composer.View())
+	b.WriteString(renderEditor(m))
 	b.WriteString("\n")
-	b.WriteString(renderHint(m.width))
+	b.WriteString(renderFooter(m))
 
 	v := tea.NewView(b.String())
 	v.AltScreen = true
