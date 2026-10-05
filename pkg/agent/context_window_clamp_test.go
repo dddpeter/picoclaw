@@ -34,12 +34,21 @@ func TestNewAgentInstance_ContextWindowClamp(t *testing.T) {
 	if agent.ContextWindow != 256_000 {
 		t.Fatalf("ContextWindow = %d, want 256000 (clamp)", agent.ContextWindow)
 	}
+	// The declared window keeps the configured value for display/reporting
+	// (Feishu card, pico/web usage, /context): the clamp must bind gating
+	// internals only, not what UIs report as the model's context size.
+	if agent.DeclaredContextWindow != 1_000_000 {
+		t.Fatalf("DeclaredContextWindow = %d, want 1000000 (display keeps configured value)", agent.DeclaredContextWindow)
+	}
 
 	// Opt-out flag restores the configured value verbatim.
 	cfg.Agents.Defaults.TrustConfiguredContextWindow = true
 	agent = NewAgentInstance(nil, &cfg.Agents.Defaults, cfg, &mockProvider{})
 	if agent.ContextWindow != 1_000_000 {
 		t.Fatalf("ContextWindow = %d, want 1000000 (trust opt-out)", agent.ContextWindow)
+	}
+	if agent.DeclaredContextWindow != 1_000_000 {
+		t.Fatalf("DeclaredContextWindow = %d, want 1000000 (trust opt-out)", agent.DeclaredContextWindow)
 	}
 
 	// Below the floor: explicit configuration still wins, no clamp.
@@ -48,6 +57,9 @@ func TestNewAgentInstance_ContextWindowClamp(t *testing.T) {
 	agent = NewAgentInstance(nil, &cfg.Agents.Defaults, cfg, &mockProvider{})
 	if agent.ContextWindow != 131_072 {
 		t.Fatalf("ContextWindow = %d, want explicit 131072", agent.ContextWindow)
+	}
+	if agent.DeclaredContextWindow != 131_072 {
+		t.Fatalf("DeclaredContextWindow = %d, want explicit 131072", agent.DeclaredContextWindow)
 	}
 }
 

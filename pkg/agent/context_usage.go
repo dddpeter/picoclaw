@@ -51,6 +51,17 @@ func computeContextUsage(agent *AgentInstance, sessionKey string) *bus.ContextUs
 	// Used = history + system (includes summary) + tools
 	usedTokens := historyTokens + systemTokens + toolTokens
 
+	// Total reported to UIs is the DECLARED window (configured or derived
+	// before the 256k sanity clamp): Feishu cards, pico/web usage, /context
+	// and /status all render this as the model's context size, which should
+	// reflect what the model advertises — not the fork's conservative
+	// compaction bound the gates run on. Fall back to the (possibly clamped)
+	// ContextWindow for agents hand-built without the declared field.
+	totalTokens := agent.DeclaredContextWindow
+	if totalTokens <= 0 {
+		totalTokens = contextWindow
+	}
+
 	// Effective budget = contextWindow minus output reserve (maxTokens)
 	effectiveWindow := contextWindow - agent.MaxTokens
 	if effectiveWindow < 0 {
@@ -82,7 +93,7 @@ func computeContextUsage(agent *AgentInstance, sessionKey string) *bus.ContextUs
 
 	return &bus.ContextUsage{
 		UsedTokens:        usedTokens,
-		TotalTokens:       contextWindow,
+		TotalTokens:       totalTokens,
 		HistoryTokens:     historyTokens,
 		CompressAtTokens:  compressAt,
 		SummarizeAtTokens: summarizeAt,

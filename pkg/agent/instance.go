@@ -53,6 +53,16 @@ type AgentInstance struct {
 	// overflowed into empty upstream responses. CompactionRequest callers
 	// should use this instead of the raw ContextWindow.
 	CompactionBudget func() int
+
+	// DeclaredContextWindow is the context window as configured (or derived
+	// when unset) BEFORE the 256k sanity clamp — the model's declared max
+	// context. Gating internals deliberately use the clamped ContextWindow,
+	// but user-facing usage reporting (bus.ContextUsage.TotalTokens → Feishu
+	// cards, pico/web usage, /context, /status) shows this value so the
+	// displayed total reflects what the model advertises rather than the
+	// fork's conservative compaction bound. Zero means "same as
+	// ContextWindow" (agents hand-built in tests).
+	DeclaredContextWindow int
 	Provider                  providers.LLMProvider
 	Sessions                  session.SessionStore
 	ContextBuilder            *ContextBuilder
@@ -275,11 +285,18 @@ func NewAgentInstance(
 		// of a tiny budget. Overshoot past a model's real window is still
 		// handled reactively by forceCompression on context-overflow errors.
 		contextWindow = max(maxTokens*4, defaultContextWindowFloor)
-	} else if contextWindow > defaultContextWindowFloor && !defaults.TrustConfiguredContextWindow {
-		// Clamp an inflated configured window to the floor (fork: 2026-10-04).
-		// The clamp protects every compaction gate (proactive budget check,
-		// post-turn usage gate, seahorse condensed compaction, assemble budget)
-		// from a config value the model cannot actually serve.
+	}
+	// declaredContextWindow is what the user configured (or the heuristic
+	// derived) — reported to UIs as the model's context size even when the
+	// clamp below binds gating internals to a conservative bound.
+	declaredContextWindow := contextWindow
+	// Condition checks the CONFIGURED value: only an explicit configuration
+	// is clamped (fork: 2026-10-04); the derived heuristic above is exempt —
+	// its overshoot is handled reactively by forceCompression. The clamp
+	// protects every compaction gate (proactive budget check, post-turn
+	// usage gate, seahorse condensed compaction, assemble budget) from a
+	// config value the model cannot actually serve.
+	if defaults.ContextWindow > defaultContextWindowFloor && !defaults.TrustConfiguredContextWindow {
 		logger.WarnCF("agent", "context_window exceeds sanity clamp; clamping (set trust_configured_context_window=true to override)", map[string]any{
 			"configured": contextWindow,
 			"clamped_to": defaultContextWindowFloor,
@@ -423,6 +440,7 @@ func NewAgentInstance(
 		ThinkingLevel:             thinkingLevel,
 		ThinkingLevelConfigured:   thinkingLevelConfigured,
 		ContextWindow:             contextWindow,
+		DeclaredContextWindow:     declaredContextWindow,
 		CompactUsageThreshold:     compactUsageThreshold,
 		SummarizeMessageThreshold: summarizeMessageThreshold,
 		SummarizeTokenPercent:     summarizeTokenPercent,
