@@ -145,12 +145,16 @@ type turnExecution struct {
 	suppressReasoning   bool
 	callMessages        []providers.Message
 	providerToolDefs    []providers.ToolDefinition
-	llmModel            string
-	llmModelName        string
-	llmOpts             map[string]any
-	gracefulTerminal    bool
-	useNativeSearch     bool
-	ownedProviders      []providers.LLMProvider
+	// toolDefTokens caches EstimateToolDefsTokens once the tool set is
+	// filtered in CallLLM — reused by the boundary check, clamp and retries
+	// instead of re-marshaling every schema per estimate (review P3-2).
+	toolDefTokens    int
+	llmModel         string
+	llmModelName     string
+	llmOpts          map[string]any
+	gracefulTerminal bool
+	useNativeSearch  bool
+	ownedProviders   []providers.LLMProvider
 	// skillPanelSeeded records that the turn's active skills were already
 	// surfaced on the streaming panel, so per-iteration publisher creation
 	// does not duplicate the entry.

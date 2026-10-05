@@ -54,19 +54,19 @@ type AgentLoop struct {
 	compactScheduler *compactScheduler
 	// idleScanner holds the idle-compaction scanner when started
 	// (atomic.Value-typed via the sync primitives below; nil when off).
-	idleScanner atomic.Value
-	fallback         *providers.FallbackChain
-	channelManager   interfaces.ChannelManager
-	mediaStore       media.MediaStore
-	transcriber      asr.Transcriber
-	cmdRegistry      *commands.Registry
-	mcp              mcpRuntime
-	evolution        *evolutionBridge
-	hookRuntime      hookRuntime
-	steering         *steeringQueue
-	pendingSkills    sync.Map
-	pendingStops     sync.Map
-	mu               sync.RWMutex
+	idleScanner    atomic.Value
+	fallback       *providers.FallbackChain
+	channelManager interfaces.ChannelManager
+	mediaStore     media.MediaStore
+	transcriber    asr.Transcriber
+	cmdRegistry    *commands.Registry
+	mcp            mcpRuntime
+	evolution      *evolutionBridge
+	hookRuntime    hookRuntime
+	steering       *steeringQueue
+	pendingSkills  sync.Map
+	pendingStops   sync.Map
+	mu             sync.RWMutex
 
 	// workerSem limits concurrent turn processing workers.
 	workerSem chan struct{}

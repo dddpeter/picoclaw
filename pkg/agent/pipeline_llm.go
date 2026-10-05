@@ -75,6 +75,18 @@ func (p *Pipeline) CallLLM(
 		return ControlBreak, err
 	}
 
+	// Settle the effective model BEFORE any consumer of exec.llmModel runs
+	// below (review P1-1a): routeMediaTurn may have rotated the active
+	// provider/model to a vision candidate, and the split-turn summarizer
+	// inside compactBeforeLLMCall reads the model name — previously it fired
+	// with the vision provider but a stale (first iteration: empty) model id.
+	exec.llmModel = exec.activeModel
+
+	// Tool-definition token cost is fixed once the tool set is filtered:
+	// compute it once and reuse across the boundary check, clamp and retries
+	// (review P3-2: re-marshaling every tool schema per estimate).
+	exec.toolDefTokens = EstimateToolDefsTokens(exec.providerToolDefs)
+
 	// Iteration-boundary compaction (fork, 2026-10-05, pi's prepareNextTurn
 	// pattern): long heavy turns grow context 60%→over-window between turn
 	// endings, which post-turn async compaction never sees. Check the
@@ -99,7 +111,6 @@ func (p *Pipeline) CallLLM(
 	}
 	applyTurnThinkingOptions(exec, ts.agent, exec.activeProvider, true)
 
-	exec.llmModel = exec.activeModel
 	nativeSearchBeforeHook := exec.useNativeSearch
 
 	// BeforeLLM hook
@@ -324,6 +335,20 @@ func (p *Pipeline) CallLLM(
 		backoffSecs = 2
 	}
 	for retry := 0; retry <= maxRetries; retry++ {
+		// Re-clamp the output budget on EVERY attempt (review P2-1/P2-2):
+		// context-error retries rebuild (shrink) exec.callMessages and the
+		// BeforeLLM hook may replace llmOpts wholesale — a clamp computed
+		// once before the loop froze the budget at the worst moment (stuffed
+		// context → floor 1024) and starved the recovered request's output.
+		if exec.llmOpts == nil {
+			exec.llmOpts = map[string]any{
+				"temperature":      ts.agent.Temperature,
+				"prompt_cache_key": ts.agent.ID,
+			}
+		}
+		exec.llmOpts["max_tokens"] = clampMaxTokensToContext(
+			ts.agent.MaxTokens, ts.agent.ContextWindow, estimateCallTokens(exec))
+
 		exec.response, err = callLLM(exec.callMessages, exec.providerToolDefs)
 		if err == nil {
 			break
@@ -519,6 +544,22 @@ func (p *Pipeline) CallLLM(
 				})
 			}
 			if !fit {
+				// The stable history is fully trimmed yet the payload still
+				// overflows — the active turn tail alone fills the window.
+				// The retry rebuild above reconstructed callMessages from the
+				// RAW tail, undoing any earlier split-turn view. Try a
+				// (forced) split-turn reduction on the rebuilt view before
+				// giving up (review P2-3): the force flag bypasses the
+				// one-per-turn throttle because each entry here is a fresh
+				// context failure, and total attempts stay bounded by
+				// maxRetries.
+				if p.doSplitTurnCompact(ctx, ts, exec, true) {
+					logger.WarnCF("agent", "Active turn tail still over budget after retry compaction; split-turn summarized and retrying", map[string]any{
+						"session_key": ts.sessionKey,
+						"retry":       retry,
+					})
+					continue
+				}
 				err = fmt.Errorf(
 					"context window still exceeded after retry compaction; refusing to drop active turn messages: %w",
 					err,

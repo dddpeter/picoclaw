@@ -113,16 +113,18 @@ func TestBuildSplitTurnMessages(t *testing.T) {
 // summarizeStubProvider records summarization calls and returns a canned
 // summary.
 type summarizeStubProvider struct {
-	mu        sync.Mutex
-	lastInput string
-	calls     int
-	fail      bool
+	mu         sync.Mutex
+	lastInput  string
+	lastModels []string
+	calls      int
+	fail       bool
 }
 
-func (p *summarizeStubProvider) Chat(_ context.Context, msgs []providers.Message, _ []providers.ToolDefinition, _ string, _ map[string]any) (*providers.LLMResponse, error) {
+func (p *summarizeStubProvider) Chat(_ context.Context, msgs []providers.Message, _ []providers.ToolDefinition, model string, _ map[string]any) (*providers.LLMResponse, error) {
 	p.mu.Lock()
 	p.calls++
 	p.lastInput = msgs[0].Content
+	p.lastModels = append(p.lastModels, model)
 	p.mu.Unlock()
 	if p.fail {
 		return nil, &common.EmptyCompletionError{}
@@ -159,7 +161,7 @@ func TestDoSplitTurnCompact_RewritesRequestView(t *testing.T) {
 	_, ts, exec := splitTurnTestExec(t, stub, activeTail())
 
 	pipeline := &Pipeline{}
-	if !pipeline.doSplitTurnCompact(context.Background(), ts, exec) {
+	if !pipeline.doSplitTurnCompact(context.Background(), ts, exec, false) {
 		t.Fatal("expected split-turn to fire")
 	}
 	if !ts.splitTurnDone {
@@ -172,8 +174,8 @@ func TestDoSplitTurnCompact_RewritesRequestView(t *testing.T) {
 	if exec.messages[1].Role != "user" || !strings.Contains(exec.messages[1].Content, "结构化摘要") {
 		t.Fatalf("rewritten anchor wrong: %+v", exec.messages[1])
 	}
-	if exec.currentTurnStart != 2 {
-		t.Fatalf("currentTurnStart = %d, want 2 (after sys+anchor)", exec.currentTurnStart)
+	if exec.currentTurnStart != 1 {
+		t.Fatalf("currentTurnStart = %d, want 1 (the anchor itself, right after sys)", exec.currentTurnStart)
 	}
 	// The summarized prefix content must be gone from the request view.
 	for _, m := range exec.messages {
@@ -197,11 +199,11 @@ func TestDoSplitTurnCompact_ThrottledOncePerTurn(t *testing.T) {
 	_, ts, exec := splitTurnTestExec(t, stub, activeTail())
 	pipeline := &Pipeline{}
 
-	if !pipeline.doSplitTurnCompact(context.Background(), ts, exec) {
+	if !pipeline.doSplitTurnCompact(context.Background(), ts, exec, false) {
 		t.Fatal("first call must fire")
 	}
 	before := append([]providers.Message(nil), exec.messages...)
-	if pipeline.doSplitTurnCompact(context.Background(), ts, exec) {
+	if pipeline.doSplitTurnCompact(context.Background(), ts, exec, false) {
 		t.Fatal("second call must be throttled")
 	}
 	if len(exec.messages) != len(before) || stub.calls != 1 {
@@ -217,7 +219,7 @@ func TestDoSplitTurnCompact_FailureKeepsContext(t *testing.T) {
 	before := append([]providers.Message(nil), exec.messages...)
 	pipeline := &Pipeline{}
 
-	if pipeline.doSplitTurnCompact(context.Background(), ts, exec) {
+	if pipeline.doSplitTurnCompact(context.Background(), ts, exec, false) {
 		t.Fatal("failing summarizer must return false")
 	}
 	if ts.splitTurnDone {
@@ -234,7 +236,7 @@ func TestDoSplitTurnCompact_DisabledByConfig(t *testing.T) {
 	_, ts, exec := splitTurnTestExec(t, stub, activeTail())
 	ts.agent.SplitTurnEnabled = false
 	pipeline := &Pipeline{}
-	if pipeline.doSplitTurnCompact(context.Background(), ts, exec) {
+	if pipeline.doSplitTurnCompact(context.Background(), ts, exec, false) {
 		t.Fatal("disabled split-turn must not fire")
 	}
 	if stub.calls != 0 {
@@ -377,7 +379,7 @@ func TestDoSplitTurnCompact_DoesNotPersistSummary(t *testing.T) {
 	pipeline := &Pipeline{}
 
 	before := ts.persistedMessagesSnapshot()
-	if !pipeline.doSplitTurnCompact(context.Background(), ts, exec) {
+	if !pipeline.doSplitTurnCompact(context.Background(), ts, exec, false) {
 		t.Fatal("expected split-turn to fire")
 	}
 	after := ts.persistedMessagesSnapshot()

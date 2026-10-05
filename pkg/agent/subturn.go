@@ -698,9 +698,9 @@ func (e *ephemeralSessionStore) TruncateHistory(_ string, keepLast int) {
 	e.history = e.history[len(e.history)-keepLast:]
 }
 
-func (e *ephemeralSessionStore) Save(_ string) error    { return nil }
-func (e *ephemeralSessionStore) Close() error           { return nil }
-func (e *ephemeralSessionStore) ListSessions() []string { return nil }
+func (e *ephemeralSessionStore) Save(_ string) error                   { return nil }
+func (e *ephemeralSessionStore) Close() error                          { return nil }
+func (e *ephemeralSessionStore) ListSessions() []string                { return nil }
 func (e *ephemeralSessionStore) LastModified(string) (time.Time, bool) { return time.Time{}, false }
 
 func (e *ephemeralSessionStore) truncateLocked() {

@@ -56,6 +56,10 @@ type idleCompactScanner struct {
 // StartIdleCompactScanner launches the idle-compaction scanner (idempotent;
 // no-op when disabled or without a context manager).
 func (al *AgentLoop) StartIdleCompactScanner(cfg *config.IdleCompactConfig) error {
+	// Stop any previous instance first (review P3-4): a blind Store would
+	// orphan the old goroutine (its stop channel belongs to the new
+	// instance) and its independent records map would break bookkeeping.
+	al.StopIdleCompactScanner()
 	if cfg != nil && !cfg.EffectiveEnabled() {
 		return nil
 	}
@@ -238,6 +242,11 @@ func (s *idleCompactScanner) launchCompaction(agent *AgentInstance, key string, 
 		s.skip(key, "in_flight", nil)
 		return
 	}
+	// Snapshot the budget BEFORE the goroutine (review P3-5): CompactionBudget
+	// reads agent.ContextWindow/MaxTokens and /switch's write path does not
+	// take the model-state lock against background readers — evaluating it
+	// here (scan time) keeps the data-race window to zero.
+	budget := agent.CompactionBudget()
 	scheduler.wg.Add(1)
 	go func() {
 		defer scheduler.wg.Done()
@@ -247,7 +256,7 @@ func (s *idleCompactScanner) launchCompaction(agent *AgentInstance, key string, 
 		err := s.al.contextManager.Compact(ctx, &CompactRequest{
 			SessionKey: key,
 			Reason:     ContextCompressReasonSummarize,
-			Budget:     agent.CompactionBudget(),
+			Budget:     budget,
 		})
 		select {
 		case s.resultCh <- idleCompactResult{sessionKey: key, updated: updated, err: err}:

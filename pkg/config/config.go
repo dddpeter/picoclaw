@@ -546,10 +546,15 @@ func (c *SplitTurnConfig) EffectiveEnabled() bool {
 	return c == nil || c.Enabled == nil || *c.Enabled
 }
 
-// EffectiveKeepRecentTokens returns the tail budget (default 8192).
+// DefaultSplitTurnKeepTokens is the canonical split-turn keep-tail budget
+// default (single source; the agent-side cut-point fallback references it
+// too — review P3-3 of the 2026-10-05 series).
+const DefaultSplitTurnKeepTokens = 8192
+
+// EffectiveKeepRecentTokens returns the tail budget.
 func (c *SplitTurnConfig) EffectiveKeepRecentTokens() int {
 	if c == nil || c.KeepRecentTokens <= 0 {
-		return 8192
+		return DefaultSplitTurnKeepTokens
 	}
 	return c.KeepRecentTokens
 }
@@ -621,8 +626,8 @@ type AgentDefaults struct {
 	// idle past the threshold get a real summarization pass so the next
 	// question starts from a compacted steady state. Nil = enabled with
 	// defaults.
-	IdleCompact *IdleCompactConfig `json:"idle_compact,omitempty"`
-	FreshTailMessages     int     `json:"fresh_tail_messages,omitempty"     env:"PICOCLAW_AGENTS_DEFAULTS_FRESH_TAIL_MESSAGES"`
+	IdleCompact       *IdleCompactConfig `json:"idle_compact,omitempty"`
+	FreshTailMessages int                `json:"fresh_tail_messages,omitempty"     env:"PICOCLAW_AGENTS_DEFAULTS_FRESH_TAIL_MESSAGES"`
 	// TrustConfiguredContextWindow opts out of the context-window sanity clamp
 	// (fork feature). agents.defaults.context_window is often set from
 	// marketing numbers (e.g. 1M) while the real model window is far smaller;
