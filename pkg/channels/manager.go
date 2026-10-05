@@ -658,7 +658,7 @@ func (m *Manager) GetStreamer(ctx context.Context, channelName, chatID, sessionK
 	clearMarker := func() {
 		m.streamActive.Delete(streamKey)
 	}
-	onFinalize := func(finalizeCtx context.Context, finalContent string) {
+	onFinalize := func(finalizeCtx context.Context, finalContent string, cancelled bool) {
 		if m.toolFeedbackSeparateMessagesEnabled() {
 			clearTrackedToolFeedbackMessage(
 				ch,
@@ -688,12 +688,16 @@ func (m *Manager) GetStreamer(ctx context.Context, channelName, chatID, sessionK
 				}
 			}
 		}
-		// An empty finalContent means this hook runs for Cancel, not Finalize:
-		// cleanup above is wanted, but marking the stream active would suppress
-		// the normal outbound that delivers a fallback (non-streamed) response.
-		// Streamer.Finalize is never invoked with empty content (the agent-side
-		// publisher skips empty finals), so the discrimination is safe.
-		if finalContent == "" {
+		// A cancelled stream must not arm the suppression marker: the normal
+		// outbound that delivers a fallback (non-streamed) response still has
+		// to go through. A genuine Finalize arms the marker even with empty
+		// content — display-side filters (e.g. tool-call parrot stripping)
+		// can empty the final answer, and an unarmed marker let the raw
+		// response escape as a duplicate plain message (observed 2026-10-05,
+		// feishu: the parrot dump arrived as a second card next to the sealed
+		// streaming card). Cancellation is therefore an explicit flag, not
+		// inferred from empty content.
+		if cancelled {
 			return
 		}
 		m.streamActive.Store(streamKey, true)
@@ -759,7 +763,7 @@ type splitMarkerStreamer struct {
 	begin            func(context.Context) (bus.Streamer, error)
 	completedParts   int
 	finalized        bool
-	onFinalize       func(context.Context, string)
+	onFinalize       func(context.Context, string, bool)
 	clearMarker      func()
 	modelName        string
 	turnInputTokens  int
@@ -782,7 +786,7 @@ func (s *splitMarkerStreamer) FinalizeWithContext(ctx context.Context, content s
 	if err := s.finalizeLocked(ctx, content, usage); err != nil {
 		return err
 	}
-	s.runFinalizeHook(ctx, content)
+	s.runFinalizeHook(ctx, content, false)
 	return nil
 }
 
@@ -842,7 +846,7 @@ func (s *splitMarkerStreamer) CancelWithReason(ctx context.Context, reason strin
 	if s.current != nil {
 		cancelStreamerWithReason(s.current, ctx, reason)
 	}
-	s.runFinalizeHook(ctx, "")
+	s.runFinalizeHook(ctx, "", true)
 }
 
 // cancelStreamerWithReason forwards a cancellation cause to streamers that
@@ -930,13 +934,13 @@ func (s *splitMarkerStreamer) ensureCurrentLocked(ctx context.Context) error {
 	return nil
 }
 
-func (s *splitMarkerStreamer) runFinalizeHook(ctx context.Context, content string) {
+func (s *splitMarkerStreamer) runFinalizeHook(ctx context.Context, content string, cancelled bool) {
 	if s.finalized {
 		return
 	}
 	s.finalized = true
 	if s.onFinalize != nil {
-		s.onFinalize(ctx, content)
+		s.onFinalize(ctx, content, cancelled)
 	}
 }
 
@@ -973,7 +977,7 @@ func (m *Manager) streamActiveForChat(channel, chatID string) bool {
 // finalizeHookStreamer wraps a Streamer to run a hook on Finalize.
 type finalizeHookStreamer struct {
 	Streamer
-	onFinalize  func(context.Context, string)
+	onFinalize  func(context.Context, string, bool)
 	clearMarker func()
 }
 
@@ -981,7 +985,7 @@ func (s *finalizeHookStreamer) Finalize(ctx context.Context, content string) err
 	if err := s.Streamer.Finalize(ctx, content); err != nil {
 		return err
 	}
-	s.runFinalizeHook(ctx, content)
+	s.runFinalizeHook(ctx, content, false)
 	return nil
 }
 
@@ -993,7 +997,7 @@ func (s *finalizeHookStreamer) FinalizeWithContext(ctx context.Context, content 
 	} else if err := s.Streamer.Finalize(ctx, content); err != nil {
 		return err
 	}
-	s.runFinalizeHook(ctx, content)
+	s.runFinalizeHook(ctx, content, false)
 	return nil
 }
 
@@ -1034,12 +1038,12 @@ func (s *finalizeHookStreamer) Cancel(ctx context.Context) {
 
 func (s *finalizeHookStreamer) CancelWithReason(ctx context.Context, reason string) {
 	cancelStreamerWithReason(s.Streamer, ctx, reason)
-	s.runFinalizeHook(ctx, "")
+	s.runFinalizeHook(ctx, "", true)
 }
 
-func (s *finalizeHookStreamer) runFinalizeHook(ctx context.Context, content string) {
+func (s *finalizeHookStreamer) runFinalizeHook(ctx context.Context, content string, cancelled bool) {
 	if s.onFinalize != nil {
-		s.onFinalize(ctx, content)
+		s.onFinalize(ctx, content, cancelled)
 	}
 }
 

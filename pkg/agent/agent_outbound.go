@@ -50,6 +50,16 @@ func (al *AgentLoop) PublishResponseIfNeeded(ctx context.Context, channel, chatI
 	if response == "" {
 		return
 	}
+	// Display-path defense in depth: strip tool-call parrot replay text so
+	// the raw payload can never reach the chat as a plain message when the
+	// streaming card's suppression marker missed it (session history keeps
+	// the model's original content verbatim). A response that is ONLY parrot
+	// lines is dropped entirely — the sealed card already carries the
+	// interception note from the publisher's seal path.
+	response = stripToolCallParrot(response)
+	if strings.TrimSpace(response) == "" {
+		return
+	}
 
 	alreadySentToSameChat := false
 	defaultAgent := al.GetRegistry().GetDefaultAgent()

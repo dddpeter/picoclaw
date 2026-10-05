@@ -104,15 +104,18 @@ func (p *Pipeline) Finalize(
 	streamErr := finalizeConfiguredStreamingLLM(turnCtx, ts, exec, finalContent, contextUsage)
 	// Text fallback (hermes-style last resort): when the card could not be
 	// finalized — finalize errored on a card that never showed output — the
-	// answer must still reach the user as a plain message.
+	// answer must still reach the user as a plain message. The same parrot
+	// filter as the card path applies so replayed tool-call text never ships.
 	if streamErr != nil && !isConfiguredStreamingVisibleError(streamErr) &&
 		!ts.opts.SendResponse && ts.opts.AllowInterimPicoPublish && finalContent != "" {
-		msg := outboundMessageForTurnWithOptions(ts, finalContent, outboundTurnMessageOptions{
-			modelName: exec.llmModelName,
-		})
-		msg.ContextUsage = contextUsage
-		markFinalOutbound(&msg)
-		_ = al.bus.PublishOutbound(turnCtx, msg)
+		if fallbackContent := strings.TrimSpace(stripToolCallParrot(finalContent)); fallbackContent != "" {
+			msg := outboundMessageForTurnWithOptions(ts, fallbackContent, outboundTurnMessageOptions{
+				modelName: exec.llmModelName,
+			})
+			msg.ContextUsage = contextUsage
+			markFinalOutbound(&msg)
+			_ = al.bus.PublishOutbound(turnCtx, msg)
+		}
 	}
 	// Commit the completed turn to shared memory (async, best effort).
 	al.commitTurnMemory(ts.sessionKey, ts.userMessage, finalContent)

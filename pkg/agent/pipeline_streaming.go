@@ -546,8 +546,19 @@ func (p *streamingChunkPublisher) Seal(ctx context.Context, content string, cont
 	return p.seal(ctx, content, contextUsage)
 }
 
+// parrotOnlyAnswerNote replaces a final answer that the parrot filter stripped
+// to nothing. Sealing the card with an empty body would look like a silent
+// failure, while the raw payload dump must stay out of the chat — so the card
+// explains what happened instead (fork, 2026-10-05, observed with MiniMax-M3
+// replaying a `[tool_use: message, args: ...]` line as its whole answer).
+const parrotOnlyAnswerNote = "⚙ 已拦截：模型本轮把工具调用格式复述成了正文（未真实调用工具），原始文本未发送。重新提问通常可恢复正常回答。"
+
 func (p *streamingChunkPublisher) seal(ctx context.Context, content string, contextUsage *bus.ContextUsage) error {
-	content = stripToolCallParrot(content)
+	stripped := stripToolCallParrot(content)
+	if strings.TrimSpace(stripped) == "" && strings.TrimSpace(content) != "" {
+		stripped = parrotOnlyAnswerNote
+	}
+	content = stripped
 	if setter, ok := p.streamer.(interface{ SetModelName(modelName string) }); ok {
 		setter.SetModelName(p.modelName)
 	}

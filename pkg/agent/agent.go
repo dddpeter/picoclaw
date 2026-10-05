@@ -700,32 +700,37 @@ func (al *AgentLoop) runAgentLoop(
 	}
 
 	if opts.SendResponse && result.finalContent != "" {
-		agentID, sessionKey, scope := outboundTurnMetadata(
-			agent.ID,
-			opts.Dispatch.SessionKey,
-			opts.Dispatch.SessionScope,
-		)
-		msg := bus.OutboundMessage{
-			Context: outboundContextFromInbound(
-				opts.Dispatch.InboundContext,
-				opts.Dispatch.Channel(),
-				opts.Dispatch.ChatID(),
-				opts.Dispatch.ReplyToMessageID(),
-			),
-			AgentID:      agentID,
-			SessionKey:   sessionKey,
-			Scope:        scope,
-			Content:      result.finalContent,
-			ContextUsage: computeContextUsage(agent, opts.Dispatch.SessionKey),
-		}
-		if modelName := strings.TrimSpace(result.modelName); modelName != "" {
-			if msg.Context.Raw == nil {
-				msg.Context.Raw = make(map[string]string, 1)
+		// Display-path only: keep tool-call parrot replay text out of the
+		// chat message (history and the "Response:" log keep the original).
+		outboundContent := strings.TrimSpace(stripToolCallParrot(result.finalContent))
+		if outboundContent != "" {
+			agentID, sessionKey, scope := outboundTurnMetadata(
+				agent.ID,
+				opts.Dispatch.SessionKey,
+				opts.Dispatch.SessionScope,
+			)
+			msg := bus.OutboundMessage{
+				Context: outboundContextFromInbound(
+					opts.Dispatch.InboundContext,
+					opts.Dispatch.Channel(),
+					opts.Dispatch.ChatID(),
+					opts.Dispatch.ReplyToMessageID(),
+				),
+				AgentID:      agentID,
+				SessionKey:   sessionKey,
+				Scope:        scope,
+				Content:      outboundContent,
+				ContextUsage: computeContextUsage(agent, opts.Dispatch.SessionKey),
 			}
-			msg.Context.Raw["model_name"] = modelName
+			if modelName := strings.TrimSpace(result.modelName); modelName != "" {
+				if msg.Context.Raw == nil {
+					msg.Context.Raw = make(map[string]string, 1)
+				}
+				msg.Context.Raw["model_name"] = modelName
+			}
+			markFinalOutbound(&msg)
+			al.bus.PublishOutbound(ctx, msg)
 		}
-		markFinalOutbound(&msg)
-		al.bus.PublishOutbound(ctx, msg)
 	}
 
 	if result.finalContent != "" {

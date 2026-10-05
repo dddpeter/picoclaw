@@ -17,6 +17,12 @@ import (
 	"github.com/sipeed/picoclaw/pkg/providers/common"
 )
 
+// truncatedAnswerNote is appended to a direct answer whose finish_reason is
+// "length": the text was cut by an output token cap and the user deserves to
+// know why it stops mid-sentence (fork, 2026-10-05; observed with a channel
+// capped at ~512 output tokens on MiniMax-M3).
+const truncatedAnswerNote = "\n\n⚠ 本段输出因达到输出 token 上限被截断，可回复“继续”让我补全余下内容。"
+
 // CallLLM performs an LLM call with fallback support, hook invocation, and retry logic.
 // It handles PreLLM setup, the actual LLM invocation with retry, and AfterLLM processing.
 // Returns Control indicating what the coordinator should do next.
@@ -712,6 +718,15 @@ func (p *Pipeline) CallLLM(
 			return ControlContinue, nil
 		}
 
+		// A "length" finish on the direct answer means the output was cut by
+		// the token cap (config max_tokens, the dynamic context clamp, or a
+		// channel-side output limit — all surface identically here). Append
+		// an honest note so card, history, and outbound all say why the text
+		// stops mid-sentence; tool-call batches already have their own guard
+		// in ExecuteTools and are re-issued, so this is the only silent case.
+		if responseContent != "" && exec.response.FinishReason == "length" {
+			responseContent += truncatedAnswerNote
+		}
 		exec.finalContent = responseContent
 		logger.InfoCF("agent", "LLM response without tool calls (direct answer)",
 			map[string]any{

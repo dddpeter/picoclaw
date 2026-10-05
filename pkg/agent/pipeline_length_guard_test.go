@@ -158,6 +158,103 @@ func TestExecuteTools_RejectsToolCallsWhenTruncatedByTokenLimit(t *testing.T) {
 	}
 }
 
+// truncatedDirectAnswerProvider returns a plain answer cut by the output
+// token limit — no tool calls involved.
+type truncatedDirectAnswerProvider struct {
+	finishReason string
+}
+
+func (m *truncatedDirectAnswerProvider) Chat(
+	_ context.Context,
+	_ []providers.Message,
+	_ []providers.ToolDefinition,
+	_ string,
+	_ map[string]any,
+) (*providers.LLMResponse, error) {
+	return &providers.LLMResponse{Content: "写到一半的话", FinishReason: m.finishReason}, nil
+}
+
+func (m *truncatedDirectAnswerProvider) GetDefaultModel() string {
+	return "truncated-direct-model"
+}
+
+// TestDirectAnswerTruncatedByTokenLimitGetsNote (fork, 2026-10-05): a direct
+// answer cut by the output cap carries an explicit truncation note instead of
+// silently stopping mid-sentence; a normal finish gets no note.
+func TestDirectAnswerTruncatedByTokenLimitGetsNote(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		finishReason string
+		want         string
+	}{
+		{"length appends note", "length", "写到一半的话" + truncatedAnswerNote},
+		{"stop stays verbatim", "stop", "写到一半的话"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpDir, err := os.MkdirTemp("", "agent-length-note-*")
+			if err != nil {
+				t.Fatalf("failed to create temp dir: %v", err)
+			}
+			defer os.RemoveAll(tmpDir)
+
+			cfg := &config.Config{
+				Agents: config.AgentsConfig{
+					Defaults: config.AgentDefaults{
+						Workspace:         tmpDir,
+						ModelName:         "test-model",
+						MaxTokens:         4096,
+						MaxToolIterations: 10,
+					},
+				},
+			}
+			al := NewAgentLoop(cfg, bus.NewMessageBus(), &truncatedDirectAnswerProvider{finishReason: tc.finishReason})
+			defaultAgent := al.registry.GetDefaultAgent()
+			if defaultAgent == nil {
+				t.Fatal("expected default agent")
+			}
+
+			response, err := al.runAgentLoop(context.Background(), defaultAgent, processOptions{
+				SessionKey:      "session-length-note",
+				Channel:         "cli",
+				ChatID:          "direct",
+				UserMessage:     "say something",
+				DefaultResponse: defaultResponse,
+				EnableSummary:   false,
+				SendResponse:    false,
+				InboundContext: &bus.InboundContext{
+					Channel:  "cli",
+					ChatID:   "direct",
+					ChatType: "direct",
+					SenderID: "tester",
+				},
+				RouteResult: &routing.ResolvedRoute{
+					AgentID:   "main",
+					Channel:   "cli",
+					AccountID: routing.DefaultAccountID,
+					SessionPolicy: routing.SessionPolicy{
+						Dimensions: []string{"sender"},
+					},
+					MatchedBy: "default",
+				},
+				SessionScope: &session.SessionScope{
+					Version:    session.ScopeVersionV1,
+					AgentID:    "main",
+					Channel:    "cli",
+					Account:    routing.DefaultAccountID,
+					Dimensions: []string{"sender"},
+					Values:     map[string]string{"sender": "tester"},
+				},
+			})
+			if err != nil {
+				t.Fatalf("runAgentLoop failed: %v", err)
+			}
+			if response != tc.want {
+				t.Fatalf("response = %q, want %q", response, tc.want)
+			}
+		})
+	}
+}
+
 func TestToolStepKind(t *testing.T) {
 	if got := toolStepKind("mcp_fetch_search"); got != bus.ToolStepKindMCP {
 		t.Fatalf("expected mcp kind, got %q", got)
