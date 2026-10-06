@@ -156,3 +156,4 @@ agentscope-go 把崩溃语义写成显式契约（`checkpoint.go:23-29`），值
   - M3 offload 治理：不改"原文落盘"语义（与 exec 一致且全局过滤已被部署关闭，文档明示"未过滤原文"），新增启动清扫 >7 天的 tool-output-*/shell-output-* 落盘文件；
   - L1 命令带尾随内容（`/approve 请继续…`）不再当作审批回答；L2 超时抬高移到挂载成功之后；L3 超过 maxSize 必被编码器跳过的图不占 cap 名额；L4 双扫描以注释明示接受；L5 工具文案从"已排程"软化为"已请求（失败则上下文不变）"；N1 Description 写明 no-op 也计数；N2 裸 `tool:` 前缀构造期报错；N3 文档补"迟到 /approve 不补生效"。
   - 新增锚点：`TestApprovalHook_BareToolPrefixRejected`、M1/L1 用例并入 `TestApprovalReply_RoutedBeforeSteering`、`TestMediaRefs_CapIgnoresOversizedImages`、config `TestGetMaxContextImagesDefaults`。`TestCappedOutputBuffer_ConcurrentWrites` 确认为负载时序抖动（单独跑 3/3 绿，与改动无关）。
+- 2026-10-05：**§一 二期"会话内总是允许"实施**：回答 `/approve always`（或 `总是允许`）批准本次并把命中的 ask 规则提升为会话级自动放行（内存 + 6h TTL，重启失效；`/deny` 无 always 形式）。`matchedAskPattern` 返回命中规则文本、`pendingApproval` 携带 pattern、`sessionRuleSet` 持 TTL 规则表。锚点 `TestApproval_SessionAlwaysAllow`。原实施状态中"无二期"的偏差自此作废。

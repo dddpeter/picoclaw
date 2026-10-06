@@ -501,8 +501,9 @@ HITL 工具审批（fork 新增，借鉴 agentscope-go，详见 `docs/design/age
 
 - **只加 Ask 层**：exec 的 deny patterns（`defaultDenyPatterns` / `custom_deny_patterns`）仍是最终裁决——审批通过后命令若命中 deny 规则照样被拒。
 - 审批回答（`/approve`、`/deny`，别名 `/yes` `/no`，及中文 `同意`/`批准`/`拒绝`）在 steering 之前路由，**不进入模型上下文**；回答必须**整条消息只有命令本身**（`/approve 请继续` 这类带尾随内容的不算回答，照常进 steering）；且只接受**提问发出的同一渠道/会话**里的回答——别的 chat 发来的 `/approve` 不会生效。
+- **会话内免重复（`/approve always`）**：回答 `/approve always`（或 `总是允许`）在批准本次之外，把命中的那条 ask 规则提升为**本会话自动放行**——同一会话内再命中同一条规则的调用直接执行、不再询问。规则只存在内存中，**约 6 小时后或网关重启即失效**（到期后同规则会重新询问一次）。`/deny` 没有 always 形式，拒绝始终逐次生效。
 - 超时或回合中止后 pending 即清除，**迟到的 `/approve` 不会补生效**（会当普通消息进 steering）——需要模型重新触发该工具调用。
-- 回答示例：`⚠️ 需要批准：即将执行工具 exec\n git push origin main\n\n回复 /approve 允许、/deny 拒绝（超过 5m0s 未回复将按拒绝处理）`。
+- 回答示例：`⚠️ 需要批准：即将执行工具 exec\n git push origin main\n\n回复 /approve 允许、/approve always 本会话内不再询问、/deny 拒绝（超过 5m0s 未回复将按拒绝处理）`。
 - 回合被中止（`/stop` 等）时等待立即以拒绝结束，不留悬挂。
 - 环境变量无（走 `hooks.builtins` 结构配置）。
 

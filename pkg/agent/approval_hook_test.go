@@ -55,21 +55,21 @@ func TestApproval_EmptyPatternsNoBehaviorChange(t *testing.T) {
 func TestApprovalHook_AskPatternMatches(t *testing.T) {
 	h := approvalTestHook(t, `{"ask_patterns":["git push","tool:write_file"],"timeout_ms":600000}`)
 
-	// Matching matrix.
-	if !h.needsApproval("exec", map[string]any{"command": "git push origin main"}) {
-		t.Fatal("command pattern must match exec command")
+	// Matching matrix (matchedAskPattern returns the hit pattern text).
+	if got := h.matchedAskPattern("exec", map[string]any{"command": "git push origin main"}); got != "git push" {
+		t.Fatalf("command pattern must match exec command, got %q", got)
 	}
-	if h.needsApproval("exec", map[string]any{"command": "ls -la"}) {
-		t.Fatal("command pattern must not match unrelated command")
+	if got := h.matchedAskPattern("exec", map[string]any{"command": "ls -la"}); got != "" {
+		t.Fatalf("command pattern must not match unrelated command, got %q", got)
 	}
-	if h.needsApproval("read_file", map[string]any{"path": "/x"}) {
-		t.Fatal("command pattern must not match non-exec tools")
+	if got := h.matchedAskPattern("read_file", map[string]any{"path": "/x"}); got != "" {
+		t.Fatalf("command pattern must not match non-exec tools, got %q", got)
 	}
-	if !h.needsApproval("write_file", map[string]any{"path": "/x"}) {
-		t.Fatal("tool: prefix must match the tool name")
+	if got := h.matchedAskPattern("write_file", map[string]any{"path": "/x"}); got != "tool:write_file" {
+		t.Fatalf("tool: prefix must match the tool name, got %q", got)
 	}
-	if h.needsApproval("exec", map[string]any{"command": "write_file"}) {
-		t.Fatal("command text that merely names a tool must not trip the tool rule")
+	if got := h.matchedAskPattern("exec", map[string]any{"command": "write_file"}); got != "" {
+		t.Fatalf("command text that merely names a tool must not trip the tool rule, got %q", got)
 	}
 
 	// Non-matching call approves immediately (no pending registered).
@@ -299,5 +299,94 @@ func TestApproval_MountWiringAndTimeoutBump(t *testing.T) {
 	al.UnmountHook(approvalHookName)
 	if al.approvalHook != nil {
 		t.Fatal("unmount must clear the loop-side reference")
+	}
+}
+
+// TestApproval_SessionAlwaysAllow pins the "always" flow (二期): /approve
+// always (or 总是允许) approves the pending call AND promotes the matched
+// pattern to session scope, so later matches auto-approve without asking —
+// until the TTL expires.
+func TestApproval_SessionAlwaysAllow(t *testing.T) {
+	// Parse matrix for the always forms.
+	cases := []struct {
+		content  string
+		approved bool
+		always   bool
+		ok       bool
+	}{
+		{"/approve always", true, true, true},
+		{"/APPROVE ALWAYS", true, true, true},
+		{"总是允许", true, true, true},
+		{"/approve", true, false, true},
+		{"/deny always", false, false, false}, // deny has no always form
+		{"/approve always extra", false, false, false},
+		{"/approve always吧", false, false, false},
+	}
+	for _, tc := range cases {
+		a, aw, ok := parseApprovalReply(tc.content)
+		if a != tc.approved || aw != tc.always || ok != tc.ok {
+			t.Fatalf("parseApprovalReply(%q) = (%v,%v,%v), want (%v,%v,%v)",
+				tc.content, a, aw, ok, tc.approved, tc.always, tc.ok)
+		}
+	}
+
+	// Full chain: answer with always → rule added → next call auto-approves
+	// without registering a waiter.
+	h := approvalTestHook(t, `{"ask_patterns":["git push"]}`)
+
+	// Direct rule-API semantics: active after add, inactive for other
+	// patterns/sessions, and expired entries are pruned.
+	h.addSessionRule("s-alw", "git push")
+	if !h.ruleActive("s-alw", "git push") {
+		t.Fatal("rule must be active after add")
+	}
+	if h.ruleActive("s-alw", "systemctl restart") {
+		t.Fatal("unrelated pattern must not ride the session rule")
+	}
+	if h.ruleActive("other-session", "git push") {
+		t.Fatal("session rules must not leak across sessions")
+	}
+	loaded, _ := h.sessionRules.Load("s-alw")
+	set := loaded.(*sessionRuleSet)
+	set.mu.Lock()
+	set.rules["git push"] = time.Now().Add(-time.Second)
+	set.mu.Unlock()
+	if h.ruleActive("s-alw", "git push") {
+		t.Fatal("expired rule must be pruned")
+	}
+
+	// Auto-approve path: an active rule approves immediately, no waiter.
+	h.addSessionRule("s-alw", "git push")
+	start := time.Now()
+	d, err := h.ApproveTool(context.Background(), approvalTestRequest("s-alw", "feishu"))
+	if err != nil {
+		t.Fatalf("ApproveTool: %v", err)
+	}
+	if !d.Approved {
+		t.Fatalf("session rule must auto-approve, got %q", d.Reason)
+	}
+	if time.Since(start) > time.Second {
+		t.Fatal("auto-approve must be immediate")
+	}
+	if _, exists := h.pending.Load("s-alw"); exists {
+		t.Fatal("auto-approve must not register a waiter")
+	}
+
+	// Routing side: "/approve always" resolves the waiter AND registers the
+	// pending call's pattern.
+	al, _, cleanup := newTurnCoordTestLoop(t, &summarizeStubProvider{})
+	defer cleanup()
+	al.approvalHook = h
+	ch := make(chan approvalReply, 1)
+	h.pending.Store("s-alw2", &pendingApproval{resolve: ch, channel: "feishu", chatID: "c", pattern: "git push"})
+	if !al.tryHandleApprovalReply(context.Background(),
+		bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "/approve always"}, "s-alw2") {
+		t.Fatal("/approve always must be consumed")
+	}
+	if reply := <-ch; !reply.approved || !reply.always {
+		t.Fatal("waiter must receive approved+always")
+	}
+	if !h.ruleActive("s-alw2", "git push") {
+		t.Fatal("/approve always must promote the matched pattern to session scope")
 	}
 }

@@ -58,26 +58,50 @@ type approvalHookConfig struct {
 	TimeoutMS int `json:"timeout_ms"`
 }
 
+// approvalReply carries the user's answer; always asks the waiter's owner
+// to remember the matched rule for the rest of the session.
 type approvalReply struct {
 	approved bool
+	always   bool
 }
 
 // pendingApproval is one session's in-flight approval waiter. channel/chatID
 // pin WHERE the question was asked: replies arriving from a different
 // channel/chat are not accepted as answers (M1 hardening) — they keep
-// flowing to steering instead.
+// flowing to steering instead. pattern is the ask pattern that matched, so
+// an "always" answer can promote exactly that rule to session scope.
 type pendingApproval struct {
 	resolve chan approvalReply
 	channel string
 	chatID  string
+	pattern string
+}
+
+// approvalSessionRuleTTL bounds how long an "always" answer keeps
+// auto-approving its rule: session-scoped, in-memory, expired rather than
+// persisted — a restart or a quiet half-day re-arms the question.
+const approvalSessionRuleTTL = 6 * time.Hour
+
+// sessionRuleSet holds one session's always-allow ask patterns.
+type sessionRuleSet struct {
+	mu    sync.Mutex
+	rules map[string]time.Time // ask pattern -> expiry
+}
+
+// askRule pairs a compiled ask regex with its configured pattern text; the
+// text is what session always-rules remember and report back to the user.
+type askRule struct {
+	pattern string
+	re      *regexp.Regexp
 }
 
 // approvalHook implements ToolApprover for config-driven HITL approval.
 type approvalHook struct {
-	commandAsk []*regexp.Regexp // matched against the exec command string
-	toolAsk    []*regexp.Regexp // matched against the tool name ("tool:" prefix)
-	timeout    time.Duration
-	pending    sync.Map // sessionKey -> chan approvalReply (cap 1)
+	commandAsk   []askRule // matched against the exec command string
+	toolAsk      []askRule // matched against the tool name ("tool:" prefix)
+	timeout      time.Duration
+	pending      sync.Map // sessionKey -> *pendingApproval
+	sessionRules sync.Map // sessionKey -> *sessionRuleSet (always-allow, TTL-bounded)
 }
 
 func init() {
@@ -113,38 +137,76 @@ func newApprovalHookFromConfig(raw json.RawMessage) (*approvalHook, error) {
 			if err != nil {
 				return nil, fmt.Errorf("approval tool ask pattern %q: %w", pattern, err)
 			}
-			h.toolAsk = append(h.toolAsk, re)
+			h.toolAsk = append(h.toolAsk, askRule{pattern: pattern, re: re})
 			continue
 		}
 		re, err := regexp.Compile(pattern)
 		if err != nil {
 			return nil, fmt.Errorf("approval ask pattern %q: %w", pattern, err)
 		}
-		h.commandAsk = append(h.commandAsk, re)
+		h.commandAsk = append(h.commandAsk, askRule{pattern: pattern, re: re})
 	}
 	return h, nil
 }
 
-// needsApproval reports whether the call matches an ask pattern.
-func (h *approvalHook) needsApproval(tool string, args map[string]any) bool {
-	for _, re := range h.toolAsk {
-		if re.MatchString(tool) {
-			return true
+// matchedAskPattern returns the ask pattern that requires approval for this
+// call, or "" when the call needs none. Command patterns match the exec
+// command string; "tool:" patterns match the tool name.
+func (h *approvalHook) matchedAskPattern(tool string, args map[string]any) string {
+	for _, rule := range h.toolAsk {
+		if rule.re.MatchString(tool) {
+			return rule.pattern
 		}
 	}
 	if len(h.commandAsk) == 0 {
-		return false
+		return ""
 	}
 	command, _ := args["command"].(string)
 	if strings.TrimSpace(command) == "" {
-		return false
+		return ""
 	}
-	for _, re := range h.commandAsk {
-		if re.MatchString(command) {
-			return true
+	for _, rule := range h.commandAsk {
+		if rule.re.MatchString(command) {
+			return rule.pattern
 		}
 	}
-	return false
+	return ""
+}
+
+// ruleActive reports whether the session carries a live always-allow rule
+// for the pattern, pruning it lazily on expiry.
+func (h *approvalHook) ruleActive(sessionKey, pattern string) bool {
+	loaded, ok := h.sessionRules.Load(sessionKey)
+	if !ok {
+		return false
+	}
+	set, ok := loaded.(*sessionRuleSet)
+	if !ok {
+		return false
+	}
+	set.mu.Lock()
+	defer set.mu.Unlock()
+	expiry, ok := set.rules[pattern]
+	if !ok {
+		return false
+	}
+	if time.Now().After(expiry) {
+		delete(set.rules, pattern)
+		return false
+	}
+	return true
+}
+
+// addSessionRule promotes an ask pattern to session-scope auto-approve.
+func (h *approvalHook) addSessionRule(sessionKey, pattern string) {
+	loaded, _ := h.sessionRules.LoadOrStore(sessionKey, &sessionRuleSet{rules: make(map[string]time.Time)})
+	set, ok := loaded.(*sessionRuleSet)
+	if !ok {
+		return
+	}
+	set.mu.Lock()
+	defer set.mu.Unlock()
+	set.rules[pattern] = time.Now().Add(approvalSessionRuleTTL)
 }
 
 // ApproveTool implements ToolApprover. Runs inside HookManager's
@@ -154,7 +216,8 @@ func (h *approvalHook) ApproveTool(ctx context.Context, req *ToolApprovalRequest
 	if req == nil {
 		return ApprovalDecision{Approved: true}, nil
 	}
-	if !h.needsApproval(req.Tool, req.Arguments) {
+	pattern := h.matchedAskPattern(req.Tool, req.Arguments)
+	if pattern == "" {
 		return ApprovalDecision{Approved: true}, nil
 	}
 
@@ -177,8 +240,19 @@ func (h *approvalHook) ApproveTool(ctx context.Context, req *ToolApprovalRequest
 		}, nil
 	}
 
+	// Session-scoped always-allow (from a previous "/approve always"):
+	// auto-approve without asking. TTL-bounded in-memory only.
+	if h.ruleActive(sessionKey, pattern) {
+		logger.DebugCF("agent", "Approval auto-allowed by session rule", map[string]any{
+			"session_key": sessionKey,
+			"pattern":     pattern,
+			"tool":        req.Tool,
+		})
+		return ApprovalDecision{Approved: true}, nil
+	}
+
 	resolve := make(chan approvalReply, 1)
-	waiter := &pendingApproval{resolve: resolve, channel: channel, chatID: chatID}
+	waiter := &pendingApproval{resolve: resolve, channel: channel, chatID: chatID, pattern: pattern}
 	if prev, loaded := h.pending.Swap(sessionKey, waiter); loaded {
 		// The tool loop is serial per session, so this only happens with a
 		// misbehaving parallel path: deny the stale waiter instead of
@@ -258,7 +332,7 @@ func (h *approvalHook) publishAsk(ctx context.Context, req *ToolApprovalRequest,
 	if preview != "" {
 		content += "\n" + preview
 	}
-	content += fmt.Sprintf("\n\n回复 /approve 允许、/deny 拒绝（超过 %s 未回复将按拒绝处理）", h.timeout)
+	content += fmt.Sprintf("\n\n回复 /approve 允许、/approve always 本会话内不再询问、/deny 拒绝（超过 %s 未回复将按拒绝处理）", h.timeout)
 
 	publishCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -273,35 +347,48 @@ func (h *approvalHook) publishAsk(ctx context.Context, req *ToolApprovalRequest,
 }
 
 // parseApprovalReply recognizes explicit user answers only: /approve /deny
-// (plus yes/no aliases and Chinese 同意/拒绝/批准). A command form only
-// counts when it is the ENTIRE message — "/approve 请继续删库" carries extra
+// (plus yes/no aliases and Chinese 同意/拒绝/批准), and the always-allow
+// forms "/approve always" / "总是允许" which additionally promote the matched
+// rule to session scope. A command form only counts when it is the ENTIRE
+// message (or exactly command+always) — "/approve 请继续删库" carries extra
 // intent and must not silently approve (fail-closed: better to ask again
-// than to mis-approve). Anything else returns ok=false so the message keeps
-// flowing to steering.
-func parseApprovalReply(content string) (approved, ok bool) {
+// than to mis-approve). Deny has no always form: refusals stay per-call.
+// Anything else returns ok=false so the message keeps flowing to steering.
+func parseApprovalReply(content string) (approved, always, ok bool) {
 	trimmed := strings.TrimSpace(content)
 	if trimmed == "" {
-		return false, false
+		return false, false, false
 	}
+	fields := strings.Fields(trimmed)
 	if name, isCmd := commands.CommandName(trimmed); isCmd {
-		if len(strings.Fields(trimmed)) != 1 {
-			return false, false // command plus trailing content — not an answer
+		if len(fields) == 2 && strings.EqualFold(fields[1], "always") {
+			if strings.ToLower(name) == "approve" {
+				return true, true, true
+			}
+			return false, false, false
+		}
+		if len(fields) != 1 {
+			return false, false, false // command plus trailing content — not an answer
 		}
 		switch strings.ToLower(name) {
 		case "approve", "yes":
-			return true, true
+			return true, false, true
 		case "deny", "no":
-			return false, true
+			return false, false, true
 		}
-		return false, false
+		return false, false, false
 	}
-	switch trimmed {
-	case "同意", "批准":
-		return true, true
-	case "拒绝":
-		return false, true
+	if len(fields) == 1 {
+		switch trimmed {
+		case "同意", "批准":
+			return true, false, true
+		case "拒绝":
+			return false, false, true
+		case "总是允许":
+			return true, true, true
+		}
 	}
-	return false, false
+	return false, false, false
 }
 
 // tryHandleApprovalReply runs in the inbound pump BEFORE steering enqueue:
@@ -316,7 +403,7 @@ func (al *AgentLoop) tryHandleApprovalReply(ctx context.Context, msg bus.Inbound
 	if hook == nil {
 		return false
 	}
-	approved, ok := parseApprovalReply(msg.Content)
+	approved, always, ok := parseApprovalReply(msg.Content)
 	if !ok {
 		return false
 	}
@@ -337,7 +424,7 @@ func (al *AgentLoop) tryHandleApprovalReply(ctx context.Context, msg bus.Inbound
 		return false
 	}
 	select {
-	case p.resolve <- approvalReply{approved: approved}:
+	case p.resolve <- approvalReply{approved: approved, always: always}:
 	default:
 		return false // already resolved by another reply
 	}
@@ -345,6 +432,11 @@ func (al *AgentLoop) tryHandleApprovalReply(ctx context.Context, msg bus.Inbound
 	receipt := "⛔ 已拒绝本次工具执行。"
 	if approved {
 		receipt = "✅ 已批准，继续执行。"
+		if always && p.pattern != "" {
+			hook.addSessionRule(sessionKey, p.pattern)
+			receipt = fmt.Sprintf("✅ 已批准；本会话内命中规则 %q 的调用将自动放行（约 %d 小时后或重启失效）。",
+				p.pattern, int(approvalSessionRuleTTL.Hours()))
+		}
 	}
 	publishCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -358,6 +450,7 @@ func (al *AgentLoop) tryHandleApprovalReply(ctx context.Context, msg bus.Inbound
 	logger.InfoCF("agent", "Approval reply routed", map[string]any{
 		"session_key": sessionKey,
 		"approved":    approved,
+		"always":      always,
 	})
 	return true
 }
