@@ -480,6 +480,57 @@ func (c *FeishuChannel) handleCardAction(_ context.Context, event *callback.Card
 			"sender":  operatorOpenID,
 		})
 		return toast("success", "已发送停止指令"), nil
+	case feishuApprovalApproveCmd, feishuApprovalAlwaysCmd, feishuApprovalDenyCmd:
+		content, ok := feishuApprovalSynthContent(cmd)
+		if !ok {
+			return toast("error", "无法识别的审批操作"), nil
+		}
+		if chatID == "" {
+			logger.WarnCF("feishu", "approval card action refused: missing chat_id in callback value", nil)
+			return toast("error", "卡片缺少会话信息"), nil
+		}
+		inboundCtx := bus.InboundContext{
+			Channel:  "feishu",
+			ChatID:   chatID,
+			SenderID: operatorOpenID,
+		}
+		// Detached context (same as /stop): the approval reply is downstream
+		// of the callback frame. The synthesized protocol token routes in the
+		// agent pump BEFORE steering (tryHandleApprovalReply); a late click
+		// after the question expired is dropped there with a receipt.
+		if err := c.HandleInboundContext(context.Background(), chatID, content, nil, inboundCtx, sender); err != nil {
+			logger.WarnCF("feishu", "approval card: reply enqueue failed", map[string]any{
+				"chat_id": chatID,
+				"cmd":     cmd,
+				"error":   err.Error(),
+			})
+			return toast("error", "审批回复发送失败"), nil
+		}
+		// Seal the prompt card (buttons removed) so the question cannot be
+		// answered twice. The callback event carries the card's message id;
+		// sealing is best-effort and never fails the reply.
+		if event.Event.Context != nil {
+			sealCtx, sealCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer sealCancel()
+			sealChatID := chatID
+			if event.Event.Context.OpenChatID != "" {
+				sealChatID = event.Event.Context.OpenChatID
+			}
+			c.sealApprovalCard(sealCtx, sealChatID, event.Event.Context.OpenMessageID, cmd != feishuApprovalDenyCmd)
+		}
+		logger.InfoCF("feishu", "approval card clicked; reply enqueued", map[string]any{
+			"chat_id": chatID,
+			"cmd":     cmd,
+			"sender":  operatorOpenID,
+		})
+		switch cmd {
+		case feishuApprovalApproveCmd:
+			return toast("success", "已批准，继续执行"), nil
+		case feishuApprovalAlwaysCmd:
+			return toast("success", "已批准；本会话内同类操作不再询问"), nil
+		default:
+			return toast("success", "已拒绝本次执行"), nil
+		}
 	default:
 		logger.InfoCF("feishu", "card action ignored: unknown cmd", map[string]any{"cmd": cmd})
 		return toast("info", "未知操作"), nil

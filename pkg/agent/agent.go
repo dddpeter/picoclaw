@@ -203,6 +203,15 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 				continue
 			}
 
+			// Approval protocol tokens (/approve /deny and aliases — typed
+			// or synthesized by the feishu approval card buttons) route here
+			// ahead of everything else: they resolve a pending waiter or are
+			// dropped as stale, and never enter the model context (fork, §一
+			// approval hook).
+			if al.tryHandleApprovalReply(ctx, msg, sessionKey) {
+				continue
+			}
+
 			// Atomically claim the session key with a unique placeholder sentinel
 			// to prevent a TOCTOU race where multiple messages for the same session
 			// pass the Load check before either registers.
@@ -215,13 +224,6 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 			}
 			if _, loaded := al.activeTurnStates.LoadOrStore(sessionKey, placeholder); loaded {
 				if al.tryHandleStopCommand(ctx, msg, sessionKey) {
-					continue
-				}
-
-				// Approval replies (/approve /deny) resolve pending HITL
-				// waiters and must never enter the model context — route
-				// them before the steering enqueue (fork, §一 approval hook).
-				if al.tryHandleApprovalReply(ctx, msg, sessionKey) {
 					continue
 				}
 

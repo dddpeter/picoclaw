@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
+	"github.com/sipeed/picoclaw/pkg/channels"
 	"github.com/sipeed/picoclaw/pkg/commands"
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/constants"
@@ -439,9 +440,13 @@ func approvalCallPreview(req *ToolApprovalRequest) string {
 	return ""
 }
 
-// publishAsk sends the approval question to the session's channel. Publish
-// runs on a detached 5s-bounded context so a cancelled turn cannot also
-// cancel the question the user still needs to see.
+// publishAsk asks the session's channel to render the approval question.
+// Channels implementing ApprovalPromptCapable (feishu) get an interactive
+// card with buttons; the clicks synthesize /approve /deny through the normal
+// inbound path. Anything else — other channels, or a card-render failure —
+// falls back to the plain text prompt. Publish runs on a detached 5s-bounded
+// context so a cancelled turn cannot also cancel the question the user still
+// needs to see.
 func (h *approvalHook) publishAsk(ctx context.Context, req *ToolApprovalRequest, channel, chatID string) {
 	al := AgentLoopFromContext(ctx)
 	if al == nil || al.bus == nil {
@@ -451,15 +456,38 @@ func (h *approvalHook) publishAsk(ctx context.Context, req *ToolApprovalRequest,
 		})
 		return
 	}
-	preview := approvalCallPreview(req)
-	content := fmt.Sprintf("⚠️ 需要批准：即将执行工具 %s", req.Tool)
-	if preview != "" {
-		content += "\n" + preview
+	prompt := channels.ApprovalPrompt{
+		SessionKey: req.Meta.SessionKey,
+		AgentID:    req.Meta.AgentID,
+		Tool:       req.Tool,
+		Preview:    approvalCallPreview(req),
+		Timeout:    h.timeout,
 	}
-	content += fmt.Sprintf("\n\n回复 /approve 允许、/approve always 本会话内不再询问、/deny 拒绝（超过 %s 未回复将按拒绝处理）", h.timeout)
 
 	publishCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	if al.channelManager != nil {
+		if ch, ok := al.channelManager.GetChannel(channel); ok {
+			if pc, ok := ch.(channels.ApprovalPromptCapable); ok {
+				if err := pc.ShowApprovalPrompt(publishCtx, chatID, prompt); err == nil {
+					return
+				} else {
+					logger.WarnCF("agent", "Approval prompt card failed; falling back to text", map[string]any{
+						"channel": channel,
+						"session": req.Meta.SessionKey,
+						"error":   err.Error(),
+					})
+				}
+			}
+		}
+	}
+
+	content := fmt.Sprintf("⚠️ 需要批准：即将执行工具 %s", req.Tool)
+	if prompt.Preview != "" {
+		content += "\n" + prompt.Preview
+	}
+	content += fmt.Sprintf("\n\n回复 /approve 允许、/approve always 本会话内不再询问、/deny 拒绝（超过 %s 未回复将按拒绝处理）", h.timeout)
+
 	_ = al.bus.PublishOutbound(publishCtx, bus.OutboundMessage{
 		Channel:    channel,
 		ChatID:     chatID,
@@ -515,13 +543,15 @@ func parseApprovalReply(content string) (approved, always, ok bool) {
 	return false, false, false
 }
 
-// tryHandleApprovalReply runs in the inbound pump BEFORE steering enqueue:
-// when the session has a pending approval and the message parses as an
-// explicit answer FROM THE SAME CHANNEL/CHAT the question was asked in,
-// resolve the waiter and consume the message (it must not enter the model
-// context). Replies from other surfaces fall through to steering — a
-// different chat must not be able to approve another chat's pending tool.
-// Returns true when consumed.
+// tryHandleApprovalReply runs in the inbound pump BEFORE the turn-state
+// claim (so it covers both an active approval wait and stale tokens arriving
+// after the turn ended): an explicit answer FROM THE SAME CHANNEL/CHAT the
+// question was asked in resolves the waiter and is consumed (never enters
+// the model context). Stale tokens — a late button click after the question
+// expired or was answered — are dropped with a receipt for the same reason.
+// Replies from other surfaces fall through to steering — a different chat
+// must not be able to approve another chat's pending tool (M1).
+// Returns true when the message was consumed.
 func (al *AgentLoop) tryHandleApprovalReply(ctx context.Context, msg bus.InboundMessage, sessionKey string) bool {
 	hook := al.approvalHook
 	if hook == nil {
@@ -533,7 +563,15 @@ func (al *AgentLoop) tryHandleApprovalReply(ctx context.Context, msg bus.Inbound
 	}
 	loaded, exists := hook.pending.Load(sessionKey)
 	if !exists {
-		return false
+		// Orphan approval token (late click / typed reply after the question
+		// expired or was already answered): drop with a receipt instead of
+		// leaking the protocol word into steering or a fresh turn.
+		al.publishApprovalReceipt(ctx, msg, "当前没有待批准的操作，本次回复已忽略。")
+		logger.InfoCF("agent", "Orphan approval reply dropped", map[string]any{
+			"session_key": sessionKey,
+			"content":     msg.Content,
+		})
+		return true
 	}
 	p, ok := loaded.(*pendingApproval)
 	if !ok {
@@ -562,19 +600,28 @@ func (al *AgentLoop) tryHandleApprovalReply(ctx context.Context, msg bus.Inbound
 				p.pattern, int(approvalSessionRuleTTL.Hours()))
 		}
 	}
-	publishCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_ = al.bus.PublishOutbound(publishCtx, bus.OutboundMessage{
-		Channel:    msg.Channel,
-		ChatID:     msg.ChatID,
-		Context:    outboundContextFromInbound(nil, msg.Channel, msg.ChatID, ""),
-		SessionKey: sessionKey,
-		Content:    receipt,
-	})
+	al.publishApprovalReceipt(ctx, msg, receipt)
 	logger.InfoCF("agent", "Approval reply routed", map[string]any{
 		"session_key": sessionKey,
 		"approved":    approved,
 		"always":      always,
 	})
 	return true
+}
+
+// publishApprovalReceipt sends a short user-facing confirmation for an
+// approval answer (or its drop) on the surface the reply came from.
+func (al *AgentLoop) publishApprovalReceipt(ctx context.Context, msg bus.InboundMessage, content string) {
+	if al.bus == nil {
+		return
+	}
+	publishCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = al.bus.PublishOutbound(publishCtx, bus.OutboundMessage{
+		Channel:    msg.Channel,
+		ChatID:     msg.ChatID,
+		Context:    outboundContextFromInbound(nil, msg.Channel, msg.ChatID, ""),
+		SessionKey: msg.SessionKey,
+		Content:    content,
+	})
 }

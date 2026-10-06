@@ -257,9 +257,11 @@ func TestApprovalReply_RoutedBeforeSteering(t *testing.T) {
 		t.Fatal("free-form text must fall through to steering")
 	}
 
-	// Reply-shaped message with no waiter falls through too.
-	if al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{Content: "/approve"}, "no-such-session") {
-		t.Fatal("no waiter must not consume")
+	// Reply-shaped message with no waiter is an ORPHAN: dropped with a
+	// receipt so the protocol word never reaches steering or a fresh turn
+	// (stale button clicks land here after the question expired).
+	if !al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "/approve"}, "no-such-session") {
+		t.Fatal("orphan approval token must be consumed (dropped with receipt)")
 	}
 }
 

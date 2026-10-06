@@ -2,6 +2,7 @@ package channels
 
 import (
 	"context"
+	"time"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/commands"
@@ -97,4 +98,27 @@ type PlaceholderRecorder interface {
 // Channels that do not support platform-level command menus can ignore it.
 type CommandRegistrarCapable interface {
 	RegisterCommands(ctx context.Context, defs []commands.Definition) error
+}
+
+// ApprovalPrompt describes one pending tool-approval question for channels
+// that can render it as an interactive card.
+type ApprovalPrompt struct {
+	SessionKey string
+	AgentID    string
+	Tool       string
+	// Preview is the command (or argument JSON) about to run, already
+	// bounded in length by the agent side.
+	Preview string
+	// Timeout is how long the agent will wait for an answer before
+	// failing closed; show it so the user knows the question expires.
+	Timeout time.Duration
+}
+
+// ApprovalPromptCapable is implemented by channels that render approval
+// prompts as interactive cards (buttons) instead of plain text. The agent
+// falls back to a text prompt when the target channel does not implement it
+// or when rendering fails. Button clicks route back as the approval protocol
+// replies (/approve /deny) through the normal inbound path.
+type ApprovalPromptCapable interface {
+	ShowApprovalPrompt(ctx context.Context, chatID string, prompt ApprovalPrompt) error
 }
