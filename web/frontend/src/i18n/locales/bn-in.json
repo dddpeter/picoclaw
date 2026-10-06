@@ -19,8 +19,9 @@
     "mcp": "MCP",
     "services": "সার্ভিস",
     "channels_group": "চ্যানেল",
-    "show_more_channels": "আরও",
-    "show_less_channels": "কম",
+    "all_channels": "সব চ্যানেল",
+    "search_channels": "চ্যানেল খুঁজুন…",
+    "no_channels_found": "কোনো চ্যানেল পাওয়া যায়নি",
     "config": "কনফিগ",
     "logs": "লগ"
   },

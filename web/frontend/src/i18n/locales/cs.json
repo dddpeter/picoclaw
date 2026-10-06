@@ -19,8 +19,9 @@
     "mcp": "MCP",
     "services": "Služby",
     "channels_group": "Kanály",
-    "show_more_channels": "Více",
-    "show_less_channels": "Méně",
+    "all_channels": "Všechny kanály",
+    "search_channels": "Hledat kanály…",
+    "no_channels_found": "Žádné kanály nenalezeny",
     "config": "Nastavení",
     "logs": "Logy"
   },

@@ -19,8 +19,9 @@
     "mcp": "MCP",
     "services": "Serviços",
     "channels_group": "Canais",
-    "show_more_channels": "Mais",
-    "show_less_channels": "Menos",
+    "all_channels": "Todos os canais",
+    "search_channels": "Buscar canais…",
+    "no_channels_found": "Nenhum canal encontrado",
     "config": "Configuração",
     "logs": "Logs"
   },

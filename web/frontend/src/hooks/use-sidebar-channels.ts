@@ -27,7 +27,8 @@ import {
 import { getChannelDisplayName } from "@/components/channels/channel-display-name"
 import { gatewayAtom } from "@/store/gateway"
 
-const DEFAULT_VISIBLE_CHANNELS = 4
+// 侧边栏平铺区最多直接展示的频道数；其余频道通过"全部频道"搜索面板访问。
+const MAX_PINNED_CHANNELS = 8
 const CHANNEL_IMPORTANCE_TAIL = [
   "slack",
   "line",
@@ -116,7 +117,11 @@ function buildChannelEnabledMap(
   channels: SupportedChannel[],
   appConfig: AppConfig,
 ): Record<string, boolean> {
-  const channelsConfig = asRecord(asRecord(appConfig).channels)
+  // v3 配置的键是 channel_list；旧版（v1/v2）是 channels，保持兼容。
+  const root = asRecord(appConfig)
+  const channelsConfig = asRecord(
+    root.channel_list !== undefined ? root.channel_list : root.channels,
+  )
   const result: Record<string, boolean> = {}
   for (const channel of channels) {
     result[channel.name] = isChannelEnabled(channel, channelsConfig)
@@ -129,20 +134,26 @@ export interface SidebarChannelNavItem {
   title: string
   url: string
   icon: React.ComponentType<{ className?: string }>
+  enabled: boolean
 }
 
 interface UseSidebarChannelsOptions {
   language: string
   t: TFunction
+  /** 当前路由指向的频道名（/channels/<name>）；该频道即使未启用也保证平铺可见。 */
+  activeChannelName?: string | null
 }
 
-export function useSidebarChannels({ language, t }: UseSidebarChannelsOptions) {
+export function useSidebarChannels({
+  language,
+  t,
+  activeChannelName,
+}: UseSidebarChannelsOptions) {
   const gateway = useAtomValue(gatewayAtom)
   const [channels, setChannels] = React.useState<SupportedChannel[]>([])
   const [enabledMap, setEnabledMap] = React.useState<Record<string, boolean>>(
     {},
   )
-  const [showAllChannels, setShowAllChannels] = React.useState(false)
 
   const reloadChannels = React.useCallback((shouldApply?: () => boolean) => {
     Promise.all([
@@ -212,30 +223,47 @@ export function useSidebarChannels({ language, t }: UseSidebarChannelsOptions) {
     return list
   }, [channelImportanceIndex, channels, enabledMap, t])
 
-  const hasMoreChannels = sortedChannels.length > DEFAULT_VISIBLE_CHANNELS
-  const visibleChannels = showAllChannels
-    ? sortedChannels
-    : sortedChannels.slice(0, DEFAULT_VISIBLE_CHANNELS)
-
-  const channelItems = React.useMemo<SidebarChannelNavItem[]>(
-    () =>
-      visibleChannels.map((channel) => ({
-        key: channel.name,
-        title: getChannelDisplayName(channel, t),
-        url: `/channels/${channel.name}`,
-        icon: CHANNEL_ICON_MAP[channel.name] ?? IconPlug,
-      })),
-    [t, visibleChannels],
+  const toNavItem = React.useCallback(
+    (channel: SupportedChannel): SidebarChannelNavItem => ({
+      key: channel.name,
+      title: getChannelDisplayName(channel, t),
+      url: `/channels/${channel.name}`,
+      icon: CHANNEL_ICON_MAP[channel.name] ?? IconPlug,
+      enabled: enabledMap[channel.name] === true,
+    }),
+    [enabledMap, t],
   )
 
-  const toggleShowAllChannels = React.useCallback(() => {
-    setShowAllChannels((prev) => !prev)
-  }, [])
+  // 平铺区 = 已启用的频道（截断到上限）+ 当前路由命中的频道（保证高亮可见）。
+  const pinnedChannelItems = React.useMemo<SidebarChannelNavItem[]>(() => {
+    const pinned = sortedChannels
+      .filter((channel) => enabledMap[channel.name] === true)
+      .slice(0, MAX_PINNED_CHANNELS)
+      .map(toNavItem)
+
+    if (activeChannelName) {
+      const active = sortedChannels.find(
+        (channel) => channel.name === activeChannelName,
+      )
+      if (active && !pinned.some((item) => item.key === active.name)) {
+        if (pinned.length >= MAX_PINNED_CHANNELS) {
+          pinned[pinned.length - 1] = toNavItem(active)
+        } else {
+          pinned.push(toNavItem(active))
+        }
+      }
+    }
+
+    return pinned
+  }, [activeChannelName, enabledMap, sortedChannels, toNavItem])
+
+  const allChannelItems = React.useMemo(
+    () => sortedChannels.map(toNavItem),
+    [sortedChannels, toNavItem],
+  )
 
   return {
-    channelItems,
-    hasMoreChannels,
-    showAllChannels,
-    toggleShowAllChannels,
+    pinnedChannelItems,
+    allChannelItems,
   }
 }

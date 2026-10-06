@@ -19,8 +19,9 @@
     "mcp": "MCP",
     "services": "服务",
     "channels_group": "频道",
-    "show_more_channels": "更多",
-    "show_less_channels": "收起",
+    "all_channels": "全部频道",
+    "search_channels": "搜索频道…",
+    "no_channels_found": "未找到频道",
     "config": "配置",
     "logs": "日志",
     "plugins": "插件"

@@ -1,8 +1,10 @@
-import { IconChevronRight } from "@tabler/icons-react"
+import {
+  IconCheck,
+  IconChevronRight,
+  IconLayoutGrid,
+} from "@tabler/icons-react"
 import {
   IconAtom,
-  IconChevronsDown,
-  IconChevronsUp,
   IconKey,
   IconListDetails,
   IconMessageCircle,
@@ -13,7 +15,7 @@ import {
   IconSparkles,
   IconTools,
 } from "@tabler/icons-react"
-import { Link, useRouterState } from "@tanstack/react-router"
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 
@@ -22,6 +24,19 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import {
   Sidebar,
   SidebarContent,
@@ -41,6 +56,8 @@ interface NavItem {
   url: string
   icon: React.ComponentType<{ className?: string }>
   translateTitle?: boolean
+  /** 仅频道项使用：是否已在配置中启用（用于状态点）。 */
+  enabled?: boolean
 }
 
 interface NavGroup {
@@ -71,17 +88,24 @@ const baseNavGroups: Omit<NavGroup, "items">[] = [
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const routerState = useRouterState()
+  const navigate = useNavigate()
   const { i18n, t } = useTranslation()
   const { isMobile, setOpenMobile } = useSidebar()
   const currentPath = routerState.location.pathname
-  const {
-    channelItems,
-    hasMoreChannels,
-    showAllChannels,
-    toggleShowAllChannels,
-  } = useSidebarChannels({
+  const [channelPickerOpen, setChannelPickerOpen] = React.useState(false)
+
+  const activeChannelName = React.useMemo(() => {
+    const segments = currentPath.split("/").filter(Boolean)
+    if (segments.length >= 2 && segments[0] === "channels") {
+      return decodeURIComponent(segments[1])
+    }
+    return null
+  }, [currentPath])
+
+  const { pinnedChannelItems, allChannelItems } = useSidebarChannels({
     language: (i18n.resolvedLanguage ?? i18n.language ?? "").toLowerCase(),
     t,
+    activeChannelName,
   })
 
   const handleNavItemClick = React.useCallback(() => {
@@ -89,6 +113,15 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       setOpenMobile(false)
     }
   }, [isMobile, setOpenMobile])
+
+  const handleChannelPick = React.useCallback(
+    (url: string) => {
+      setChannelPickerOpen(false)
+      handleNavItemClick()
+      void navigate({ to: url })
+    },
+    [handleNavItemClick, navigate],
+  )
 
   const navGroups: NavGroup[] = React.useMemo(() => {
     return [
@@ -123,11 +156,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       {
         label: "navigation.channels_group",
         defaultOpen: true,
-        items: channelItems.map((item) => ({
+        items: pinnedChannelItems.map((item) => ({
           title: item.title,
           url: item.url,
           icon: item.icon,
           translateTitle: false,
+          enabled: item.enabled,
         })),
         isChannelsGroup: true,
       },
@@ -184,7 +218,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         ],
       },
     ]
-  }, [channelItems])
+  }, [pinnedChannelItems])
 
   return (
     <Sidebar
@@ -237,28 +271,71 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                   ? item.title
                                   : t(item.title)}
                               </span>
+                              {group.isChannelsGroup && item.enabled && (
+                                <span
+                                  aria-hidden
+                                  className="ml-auto size-1.5 shrink-0 rounded-full bg-emerald-500"
+                                />
+                              )}
                             </Link>
                           </SidebarMenuButton>
                         </SidebarMenuItem>
                       )
                     })}
-                    {group.isChannelsGroup && hasMoreChannels && (
-                      <SidebarMenuItem key="channels-more-toggle">
-                        <SidebarMenuButton
-                          onClick={toggleShowAllChannels}
-                          className="text-muted-foreground hover:bg-muted/60 h-9 px-3"
+                    {group.isChannelsGroup && (
+                      <SidebarMenuItem key="channels-picker">
+                        <Popover
+                          open={channelPickerOpen}
+                          onOpenChange={setChannelPickerOpen}
                         >
-                          {showAllChannels ? (
-                            <IconChevronsUp className="size-4 opacity-60" />
-                          ) : (
-                            <IconChevronsDown className="size-4 opacity-60" />
-                          )}
-                          <span className="opacity-80">
-                            {showAllChannels
-                              ? t("navigation.show_less_channels")
-                              : t("navigation.show_more_channels")}
-                          </span>
-                        </SidebarMenuButton>
+                          <PopoverTrigger asChild>
+                            <SidebarMenuButton
+                              title={t("navigation.all_channels")}
+                              className="text-muted-foreground hover:bg-muted/60 h-9 px-3"
+                            >
+                              <IconLayoutGrid className="size-4 opacity-60" />
+                              <span className="opacity-80">
+                                {t("navigation.all_channels")}
+                              </span>
+                            </SidebarMenuButton>
+                          </PopoverTrigger>
+                          <PopoverContent
+                            side="right"
+                            align="start"
+                            sideOffset={8}
+                            className="w-60 p-0"
+                          >
+                            <Command>
+                              <CommandInput
+                                placeholder={t("navigation.search_channels")}
+                              />
+                              <CommandList>
+                                <CommandEmpty>
+                                  {t("navigation.no_channels_found")}
+                                </CommandEmpty>
+                                <CommandGroup>
+                                  {allChannelItems.map((item) => (
+                                    <CommandItem
+                                      key={item.key}
+                                      value={`${item.title} ${item.key}`}
+                                      onSelect={() =>
+                                        handleChannelPick(item.url)
+                                      }
+                                    >
+                                      <item.icon className="size-4 opacity-80" />
+                                      <span className="flex-1 truncate">
+                                        {item.title}
+                                      </span>
+                                      {item.enabled && (
+                                        <IconCheck className="shrink-0 text-emerald-500" />
+                                      )}
+                                    </CommandItem>
+                                  ))}
+                                </CommandGroup>
+                              </CommandList>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
                       </SidebarMenuItem>
                     )}
                   </SidebarMenu>
