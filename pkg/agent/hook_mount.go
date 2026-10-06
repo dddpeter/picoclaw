@@ -152,10 +152,13 @@ func (al *AgentLoop) loadConfiguredHooks(ctx context.Context) (err error) {
 			return fmt.Errorf("build builtin hook %q: %w", name, factoryErr)
 		}
 		// The approval builtin needs a loop-side reference so the inbound
-		// pump can route /approve /deny replies (fork, §一).
+		// pump can route /approve /deny replies (fork, §一); with the
+		// single-list recipe it also inherits tools.exec.custom_deny_patterns
+		// as ask rules (mount-time, so config reload re-mounts pick up edits).
 		approvalHook, isApproval := hook.(*approvalHook)
 		if isApproval {
 			al.approvalHook = approvalHook
+			approvalHook.inheritExecDenyPatterns(al.cfg)
 		}
 		if err := al.MountHook(HookRegistration{
 			Name:     name,

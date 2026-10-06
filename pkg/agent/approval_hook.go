@@ -53,6 +53,18 @@ type approvalHookConfig struct {
 	// tools.exec.custom_deny_patterns（正则）：`tool:` 前缀匹配工具名，
 	// 其余匹配 exec 的命令串（仅对 exec 工具生效）。默认空 = 放行一切。
 	AskPatterns []string `json:"ask_patterns"`
+	// InheritExecDenyPatterns pulls tools.exec.custom_deny_patterns into the
+	// ask set at mount, so ONE pattern list powers approval gating: hits ask
+	// the user, an /approve lets them run. Keep
+	// tools.exec.enable_custom_deny_patterns false while this is on — with
+	// exec enforcement active an approved command would still be
+	// hard-rejected inside exec (mount logs a warning). This is the
+	// single-list recipe; explicit ask_patterns is then unnecessary.
+	InheritExecDenyPatterns bool `json:"inherit_exec_deny_patterns"`
+	// HardDenyPatterns: hits are rejected outright — no ask, no session
+	// rule bypass (optional irreducible floor; default empty = everything
+	// matched is askable). Same syntax as ask patterns.
+	HardDenyPatterns []string `json:"hard_deny_patterns"`
 	// TimeoutMS 等待用户回复的上限，超时按拒绝处理。默认 300000。
 	// 挂载时 HookManager 的全局 approval 超时会自动抬高到不低于该值。
 	TimeoutMS int `json:"timeout_ms"`
@@ -97,11 +109,14 @@ type askRule struct {
 
 // approvalHook implements ToolApprover for config-driven HITL approval.
 type approvalHook struct {
-	commandAsk   []askRule // matched against the exec command string
-	toolAsk      []askRule // matched against the tool name ("tool:" prefix)
-	timeout      time.Duration
-	pending      sync.Map // sessionKey -> *pendingApproval
-	sessionRules sync.Map // sessionKey -> *sessionRuleSet (always-allow, TTL-bounded)
+	commandAsk      []askRule // matched against the exec command string
+	toolAsk         []askRule // matched against the tool name ("tool:" prefix)
+	hardDenyCommand []askRule // hard floor: matched against the command, rejected without asking
+	hardDenyTool    []askRule // hard floor: matched against the tool name
+	inheritExecDeny bool      // pull tools.exec.custom_deny_patterns at mount
+	timeout         time.Duration
+	pending         sync.Map // sessionKey -> *pendingApproval
+	sessionRules    sync.Map // sessionKey -> *sessionRuleSet (always-allow, TTL-bounded)
 }
 
 func init() {
@@ -120,57 +135,157 @@ func newApprovalHookFromConfig(raw json.RawMessage) (*approvalHook, error) {
 			return nil, fmt.Errorf("approval hook config: %w", err)
 		}
 	}
-	h := &approvalHook{timeout: defaultApprovalTimeout}
+	h := &approvalHook{timeout: defaultApprovalTimeout, inheritExecDeny: cfg.InheritExecDenyPatterns}
 	if cfg.TimeoutMS > 0 {
 		h.timeout = time.Duration(cfg.TimeoutMS) * time.Millisecond
 	}
-	for _, pattern := range cfg.AskPatterns {
+	// compileRules turns pattern text into ask rules, splitting "tool:"
+	// prefixed patterns (matched against the tool name) from command
+	// patterns (matched against the exec command string).
+	compileRules := func(patterns []string) ([]askRule, []askRule, error) {
+		var command, tool []askRule
+		for _, pattern := range patterns {
+			pattern = strings.TrimSpace(pattern)
+			if pattern == "" {
+				continue
+			}
+			if pattern == "tool:" {
+				return nil, nil, fmt.Errorf(`approval pattern "tool:" is missing the tool name after the prefix`)
+			}
+			if rest, ok := strings.CutPrefix(pattern, "tool:"); ok && strings.TrimSpace(rest) != "" {
+				re, err := regexp.Compile(strings.TrimSpace(rest))
+				if err != nil {
+					return nil, nil, fmt.Errorf("approval tool pattern %q: %w", pattern, err)
+				}
+				tool = append(tool, askRule{pattern: pattern, re: re})
+				continue
+			}
+			re, err := regexp.Compile(pattern)
+			if err != nil {
+				return nil, nil, fmt.Errorf("approval pattern %q: %w", pattern, err)
+			}
+			command = append(command, askRule{pattern: pattern, re: re})
+		}
+		return command, tool, nil
+	}
+	cmdRules, toolRules, err := compileRules(cfg.AskPatterns)
+	if err != nil {
+		return nil, err
+	}
+	h.commandAsk = cmdRules
+	h.toolAsk = toolRules
+	hardCmd, hardTool, err := compileRules(cfg.HardDenyPatterns)
+	if err != nil {
+		return nil, err
+	}
+	h.hardDenyCommand = hardCmd
+	h.hardDenyTool = hardTool
+	return h, nil
+}
+
+// inheritExecDenyPatterns compiles tools.exec.custom_deny_patterns into the
+// ask set (deduped against existing rules by pattern text), powering the
+// single-list recipe: one pattern list, approval-gated. Invalid regexes are
+// skipped with a loud warning (fail-soft per pattern — a typo must not
+// disable the whole hook) and reported in the returned count.
+func (h *approvalHook) inheritExecDenyPatterns(cfg *config.Config) int {
+	if cfg == nil || len(cfg.Tools.Exec.CustomDenyPatterns) == 0 {
+		return 0
+	}
+	existing := make(map[string]bool, len(h.commandAsk)+len(h.toolAsk))
+	for _, r := range h.toolAsk {
+		existing[r.pattern] = true
+	}
+	for _, r := range h.commandAsk {
+		existing[r.pattern] = true
+	}
+	added, skipped := 0, 0
+	for _, pattern := range cfg.Tools.Exec.CustomDenyPatterns {
 		pattern = strings.TrimSpace(pattern)
-		if pattern == "" {
+		if pattern == "" || existing[pattern] {
 			continue
 		}
 		if pattern == "tool:" {
-			return nil, fmt.Errorf(`approval ask pattern "tool:" is missing the tool name after the prefix`)
+			logger.WarnCF("agent", "Skipping invalid inherited approval pattern", map[string]any{
+				"pattern": pattern, "error": `"tool:" is missing the tool name`,
+			})
+			skipped++
+			continue
 		}
 		if rest, ok := strings.CutPrefix(pattern, "tool:"); ok && strings.TrimSpace(rest) != "" {
 			re, err := regexp.Compile(strings.TrimSpace(rest))
 			if err != nil {
-				return nil, fmt.Errorf("approval tool ask pattern %q: %w", pattern, err)
+				logger.WarnCF("agent", "Skipping invalid inherited approval pattern", map[string]any{
+					"pattern": pattern, "error": err.Error(),
+				})
+				skipped++
+				continue
 			}
 			h.toolAsk = append(h.toolAsk, askRule{pattern: pattern, re: re})
+			existing[pattern] = true
+			added++
 			continue
 		}
 		re, err := regexp.Compile(pattern)
 		if err != nil {
-			return nil, fmt.Errorf("approval ask pattern %q: %w", pattern, err)
+			logger.WarnCF("agent", "Skipping invalid inherited approval pattern", map[string]any{
+				"pattern": pattern, "error": err.Error(),
+			})
+			skipped++
+			continue
 		}
 		h.commandAsk = append(h.commandAsk, askRule{pattern: pattern, re: re})
+		existing[pattern] = true
+		added++
 	}
-	return h, nil
+	if added > 0 {
+		logger.InfoCF("agent", "Inherited exec deny patterns as approval ask rules", map[string]any{
+			"inherited": added, "skipped_invalid": skipped,
+			"exec_custom_deny_enabled": cfg.Tools.Exec.EnableCustomDenyPatterns,
+		})
+	}
+	if cfg.Tools.Exec.EnableCustomDenyPatterns && added > 0 {
+		logger.WarnCF("agent", "Exec deny enforcement is ALSO active for the inherited patterns; approved commands will still be hard-rejected inside exec — set tools.exec.enable_custom_deny_patterns=false for the single-list approval recipe", map[string]any{})
+	}
+	return added
 }
 
-// matchedAskPattern returns the ask pattern that requires approval for this
-// call, or "" when the call needs none. Command patterns match the exec
-// command string; "tool:" patterns match the tool name.
-func (h *approvalHook) matchedAskPattern(tool string, args map[string]any) string {
-	for _, rule := range h.toolAsk {
+// matchRules returns the first matching rule's pattern, or "". Phases stay
+// separate: tool rules only match the tool name, command rules only match
+// the exec command string — a command whose text merely names a tool must
+// not trip a "tool:" rule (and vice versa).
+func matchRules(toolRules, commandRules []askRule, tool string, args map[string]any) string {
+	for _, rule := range toolRules {
 		if rule.re.MatchString(tool) {
 			return rule.pattern
 		}
-	}
-	if len(h.commandAsk) == 0 {
-		return ""
 	}
 	command, _ := args["command"].(string)
 	if strings.TrimSpace(command) == "" {
 		return ""
 	}
-	for _, rule := range h.commandAsk {
+	for _, rule := range commandRules {
 		if rule.re.MatchString(command) {
 			return rule.pattern
 		}
 	}
 	return ""
+}
+
+// matchedAskPattern returns the ask pattern that requires approval for this
+// call, or "" when the call needs none.
+func (h *approvalHook) matchedAskPattern(tool string, args map[string]any) string {
+	return matchRules(h.toolAsk, h.commandAsk, tool, args)
+}
+
+// matchedHardDeny returns the hard-deny pattern that forbids this call, or
+// "". Hard-deny rules checked before everything else: no ask, no session
+// rule bypass.
+func (h *approvalHook) matchedHardDeny(tool string, args map[string]any) string {
+	if len(h.hardDenyCommand) == 0 && len(h.hardDenyTool) == 0 {
+		return ""
+	}
+	return matchRules(h.hardDenyTool, h.hardDenyCommand, tool, args)
 }
 
 // ruleActive reports whether the session carries a live always-allow rule
@@ -215,6 +330,15 @@ func (h *approvalHook) addSessionRule(sessionKey, pattern string) {
 func (h *approvalHook) ApproveTool(ctx context.Context, req *ToolApprovalRequest) (ApprovalDecision, error) {
 	if req == nil {
 		return ApprovalDecision{Approved: true}, nil
+	}
+	// Hard floor first: matches are rejected outright — no ask, no session
+	// rule bypass, interactive or not.
+	if hard := h.matchedHardDeny(req.Tool, req.Arguments); hard != "" {
+		return ApprovalDecision{
+			Approved: false,
+			Reason: fmt.Sprintf("tool %q matches hard-deny rule %q; this call is not approvable and must not be retried as-is.",
+				req.Tool, hard),
+		}, nil
 	}
 	pattern := h.matchedAskPattern(req.Tool, req.Arguments)
 	if pattern == "" {

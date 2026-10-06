@@ -495,7 +495,31 @@ HITL 工具审批（fork 新增，借鉴 agentscope-go，详见 `docs/design/age
 | 字段 | 默认 | 说明 |
 |---|---|---|
 | `ask_patterns` | `[]`（= 放行一切，行为与未启用完全一致） | 正则列表，语义对齐 `tools.exec.custom_deny_patterns`：`tool:` 前缀匹配**工具名**（如 `tool:write_file`），其余匹配 **exec 的命令串**（如 `git push`） |
+| `inherit_exec_deny_patterns` | `false` | **单清单配方（推荐）**：把 `tools.exec.custom_deny_patterns` 整表纳入审批范围，命中走批准流程——一份模式清单、两处维护都没有。此时 exec 侧应保持 `enable_custom_deny_patterns: false`（否则批准后命令仍会被 exec 硬拒，挂载时会打告警）；显式 `ask_patterns` 也无需再配 |
+| `hard_deny_patterns` | `[]` | **命中即拒地板**（可选）：匹配的直接拒绝且**不可批准**（不询问、会话规则不能豁免），语法同 ask。默认空 = 所有命中都可问。适合"连问都不该问"的极少数命令 |
 | `timeout_ms` | `300000`（5 分钟，贴合 IM 回复节奏） | 等待上限，超时按拒绝。挂载时 `hooks.defaults.approval_timeout_ms` 会自动抬高到不低于该值 |
+
+**单清单配方示例**（模式清单只写在 exec 段，命中走审批而非硬拒）：
+
+```json
+{
+  "tools": {
+    "exec": {
+      "enable_custom_deny_patterns": false,
+      "custom_deny_patterns": ["\\brm\\s+-[rf]{1,2}\\b", "\\bdd\\s+if=", "..."]
+    }
+  },
+  "hooks": {
+    "enabled": true,
+    "builtins": {
+      "approval": {
+        "enabled": true,
+        "config": { "inherit_exec_deny_patterns": true, "timeout_ms": 300000 }
+      }
+    }
+  }
+}
+```
 
 要点：
 

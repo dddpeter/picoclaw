@@ -390,3 +390,80 @@ func TestApproval_SessionAlwaysAllow(t *testing.T) {
 		t.Fatal("/approve always must promote the matched pattern to session scope")
 	}
 }
+
+// TestApprovalHook_HardDenyOverridesApproval pins the hard floor: matches
+// reject outright — no ask, no session-rule bypass, interactive or not.
+func TestApprovalHook_HardDenyOverridesApproval(t *testing.T) {
+	h := approvalTestHook(t, `{"ask_patterns":["dd if="],"hard_deny_patterns":["dd if="],"timeout_ms":600000}`)
+	h.addSessionRule("s-hd", "dd if=") // even a session rule must not bypass
+
+	start := time.Now()
+	hardReq := approvalTestRequest("s-hd", "feishu")
+	hardReq.Arguments = map[string]any{"command": "dd if=/dev/zero of=/dev/sda"}
+	d, err := h.ApproveTool(context.Background(), hardReq)
+	if err != nil {
+		t.Fatalf("ApproveTool: %v", err)
+	}
+	if d.Approved {
+		t.Fatal("hard-deny match must reject even with an active session rule")
+	}
+	if !strings.Contains(d.Reason, "hard-deny rule") {
+		t.Fatalf("expected hard-deny reason, got %q", d.Reason)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatal("hard-deny must be immediate, no waiting")
+	}
+	if _, exists := h.pending.Load("s-hd"); exists {
+		t.Fatal("hard-deny must not register a waiter")
+	}
+
+	// Non-hard commands still follow the ask path (existing behavior).
+	benign := approvalTestRequest("s-hd-benign", "")
+	benign.Arguments = map[string]any{"command": "ls -la"}
+	h2 := approvalTestHook(t, `{"hard_deny_patterns":["dd if="]}`)
+	if d, _ := h2.ApproveTool(context.Background(), benign); !d.Approved {
+		t.Fatalf("unmatched call must approve: %s", d.Reason)
+	}
+}
+
+// TestApprovalHook_InheritExecDenyPatterns pins the single-list recipe: the
+// hook pulls tools.exec.custom_deny_patterns at mount, dedupes, skips
+// invalid regexes with a warning, and needs no explicit ask_patterns.
+func TestApprovalHook_InheritExecDenyPatterns(t *testing.T) {
+	h := approvalTestHook(t, `{"inherit_exec_deny_patterns":true,"timeout_ms":300000}`)
+
+	cfg := &config.Config{Tools: config.ToolsConfig{Exec: config.ExecConfig{
+		CustomDenyPatterns: []string{
+			"git push",        // command rule
+			"tool:write_file", // tool rule
+			"git push",        // duplicate — deduped
+			"[",               // invalid — skipped with warning
+			"",                // blank — ignored
+		},
+		EnableCustomDenyPatterns: false, // single-list recipe keeps exec enforcement off
+	}}}
+
+	added := h.inheritExecDenyPatterns(cfg)
+	if added != 2 {
+		t.Fatalf("expected 2 inherited rules (deduped, invalid skipped), got %d", added)
+	}
+	if got := h.matchedAskPattern("exec", map[string]any{"command": "git push origin main"}); got != "git push" {
+		t.Fatalf("inherited command rule must match, got %q", got)
+	}
+	if got := h.matchedAskPattern("write_file", map[string]any{"path": "/x"}); got != "tool:write_file" {
+		t.Fatalf("inherited tool rule must match, got %q", got)
+	}
+	if got := h.matchedAskPattern("read_file", map[string]any{"path": "/x"}); got != "" {
+		t.Fatalf("unmatched tool must not ask, got %q", got)
+	}
+
+	// Re-inherit is idempotent (dedupe by pattern text).
+	if again := h.inheritExecDenyPatterns(cfg); again != 0 {
+		t.Fatalf("re-inherit must dedupe to 0, got %d", again)
+	}
+
+	// Nil/empty config is a no-op.
+	if n := h.inheritExecDenyPatterns(nil); n != 0 {
+		t.Fatal("nil config must inherit nothing")
+	}
+}
