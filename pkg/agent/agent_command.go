@@ -530,7 +530,7 @@ func (al *AgentLoop) buildCommandsRuntime(
 			if opts == nil || agent.Sessions == nil {
 				return nil
 			}
-			usage := computeContextUsage(agent, opts.SessionKey)
+			usage := agent.snapshotContextUsage(opts.SessionKey)
 			if usage == nil {
 				return nil
 			}

@@ -217,7 +217,7 @@ func (s *idleCompactScanner) maybeCompactSession(agent *AgentInstance, key strin
 		s.skip(key, "too_few_messages", map[string]any{"messages": len(history)})
 		return
 	}
-	usage := computeContextUsage(agent, key)
+	usage := agent.snapshotContextUsage(key)
 	if usage == nil {
 		// Scanner context: nil (broken agent/window) means skip — unlike the
 		// turn-end path where nil conservatively compacts, a 5-minute loop
@@ -225,7 +225,7 @@ func (s *idleCompactScanner) maybeCompactSession(agent *AgentInstance, key strin
 		s.skip(key, "no_usage", nil)
 		return
 	}
-	if !shouldCompactNow(agent.CompactUsageThreshold, usage, agent) {
+	if !shouldCompactNow(agent.CompactUsageThreshold, usage, agent.snapshotCompactionBudget()) {
 		s.skip(key, "under_threshold", map[string]any{"history_tokens": usage.HistoryTokens})
 		return
 	}
@@ -242,11 +242,12 @@ func (s *idleCompactScanner) launchCompaction(agent *AgentInstance, key string, 
 		s.skip(key, "in_flight", nil)
 		return
 	}
-	// Snapshot the budget BEFORE the goroutine (review P3-5): CompactionBudget
-	// reads agent.ContextWindow/MaxTokens and /switch's write path does not
-	// take the model-state lock against background readers — evaluating it
-	// here (scan time) keeps the data-race window to zero.
-	budget := agent.CompactionBudget()
+	// Snapshot the budget BEFORE the goroutine (review P3-5) so the
+	// compaction goroutine itself never touches agent state after launch.
+	// The snapshot helpers take the model-state read lock: the per-model
+	// context_window feature made the windows mutable on /switch, and a
+	// bare read here would race the swap's write path.
+	budget := agent.snapshotCompactionBudget()
 	scheduler.wg.Add(1)
 	go func() {
 		defer scheduler.wg.Done()

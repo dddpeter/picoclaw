@@ -68,7 +68,8 @@ type AgentInstance struct {
 	CompactionBudget func() int
 
 	// DeclaredContextWindow is the context window as configured (or derived
-	// when unset) BEFORE the 256k sanity clamp — the model's declared max
+	// when unset) BEFORE the 256k sanity clamp, then min-capped by the
+	// active model entry's context_window — the model's declared max
 	// context. Gating internals deliberately use the clamped ContextWindow,
 	// but user-facing usage reporting (bus.ContextUsage.TotalTokens → Feishu
 	// cards, pico/web usage, /context, /status) shows this value so the
@@ -534,6 +535,37 @@ func (a *AgentInstance) liveCompactionBudget() int {
 		budget = a.ContextWindow / 2
 	}
 	return budget
+}
+
+// snapshotContextWindow / snapshotCompactionBudget read the mutable window
+// fields under the model-state read lock. swapAgentModelLocked re-caps the
+// per-model windows under the write lock, so code running OUTSIDE a live
+// turn — idle compaction scanner, post-turn scheduled compaction, /context
+// command, legacy async summarize — must read through these helpers instead
+// of the bare fields (the fields were immutable before the per-model cap
+// feature, which is why those paths historically took no lock). In-turn
+// code already holds runTurn's whole-turn read lock and must keep reading
+// the fields directly: a nested RLock from the turn goroutine can deadlock
+// against Close()'s blocking write lock while it waits for the turn to
+// drain.
+func (a *AgentInstance) snapshotContextWindow() int {
+	if a == nil {
+		return 0
+	}
+	mu := a.modelStateMutex()
+	mu.RLock()
+	defer mu.RUnlock()
+	return a.ContextWindow
+}
+
+func (a *AgentInstance) snapshotCompactionBudget() int {
+	if a == nil {
+		return 0
+	}
+	mu := a.modelStateMutex()
+	mu.RLock()
+	defer mu.RUnlock()
+	return a.liveCompactionBudget()
 }
 
 // populateCandidateProvidersFromNames resolves each model name (alias or

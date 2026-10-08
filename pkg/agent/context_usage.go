@@ -51,8 +51,9 @@ func computeContextUsage(agent *AgentInstance, sessionKey string) *bus.ContextUs
 	// Used = history + system (includes summary) + tools
 	usedTokens := historyTokens + systemTokens + toolTokens
 
-	// Total reported to UIs is the DECLARED window (configured or derived
-	// before the 256k sanity clamp): Feishu cards, pico/web usage, /context
+	// Total reported to UIs is the DECLARED window (configured or derived,
+	// before the 256k sanity clamp, then min-capped by the active model
+	// entry's context_window): Feishu cards, pico/web usage, /context
 	// and /status all render this as the model's context size, which should
 	// reflect what the model advertises — not the fork's conservative
 	// compaction bound the gates run on. Fall back to the (possibly clamped)
@@ -99,4 +100,21 @@ func computeContextUsage(agent *AgentInstance, sessionKey string) *bus.ContextUs
 		SummarizeAtTokens: summarizeAt,
 		UsedPercent:       usedPercent,
 	}
+}
+
+// snapshotContextUsage is computeContextUsage under the model-state read
+// lock, for callers running outside a live turn (idle compaction scanner,
+// /context command): ContextWindow/DeclaredContextWindow mutate when
+// swapAgentModelLocked re-caps the per-model window. In-turn callers must
+// keep using computeContextUsage directly — a nested RLock from the
+// read-locked turn goroutine can deadlock against Close()'s blocking write
+// lock while it waits for the turn to drain.
+func (a *AgentInstance) snapshotContextUsage(sessionKey string) *bus.ContextUsage {
+	if a == nil {
+		return nil
+	}
+	mu := a.modelStateMutex()
+	mu.RLock()
+	defer mu.RUnlock()
+	return computeContextUsage(a, sessionKey)
 }

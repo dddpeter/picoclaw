@@ -15,7 +15,12 @@ import (
 )
 
 // shouldCompactNow reports whether post-turn compaction should run. nil
-// usage (unknown) conservatively compacts — the old behavior.
+// usage (unknown) conservatively compacts — the old behavior. The budget is
+// passed in by the caller because the window is mutable under model swaps
+// (per-model context_window cap): in-turn callers (finalize) read it bare
+// under runTurn's whole-turn read lock, while the idle scanner goes through
+// snapshotCompactionBudget — shouldCompactNow must not touch agent fields
+// to stay usable from both contexts.
 //
 // The baseline is HistoryTokens (raw history only), not UsedTokens
 // (history+system+tools): seahorse's summarize/condensed engine measures the
@@ -24,18 +29,17 @@ import (
 // the gate up to ~3x later than the engine it schedules work for. The
 // summarizeAt semantics (history vs contextWindow percent) are preserved:
 // gate when history tokens reach threshold × (window − maxTokens).
-func shouldCompactNow(threshold float64, usage *bus.ContextUsage, agent *AgentInstance) bool {
+func shouldCompactNow(threshold float64, usage *bus.ContextUsage, budget int) bool {
 	if threshold <= 0 || threshold > 0.98 {
 		threshold = 0.75
 	}
 	if usage == nil {
 		return true
 	}
-	window := agent.ContextWindow - agent.MaxTokens
-	if window <= 0 {
-		window = agent.ContextWindow
-	}
-	return usage.HistoryTokens >= int(float64(window)*threshold)
+	// Degenerate budget (<= 0) deliberately falls through: threshold×0 = 0,
+	// any history trips the gate — the old "zero window always compacts"
+	// conservative tilt.
+	return usage.HistoryTokens >= int(float64(budget)*threshold)
 }
 
 const (
@@ -105,7 +109,7 @@ func (al *AgentLoop) scheduleCompactWithUsage(agent *AgentInstance, sessionKey s
 		if usage == nil {
 			usage = computeContextUsage(agent, sessionKey)
 		}
-		if !shouldCompactNow(agent.CompactUsageThreshold, usage, agent) {
+		if !shouldCompactNow(agent.CompactUsageThreshold, usage, agent.CompactionBudget()) {
 			return
 		}
 	}

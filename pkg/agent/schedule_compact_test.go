@@ -113,7 +113,7 @@ func TestShouldCompactNow(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := shouldCompactNow(agent.CompactUsageThreshold, tc.usage, agent); got != tc.want {
+			if got := shouldCompactNow(agent.CompactUsageThreshold, tc.usage, agent.liveCompactionBudget()); got != tc.want {
 				t.Fatalf("shouldCompactNow = %v, want %v", got, tc.want)
 			}
 		})
@@ -121,7 +121,7 @@ func TestShouldCompactNow(t *testing.T) {
 
 	// Zero threshold falls back to the 0.75 default.
 	agent.CompactUsageThreshold = 0
-	if shouldCompactNow(0, &bus.ContextUsage{HistoryTokens: window / 2}, agent) {
+	if shouldCompactNow(0, &bus.ContextUsage{HistoryTokens: window / 2}, agent.liveCompactionBudget()) {
 		t.Fatal("zero threshold must behave as the 0.75 default (skip at 50%)")
 	}
 }

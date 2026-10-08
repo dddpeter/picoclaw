@@ -86,7 +86,7 @@ func (m *legacyContextManager) maybeSummarize(sessionKey string) {
 
 	newHistory := agent.Sessions.GetHistory(sessionKey)
 	tokenEstimate := m.estimateTokens(newHistory)
-	threshold := agent.ContextWindow * agent.SummarizeTokenPercent / 100
+	threshold := agent.snapshotContextWindow() * agent.SummarizeTokenPercent / 100
 
 	if len(newHistory) > agent.SummarizeMessageThreshold || tokenEstimate > threshold {
 		summarizeKey := agent.ID + ":" + sessionKey
@@ -194,7 +194,7 @@ func (m *legacyContextManager) summarizeSession(agent *AgentInstance, sessionKey
 	keepCount := len(history) - safeCut
 	toSummarize := history[:safeCut]
 
-	maxMessageTokens := agent.ContextWindow / 2
+	maxMessageTokens := agent.snapshotContextWindow() / 2
 	validMessages := make([]providers.Message, 0)
 	omitted := false
 
