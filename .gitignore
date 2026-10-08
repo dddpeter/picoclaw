@@ -85,3 +85,4 @@ docker/data
 /wc.ps1
 .pi/
 node_modules/
+.vs/
