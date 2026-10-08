@@ -76,17 +76,24 @@ type AgentInstance struct {
 	// fork's conservative compaction bound. Zero means "same as
 	// ContextWindow" (agents hand-built in tests).
 	DeclaredContextWindow int
-	Provider              providers.LLMProvider
-	Sessions              session.SessionStore
-	ContextBuilder        *ContextBuilder
-	Tools                 *tools.ToolRegistry
-	Definition            AgentContextDefinition
-	Subagents             *config.SubagentsConfig
-	SkillsFilter          []string
-	MCPServerAllowlist    map[string]struct{}
-	Candidates            []providers.FallbackCandidate
-	ImageCandidates       []providers.FallbackCandidate
-	LoopDetection         config.LoopDetectionConfig
+	// baseGatingWindow/baseDeclaredWindow are the agent-level windows after
+	// the sanity clamp but BEFORE the per-model cap. swapAgentModelLocked
+	// re-derives the effective window from the incoming model entry against
+	// these bases instead of rebuilding the agent. Zero on hand-built test
+	// agents, which disables swap-time re-capping.
+	baseGatingWindow   int
+	baseDeclaredWindow int
+	Provider           providers.LLMProvider
+	Sessions           session.SessionStore
+	ContextBuilder     *ContextBuilder
+	Tools              *tools.ToolRegistry
+	Definition         AgentContextDefinition
+	Subagents          *config.SubagentsConfig
+	SkillsFilter       []string
+	MCPServerAllowlist map[string]struct{}
+	Candidates         []providers.FallbackCandidate
+	ImageCandidates    []providers.FallbackCandidate
+	LoopDetection      config.LoopDetectionConfig
 
 	// Router is non-nil when model routing is configured and the light model
 	// was successfully resolved. It scores each incoming message and decides
@@ -358,6 +365,29 @@ func NewAgentInstance(
 
 	// Resolve fallback candidates
 	candidates := resolveModelCandidates(cfg, defaults.Provider, model, fallbacks)
+	// Per-model context window cap (fork feature, mirrors
+	// trust_configured_context_window): the active model entry may tighten
+	// the agent-level window via min() — an entry can only lower the budget,
+	// never lift the agents.defaults ceiling for its siblings. Resolved with
+	// the same candidate machinery as swapAgentModelLocked so /switch and
+	// construction agree on the entry, including raw provider/model refs.
+	// The bases keep the pre-cap windows for swap-time re-derivation.
+	baseGatingWindow := contextWindow
+	baseDeclaredWindow := declaredContextWindow
+	if len(candidates) > 0 {
+		if capCfg, capErr := resolvedCandidateModelConfig(cfg, candidates[0], workspace); capErr == nil && capCfg != nil {
+			capped, cappedDeclared := applyModelContextWindowCap(capCfg.ContextWindow, contextWindow, declaredContextWindow)
+			if capped != contextWindow {
+				logger.InfoCF("agent", "per-model context_window caps agent window", map[string]any{
+					"model":        model,
+					"agent_window": contextWindow,
+					"per_model":    capCfg.ContextWindow,
+					"effective":    capped,
+				})
+			}
+			contextWindow, declaredContextWindow = capped, cappedDeclared
+		}
+	}
 	usesInjectedPrimary := provider != nil &&
 		strings.TrimSpace(model) == strings.TrimSpace(defaults.GetModelName())
 	if !usesInjectedPrimary && len(candidates) > 0 {
@@ -449,15 +479,7 @@ func NewAgentInstance(
 		loopDetection = defaults.EffectiveLoopDetection()
 	}
 
-	compactionBudget := func() int {
-		budget := contextWindow - maxTokens
-		if budget <= 0 {
-			budget = contextWindow / 2
-		}
-		return budget
-	}
-
-	return &AgentInstance{
+	instance := &AgentInstance{
 		modelMu:                   &sync.RWMutex{},
 		ID:                        agentID,
 		Name:                      agentName,
@@ -471,13 +493,14 @@ func NewAgentInstance(
 		ThinkingLevelConfigured:   thinkingLevelConfigured,
 		ContextWindow:             contextWindow,
 		DeclaredContextWindow:     declaredContextWindow,
+		baseGatingWindow:          baseGatingWindow,
+		baseDeclaredWindow:        baseDeclaredWindow,
 		CompactUsageThreshold:     compactUsageThreshold,
 		CompactToolTriggerRatio:   compactToolTriggerRatio,
 		SplitTurnEnabled:          defaults.SplitTurn.EffectiveEnabled(),
 		SplitTurnKeepTokens:       defaults.SplitTurn.EffectiveKeepRecentTokens(),
 		SummarizeMessageThreshold: summarizeMessageThreshold,
 		SummarizeTokenPercent:     summarizeTokenPercent,
-		CompactionBudget:          compactionBudget,
 		Provider:                  provider,
 		Sessions:                  sessions,
 		ContextBuilder:            contextBuilder,
@@ -494,6 +517,23 @@ func NewAgentInstance(
 		LightProvider:             lightProvider,
 		CandidateProviders:        candidateProviders,
 	}
+	// Bound after construction so every call re-reads ContextWindow:
+	// swapAgentModelLocked re-caps the per-model window on /switch, and a
+	// closure over the construction-time local would keep the stale window.
+	instance.CompactionBudget = instance.liveCompactionBudget
+	return instance
+}
+
+// liveCompactionBudget is the CompactionBudget implementation bound at
+// construction: it derives the budget from the CURRENT ContextWindow and
+// MaxTokens so model swaps that re-cap the per-model window re-bind the
+// budget without rebuilding the agent.
+func (a *AgentInstance) liveCompactionBudget() int {
+	budget := a.ContextWindow - a.MaxTokens
+	if budget <= 0 {
+		budget = a.ContextWindow / 2
+	}
+	return budget
 }
 
 // populateCandidateProvidersFromNames resolves each model name (alias or
@@ -762,6 +802,18 @@ func resolveAgentFallbacks(agentCfg *config.AgentConfig, defaults *config.AgentD
 		return agentCfg.Model.Fallbacks
 	}
 	return defaults.ModelFallbacks
+}
+
+// applyModelContextWindowCap folds a per-model context_window (0 = unset)
+// into the agent-level gating and declared windows using min(): the
+// per-model value can only tighten the budget, so one model_list entry
+// cannot raise the agents.defaults ceiling for its siblings (fork feature,
+// mirrors trust_configured_context_window).
+func applyModelContextWindowCap(perModel, gating, declared int) (int, int) {
+	if perModel <= 0 {
+		return gating, declared
+	}
+	return min(perModel, gating), min(perModel, declared)
 }
 
 func resolveAgentSkillsFilter(

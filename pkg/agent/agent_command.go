@@ -609,6 +609,28 @@ func (al *AgentLoop) swapAgentModelLocked(
 	agent.CandidateProviders = nextCandidateProviders
 	agent.ThinkingLevel = parseThinkingLevel(modelCfg.ThinkingLevel)
 	agent.ThinkingLevelConfigured = isConfiguredThinkingLevel(modelCfg.ThinkingLevel)
+	// Per-model context window follows the switch (fork feature): agents
+	// sharing models with different real windows kept the previous model's
+	// budget, so every compaction gate planned against a window the new
+	// model cannot serve. Hand-built agents (zero bases) keep their windows.
+	if agent.baseGatingWindow > 0 {
+		nextWindow, nextDeclared := applyModelContextWindowCap(
+			modelCfg.ContextWindow,
+			agent.baseGatingWindow,
+			agent.baseDeclaredWindow,
+		)
+		if nextWindow != agent.ContextWindow || nextDeclared != agent.DeclaredContextWindow {
+			logger.InfoCF("agent", "model switch re-applied per-model context window", map[string]any{
+				"model":           value,
+				"window_before":   agent.ContextWindow,
+				"window_after":    nextWindow,
+				"declared_before": agent.DeclaredContextWindow,
+				"declared_after":  nextDeclared,
+			})
+		}
+		agent.ContextWindow = nextWindow
+		agent.DeclaredContextWindow = nextDeclared
+	}
 
 	closeUnreferencedStatefulProviders(
 		previousProviders,

@@ -35,6 +35,7 @@
 | 工具调用学舌根治链 | `<2026-10-05>` | `pkg/agent/context_seahorse.go`、`pkg/agent/tool_parrot_filter.go`、`pkg/agent/pipeline_llm.go`、`pkg/seahorse/marker_sanitize.go` | 本文 §21 |
 | 品牌层重设计（Limulus · 鲎） | `<2026-10-05>` | `pkg/env.go`、`web/frontend/public/`、`web/backend/icon.*`、`scripts/gen_brand_icons.ps1`、`assets/brand/` | 本文 §22 |
 | agentscope-go 借鉴四件套 | `<2026-10-05>` | `pkg/agent/approval_hook.go`、`pkg/agent/compact_context_tool.go`、`pkg/tools/output_budget.go`、`pkg/agent/agent_media.go`、`pkg/config/config.go` | 本文 §23、`docs/design/agentscope-go-borrowing-analysis.zh.md` |
+| 按模型上下文窗口（context_window） | `<2026-10-08>` | `pkg/config/config.go`（ModelConfig.ContextWindow）、`pkg/agent/instance.go`（min 解析 + liveCompactionBudget）、`pkg/agent/agent_command.go`（swap 跟随） | 本文 §24、`docs/guides/configuration.zh.md`「按模型上下文窗口」 |
 
 ## 1. 飞书 CardKit v2 流式卡片
 
@@ -163,6 +164,7 @@
 | 飞书回复 | 文本消息 | CardKit 流式卡片（过程面板时间线交错 + 工具运行中条目 + 标题实际总数 + 平铺推理轮次、流式展开/封卡收起 + 中途说明灰字轨迹） |
 | `/new` | 无此命令 | 归档旧对话（历史/标题迁入归档会话）+ 清空活会话 + 重置为配置默认模型（重读磁盘） |
 | `/switch model`（turn 活跃时） | 阻塞等待 | 立即返回 busy 提示 |
+| `/switch` 切换后的上下文窗口 | 不跟随（沿用 agent 级窗口，小窗口模型直接撞服务端 400） | 按新模型条目的 `context_window` 取 min 重算（§24）；压缩预算与 📦 用量显示同步跟随 |
 | 流式 LLM 请求 | 无响应头超时 | 90 秒响应头超时后快速失败 |
 | 流式默认值 | 双开关默认关（省略=关） | 模型侧 `*bool` **省略=开**；安装默认 pico+feishu 渠道出厂开（`TestModelStreamingConfigDefaultOn`、"model omitted still streams" 钉住） |
 | 工作区沙箱 | 默认 `restrict_to_workspace: true` | 默认 `false`——任意目录读写 + 一般命令脚本可执行；以 `tools.protect_system_paths`（nil=开）拒 OS 系统目录读写，exec 仅拦毁灭性命令与系统目录写入（`TestSystemPathProtection`、`TestOpenByDefaultSandboxDefaults` 钉住） |
@@ -291,6 +293,7 @@
   - **F5 cron 时区**：`pkg/cron/service.go` 的 schedule `tz` 字段（按 IANA 时区墙钟计算 + AddJob/UpdateJob 校验 + 持久化比较含 TZ），配置说明在 `docs/guides/configuration.zh.md`「时区」节。
   - **picoclient 即时停连**（2026-10-04 二轮修复）：`pkg/picoclient/client.go` readLoop 的 ctx 监视 goroutine（ctx 取消关连接打断 ReadMessage，`Stop()` 不再等 60s 读超时）、服务端 ping 刷新读超时（空闲连接不再每 60s 误重连）、拨号窗口 SetSessionID 竞态检测（stale 连接立即弃用）。测试锚点：`TestClient_StopInterruptsIdleReadQuickly`、`TestClient_ServerPingsKeepIdleConnectionAlive`。
 - agentscope-go 借鉴四件套（2026-10-05，§23）：`pkg/agent/approval_hook.go` 全文件 + `agent.go` 消息泵的审批回答路由（steering 之前）+ `hook_mount.go` 的 al.approvalHook 接线与超时抬高 + `agent_event.go` UnmountHook 清理——均为 fork 行为；`compact_context` 工具（`compact_context_tool.go` + `context_seahorse.go` 注册 + `iteration_compact.go` 的 force 消费 + `turn_state.go` 的 compactContext* 原子字段）；`output_budget.go` 的 Offload 泛化（registry `workspaceDir` + 同步/异步两出口）；`agent_media.go` 的图片上限（**resolveMediaRefs 签名多了 maxImages 参数**，8 个调用点与既有测试同步改）；`config.go` 的 `max_context_images`/`compact_tool_trigger_ratio`。§23 测试锚点必须全过；尤其不要把审批的 fail-closed（无通道/超时=拒）"修"成放行，或把 `resolveMediaRefs` 的 maxImages 参数删掉。
+- 按模型上下文窗口（2026-10-08，§24）：`pkg/config/config.go` 的 `ModelConfig.ContextWindow` 字段 + 多 key 展开两处携带、`pkg/agent/instance.go` 的 `applyModelContextWindowCap`（min 解析）/`baseGatingWindow`+`baseDeclaredWindow`（swap 重算基准）/`liveCompactionBudget`（预算读当前窗口，**不要改回构造期闭包**——会把切换后窗口钉死在旧值）、`pkg/agent/agent_command.go` swap 内的窗口重算块——均为 fork 行为，同步时保留；`TestSwapAgentModelReCapsContextWindow`、`TestNewAgentInstance_PerModelContextWindow*` 钉住行为。
 
 
 ## 16. Agent Plugins Spec 1.0 兼容客户端 + launcher 管理（2026-09-19）
@@ -401,3 +404,15 @@
 - **④ checkpoint 契约注释**：`restart_recovery.go` 头注补"工具副作用跨崩溃非 exactly-once"显式契约与 marker schema 版本单向门（只借文档，不做恢复续跑——理由见借鉴分析 §四）。
 
 测试锚点：`TestApproval_*`（EmptyPatternsNoBehaviorChange / Hook_AskPatternMatches / Hook_TimeoutFailsClosed / NoInteractiveChannelDeniesImmediately / HardAbortReturnsImmediately / Reply_RoutedBeforeSteering / MountWiringAndTimeoutBump，`approval_hook_test.go`；另有 Hook_BareToolPrefixRejected，回复来源校验与"命令+尾随内容不当作回答"并入 Reply_RoutedBeforeSteering）、`TestCompactContextTool_*`（HonestNoOp / PerTurnThrottle / ForcesNextBoundaryCheck / DoesNotConflictWithSplitTurn，`compact_context_tool_test.go`）、`TestOutputBudget_OffloadsTruncatedOriginal` / `TestOutputBudget_OffloadFailureFallsBackToTruncate`、`TestMediaRefs_CapsCurrentTurnImages` / `TestMediaRefs_CapIgnoresOversizedImages`（`agent_media_test.go`）、config `TestGetMaxContextImagesDefaults`。评审收口（M1 来源校验/M2 超时锁纪律/M3 落盘清扫/L1/L2/L3/L5/N1/N2/N3）见借鉴分析实施状态。
+
+## 24. 按模型上下文窗口 context_window（2026-10-08）
+
+远端 Linux 机事故驱动：`agents.defaults.context_window=1M + trust_configured_context_window` 为 MiniMax-M3 配置，当天 `/switch` 到 MiniMax-M2.7-highspeed（真实窗口 ~204k 级）后窗口不跟随——上下文窗口只在 agents.defaults 一层（`ModelConfig` 无此字段），所有压缩门与 400 后压缩重试的预算继续按 1M 规划，长会话直接撞服务端 400（`context window exceeds limit`，错误码 2013），且压缩重试因"169k 远未超 1M"完全空转（日志零 trim 记录）。修复：`ModelConfig` 增加 `context_window`（fork feature，与 `trust_configured_context_window` 同族）：
+
+- **min 解析**（`instance.go` `applyModelContextWindowCap`）：生效窗口 = `min(agent 级窗口 [先经 256k 钳制/trust 处理], 条目值)`，门控（`ContextWindow`）与显示（`DeclaredContextWindow`，📦 卡片的 total 来源）同步收紧。min 语义 = 条目只能收紧、不能抬高 ceiling——未设条目的模型（如 M3）继续按 agent 级 1M 工作。构造期经 `resolvedCandidateModelConfig` 解析条目（与 swap 同一条路径，raw provider/model 引用口径一致）。
+- **切换跟随**（`agent_command.go` `swapAgentModelLocked`）：`/switch`、`/new`（重置默认模型）、重启恢复（`restoreInterruptedModel`）三条路径共用 swap，切换后按新条目重算窗口；`AgentInstance` 新增 `baseGatingWindow`/`baseDeclaredWindow` 保存钳制后、cap 前的 agent 级基准（手工构造的测试 agent 基准为零 → 跳过跟随）。锁纪律不变：swap 只在 TryLock 成功（无活跃 turn）时运行，字段读写与既有 Model 字段同待遇。
+- **CompactionBudget 重绑**：`CompactionBudget` 由构造期闭包改为构造后绑定的 `liveCompactionBudget` 方法（读当前 `ContextWindow`/`MaxTokens`）——闭包捕获构造期局部变量会把切换后的窗口钉死在旧值。
+- **多 key 展开**：`expandMultiKeyModels` 的 primary 与虚拟条目都携带 `ContextWindow`。
+- **范围**：只作用于**当前主模型**条目；fallback 候选/轻量路由/图像模型的条目值不参与 min（fallback 中途切换的小窗口模型由既有溢出兜底路径处理）。`Validate` 拒绝负值。
+- 测试锚点：`TestNewAgentInstance_PerModelContextWindow`（min 语义/预算派生/不能抬高）、`TestNewAgentInstance_PerModelContextWindowClampInterplay`（钳制先于 cap）、`TestNewAgentInstance_PerModelContextWindowHeuristic`（推导窗口同样折叠）、`TestSwapAgentModelReCapsContextWindow`（切换跟随 + 预算重绑 + 切回还原）、config 侧 `TestModelConfigContextWindowJSON`（JSON 标签/负值校验）与 `TestExpandMultiKeyModels_CarriesContextWindow`。
+- 上游同步注意：`pkg/config/config.go` 的 `ModelConfig.ContextWindow`、`instance.go` 的 `applyModelContextWindowCap`/`baseGatingWindow`/`liveCompactionBudget`、`agent_command.go` swap 内窗口重算块——均为 fork 行为；上游若改 `swapAgentModelLocked` 的字段搬运清单或 `NewAgentInstance` 的窗口推导，同步时保留 per-model min 与预算重绑语义。

@@ -1160,9 +1160,17 @@ type ModelConfig struct {
 	Workspace   string `json:"workspace,omitempty"`    // Workspace path for CLI-based providers
 
 	// Optional optimizations
-	RPM                 int                  `json:"rpm,omitempty"`              // Requests per minute limit
-	MaxTokensField      string               `json:"max_tokens_field,omitempty"` // Field name for max tokens (e.g., "max_completion_tokens")
-	RequestTimeout      int                  `json:"request_timeout,omitempty"`
+	RPM            int    `json:"rpm,omitempty"`              // Requests per minute limit
+	MaxTokensField string `json:"max_tokens_field,omitempty"` // Field name for max tokens (e.g., "max_completion_tokens")
+	RequestTimeout int    `json:"request_timeout,omitempty"`
+	// ContextWindow optionally caps the agent-level context window while
+	// this model is the active primary (fork feature, mirrors
+	// trust_configured_context_window). The effective window is
+	// min(agents.defaults context window, this value); 0 = unset. Use it
+	// when models with different real windows share one agent — e.g. a 1M
+	// flagship and a 204k speed variant behind /switch — so compaction
+	// gates track the active model instead of the agent-wide ceiling.
+	ContextWindow       int                  `json:"context_window,omitempty"`
 	ThinkingLevel       string               `json:"thinking_level,omitempty"`        // Extended thinking: off|low|medium|high|xhigh|adaptive
 	ToolSchemaTransform string               `json:"tool_schema_transform,omitempty"` // Optional tool schema compatibility transform (e.g. "simple")
 	Streaming           ModelStreamingConfig `json:"streaming,omitzero"`              // Opt-in for provider streaming on this model entry
@@ -1221,6 +1229,9 @@ func (c *ModelConfig) Validate() error {
 	// Reject consecutive slashes
 	if strings.Contains(c.Model, "//") {
 		return fmt.Errorf("model identifier must not contain //")
+	}
+	if c.ContextWindow < 0 {
+		return fmt.Errorf("context_window must be a positive token count when set")
 	}
 	return nil
 }
@@ -2302,6 +2313,7 @@ func expandMultiKeyModels(models []*ModelConfig) []*ModelConfig {
 				RPM:                 m.RPM,
 				MaxTokensField:      m.MaxTokensField,
 				RequestTimeout:      m.RequestTimeout,
+				ContextWindow:       m.ContextWindow,
 				ThinkingLevel:       m.ThinkingLevel,
 				ToolSchemaTransform: m.ToolSchemaTransform,
 				Streaming:           m.Streaming,
@@ -2327,6 +2339,7 @@ func expandMultiKeyModels(models []*ModelConfig) []*ModelConfig {
 			RPM:                 m.RPM,
 			MaxTokensField:      m.MaxTokensField,
 			RequestTimeout:      m.RequestTimeout,
+			ContextWindow:       m.ContextWindow,
 			ThinkingLevel:       m.ThinkingLevel,
 			ToolSchemaTransform: m.ToolSchemaTransform,
 			Streaming:           m.Streaming,

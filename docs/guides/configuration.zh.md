@@ -638,6 +638,8 @@ Agent 将每隔 30 分钟（可配置）读取此文件，并使用可用工具�
 
 注意：未配置 `context_window` 时不走钳制，仍按 `max(max_tokens×4, 256k)` 推导。若确认所用模型真实窗口大于 256k，才设 true。
 
+多模型共用一个 agent（`/switch` 或 fallback 链）且真实窗口不同时，优先用 model_list 条目的 `context_window` 按模型收紧（见「按模型上下文窗口」一节），而不是全局调低或全局 trust——agent 级窗口按最大窗口的模型配，小窗口模型靠条目值收编。
+
 ### 模型故障冷却 (cooldown_enabled)
 
 模型调用失败后，故障候选会进入指数退避冷却（1min → 5min → 25min → 1h；配额耗尽 5h 起），防止 429 风暴期间反复撞死端点。两个行为保证：
@@ -903,6 +905,49 @@ Agent 读取 HEARTBEAT.md
 - 如果设置了 `provider`，PicoClaw 会将 `model` 原样发送。
 - 如果未设置 `provider`，PicoClaw 会把 `model` 第一个 `/` 之前的字段当作 provider，并把第一个 `/` 之后的全部内容当作最终模型 ID。
 - 这意味着 `"model": "openrouter/openai/gpt-5.4"` 这样的兼容写法仍然可用，并会把 `openai/gpt-5.4` 发送给 OpenRouter。
+
+#### 按模型上下文窗口 (context_window)（fork 新增）
+
+`agents.defaults.context_window` 是 **agent 级**配置——同一个 agent 用 `/switch` 在真实窗口不同的模型间切换时，窗口原本不会跟随模型。2026-10-08 远端机事故即此形态：为 1M 旗舰模型配的窗口 + `trust_configured_context_window: true`，在切到 204k 高速档后仍被所有压缩门信任，长会话直接撞服务端 400（`context window exceeds limit`），且 400 后的压缩重试预算同样取自虚高窗口、完全空转。
+
+model_list 条目可加 `context_window` 按模型收紧：
+
+```json
+{
+  "model_list": [
+    {
+      "model_name": "minimax-m3",
+      "provider": "minimax-token-plan",
+      "model": "MiniMax-M3",
+      "api_keys": ["sk-..."]
+    },
+    {
+      "model_name": "minimax-m2-highspeed",
+      "provider": "minimax-token-plan",
+      "model": "MiniMax-M2.7-highspeed",
+      "api_keys": ["sk-..."],
+      "context_window": 180000
+    }
+  ],
+  "agents": {
+    "defaults": {
+      "context_window": 1000000,
+      "trust_configured_context_window": true
+    }
+  }
+}
+```
+
+| 字段 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `model_list[].context_window` | int | 未设置（0） | 该条目作为**当前主模型**时的窗口上限：生效窗口 = `min(agent 级窗口 [先经 256k 钳制 / trust 处理], 本值)`。**min 语义**——条目只能收紧预算、不能抬高 agent 级 ceiling，因此未设置的条目（如上例的 M3）继续按 agent 级 1M 工作 |
+
+要点：
+
+- **跟随切换**：`/switch`、`/new`（恢复默认模型）、重启恢复（restored model）三条路径都会按新模型条目重算生效窗口；压缩预算（`context_window − max_tokens`）与用量上报的 📦 总窗口同步跟随——切换后卡片直接按 `已用/180K` 显示。
+- **只作用于主模型**：fallback 候选、轻量路由、图像模型的条目值不参与 min——fallback 中途切到的小窗口模型仍由既有溢出兜底路径处理。
+- 与 `trust_configured_context_window` 正交：agent 级先做钳制/trust，再叠 per-model min。
+- 多 key 展开的虚拟条目继承原条目的 `context_window`。
 
 #### 流式输出配置
 
