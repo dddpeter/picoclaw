@@ -568,6 +568,9 @@ func (p *streamingChunkPublisher) seal(ctx context.Context, content string, cont
 				setter.SetTurnUsage(usage.PromptTokens, usage.CompletionTokens)
 			}
 		}
+		if setter, ok := p.streamer.(interface{ SetTurnLLMCalls(n int) }); ok {
+			setter.SetTurnLLMCalls(p.ts.LLMCallCount())
+		}
 	}
 	var err error
 	if streamer, ok := p.streamer.(bus.ContextUsageStreamer); ok {

@@ -322,6 +322,7 @@ type turnState struct {
 	tokenBudget      *atomic.Int64        // Shared token budget counter
 	lastFinishReason string               // Last LLM finish_reason
 	lastUsage        *providers.UsageInfo // Last LLM usage info
+	llmCalls         int                  // LLM responses recorded this turn (= API calls; one SetLastUsage per response)
 
 	// Back-reference to the owning AgentLoop (set for SubTurns only, used for hard abort cascade)
 	al *AgentLoop
@@ -1069,6 +1070,16 @@ func (ts *turnState) SetLastUsage(usage *providers.UsageInfo) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 	ts.lastUsage = usage
+	ts.llmCalls++
+}
+
+// LLMCallCount returns how many LLM responses were recorded this turn —
+// the per-turn API call count surfaced in channel footers (feishu card /
+// pico web status bar). Resets naturally with the per-turn turnState.
+func (ts *turnState) LLMCallCount() int {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	return ts.llmCalls
 }
 
 // =============================================================================

@@ -65,6 +65,14 @@ export interface ContextUsage {
   used_percent: number
 }
 
+/** 回合末次 LLM 用量快照（封板消息 usage 载荷；token 为末次调用口径，与飞书卡片一致）。 */
+export interface TurnStats {
+  inputTokens: number
+  outputTokens: number
+  llmCalls?: number
+  modelName?: string
+}
+
 export type ConnectionState =
   | "disconnected"
   | "connecting"
@@ -88,6 +96,12 @@ export interface ChatStoreState {
    * between now and this timestamp drives the stall hint. undefined when idle.
    */
   lastTurnActivityAt?: number
+  /** 已结束回合的耗时快照（ms）；进行中回合用 turnStartedAt 实时计算。 */
+  turnElapsedMs?: number
+  /** 已结束回合的用量快照（usage 载荷 + 模型名）；进行中回合视为陈旧不展示。 */
+  turnStats?: TurnStats
+  /** 最近一次回合的结束态（error 仅在收到 error 事件时标记）。 */
+  turnStatus?: "done" | "error"
 }
 
 type ChatStorePatch = Partial<ChatStoreState>

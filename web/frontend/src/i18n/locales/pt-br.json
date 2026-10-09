@@ -132,7 +132,10 @@
       "local": "Local"
     },
     "steeringBadge": "direção",
-    "steeringTooltip": "Enfileirado como steering — será consumido pelo turno em execução"
+    "steeringTooltip": "Enfileirado como steering — será consumido pelo turno em execução",
+    "turnDone": "Concluído",
+    "turnRunning": "Gerando",
+    "turnFailed": "Interrompido"
   },
   "header": {
     "logout": {

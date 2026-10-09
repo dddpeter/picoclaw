@@ -114,7 +114,10 @@
       "apikey": "API Key",
       "oauth": "OAuth",
       "local": "Local"
-    }
+    },
+    "turnDone": "Done",
+    "turnRunning": "Generating",
+    "turnFailed": "Interrupted"
   },
   "header": {
     "logout": {

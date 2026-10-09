@@ -114,7 +114,10 @@
       "apikey": "API Key",
       "oauth": "OAuth",
       "local": "本地模型"
-    }
+    },
+    "turnDone": "已完成",
+    "turnRunning": "生成中",
+    "turnFailed": "已中断"
   },
   "header": {
     "logout": {

@@ -148,3 +148,18 @@ func TestTurnState_StreamPublisherAtomicRef(t *testing.T) {
 		t.Fatal("clearStreamPublisher failed")
 	}
 }
+
+func TestLLMCallCountIncrementsPerUsageRecord(t *testing.T) {
+	ts := &turnState{} // 裸结构即可：仅测计数器与 usage 记录，无需构造器依赖的 AgentInstance
+	if got := ts.LLMCallCount(); got != 0 {
+		t.Fatalf("fresh turnState LLMCallCount = %d, want 0", got)
+	}
+	ts.SetLastUsage(&providers.UsageInfo{PromptTokens: 10, CompletionTokens: 5})
+	ts.SetLastUsage(&providers.UsageInfo{PromptTokens: 20, CompletionTokens: 5})
+	if got := ts.LLMCallCount(); got != 2 {
+		t.Fatalf("LLMCallCount = %d, want 2 (one per recorded response)", got)
+	}
+	if u := ts.GetLastUsage(); u == nil || u.PromptTokens != 20 {
+		t.Fatalf("GetLastUsage should still return the latest usage, got %+v", u)
+	}
+}

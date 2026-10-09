@@ -130,7 +130,10 @@
       "local": "Lokální"
     },
     "steeringBadge": "řízení",
-    "steeringTooltip": "Zařazeno jako steering — spotřebuje jej právě běžící kolo"
+    "steeringTooltip": "Zařazeno jako steering — spotřebuje jej právě běžící kolo",
+    "turnDone": "Dokončeno",
+    "turnRunning": "Generuje se",
+    "turnFailed": "Přerušeno"
   },
   "header": {
     "logout": {

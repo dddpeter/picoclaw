@@ -553,6 +553,7 @@ type picoStreamer struct {
 	modelName        string
 	turnInputTokens  int
 	turnOutputTokens int
+	turnLLMCalls     int
 	messageID        string
 	reasoningID      string
 	throttleInterval time.Duration
@@ -584,6 +585,17 @@ func (s *picoStreamer) SetTurnUsage(inputTokens, outputTokens int) {
 	defer s.mu.Unlock()
 	s.turnInputTokens = inputTokens
 	s.turnOutputTokens = outputTokens
+}
+
+// SetTurnLLMCalls records the per-turn LLM API call count to emit on finalize
+// (web status bar "API ×n"; parity with the feishu card footer).
+func (s *picoStreamer) SetTurnLLMCalls(n int) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.turnLLMCalls = n
 }
 
 func (s *picoStreamer) Update(ctx context.Context, content string) error {
@@ -694,7 +706,7 @@ func (s *picoStreamer) sendLocked(ctx context.Context, content string, contextUs
 			payload[PayloadKeyModelName] = s.modelName
 		}
 		setContextUsagePayload(payload, contextUsage)
-		setTurnUsagePayload(payload, s.turnInputTokens, s.turnOutputTokens)
+		setTurnUsagePayload(payload, s.turnInputTokens, s.turnOutputTokens, s.turnLLMCalls)
 		outMsg := newMessage(TypeMessageCreate, payload)
 		if err := s.channel.broadcast(s.chatID, outMsg); err != nil {
 			return err
@@ -707,7 +719,7 @@ func (s *picoStreamer) sendLocked(ctx context.Context, content string, contextUs
 		if s.modelName != "" {
 			payload[PayloadKeyModelName] = s.modelName
 		}
-		setTurnUsagePayload(payload, s.turnInputTokens, s.turnOutputTokens)
+		setTurnUsagePayload(payload, s.turnInputTokens, s.turnOutputTokens, s.turnLLMCalls)
 		if err := s.channel.editMessagePayload(ctx, s.chatID, s.messageID, payload, contextUsage); err != nil {
 			return err
 		}
@@ -1448,16 +1460,21 @@ func setContextUsagePayload(payload map[string]any, u *bus.ContextUsage) {
 
 // setTurnUsagePayload attaches real per-turn LLM token usage to the payload.
 // Input and output are kept separate (billed at different rates); total is a
-// convenience sum. Omitted entirely when both counts are zero.
-func setTurnUsagePayload(payload map[string]any, inputTokens, outputTokens int) {
-	if inputTokens <= 0 && outputTokens <= 0 {
+// convenience sum; llm_calls is the per-turn API call count for the web status
+// bar. Omitted entirely when all counts are zero.
+func setTurnUsagePayload(payload map[string]any, inputTokens, outputTokens, llmCalls int) {
+	if inputTokens <= 0 && outputTokens <= 0 && llmCalls <= 0 {
 		return
 	}
-	payload[PayloadKeyUsage] = map[string]any{
+	usage := map[string]any{
 		"input_tokens":  inputTokens,
 		"output_tokens": outputTokens,
 		"total_tokens":  inputTokens + outputTokens,
 	}
+	if llmCalls > 0 {
+		usage["llm_calls"] = llmCalls
+	}
+	payload[PayloadKeyUsage] = usage
 }
 
 func picoToolCallsPayload(msg bus.OutboundMessage) ([]utils.VisibleToolCall, bool) {

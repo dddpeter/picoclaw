@@ -8,7 +8,7 @@ import (
 func TestSetTurnUsagePayload(t *testing.T) {
 	t.Run("populates usage block when counts present", func(t *testing.T) {
 		payload := map[string]any{PayloadKeyContent: "hi"}
-		setTurnUsagePayload(payload, 1234, 567)
+		setTurnUsagePayload(payload, 1234, 567, 3)
 
 		raw, ok := payload[PayloadKeyUsage]
 		if !ok {
@@ -27,11 +27,23 @@ func TestSetTurnUsagePayload(t *testing.T) {
 		if usage["total_tokens"] != 1801 {
 			t.Errorf("total_tokens = %v, want 1801", usage["total_tokens"])
 		}
+		if usage["llm_calls"] != 3 {
+			t.Errorf("llm_calls = %v, want 3", usage["llm_calls"])
+		}
 	})
 
-	t.Run("omits usage block when both counts zero", func(t *testing.T) {
+	t.Run("omits llm_calls when zero", func(t *testing.T) {
 		payload := map[string]any{PayloadKeyContent: "hi"}
-		setTurnUsagePayload(payload, 0, 0)
+		setTurnUsagePayload(payload, 1234, 567, 0)
+		usage := payload[PayloadKeyUsage].(map[string]any)
+		if _, ok := usage["llm_calls"]; ok {
+			t.Errorf("llm_calls should be omitted when zero, got %v", usage["llm_calls"])
+		}
+	})
+
+	t.Run("omits usage block when all counts zero", func(t *testing.T) {
+		payload := map[string]any{PayloadKeyContent: "hi"}
+		setTurnUsagePayload(payload, 0, 0, 0)
 		if _, ok := payload[PayloadKeyUsage]; ok {
 			t.Errorf("expected no %q key when counts are zero", PayloadKeyUsage)
 		}
@@ -54,6 +66,7 @@ func newCaptureStreamer() (*picoStreamer, *map[string]any) {
 func TestStreamerEmitsUsageOnFinalize(t *testing.T) {
 	s, last := newCaptureStreamer()
 	s.SetTurnUsage(100, 40)
+	s.SetTurnLLMCalls(2)
 
 	// sendLocked with empty messageID takes the create branch, which attaches
 	// usage from the streamer's stored counts.
@@ -63,7 +76,11 @@ func TestStreamerEmitsUsageOnFinalize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sendLocked: %v", err)
 	}
-	if _, ok := (*last)[PayloadKeyUsage]; !ok {
+	usage, ok := (*last)[PayloadKeyUsage].(map[string]any)
+	if !ok {
 		t.Fatalf("expected usage in payload, got %+v", *last)
+	}
+	if usage["llm_calls"] != 2 {
+		t.Errorf("llm_calls = %v, want 2", usage["llm_calls"])
 	}
 }

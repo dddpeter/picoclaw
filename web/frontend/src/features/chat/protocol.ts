@@ -8,6 +8,7 @@ import { normalizeUnixTimestamp } from "@/features/chat/state"
 import {
   type ChatAttachment,
   type ContextUsage,
+  type TurnStats,
   updateChatStore,
 } from "@/store/chat"
 
@@ -93,6 +94,30 @@ function parseModelName(payload: Record<string, unknown>): string | undefined {
   return modelName || undefined
 }
 
+/** 封板消息的 usage 载荷 → 回合用量快照（末次调用口径，含 LLM 调用次数）。 */
+function parseTurnStats(
+  payload: Record<string, unknown>,
+): TurnStats | undefined {
+  const raw = payload.usage
+  if (!raw || typeof raw !== "object") {
+    return undefined
+  }
+  const obj = raw as Record<string, unknown>
+  const input = Number(obj.input_tokens)
+  const output = Number(obj.output_tokens)
+  const llmCalls = Number(obj.llm_calls)
+  if (!Number.isFinite(input) || !Number.isFinite(output)) {
+    return undefined
+  }
+  const modelName = parseModelName(payload)
+  return {
+    inputTokens: Math.max(0, input),
+    outputTokens: Math.max(0, output),
+    ...(Number.isFinite(llmCalls) && llmCalls > 0 ? { llmCalls } : {}),
+    ...(modelName ? { modelName } : {}),
+  }
+}
+
 export function handlePicoMessage(
   message: PicoMessage,
   expectedSessionId: string,
@@ -122,6 +147,7 @@ export function handlePicoMessage(
       const turnFinished =
         !isPlaceholder &&
         (kind === "normal" || message.type === "media.create")
+      const turnStats = turnFinished ? parseTurnStats(payload) : undefined
 
       updateChatStore((prev) => ({
         messages: [
@@ -141,7 +167,16 @@ export function handlePicoMessage(
         ...(isPlaceholder
           ? {}
           : turnFinished
-            ? { turnStartedAt: undefined, lastTurnActivityAt: undefined }
+            ? {
+                turnStartedAt: undefined,
+                lastTurnActivityAt: undefined,
+                turnStatus: "done" as const,
+                // 回合结束：冻结耗时快照（状态栏显示用），并记录末次用量。
+                turnElapsedMs: prev.turnStartedAt
+                  ? Date.now() - prev.turnStartedAt
+                  : prev.turnElapsedMs,
+                ...(turnStats ? { turnStats } : {}),
+              }
             : { lastTurnActivityAt: Date.now() }),
         ...(contextUsage ? { contextUsage } : {}),
       }))
@@ -235,11 +270,16 @@ export function handlePicoMessage(
       break
 
     case "typing.stop":
-      updateChatStore({
+      updateChatStore((prev) => ({
         isTyping: false,
         turnStartedAt: undefined,
         lastTurnActivityAt: undefined,
-      })
+        // 封板消息可能不再触发 typing.stop 之后的 create（媒体/直答路径由
+        // create 分支冻结），这里兜底冻结一次耗时，避免状态栏永跳。
+        ...(prev.turnStartedAt
+          ? { turnElapsedMs: Date.now() - prev.turnStartedAt }
+          : {}),
+      }))
       break
 
     case "error": {
@@ -259,6 +299,10 @@ export function handlePicoMessage(
         isTyping: false,
         turnStartedAt: undefined,
         lastTurnActivityAt: undefined,
+        turnStatus: "error" as const,
+        ...(prev.turnStartedAt
+          ? { turnElapsedMs: Date.now() - prev.turnStartedAt }
+          : {}),
       }))
       break
     }
