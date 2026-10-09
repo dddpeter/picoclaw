@@ -363,6 +363,13 @@ func (c *PicoChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]stri
 		// generating state early.
 		payload[PayloadKeyKind] = MessageKindProgressNote
 	}
+	if msg.Approval != nil {
+		payload[PayloadKeyApproval] = map[string]any{
+			"tool":       msg.Approval.Tool,
+			"preview":    msg.Approval.Preview,
+			"timeout_ms": msg.Approval.TimeoutMs,
+		}
+	}
 	setContextUsagePayload(payload, msg.ContextUsage)
 	outMsg := newMessage(TypeMessageCreate, payload)
 

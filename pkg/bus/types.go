@@ -82,6 +82,19 @@ type OutboundMessage struct {
 	Content          string         `json:"content"`
 	ReplyToMessageID string         `json:"reply_to_message_id,omitempty"`
 	ContextUsage     *ContextUsage  `json:"context_usage,omitempty"`
+	// Approval marks this message as a human-in-the-loop approval question.
+	// Channels surface it as an interactive prompt (feishu approval card,
+	// web approval card); the pico payload carries it as the "approval"
+	// field so the web UI gets precise tool/preview/timeout data. Optional
+	// and ignored by channels that do not know it.
+	Approval *ApprovalRequestMeta `json:"approval,omitempty"`
+}
+
+// ApprovalRequestMeta describes one pending approval question.
+type ApprovalRequestMeta struct {
+	Tool      string `json:"tool"`
+	Preview   string `json:"preview,omitempty"`
+	TimeoutMs int64  `json:"timeout_ms,omitempty"`
 }
 
 // MediaPart describes a single media attachment to send.

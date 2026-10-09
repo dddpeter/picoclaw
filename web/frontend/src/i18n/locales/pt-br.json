@@ -135,7 +135,17 @@
     "steeringTooltip": "Enfileirado como steering — será consumido pelo turno em execução",
     "turnDone": "Concluído",
     "turnRunning": "Gerando",
-    "turnFailed": "Interrompido"
+    "turnFailed": "Interrompido",
+    "approvalTitle": "Sua aprovação é necessária",
+    "approvalApprove": "Aprovar",
+    "approvalAlways": "Aprovar e sempre nesta sessão",
+    "approvalDeny": "Negar",
+    "approvalTimeoutNote": "Expira e é negado automaticamente (fail-closed)",
+    "approvalSealApproved": "Aprovado",
+    "approvalSealAlways": "Aprovado · sempre permitido nesta sessão",
+    "approvalSealDenied": "Negado",
+    "approvalSealTimeout": "Expirou · negado automaticamente",
+    "approvalSealDone": "Tratado"
   },
   "header": {
     "logout": {

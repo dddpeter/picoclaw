@@ -13,7 +13,12 @@ import {
 	shouldShowAssistantMessage,
 	type AssistantDetailVisibility,
 } from "@/features/chat/detail-visibility";
-import type { ChatAttachment, ChatMessage } from "@/store/chat";
+import type {
+	ApprovalInfo,
+	ApprovalSeal,
+	ChatAttachment,
+	ChatMessage,
+} from "@/store/chat";
 
 export interface PiUserPart {
 	id: string;
@@ -35,6 +40,16 @@ export interface PiToolFeedback {
 
 export type PiBlock =
 	| { type: "text"; id: string; text: string; live: boolean }
+	| {
+			type: "approval";
+			id: string;
+			/** 审批询问（v1 payload / v0 文本解析）。 */
+			approval: ApprovalInfo;
+			/** 封存结论；缺省 = 待操作。 */
+			seal?: ApprovalSeal;
+			/** 询问时刻（ms epoch），倒计时锚点。 */
+			timestamp: number;
+	  }
 	| { type: "thinking"; id: string; thinking: string; live: boolean }
 	| {
 			type: "toolCall";
@@ -231,6 +246,17 @@ export function buildTurns(
 		}
 
 		const assistant = ensureAssistant(message);
+		// 审批询问整条消息渲染为审批卡（替代 markdown 文本块）。
+		if (message.approval) {
+			assistant.blocks.push({
+				type: "approval",
+				id: `${message.id}#approval`,
+				approval: message.approval,
+				...(message.approvalSeal ? { seal: message.approvalSeal } : {}),
+				timestamp: parseTimestampMs(message.timestamp),
+			});
+			return;
+		}
 		const toolCalls = message.toolCalls ?? [];
 
 		if (message.kind === "thought" && toolCalls.length === 0) {

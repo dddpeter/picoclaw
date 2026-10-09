@@ -134,7 +134,17 @@
     "steeringTooltip": "স্টিয়ারিং হিসেবে সারিবদ্ধ — চলমান পালো দ্বারা গৃহীত হবে",
     "turnDone": "সম্পন্ন",
     "turnRunning": "তৈরি হচ্ছে",
-    "turnFailed": "বিঘ্নিত"
+    "turnFailed": "বিঘ্নিত",
+    "approvalTitle": "আপনার অনুমোদন প্রয়োজন",
+    "approvalApprove": "অনুমোদন",
+    "approvalAlways": "অনুমোদন ও এই সেশনে সবসময়",
+    "approvalDeny": "প্রত্যাখ্যান",
+    "approvalTimeoutNote": "সময় শেষে স্বয়ংক্রিয়ভাবে প্রত্যাখ্যাত (fail-closed)",
+    "approvalSealApproved": "অনুমোদিত",
+    "approvalSealAlways": "অনুমোদিত · এই সেশনে স্বয়ংক্রিয়",
+    "approvalSealDenied": "প্রত্যাখ্যাত",
+    "approvalSealTimeout": "সময় শেষ · স্বয়ংক্রিয় প্রত্যাখ্যান",
+    "approvalSealDone": "নিষ্পন্ন"
   },
   "header": {
     "logout": {

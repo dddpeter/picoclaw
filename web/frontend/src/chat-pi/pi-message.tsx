@@ -15,6 +15,7 @@ import { StreamMarkdown } from "./stream-markdown";
 import { ThinkingBlock } from "./thinking-block";
 import { ToolCallBlock, type PiToolView } from "./tool-call-block";
 import type { PiBlock, PiTurn, PiUserPart } from "./turns";
+import { ApprovalCard } from "@/components/chat/approval-card";
 import "./pi-chat.css";
 
 /** pi-web-ui Message.tsx formatTime：本地时间 HH:MM。 */
@@ -169,6 +170,8 @@ function PiBlockView({ block, active }: { block: PiBlock; active: boolean }) {
 	switch (block.type) {
 		case "text":
 			return <TextBlock id={block.id} text={block.text} live={block.live && active} role="assistant" />;
+		case "approval":
+			return <ApprovalCard info={block.approval} seal={block.seal} timestamp={block.timestamp} />;
 		case "thinking":
 			return (
 				<ThinkingBlock thinking={block.thinking} streaming={block.live && active} />

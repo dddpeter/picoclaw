@@ -1039,3 +1039,51 @@ func newTestPicoWebSocket(t *testing.T) (*websocket.Conn, <-chan PicoMessage, fu
 	defer resp.Body.Close()
 	return clientConn, received, cleanup
 }
+
+func TestSend_ApprovalMessageCarriesApprovalPayload(t *testing.T) {
+	ch := newTestPicoChannel(t)
+
+	if err := ch.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer ch.Stop(context.Background())
+
+	clientConn, received, cleanup := newTestPicoWebSocket(t)
+	defer cleanup()
+	ch.addConnForTest(&picoConn{id: "conn-1", conn: clientConn, sessionID: "sess-1"})
+
+	if _, err := ch.Send(context.Background(), bus.OutboundMessage{
+		ChatID:  "pico:sess-1",
+		Content: "⚠️ 需要批准：即将执行工具 exec",
+		Context: bus.InboundContext{Channel: "pico", ChatID: "pico:sess-1"},
+		Approval: &bus.ApprovalRequestMeta{
+			Tool:      "exec",
+			Preview:   "git push origin main",
+			TimeoutMs: 300000,
+		},
+	}); err != nil {
+		t.Fatalf("Send(approval) error = %v", err)
+	}
+
+	select {
+	case msg := <-received:
+		if msg.Type != TypeMessageCreate {
+			t.Fatalf("message type = %q, want %q", msg.Type, TypeMessageCreate)
+		}
+		raw, ok := msg.Payload[PayloadKeyApproval].(map[string]any)
+		if !ok {
+			t.Fatalf("payload[%q] = %#v, want object", PayloadKeyApproval, msg.Payload[PayloadKeyApproval])
+		}
+		if raw["tool"] != "exec" {
+			t.Errorf("approval tool = %#v, want exec", raw["tool"])
+		}
+		if raw["preview"] != "git push origin main" {
+			t.Errorf("approval preview = %#v", raw["preview"])
+		}
+		if raw["timeout_ms"] != int64(300000) && raw["timeout_ms"] != float64(300000) {
+			t.Errorf("approval timeout_ms = %#v (%T)", raw["timeout_ms"], raw["timeout_ms"])
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected approval message to be delivered")
+	}
+}

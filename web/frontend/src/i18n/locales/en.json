@@ -117,7 +117,17 @@
     },
     "turnDone": "Done",
     "turnRunning": "Generating",
-    "turnFailed": "Interrupted"
+    "turnFailed": "Interrupted",
+    "approvalTitle": "Your approval required",
+    "approvalApprove": "Approve",
+    "approvalAlways": "Approve & always this session",
+    "approvalDeny": "Deny",
+    "approvalTimeoutNote": "Times out and auto-denies (fail-closed)",
+    "approvalSealApproved": "Approved",
+    "approvalSealAlways": "Approved · auto-allowed this session",
+    "approvalSealDenied": "Denied",
+    "approvalSealTimeout": "Timed out · auto-denied",
+    "approvalSealDone": "Handled"
   },
   "header": {
     "logout": {

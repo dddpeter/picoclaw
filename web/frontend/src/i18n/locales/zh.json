@@ -117,7 +117,17 @@
     },
     "turnDone": "已完成",
     "turnRunning": "生成中",
-    "turnFailed": "已中断"
+    "turnFailed": "已中断",
+    "approvalTitle": "需要你的授权",
+    "approvalApprove": "批准",
+    "approvalAlways": "批准并保留本会话",
+    "approvalDeny": "拒绝",
+    "approvalTimeoutNote": "超时将自动拒绝（fail-closed）",
+    "approvalSealApproved": "已批准",
+    "approvalSealAlways": "已批准 · 本会话内自动放行",
+    "approvalSealDenied": "已拒绝",
+    "approvalSealTimeout": "超时自动拒绝",
+    "approvalSealDone": "已处理"
   },
   "header": {
     "logout": {

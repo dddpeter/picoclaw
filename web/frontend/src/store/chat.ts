@@ -43,6 +43,21 @@ export type AssistantMessageKind =
   /** 非终结性进度提示（心跳/卡死监护通知），不算本轮最终回复。 */
   | "progress_note"
 
+/** HITL 审批询问（v1 协议 payload 或 v0 文本特征解析而来）。 */
+export interface ApprovalInfo {
+  tool: string
+  preview?: string
+  /** 超时上限（ms）；v0 兜底解析失败时缺省（倒计时降级为不显示）。 */
+  timeoutMs?: number
+}
+
+/** 审批卡的封存结论：回执配对 / 超时 / 历史遗留（无法回溯）。 */
+export interface ApprovalSeal {
+  verdict: "approved" | "always" | "denied" | "timeout" | "done"
+  /** 结论时刻（ms epoch）；历史遗留配对无时间时为 0。 */
+  at: number
+}
+
 export interface ChatMessage {
   id: string
   role: "user" | "assistant"
@@ -52,6 +67,10 @@ export interface ChatMessage {
   modelName?: string
   attachments?: ChatAttachment[]
   toolCalls?: ChatToolCall[]
+  /** 本消息是审批询问 → 渲染为审批卡而非 markdown 文本。 */
+  approval?: ApprovalInfo
+  /** 审批卡的封存结论；未封存 = 待操作。 */
+  approvalSeal?: ApprovalSeal
   /** User message queued as steering for the active turn (client-side flag). */
   steering?: boolean
 }

@@ -133,7 +133,17 @@
     "steeringTooltip": "Zařazeno jako steering — spotřebuje jej právě běžící kolo",
     "turnDone": "Dokončeno",
     "turnRunning": "Generuje se",
-    "turnFailed": "Přerušeno"
+    "turnFailed": "Přerušeno",
+    "approvalTitle": "Vyžaduje vaše schválení",
+    "approvalApprove": "Schválit",
+    "approvalAlways": "Schválit a v této relaci vždy",
+    "approvalDeny": "Zamítnout",
+    "approvalTimeoutNote": "Po vypršení času automaticky zamítnuto (fail-closed)",
+    "approvalSealApproved": "Schváleno",
+    "approvalSealAlways": "Schváleno · v relaci vždy povoleno",
+    "approvalSealDenied": "Zamítnuto",
+    "approvalSealTimeout": "Vypršel čas · automaticky zamítnuto",
+    "approvalSealDone": "Vyřízeno"
   },
   "header": {
     "logout": {

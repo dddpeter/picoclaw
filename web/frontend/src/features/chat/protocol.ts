@@ -11,6 +11,12 @@ import {
   type TurnStats,
   updateChatStore,
 } from "@/store/chat"
+import {
+  matchApprovalReceipt,
+  parseApprovalFromPayload,
+  parseApprovalFromText,
+  sealLastApproval,
+} from "@/features/chat/approval"
 
 export interface PicoMessage {
   type: string
@@ -148,23 +154,17 @@ export function handlePicoMessage(
         !isPlaceholder &&
         (kind === "normal" || message.type === "media.create")
       const turnStats = turnFinished ? parseTurnStats(payload) : undefined
+      // 审批询问：v1 payload 优先，v0 兜底文本特征（历史回放同款解析）。
+      // 注意询问本身是 kind=normal 的终结消息（turnFinished），不能据此排除。
+      const approval =
+        !isPlaceholder
+          ? (parseApprovalFromPayload(payload) ?? parseApprovalFromText(content))
+          : undefined
+      // 审批回执：封存最近未封卡并抑制回执文本本身；无配对目标按普通文本。
+      const receiptVerdict = !isPlaceholder ? matchApprovalReceipt(content) : undefined
 
-      updateChatStore((prev) => ({
-        messages: [
-          ...prev.messages,
-          {
-            id: messageId,
-            role: "assistant",
-            content,
-            kind,
-            ...(modelName ? { modelName } : {}),
-            ...(toolCalls ? { toolCalls } : {}),
-            attachments,
-            timestamp,
-          },
-        ],
-        isTyping: turnFinished ? false : prev.isTyping,
-        ...(isPlaceholder
+      updateChatStore((prev) => {
+        const turnState = isPlaceholder
           ? {}
           : turnFinished
             ? {
@@ -177,9 +177,38 @@ export function handlePicoMessage(
                   : prev.turnElapsedMs,
                 ...(turnStats ? { turnStats } : {}),
               }
-            : { lastTurnActivityAt: Date.now() }),
-        ...(contextUsage ? { contextUsage } : {}),
-      }))
+            : { lastTurnActivityAt: Date.now() }
+        const common = {
+          isTyping: turnFinished ? false : prev.isTyping,
+          ...turnState,
+          ...(contextUsage ? { contextUsage } : {}),
+        }
+
+        if (receiptVerdict) {
+          const sealed = sealLastApproval(prev.messages, receiptVerdict, timestamp)
+          if (sealed) {
+            return { ...common, messages: sealed }
+          }
+        }
+
+        return {
+          ...common,
+          messages: [
+            ...prev.messages,
+            {
+              id: messageId,
+              role: "assistant",
+              content,
+              kind,
+              ...(modelName ? { modelName } : {}),
+              ...(toolCalls ? { toolCalls } : {}),
+              ...(approval ? { approval } : {}),
+              attachments,
+              timestamp,
+            },
+          ],
+        }
+      })
       break
     }
 

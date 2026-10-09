@@ -1,4 +1,5 @@
 import { getSessionHistory } from "@/api/sessions"
+import { pairApprovalHistory } from "@/features/chat/approval"
 import { normalizeUnixTimestamp } from "@/features/chat/state"
 import {
   parseToolCallsValue,
@@ -60,7 +61,8 @@ export async function loadSessionMessages(
     }),
     timestamp: message.created_at ?? detail.updated,
   }))
-  return { messages, channel: detail.channel }
+  // 历史审批消息走 v0 文本特征识别 + 回执配对（协议 payload 不入库）。
+  return { messages: pairApprovalHistory(messages), channel: detail.channel }
 }
 
 function normalizeMessageTimestamp(timestamp: number | string): string {

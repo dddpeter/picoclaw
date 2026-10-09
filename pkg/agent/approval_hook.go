@@ -410,6 +410,10 @@ func (h *approvalHook) ApproveTool(ctx context.Context, req *ToolApprovalRequest
 			Reason:   fmt.Sprintf("approval wait for %q was cancelled (turn aborted); denied fail-closed", req.Tool),
 		}, nil
 	case <-timer.C:
+		// fail-closed 超时对用户可见：向提问的渠道发拒绝回执（此前超时只
+		// 写进 deny reason，用户端的审批提示永远悬着；web 审批卡与飞书卡
+		// 都靠回执封存）。
+		h.publishTimeoutReceipt(ctx, req, channel, chatID)
 		return ApprovalDecision{
 			Approved: false,
 			Reason:   fmt.Sprintf("approval for %q timed out after %s without a user reply; denied fail-closed", req.Tool, h.timeout),
@@ -495,6 +499,34 @@ func (h *approvalHook) publishAsk(ctx context.Context, req *ToolApprovalRequest,
 		AgentID:    req.Meta.AgentID,
 		SessionKey: req.Meta.SessionKey,
 		Content:    content,
+		// v1 协议元数据：web 审批卡用它拿到精确 tool/preview/timeout
+		//（兜底文本通道仍在，供旧前端/历史回放使用）。
+		Approval: &bus.ApprovalRequestMeta{
+			Tool:      req.Tool,
+			Preview:   prompt.Preview,
+			TimeoutMs: h.timeout.Milliseconds(),
+		},
+	})
+}
+
+// publishTimeoutReceipt delivers the fail-closed timeout outcome to the
+// surface the question was asked on, so interactive prompts (feishu/web
+// approval cards) can seal instead of hanging open forever. Runs detached
+// from the turn context, mirroring publishAsk.
+func (h *approvalHook) publishTimeoutReceipt(ctx context.Context, req *ToolApprovalRequest, channel, chatID string) {
+	al := AgentLoopFromContext(ctx)
+	if al == nil || al.bus == nil {
+		return
+	}
+	publishCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = al.bus.PublishOutbound(publishCtx, bus.OutboundMessage{
+		Channel:    channel,
+		ChatID:     chatID,
+		Context:    outboundContextFromInbound(req.Context.Inbound, channel, chatID, ""),
+		AgentID:    req.Meta.AgentID,
+		SessionKey: req.Meta.SessionKey,
+		Content:    fmt.Sprintf("⛔ 审批超时（%s），已按拒绝处理（fail-closed）。", h.timeout),
 	})
 }
 
