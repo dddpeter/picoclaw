@@ -50,6 +50,26 @@ const (
 	approvalAskPreviewRunes = 200
 )
 
+// Approval text wire format — the web frontend parses these exact strings
+// (web/frontend/src/features/chat/approval.ts: ASK_PREFIX / ASK_REPLY_PREFIX
+// / matchApprovalReceipt). They are a cross-language contract, not copy:
+// changing a word here silently breaks v0 fallback parsing and receipt
+// pairing on old clients. Keep in sync with approval.ts and the pinned
+// contract test (TestApprovalWireFormatPinned).
+const (
+	// ApprovalAskPrefix opens the plain-text approval question; the tool
+	// name follows on the same line.
+	ApprovalAskPrefix = "⚠️ 需要批准：即将执行工具 "
+	// ApprovalReplyHintPrefix opens the reply-hint line of the ask.
+	ApprovalReplyHintPrefix = "回复 /approve"
+	// Receipts (publishApprovalReceipt / publishTimeoutReceipt).
+	ApprovalReceiptAlwaysPrefix    = "✅ 已批准；本会话内命中规则"
+	ApprovalReceiptApprovedExact   = "✅ 已批准，继续执行。"
+	ApprovalReceiptDeniedExact     = "⛔ 已拒绝本次工具执行。"
+	ApprovalReceiptTimeoutPrefix   = "⛔ 审批超时"
+	ApprovalReceiptNoPendingPrefix = "当前没有待批准的操作"
+)
+
 // approvalHookConfig is the hooks.builtins.approval.config payload.
 type approvalHookConfig struct {
 	// AskPatterns 决定哪些调用需要用户批准，语义对齐
@@ -506,11 +526,11 @@ func (h *approvalHook) publishAsk(ctx context.Context, req *ToolApprovalRequest,
 		}
 	}
 
-	content := fmt.Sprintf("⚠️ 需要批准：即将执行工具 %s", req.Tool)
+	content := ApprovalAskPrefix + req.Tool
 	if prompt.Preview != "" {
 		content += "\n" + prompt.Preview
 	}
-	content += fmt.Sprintf("\n\n回复 /approve 允许、/approve always 本会话内不再询问、/deny 拒绝（超过 %s 未回复将按拒绝处理）", h.timeout)
+	content += fmt.Sprintf("\n\n%s 允许、/approve always 本会话内不再询问、/deny 拒绝（超过 %s 未回复将按拒绝处理）", ApprovalReplyHintPrefix, h.timeout)
 
 	_ = al.bus.PublishOutbound(publishCtx, bus.OutboundMessage{
 		Channel:    channel,
@@ -560,7 +580,7 @@ func (h *approvalHook) publishTimeoutReceipt(ctx context.Context, req *ToolAppro
 		Context:    outboundContextFromInbound(req.Context.Inbound, channel, chatID, ""),
 		AgentID:    req.Meta.AgentID,
 		SessionKey: req.Meta.SessionKey,
-		Content:    fmt.Sprintf("⛔ 审批超时（%s），已按拒绝处理（fail-closed）。", h.timeout),
+		Content:    fmt.Sprintf("%s（%s），已按拒绝处理（fail-closed）。", ApprovalReceiptTimeoutPrefix, h.timeout),
 	})
 }
 
@@ -632,7 +652,7 @@ func (al *AgentLoop) tryHandleApprovalReply(ctx context.Context, msg bus.Inbound
 		// Orphan approval token (late click / typed reply after the question
 		// expired or was already answered): drop with a receipt instead of
 		// leaking the protocol word into steering or a fresh turn.
-		al.publishApprovalReceipt(ctx, msg, "当前没有待批准的操作，本次回复已忽略。")
+		al.publishApprovalReceipt(ctx, msg, ApprovalReceiptNoPendingPrefix + "，本次回复已忽略。")
 		logger.InfoCF("agent", "Orphan approval reply dropped", map[string]any{
 			"session_key": sessionKey,
 			"content":     msg.Content,
@@ -657,12 +677,12 @@ func (al *AgentLoop) tryHandleApprovalReply(ctx context.Context, msg bus.Inbound
 		return false // already resolved by another reply
 	}
 
-	receipt := "⛔ 已拒绝本次工具执行。"
+	receipt := ApprovalReceiptDeniedExact
 	if approved {
-		receipt = "✅ 已批准，继续执行。"
+		receipt = ApprovalReceiptApprovedExact
 		if always && p.pattern != "" {
 			hook.addSessionRule(sessionKey, p.pattern)
-			receipt = fmt.Sprintf("✅ 已批准；本会话内命中规则 %q 的调用将自动放行（约 %d 小时后或重启失效）。",
+			receipt = fmt.Sprintf("%s %q 的调用将自动放行（约 %d 小时后或重启失效）。", ApprovalReceiptAlwaysPrefix,
 				p.pattern, int(approvalSessionRuleTTL.Hours()))
 		}
 	}

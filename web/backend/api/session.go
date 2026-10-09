@@ -39,6 +39,12 @@ type sessionFile struct {
 	Updated time.Time `json:"updated"`
 }
 
+// staleApprovalGraceMs is the slack added to a pending approval marker's
+// deadline before the session API reports it stale: the receipt for an
+// on-time denial is published by the hook right at timeout, so a small
+// grace keeps a live, freshly-expired approval from being misreported.
+const staleApprovalGraceMs = 60_000
+
 // sessionListItem is a lightweight summary returned by GET /api/sessions.
 type sessionListItem struct {
 	ID           string `json:"id"`
@@ -1044,15 +1050,23 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	// Pending HITL approval (web approval card): the ask is outbound-only and
 	// never enters the transcript; the durable marker restores the pending
 	// card after a page reload. JSONL sessions only — legacy fallback.
+	// A marker left behind by a gateway crash mid-approval is never cleared
+	// (the hook's deferred clear died with the process), and its question is
+	// long denied — the receipt will never arrive. Serve such stale markers
+	// as a pre-sealed timeout so the web card renders resolved instead of a
+	// forever-pending card whose deadline has already passed.
 	if refErr == nil {
 		if data, mErr := os.ReadFile(memory.ApprovalMarkerFile(dir, ref.Key)); mErr == nil {
 			var marker memory.ApprovalMarker
 			if jErr := json.Unmarshal(data, &marker); jErr == nil && marker.SessionKey != "" {
+				stale := marker.StartedAt > 0 && marker.TimeoutMs > 0 &&
+					time.Now().UnixMilli() > marker.StartedAt+marker.TimeoutMs+staleApprovalGraceMs
 				resp["pending_approval"] = map[string]any{
 					"tool":       marker.Tool,
 					"preview":    marker.Preview,
 					"timeout_ms": marker.TimeoutMs,
 					"started_at": marker.StartedAt,
+					"stale":      stale,
 				}
 			}
 		}

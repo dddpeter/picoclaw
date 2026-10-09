@@ -2057,4 +2057,28 @@ func TestHandleGetSession_PendingApprovalFromMarker(t *testing.T) {
 	if pending["timeout_ms"] != float64(300000) || pending["started_at"] != float64(1790000000000) {
 		t.Fatalf("pending_approval numerics = %#v", pending)
 	}
+	// Live marker (started 1790000000000 is far in the past BUT timeout math
+	// is what the API judges; that marker has started_at far before now, so
+	// it is stale — assert the flag exists either way and then cover a
+	// genuinely fresh marker below).
+	if stale, ok := pending["stale"].(bool); !ok {
+		t.Fatalf("pending_approval.stale missing: %#v", pending)
+	} else if !stale {
+		t.Fatal("marker older than timeout+grace must be reported stale")
+	}
+
+	// Fresh marker: pending, not stale.
+	if err := store.WriteApprovalMarker(memory.ApprovalMarker{
+		SessionKey: sessionKey,
+		Tool:       "exec",
+		Preview:    "make deploy",
+		TimeoutMs:  300000,
+		StartedAt:  time.Now().UnixMilli() - 10_000,
+	}); err != nil {
+		t.Fatalf("WriteApprovalMarker(fresh) error = %v", err)
+	}
+	pending = get()["pending_approval"].(map[string]any)
+	if stale, _ := pending["stale"].(bool); stale {
+		t.Fatal("marker within timeout+grace must not be stale")
+	}
 }

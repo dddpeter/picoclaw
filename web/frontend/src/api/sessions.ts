@@ -22,6 +22,8 @@ export interface SessionDetail {
     preview?: string
     timeout_ms?: number
     started_at?: number
+    /** 后端判定标记已过期（网关在审批等待中崩溃残留）：卡以 timeout 预封存呈现。 */
+    stale?: boolean
   }
   messages: {
     role: "user" | "assistant"

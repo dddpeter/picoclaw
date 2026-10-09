@@ -70,6 +70,18 @@ export async function loadSessionMessages(
     detail.pending_approval?.tool &&
     !paired.some((m) => m.role === "assistant" && m.approval && !m.approvalSeal)
   ) {
+    // stale：网关在审批等待中崩溃残留的标记——问题早已 fail-closed 拒绝、
+    // 回执永远不会来。预封存为 timeout，渲染为已结束的低权重卡，而不是
+    // 一张倒计时归零后永远悬着的可点卡。
+    const staleSeal = detail.pending_approval.stale
+      ? {
+          approvalSeal: {
+            verdict: "timeout" as const,
+            at: (detail.pending_approval.started_at ?? 0) +
+              (detail.pending_approval.timeout_ms ?? 0),
+          },
+        }
+      : {}
     paired.push({
       id: `pending-approval-${Date.now()}`,
       role: "assistant",
@@ -85,6 +97,7 @@ export async function loadSessionMessages(
           : {}),
       },
       timestamp: detail.pending_approval.started_at ?? Date.now(),
+      ...staleSeal,
     })
   }
   return { messages: paired, channel: detail.channel }

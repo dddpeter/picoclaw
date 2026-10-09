@@ -469,3 +469,24 @@ func TestApprovalHook_InheritExecDenyPatterns(t *testing.T) {
 		t.Fatal("nil config must inherit nothing")
 	}
 }
+
+// TestApprovalWireFormatPinned freezes the cross-language text contract:
+// the web frontend (web/frontend/src/features/chat/approval.ts) matches
+// these exact strings to render approval cards and pair receipts. If a
+// change here is intentional, update approval.ts in the same commit.
+func TestApprovalWireFormatPinned(t *testing.T) {
+	pins := []struct{ name, got, want string }{
+		{"ask prefix", ApprovalAskPrefix, "⚠️ 需要批准：即将执行工具 "},
+		{"reply hint prefix", ApprovalReplyHintPrefix, "回复 /approve"},
+		{"receipt always prefix", ApprovalReceiptAlwaysPrefix, "✅ 已批准；本会话内命中规则"},
+		{"receipt approved", ApprovalReceiptApprovedExact, "✅ 已批准，继续执行。"},
+		{"receipt denied", ApprovalReceiptDeniedExact, "⛔ 已拒绝本次工具执行。"},
+		{"receipt timeout prefix", ApprovalReceiptTimeoutPrefix, "⛔ 审批超时"},
+		{"receipt no-pending prefix", ApprovalReceiptNoPendingPrefix, "当前没有待批准的操作"},
+	}
+	for _, pin := range pins {
+		if pin.got != pin.want {
+			t.Errorf("%s drifted: got %q want %q (frontend approval.ts must be updated in lockstep)", pin.name, pin.got, pin.want)
+		}
+	}
+}
