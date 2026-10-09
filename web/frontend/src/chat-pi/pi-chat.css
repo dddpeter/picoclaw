@@ -614,11 +614,68 @@ span.msg-editor-hint svg {
 .msg-text table {
 	border-collapse: collapse;
 	margin: 8px 0;
+	/* 宽表横向滚动而非撑破气泡（GitHub markdown-body 同款手法）。 */
+	display: block;
+	width: max-content;
+	max-width: 100%;
+	overflow-x: auto;
 }
 .msg-text th,
 .msg-text td {
 	border: 1px solid var(--border);
 	padding: 4px 10px;
+}
+
+/* —— 标题/分隔线此前被 Tailwind v4 preflight 打回 inherit（h1-h6 无字号字重），
+ * 且 pi 侧从未写过恢复规则——`## 标题` 渲染出来与正文无异。 —— */
+.msg-text h1,
+.msg-text h2,
+.msg-text h3,
+.msg-text h4,
+.msg-text h5,
+.msg-text h6 {
+	margin: 14px 0 6px;
+	font-weight: 600;
+	line-height: 1.35;
+}
+.msg-text :is(h1, h2, h3, h4, h5, h6):first-child {
+	margin-top: 0;
+}
+.msg-text h1 {
+	font-size: 1.5em;
+}
+.msg-text h2 {
+	font-size: 1.3em;
+}
+.msg-text h3 {
+	font-size: 1.18em;
+}
+.msg-text h4 {
+	font-size: 1.08em;
+}
+.msg-text h5,
+.msg-text h6 {
+	font-size: 1em;
+}
+
+.msg-text hr {
+	margin: 12px 0;
+	border: none;
+	border-top: 1px solid var(--border);
+}
+
+/* 正文内 markdown 图片与附件图（.msg-image img）同款观感。 */
+.msg-text img {
+	max-width: 100%;
+	max-height: 420px;
+	border-radius: 8px;
+	border: 1px solid var(--border);
+}
+
+/* GFM 任务清单复选框：preflight 抹掉 input 的 margin，文字会贴着框。 */
+.msg-text input[type="checkbox"] {
+	margin-right: 6px;
+	accent-color: var(--accent);
 }
 .msg-text a {
 	color: var(--link);
