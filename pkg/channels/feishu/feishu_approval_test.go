@@ -53,9 +53,8 @@ func TestBuildApprovalCardButtons(t *testing.T) {
 	})
 	raw := string(mustJSON(card))
 
-	if strings.Contains(raw, "streaming_mode") {
-		t.Error("approval card must not carry streaming_mode")
-	}
+	// streaming_mode is now REQUIRED on the prompt card (born streaming so
+	// the seal update can propagate) — pinned by the config assertions below.
 	if !strings.Contains(raw, `"schema":"2.0"`) {
 		t.Error("approval card must be schema 2.0")
 	}
@@ -84,13 +83,36 @@ func TestBuildApprovalCardButtons(t *testing.T) {
 		t.Fatalf("expected exactly 3 buttons (approve/always/deny), got %d", buttons)
 	}
 
-	// The sealed card has no buttons at all.
+	// The prompt card is born in streaming_mode: CardKit updates only
+	// propagate to the delivered message inside a streaming window.
+	if cfg := card["config"].(map[string]any); cfg["streaming_mode"] != true {
+		t.Fatalf("prompt card config must carry streaming_mode true, got %v", cfg)
+	}
+
+	// The sealed card closes the streaming window and has no buttons at all.
 	sealed := buildFeishuApprovalSealedCard(true, "")
+	if cfg := sealed["config"].(map[string]any); cfg["streaming_mode"] != false {
+		t.Fatalf("sealed card config must carry streaming_mode false, got %v", cfg)
+	}
 	for _, el := range sealed["body"].(map[string]any)["elements"].([]any) {
 		if m, ok := el.(map[string]any); ok && m["tag"] == "button" {
 			t.Fatal("sealed card must not carry buttons")
 		}
 	}
+}
+
+// waitForSeal polls the recorder until n seal calls landed or the deadline
+// hits; the click handler seals asynchronously (after the callback response).
+func waitForSeal(t *testing.T, rec *sealRecorder, n int) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if rec.count() >= n {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("expected %d seal call(s) within 3s, got %d", n, rec.count())
 }
 
 // TestFeishuApprovalSynthContent pins the button→protocol-text mapping.
@@ -216,6 +238,7 @@ func TestHandleCardActionApprovalSealsViaQID(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: handleCardAction: %v", tc.cmd, err)
 		}
+		waitForSeal(t, rec, 1)
 		if rec.count() != 1 {
 			t.Fatalf("%s: expected exactly one seal call, got %d", tc.cmd, rec.count())
 		}
@@ -258,9 +281,7 @@ func TestHandleCardActionApprovalSealConsumesQID(t *testing.T) {
 	if ref := ch.takeApprovalCardRef("qid-race"); ref != nil {
 		t.Fatalf("qid entry must be consumed by the first click, got %+v", ref)
 	}
-	if rec.count() != 1 {
-		t.Fatalf("expected exactly one seal call, got %d", rec.count())
-	}
+	waitForSeal(t, rec, 1)
 }
 
 // TestHandleCardActionApprovalSealSkipsInlineCard pins the fallback shape: a

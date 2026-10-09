@@ -518,17 +518,21 @@ func (c *FeishuChannel) handleCardAction(_ context.Context, event *callback.Card
 		}
 		// Seal the clicked card so the question cannot be answered twice.
 		// The card is located through the qid registry (qid embedded in the
-		// button value at render time) and replaced wholesale via the
-		// CardKit card_id update — the only path with verified full-replace
-		// semantics for schema-2.0 cards (Im.Message.Patch claims success
-		// but leaves the old body behind; the callback response card merges
-		// partially; both observed 2026-10-09). No response card: a partial
-		// merge there would fight the CardKit replacement.
+		// button value at render time) and replaced wholesale via the CardKit
+		// card_id update (the card is born in streaming_mode and the sealed
+		// card closes it — the streaming card's proven final-card lifecycle).
+		// Feishu requires card updates to happen AFTER the callback response
+		// is delivered: a synchronous update inside the handler is silently
+		// dropped from delivery (observed 2026-10-09), so the seal runs
+		// detached with a short head start for the response frame.
 		approved := cmd != feishuApprovalDenyCmd
 		if ref := c.takeApprovalCardRef(qid); ref != nil {
-			sealCtx, sealCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer sealCancel()
-			c.sealApprovalCard(sealCtx, ref, approved)
+			go func(ref *feishuApprovalCardRef, approved bool) {
+				time.Sleep(500 * time.Millisecond)
+				sealCtx, sealCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer sealCancel()
+				c.sealApprovalCard(sealCtx, ref, approved)
+			}(ref, approved)
 		} else {
 			logger.WarnCF("feishu", "approval card click: seal target not located", map[string]any{
 				"chat_id": chatID, "qid": qid, "context_msg_id": contextMsgID,

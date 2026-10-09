@@ -78,9 +78,18 @@ func buildFeishuApprovalCard(chatID, qid string, prompt channels.ApprovalPrompt)
 	}
 	fmt.Fprintf(&body, "\n超过 %s 未处理将按**拒绝**处理（fail-closed）。", timeout)
 
+	// The card is born in streaming_mode: CardKit updates only propagate to
+	// the delivered message view while the card is inside a streaming window
+	// (a static card's PUT updates the entity but never reaches clients;
+	// observed 2026-10-09). The seal closes the window with streaming_mode
+	// false — the same lifecycle as the streaming card's final card.
 	return map[string]any{
 		"schema": "2.0",
-		"config": map[string]any{"update_multi": true},
+		"config": map[string]any{
+			"update_multi":   true,
+			"streaming_mode": true,
+			"locales":        []string{"zh_cn", "en_us"},
+		},
 		"header": map[string]any{
 			"title":    map[string]any{"tag": "plain_text", "content": "⚠️ 工具审批"},
 			"template": "yellow",
@@ -111,9 +120,17 @@ func buildFeishuApprovalSealedCard(approved bool, detail string) map[string]any 
 	if detail != "" {
 		content += "\n" + detail
 	}
+	// config mirrors the streaming card's final card: streaming_mode false
+	// closes the streaming window this card was born with, which is what
+	// makes the replacement propagate to clients.
 	return map[string]any{
 		"schema": "2.0",
-		"config": map[string]any{"update_multi": true},
+		"config": map[string]any{
+			"update_multi":   true,
+			"streaming_mode": false,
+			"locales":        []string{"zh_cn", "en_us"},
+			"summary":        feishuCardSummary(content),
+		},
 		"header": map[string]any{
 			"title":    map[string]any{"tag": "plain_text", "content": "工具审批"},
 			"template": template,
