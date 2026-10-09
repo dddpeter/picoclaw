@@ -55,6 +55,13 @@ type FeishuChannel struct {
 	progress *channels.ToolFeedbackAnimator
 	streams  sync.Map // chatID -> *feishuCardStreamer (in-flight streaming cards)
 
+	// approvalCards remembers the message id of each approval prompt card sent
+	// (qid -> *feishuApprovalCardRef). Callback frames were observed in
+	// production with an empty event.context, so the clicked card is located
+	// through the qid embedded in the button value at render time.
+	approvalCards sync.Map
+	sealCardFn    func(context.Context, string, string, bool) error
+
 	spinnerImgKey      atomic.Value // string: uploaded amber spinner image_key
 	spinnerUploadTried atomic.Bool
 	deleteMessageFn    func(context.Context, string, string) error
@@ -88,6 +95,7 @@ func NewFeishuChannel(bc *config.Channel, cfg *config.FeishuSettings, bus *bus.M
 	ch.deleteMessageFn = ch.deleteMessageAPI
 	ch.sendMediaPartFn = ch.sendMediaPart
 	ch.sendTextFn = ch.sendText
+	ch.sealCardFn = ch.sealApprovalCardAPI
 	ch.progress = channels.NewToolFeedbackAnimator(ch.EditMessage)
 	ch.SetOwner(ch)
 	return ch, nil

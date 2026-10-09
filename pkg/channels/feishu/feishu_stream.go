@@ -422,17 +422,27 @@ func (c *FeishuChannel) handleCardAction(_ context.Context, event *callback.Card
 	value := event.Event.Action.Value
 	cmd, _ := value["cmd"].(string)
 	chatID, _ := value["chat_id"].(string)
+	qid, _ := value["qid"].(string)
 	operatorOpenID := ""
 	if event.Event.Operator != nil {
 		operatorOpenID = event.Event.Operator.OpenID
 	}
+	contextMsgID := ""
+	if event.Event.Context != nil {
+		contextMsgID = event.Event.Context.OpenMessageID
+	}
 	// Every path below returns a toast to the user and used to be invisible
 	// in logs — a dead stop button could not be told apart from a callback
-	// that never arrived. Log the arrival and each refusal at info.
+	// that never arrived. Log the arrival and each refusal at info. The
+	// context_msg_id field tracks whether the callback frame actually carries
+	// the card's message id (observed empty in production on 2026-10-09,
+	// which silently disabled the PATCH seal).
 	logger.InfoCF("feishu", "card action received", map[string]any{
-		"cmd":      cmd,
-		"chat_id":  chatID,
-		"operator": operatorOpenID,
+		"cmd":             cmd,
+		"chat_id":         chatID,
+		"operator":        operatorOpenID,
+		"qid":             qid,
+		"context_msg_id":  contextMsgID,
 	})
 
 	// Resolve the operator through the same sender gate as typed messages;
@@ -506,30 +516,56 @@ func (c *FeishuChannel) handleCardAction(_ context.Context, event *callback.Card
 			})
 			return toast("error", "审批回复发送失败"), nil
 		}
-		// Seal the prompt card (buttons removed) so the question cannot be
-		// answered twice. The callback event carries the card's message id;
-		// sealing is best-effort and never fails the reply.
-		if event.Event.Context != nil {
-			sealCtx, sealCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer sealCancel()
-			sealChatID := chatID
-			if event.Event.Context.OpenChatID != "" {
+		// Locate the clicked card for sealing. The qid registry is the
+		// primary source (callback frames were observed in production with an
+		// empty event.context, which silently disabled sealing); the callback
+		// context message id is the fallback for cards sent by older builds.
+		approved := cmd != feishuApprovalDenyCmd
+		sealChatID, sealMsgID := c.lookupApprovalCard(qid)
+		if sealMsgID == "" && contextMsgID != "" {
+			sealChatID = chatID
+			if event.Event.Context != nil && event.Event.Context.OpenChatID != "" {
 				sealChatID = event.Event.Context.OpenChatID
 			}
-			c.sealApprovalCard(sealCtx, sealChatID, event.Event.Context.OpenMessageID, cmd != feishuApprovalDenyCmd)
+			sealMsgID = contextMsgID
+		}
+		if sealMsgID != "" {
+			sealCtx, sealCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer sealCancel()
+			c.sealApprovalCard(sealCtx, sealChatID, sealMsgID, approved)
+		} else {
+			logger.WarnCF("feishu", "approval card click: seal target not located", map[string]any{
+				"chat_id": chatID, "qid": qid,
+			})
 		}
 		logger.InfoCF("feishu", "approval card clicked; reply enqueued", map[string]any{
 			"chat_id": chatID,
 			"cmd":     cmd,
 			"sender":  operatorOpenID,
 		})
+		// The response itself carries the sealed card (CardKit-native 立即更新),
+		// so the buttons disappear atomically with the click even when the
+		// PATCH path could not locate the message id.
+		sealedCard := &callback.Card{
+			Type: "raw",
+			Data: buildFeishuApprovalSealedCard(approved, ""),
+		}
 		switch cmd {
 		case feishuApprovalApproveCmd:
-			return toast("success", "已批准，继续执行"), nil
+			return &callback.CardActionTriggerResponse{
+				Toast: &callback.Toast{Type: "success", Content: "已批准，继续执行"},
+				Card:  sealedCard,
+			}, nil
 		case feishuApprovalAlwaysCmd:
-			return toast("success", "已批准；本会话内同类操作不再询问"), nil
+			return &callback.CardActionTriggerResponse{
+				Toast: &callback.Toast{Type: "success", Content: "已批准；本会话内同类操作不再询问"},
+				Card:  sealedCard,
+			}, nil
 		default:
-			return toast("success", "已拒绝本次执行"), nil
+			return &callback.CardActionTriggerResponse{
+				Toast: &callback.Toast{Type: "success", Content: "已拒绝本次执行"},
+				Card:  sealedCard,
+			}, nil
 		}
 	default:
 		logger.InfoCF("feishu", "card action ignored: unknown cmd", map[string]any{"cmd": cmd})

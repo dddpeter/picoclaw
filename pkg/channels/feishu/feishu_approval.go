@@ -2,6 +2,8 @@ package feishu
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -44,15 +46,17 @@ func feishuApprovalSynthContent(cmd string) (string, bool) {
 }
 
 // feishuApprovalButtonElement is one schema-2.0 callback button; the chat_id
-// rides in the value because card.action.trigger carries no chat context.
-func feishuApprovalButtonElement(chatID, cmd, label, btnType string) map[string]any {
+// and the card's qid ride in the value because card.action.trigger carries no
+// chat context — and, as observed in production, event.context may carry no
+// message id either, so the qid is what locates the card to seal.
+func feishuApprovalButtonElement(chatID, qid, cmd, label, btnType string) map[string]any {
 	return map[string]any{
 		"tag":  "button",
 		"text": map[string]any{"tag": "plain_text", "content": label},
 		"type": btnType,
 		"behaviors": []any{map[string]any{
 			"type":  "callback",
-			"value": map[string]any{"cmd": cmd, "chat_id": chatID},
+			"value": map[string]any{"cmd": cmd, "chat_id": chatID, "qid": qid},
 		}},
 	}
 }
@@ -61,7 +65,7 @@ func feishuApprovalButtonElement(chatID, cmd, label, btnType string) map[string]
 // the tool + preview body, and the three answer buttons as standalone
 // elements. No streaming_mode in config — this card never streams, it only
 // gets patched once (seal on click).
-func buildFeishuApprovalCard(chatID string, prompt channels.ApprovalPrompt) map[string]any {
+func buildFeishuApprovalCard(chatID, qid string, prompt channels.ApprovalPrompt) map[string]any {
 	preview := strings.ReplaceAll(prompt.Preview, "`", "'")
 	var body strings.Builder
 	fmt.Fprintf(&body, "**工具**：%s\n", prompt.Tool)
@@ -83,9 +87,9 @@ func buildFeishuApprovalCard(chatID string, prompt channels.ApprovalPrompt) map[
 		},
 		"body": map[string]any{"elements": []any{
 			map[string]any{"tag": "markdown", "content": body.String()},
-			feishuApprovalButtonElement(chatID, feishuApprovalApproveCmd, "✅ 批准", "primary"),
-			feishuApprovalButtonElement(chatID, feishuApprovalAlwaysCmd, "🔁 批准（本会话免问）", "default"),
-			feishuApprovalButtonElement(chatID, feishuApprovalDenyCmd, "⛔ 拒绝", "danger"),
+			feishuApprovalButtonElement(chatID, qid, feishuApprovalApproveCmd, "✅ 批准", "primary"),
+			feishuApprovalButtonElement(chatID, qid, feishuApprovalAlwaysCmd, "🔁 批准（本会话免问）", "default"),
+			feishuApprovalButtonElement(chatID, qid, feishuApprovalDenyCmd, "⛔ 拒绝", "danger"),
 		}},
 	}
 }
@@ -121,11 +125,12 @@ func buildFeishuApprovalSealedCard(approved bool, detail string) map[string]any 
 }
 
 // ShowApprovalPrompt implements channels.ApprovalPromptCapable: render the
-// approval question as an interactive card. The message id is logged for
-// traceability; sealing happens from the click handler (the callback event
-// carries the card's message id), so no channel-side state is kept.
+// approval question as an interactive card. The card's message id is recorded
+// under its qid so the click handler can seal exactly the card that was
+// clicked (late clicks on expired cards included).
 func (c *FeishuChannel) ShowApprovalPrompt(ctx context.Context, chatID string, prompt channels.ApprovalPrompt) error {
-	card, err := json.Marshal(buildFeishuApprovalCard(chatID, prompt))
+	qid := newFeishuApprovalQID()
+	card, err := json.Marshal(buildFeishuApprovalCard(chatID, qid, prompt))
 	if err != nil {
 		return fmt.Errorf("feishu approval card build: %w", err)
 	}
@@ -133,30 +138,109 @@ func (c *FeishuChannel) ShowApprovalPrompt(ctx context.Context, chatID string, p
 	if err != nil {
 		return err
 	}
+	c.recordApprovalCard(qid, chatID, messageID)
 	logger.InfoCF("feishu", "Approval prompt card sent", map[string]any{
 		"chat_id":    chatID,
 		"session":    prompt.SessionKey,
 		"tool":       prompt.Tool,
 		"message_id": messageID,
+		"qid":        qid,
 	})
 	return nil
+}
+
+// feishuApprovalCardTTL bounds how long a sent prompt card stays sealable via
+// its qid: far beyond any approval timeout, but not forever.
+const feishuApprovalCardTTL = 24 * time.Hour
+
+// feishuApprovalCardRef is one recorded prompt card (see FeishuChannel.
+// approvalCards).
+type feishuApprovalCardRef struct {
+	chatID    string
+	messageID string
+	at        time.Time
+}
+
+// newFeishuApprovalQID mints an opaque per-card id embedded in every button
+// value; 16 random bytes are enough to be collision-free in practice.
+func newFeishuApprovalQID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// crypto/rand never fails on supported platforms; fall back to a
+		// time-derived id rather than not sealing.
+		return fmt.Sprintf("q-%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b[:])
+}
+
+// recordApprovalCard remembers qid -> card message id and sweeps entries past
+// their TTL. Approvals are rare, so a full scan per record is cheap.
+func (c *FeishuChannel) recordApprovalCard(qid, chatID, messageID string) {
+	if qid == "" || messageID == "" {
+		return
+	}
+	c.approvalCards.Store(qid, &feishuApprovalCardRef{chatID: chatID, messageID: messageID, at: time.Now()})
+	c.approvalCards.Range(func(k, v any) bool {
+		if ref, ok := v.(*feishuApprovalCardRef); ok && time.Since(ref.at) > feishuApprovalCardTTL {
+			c.approvalCards.Delete(k)
+		}
+		return true
+	})
+}
+
+// lookupApprovalCard resolves the card recorded for a qid. The entry is
+// consumed: repeated clicks (double-click races) fall through to the callback
+// context, and the response-card seal still covers them.
+func (c *FeishuChannel) lookupApprovalCard(qid string) (chatID, messageID string) {
+	if qid == "" {
+		return "", ""
+	}
+	v, ok := c.approvalCards.LoadAndDelete(qid)
+	if !ok {
+		return "", ""
+	}
+	ref, ok := v.(*feishuApprovalCardRef)
+	if !ok || time.Since(ref.at) > feishuApprovalCardTTL {
+		return "", ""
+	}
+	return ref.chatID, ref.messageID
 }
 
 // sealApprovalCard best-effort patches the approval card into a verdict-only
 // state (buttons removed) so a resolved question cannot be clicked again.
 func (c *FeishuChannel) sealApprovalCard(ctx context.Context, chatID, messageID string, approved bool) {
-	if messageID == "" || c.client == nil {
+	if messageID == "" {
+		logger.DebugCF("feishu", "approval card seal skipped: no message id", map[string]any{
+			"chat_id": chatID,
+		})
 		return
 	}
-	card, err := json.Marshal(buildFeishuApprovalSealedCard(approved, ""))
-	if err != nil {
-		return
+	seal := c.sealCardFn
+	if seal == nil {
+		seal = c.sealApprovalCardAPI
 	}
-	if err := patchCardContent(ctx, c, chatID, messageID, string(card)); err != nil {
+	if err := seal(ctx, chatID, messageID, approved); err != nil {
 		logger.WarnCF("feishu", "Failed to seal approval card", map[string]any{
 			"chat_id": chatID, "message_id": messageID, "error": err.Error(),
 		})
+		return
 	}
+	logger.InfoCF("feishu", "Approval card sealed", map[string]any{
+		"chat_id": chatID, "message_id": messageID,
+	})
+}
+
+// sealApprovalCardAPI patches the prompt card into its sealed shape over the
+// message PATCH API.
+func (c *FeishuChannel) sealApprovalCardAPI(ctx context.Context, chatID, messageID string, approved bool) error {
+	if c.client == nil {
+		return fmt.Errorf("feishu client unavailable")
+	}
+	card, err := json.Marshal(buildFeishuApprovalSealedCard(approved, ""))
+	if err != nil {
+		return fmt.Errorf("feishu approval seal card build: %w", err)
+	}
+	return patchCardContent(ctx, c, chatID, messageID, string(card))
 }
 
 // patchCardContent patches an interactive card message with raw card JSON
