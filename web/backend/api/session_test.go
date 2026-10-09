@@ -1998,3 +1998,63 @@ func TestHandleListSessions_TurnMarkerReportsBusy(t *testing.T) {
 		t.Error("Busy should be false after the turn marker is cleared")
 	}
 }
+
+func TestHandleGetSession_PendingApprovalFromMarker(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	dir := sessionsTestDir(t, configPath)
+	store, storeErr := memory.NewJSONLStore(dir)
+	if storeErr != nil {
+		t.Fatalf("NewJSONLStore() error = %v", storeErr)
+	}
+	sessionKey := legacyPicoSessionPrefix + "approval-jsonl"
+	if err := store.AddFullMessage(nil, sessionKey, providers.Message{
+		Role:    "user",
+		Content: "run the deploy",
+	}); err != nil {
+		t.Fatalf("AddFullMessage(user) error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	get := func() map[string]any {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/sessions/approval-jsonl", nil)
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+		}
+		var resp map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		return resp
+	}
+
+	if _, exists := get()["pending_approval"]; exists {
+		t.Fatal("pending_approval should be absent without a marker")
+	}
+	if err := store.WriteApprovalMarker(memory.ApprovalMarker{
+		SessionKey: sessionKey,
+		Tool:       "exec",
+		Preview:    "git push origin main",
+		TimeoutMs:  300000,
+		StartedAt:  1790000000000,
+	}); err != nil {
+		t.Fatalf("WriteApprovalMarker() error = %v", err)
+	}
+	pending, exists := get()["pending_approval"].(map[string]any)
+	if !exists {
+		t.Fatal("pending_approval should be present with a live marker")
+	}
+	if pending["tool"] != "exec" || pending["preview"] != "git push origin main" {
+		t.Fatalf("pending_approval = %#v", pending)
+	}
+	if pending["timeout_ms"] != float64(300000) || pending["started_at"] != float64(1790000000000) {
+		t.Fatalf("pending_approval numerics = %#v", pending)
+	}
+}

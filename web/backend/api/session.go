@@ -1033,15 +1033,33 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	}
 	messages := detailSessionMessages(sess.Messages, toolFeedbackMaxArgsLength)
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	resp := map[string]any{
 		"id":       sessionID,
 		"channel":  sessionChannel,
 		"messages": messages,
 		"summary":  sess.Summary,
 		"created":  sess.Created.Format(time.RFC3339),
 		"updated":  sess.Updated.Format(time.RFC3339),
-	})
+	}
+	// Pending HITL approval (web approval card): the ask is outbound-only and
+	// never enters the transcript; the durable marker restores the pending
+	// card after a page reload. JSONL sessions only — legacy fallback.
+	if refErr == nil {
+		if data, mErr := os.ReadFile(memory.ApprovalMarkerFile(dir, ref.Key)); mErr == nil {
+			var marker memory.ApprovalMarker
+			if jErr := json.Unmarshal(data, &marker); jErr == nil && marker.SessionKey != "" {
+				resp["pending_approval"] = map[string]any{
+					"tool":       marker.Tool,
+					"preview":    marker.Preview,
+					"timeout_ms": marker.TimeoutMs,
+					"started_at": marker.StartedAt,
+				}
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 // handleDeleteSession deletes a specific session.

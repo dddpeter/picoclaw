@@ -62,7 +62,32 @@ export async function loadSessionMessages(
     timestamp: message.created_at ?? detail.updated,
   }))
   // 历史审批消息走 v0 文本特征识别 + 回执配对（协议 payload 不入库）。
-  return { messages: pairApprovalHistory(messages), channel: detail.channel }
+  const paired = pairApprovalHistory(messages)
+  // 刷新时待审批的问题恢复为 pending 卡：ask 本身 outbound 不入转录，
+  // 由后端的持久化标记（<key>.approval.json）还原。若历史里已有未封存
+  // 的 pending 卡（不应发生——标记与卡片同生命周期）则不重复注入。
+  if (
+    detail.pending_approval?.tool &&
+    !paired.some((m) => m.role === "assistant" && m.approval && !m.approvalSeal)
+  ) {
+    paired.push({
+      id: `pending-approval-${Date.now()}`,
+      role: "assistant",
+      content: "",
+      kind: "normal",
+      approval: {
+        tool: detail.pending_approval.tool,
+        ...(detail.pending_approval.preview
+          ? { preview: detail.pending_approval.preview }
+          : {}),
+        ...(detail.pending_approval.timeout_ms && detail.pending_approval.timeout_ms > 0
+          ? { timeoutMs: detail.pending_approval.timeout_ms }
+          : {}),
+      },
+      timestamp: detail.pending_approval.started_at ?? Date.now(),
+    })
+  }
+  return { messages: paired, channel: detail.channel }
 }
 
 function normalizeMessageTimestamp(timestamp: number | string): string {

@@ -44,16 +44,20 @@ export function ApprovalCard({
 	info,
 	seal,
 	timestamp,
+	latest = true,
 }: {
 	info: ApprovalInfo
 	seal?: ApprovalSeal
 	timestamp: number
+	/** false = 存在更新的待审批问题，本卡按钮禁用（防批准对象错位）。 */
+	latest?: boolean
 }) {
 	const { t } = useTranslation()
 	const [submitting, setSubmitting] = useState<null | "approve" | "always" | "deny">(null)
 	const [now, setNow] = useState(Date.now())
 
 	const pending = seal === undefined
+	const actionable = pending && latest
 	const deadline = info.timeoutMs ? timestamp + info.timeoutMs : undefined
 
 	useEffect(() => {
@@ -61,6 +65,15 @@ export function ApprovalCard({
 		const timer = setInterval(() => setNow(Date.now()), 1000)
 		return () => clearInterval(timer)
 	}, [pending, deadline])
+
+	// submitting 恢复路径：回执丢失（断线窗口）或已被另一端答复却只收到
+	// 不可配对的反馈时，卡片不能永久置灰——30s 后恢复可点，用户重试会
+	// 得到孤儿回执并把卡封存为 done。
+	useEffect(() => {
+		if (!submitting) return
+		const timer = setTimeout(() => setSubmitting(null), 30_000)
+		return () => clearTimeout(timer)
+	}, [submitting])
 
 	const remaining = deadline ? Math.max(0, deadline - now) : undefined
 	const urgent = remaining !== undefined && remaining <= 60_000
@@ -70,7 +83,7 @@ export function ApprovalCard({
 			: undefined
 
 	const send = (command: string, which: "approve" | "always" | "deny") => {
-		if (submitting) return
+		if (submitting || !actionable) return
 		if (!sendChatMessage({ content: command, attachments: [] })) {
 			return // 发送失败保持可点（连接恢复后重试）
 		}
@@ -141,7 +154,7 @@ export function ApprovalCard({
 				<div className="flex flex-wrap items-center gap-2 px-3.5 pt-2.5 pb-3">
 					<button
 						type="button"
-						disabled={submitting !== null}
+						disabled={submitting !== null || !actionable}
 						onClick={() => send("/approve", "approve")}
 						className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-medium shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50"
 					>
@@ -154,7 +167,7 @@ export function ApprovalCard({
 					</button>
 					<button
 						type="button"
-						disabled={submitting !== null}
+						disabled={submitting !== null || !actionable}
 						onClick={() => send("/approve always", "always")}
 						className="border-border text-foreground hover:bg-accent inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border bg-transparent px-3.5 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
 					>
@@ -167,7 +180,7 @@ export function ApprovalCard({
 					</button>
 					<button
 						type="button"
-						disabled={submitting !== null}
+						disabled={submitting !== null || !actionable}
 						onClick={() => send("/deny", "deny")}
 						className="text-red-600 dark:text-red-400 border-red-500/40 hover:bg-red-500/10 inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border bg-transparent px-3.5 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
 					>

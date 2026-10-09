@@ -31,11 +31,13 @@ export function parseApprovalFromPayload(
 }
 
 /** Go duration（5m0s / 30s / 1h0m0s）→ ms。 */
+/** Go duration（5m0s / 30s / 1h0m0s / 500ms）→ ms。亚毫秒单位忽略。 */
 export function parseGoDuration(text: string): number | undefined {
   let ms = 0
   let matched = false
-  const unitMs: Record<string, number> = { h: 3_600_000, m: 60_000, s: 1_000 }
-  for (const match of text.matchAll(/(\d+(?:\.\d+)?)([hms])/g)) {
+  // 单位按长度降序匹配：ms 在 m 之前，避免 "500ms" 被吃成 "500m"。
+  const unitMs: Record<string, number> = { h: 3_600_000, ms: 1, m: 60_000, s: 1_000 }
+  for (const match of text.matchAll(/(\d+(?:\.\d+)?)(ms|[hms])/g)) {
     matched = true
     ms += Number(match[1]) * (unitMs[match[2]] ?? 0)
   }
@@ -68,7 +70,8 @@ export function parseApprovalFromText(content: string): ApprovalInfo | undefined
 
 export type ApprovalReceiptVerdict = ApprovalSeal["verdict"]
 
-/** 回执文本特征 → 结论；非回执返回 undefined（孤儿回执也返回 undefined，按普通文本展示）。 */
+/** 回执文本特征 → 结论；非回执返回 undefined。孤儿回执配对成功时把悬空
+ * pending 卡封存为 done（双端在线另一端已答复、或迟到点击）。 */
 export function matchApprovalReceipt(content: string): ApprovalReceiptVerdict | undefined {
   const trimmed = content.trim()
   if (trimmed.startsWith("✅ 已批准；本会话内命中规则")) {
@@ -82,6 +85,11 @@ export function matchApprovalReceipt(content: string): ApprovalReceiptVerdict | 
   }
   if (trimmed.startsWith("⛔ 审批超时")) {
     return "timeout"
+  }
+  // 孤儿回执（迟到点击 / 双端另一端已答复）：把悬空的 pending 卡封存为
+  // done——"这张卡已不再等待"；无配对目标时仍按普通文本展示。
+  if (trimmed.startsWith("当前没有待批准的操作")) {
+    return "done"
   }
   return undefined
 }

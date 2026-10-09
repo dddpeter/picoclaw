@@ -49,6 +49,9 @@ export type PiBlock =
 			seal?: ApprovalSeal;
 			/** 询问时刻（ms epoch），倒计时锚点。 */
 			timestamp: number;
+			/** 最近一张未封存卡 = true（可操作）。服务端每会话只有一个
+			 * waiter，旧 pending 卡的按钮实际作用在最新审批上——禁用防错位。 */
+			latest?: boolean;
 	  }
 	| { type: "thinking"; id: string; thinking: string; live: boolean }
 	| {
@@ -344,6 +347,23 @@ export function buildTurns(
 			active: true,
 			assistant: { id: "pending", timestamp: now, blocks: [] },
 		});
+	}
+
+	// 审批卡可操作性：只标最近一张未封存卡为 latest（从后往前找第一张）。
+	// 服务端每会话只有一个审批 waiter，旧 pending 卡按钮实际作用在最新
+	// 审批上——前端把非 latest 的 pending 卡按钮禁用，防批准对象错位。
+	let latestMarked = false;
+	for (let t = turns.length - 1; t >= 0 && !latestMarked; t--) {
+		const blocks = turns[t].assistant?.blocks;
+		if (!blocks) continue;
+		for (let b = blocks.length - 1; b >= 0; b--) {
+			const block = blocks[b];
+			if (block.type === "approval" && !block.seal) {
+				block.latest = true;
+				latestMarked = true;
+				break;
+			}
+		}
 	}
 
 	return turns;

@@ -171,7 +171,12 @@ function PiBlockView({ block, active }: { block: PiBlock; active: boolean }) {
 		case "text":
 			return <TextBlock id={block.id} text={block.text} live={block.live && active} role="assistant" />;
 		case "approval":
-			return <ApprovalCard info={block.approval} seal={block.seal} timestamp={block.timestamp} />;
+			return <ApprovalCard
+				info={block.approval}
+				seal={block.seal}
+				timestamp={block.timestamp}
+				latest={block.latest}
+			/>;
 		case "thinking":
 			return (
 				<ThinkingBlock thinking={block.thinking} streaming={block.live && active} />

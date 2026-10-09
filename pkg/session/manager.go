@@ -26,13 +26,15 @@ type SessionManager struct {
 	mu       sync.RWMutex
 	storage  string
 	inflight inflightTurnMem
+	approvalPending approvalPendingMem
 }
 
 func NewSessionManager(storage string) *SessionManager {
 	sm := &SessionManager{
 		sessions: make(map[string]*Session),
 		storage:  storage,
-		inflight: inflightTurnMem{turns: make(map[string]InflightTurn)},
+		inflight:        inflightTurnMem{turns: make(map[string]InflightTurn)},
+		approvalPending: approvalPendingMem{pending: make(map[string]memory.ApprovalMarker)},
 	}
 
 	if storage != "" {

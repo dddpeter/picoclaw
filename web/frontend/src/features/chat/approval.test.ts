@@ -55,6 +55,11 @@ describe("parseGoDuration", () => {
     expect(parseGoDuration("1m30s")).toBe(90_000)
     expect(parseGoDuration("x")).toBeUndefined()
   })
+
+  it("parses sub-second units without magnifying them (ms must not read as m)", () => {
+    expect(parseGoDuration("500ms")).toBe(500)
+    expect(parseGoDuration("1.5s")).toBe(1_500)
+  })
 })
 
 describe("matchApprovalReceipt", () => {
@@ -67,7 +72,10 @@ describe("matchApprovalReceipt", () => {
 
   it("does not match other messages", () => {
     expect(matchApprovalReceipt("✅ 部署完成")).toBeUndefined()
-    expect(matchApprovalReceipt("当前没有待批准的操作，本次回复已忽略。")).toBeUndefined()
+  })
+
+  it("recognizes the orphan receipt as a done signal", () => {
+    expect(matchApprovalReceipt("当前没有待批准的操作，本次回复已忽略。")).toBe("done")
   })
 })
 
@@ -112,13 +120,23 @@ describe("pairApprovalHistory", () => {
     expect(paired[0].approvalSeal).toEqual({ verdict: "approved", at: 1_700_000_060_000 })
   })
 
-  it("marks unpaired asks as done and keeps orphan receipts as text", () => {
+  it("marks unpaired asks as done and orphan receipts seal the dangling card", () => {
     const paired = pairApprovalHistory([
       assistantMessage({ id: "ask", content: REAL_ASK }),
       assistantMessage({ id: "orphan", content: "当前没有待批准的操作，本次回复已忽略。" }),
     ])
-    expect(paired).toHaveLength(2)
+    // 孤儿回执把悬空的 pending 卡封存为 done，自身被抑制。
+    expect(paired).toHaveLength(1)
+    expect(paired[0].id).toBe("ask")
     expect(paired[0].approvalSeal?.verdict).toBe("done")
-    expect(paired[1].id).toBe("orphan")
+  })
+
+  it("keeps orphan receipts as text when no card is pending", () => {
+    const paired = pairApprovalHistory([
+      assistantMessage({ id: "orphan", content: "当前没有待批准的操作，本次回复已忽略。" }),
+    ])
+    expect(paired).toHaveLength(1)
+    expect(paired[0].id).toBe("orphan")
+    expect(paired[0].approval).toBeUndefined()
   })
 })

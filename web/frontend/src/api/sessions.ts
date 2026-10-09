@@ -16,6 +16,13 @@ export interface SessionSummary {
 export interface SessionDetail {
   id: string
   channel?: string
+  /** Pending HITL approval restored from the durable marker (page reload). */
+  pending_approval?: {
+    tool: string
+    preview?: string
+    timeout_ms?: number
+    started_at?: number
+  }
   messages: {
     role: "user" | "assistant"
     content: string

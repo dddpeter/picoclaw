@@ -15,6 +15,8 @@ import (
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/constants"
 	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/sipeed/picoclaw/pkg/memory"
+	"github.com/sipeed/picoclaw/pkg/session"
 )
 
 // HITL 工具审批钩子（fork，agentscope-go borrowing §一，
@@ -391,6 +393,23 @@ func (h *approvalHook) ApproveTool(ctx context.Context, req *ToolApprovalRequest
 	}
 	defer h.pending.CompareAndDelete(sessionKey, waiter)
 
+	// Pending-approval marker (web approval card): the ask itself is
+	// outbound-only and never enters the transcript, so a web page reload
+	// mid-approval would lose the card. The marker restores it from the
+	// session API; cleared on every exit path below (reply / abort / timeout).
+	if al := AgentLoopFromContext(ctx); al != nil {
+		if ms := approvalMarkerStoreFor(al, req.Meta.AgentID); ms != nil {
+			ms.MarkApprovalPending(memory.ApprovalMarker{
+				SessionKey: sessionKey,
+				AgentID:    req.Meta.AgentID,
+				Tool:       req.Tool,
+				Preview:    approvalCallPreview(req),
+				TimeoutMs:  h.timeout.Milliseconds(),
+			})
+			defer ms.ClearApprovalPending(sessionKey)
+		}
+	}
+
 	h.publishAsk(ctx, req, channel, chatID)
 
 	timer := time.NewTimer(h.timeout)
@@ -411,8 +430,9 @@ func (h *approvalHook) ApproveTool(ctx context.Context, req *ToolApprovalRequest
 		}, nil
 	case <-timer.C:
 		// fail-closed 超时对用户可见：向提问的渠道发拒绝回执（此前超时只
-		// 写进 deny reason，用户端的审批提示永远悬着；web 审批卡与飞书卡
-		// 都靠回执封存）。
+		// 写进 deny reason，用户端的审批提示永远悬着）。web 审批卡靠这条
+		// 回执封存；飞书交互卡不识别该文本、仍需点按钮才会封卡（超时封卡
+		// 为后续工作，见设计文档 §6）。
 		h.publishTimeoutReceipt(ctx, req, channel, chatID)
 		return ApprovalDecision{
 			Approved: false,
@@ -507,6 +527,20 @@ func (h *approvalHook) publishAsk(ctx context.Context, req *ToolApprovalRequest,
 			TimeoutMs: h.timeout.Milliseconds(),
 		},
 	})
+}
+
+// approvalMarkerStoreFor resolves the session-layer approval marker store
+// for the asking agent (durable on the JSONL backend; nil when unavailable).
+func approvalMarkerStoreFor(al *AgentLoop, agentID string) session.ApprovalMarkerStore {
+	if al == nil || al.registry == nil || agentID == "" {
+		return nil
+	}
+	agent, ok := al.registry.GetAgent(agentID)
+	if !ok || agent.Sessions == nil {
+		return nil
+	}
+	ms, _ := agent.Sessions.(session.ApprovalMarkerStore)
+	return ms
 }
 
 // publishTimeoutReceipt delivers the fail-closed timeout outcome to the
