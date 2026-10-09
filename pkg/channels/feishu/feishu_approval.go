@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
+	larkcardkit "github.com/larksuite/oapi-sdk-go/v3/service/cardkit/v1"
 
 	"github.com/sipeed/picoclaw/pkg/channels"
 	"github.com/sipeed/picoclaw/pkg/logger"
@@ -125,28 +125,78 @@ func buildFeishuApprovalSealedCard(approved bool, detail string) map[string]any 
 }
 
 // ShowApprovalPrompt implements channels.ApprovalPromptCapable: render the
-// approval question as an interactive card. The card's message id is recorded
-// under its qid so the click handler can seal exactly the card that was
-// clicked (late clicks on expired cards included).
+// approval question as an interactive card. The card goes out through the
+// CardKit create-and-reference flow (same as the streaming card) so its
+// card_id is known channel-side and the click handler can replace the card
+// wholesale — Im.Message.Patch on a schema-2.0 card only partially applies
+// (observed 2026-10-09: header replaced, body survived). If the CardKit
+// create fails the card is still sent inline (unsealable, but the question
+// must reach the user).
 func (c *FeishuChannel) ShowApprovalPrompt(ctx context.Context, chatID string, prompt channels.ApprovalPrompt) error {
 	qid := newFeishuApprovalQID()
-	card, err := json.Marshal(buildFeishuApprovalCard(chatID, qid, prompt))
+	cardJSON, err := json.Marshal(buildFeishuApprovalCard(chatID, qid, prompt))
 	if err != nil {
 		return fmt.Errorf("feishu approval card build: %w", err)
 	}
-	messageID, err := c.sendCard(ctx, chatID, string(card))
+
+	cardID, createErr := c.createCardkitCard(ctx, cardJSON)
+	if createErr != nil {
+		logger.WarnCF("feishu", "Approval card CardKit create failed; sending inline (card will not seal)", map[string]any{
+			"chat_id": chatID,
+			"error":   createErr.Error(),
+		})
+	}
+
+	var content string
+	if cardID != "" {
+		msgContent, _ := json.Marshal(map[string]any{
+			"type": "card",
+			"data": map[string]any{"card_id": cardID},
+		})
+		content = string(msgContent)
+	} else {
+		content = string(cardJSON)
+	}
+	messageID, err := c.sendCard(ctx, chatID, content)
 	if err != nil {
 		return err
 	}
-	c.recordApprovalCard(qid, chatID, messageID)
+	c.recordApprovalCard(qid, chatID, messageID, cardID)
 	logger.InfoCF("feishu", "Approval prompt card sent", map[string]any{
 		"chat_id":    chatID,
 		"session":    prompt.SessionKey,
 		"tool":       prompt.Tool,
 		"message_id": messageID,
+		"card_id":    cardID,
 		"qid":        qid,
 	})
 	return nil
+}
+
+// createCardkitCard registers card JSON as a CardKit card entity and returns
+// its card_id.
+func (c *FeishuChannel) createCardkitCard(ctx context.Context, cardJSON []byte) (string, error) {
+	if c.client == nil {
+		return "", fmt.Errorf("feishu client unavailable")
+	}
+	req := larkcardkit.NewCreateCardReqBuilder().
+		Body(larkcardkit.NewCreateCardReqBodyBuilder().
+			Type("card_json").
+			Data(string(cardJSON)).
+			Build()).
+		Build()
+	resp, err := c.client.Cardkit.V1.Card.Create(ctx, req)
+	if err != nil || !resp.Success() {
+		code, msg := 0, ""
+		if resp != nil {
+			code, msg = resp.Code, resp.Msg
+		}
+		return "", fmt.Errorf("feishu approval cardkit create failed (code=%d msg=%s err=%v)", code, msg, err)
+	}
+	if resp.Data == nil || resp.Data.CardId == nil {
+		return "", fmt.Errorf("feishu approval cardkit create returned no card_id")
+	}
+	return *resp.Data.CardId, nil
 }
 
 // feishuApprovalCardTTL bounds how long a sent prompt card stays sealable via
@@ -158,7 +208,10 @@ const feishuApprovalCardTTL = 24 * time.Hour
 type feishuApprovalCardRef struct {
 	chatID    string
 	messageID string
-	at        time.Time
+	// cardID is the CardKit card entity behind the message; empty when the
+	// prompt fell back to an inline send (unsealable).
+	cardID string
+	at     time.Time
 }
 
 // newFeishuApprovalQID mints an opaque per-card id embedded in every button
@@ -173,13 +226,18 @@ func newFeishuApprovalQID() string {
 	return hex.EncodeToString(b[:])
 }
 
-// recordApprovalCard remembers qid -> card message id and sweeps entries past
-// their TTL. Approvals are rare, so a full scan per record is cheap.
-func (c *FeishuChannel) recordApprovalCard(qid, chatID, messageID string) {
+// recordApprovalCard remembers qid -> card and sweeps entries past their TTL.
+// Approvals are rare, so a full scan per record is cheap.
+func (c *FeishuChannel) recordApprovalCard(qid, chatID, messageID, cardID string) {
 	if qid == "" || messageID == "" {
 		return
 	}
-	c.approvalCards.Store(qid, &feishuApprovalCardRef{chatID: chatID, messageID: messageID, at: time.Now()})
+	c.approvalCards.Store(qid, &feishuApprovalCardRef{
+		chatID:    chatID,
+		messageID: messageID,
+		cardID:    cardID,
+		at:        time.Now(),
+	})
 	c.approvalCards.Range(func(k, v any) bool {
 		if ref, ok := v.(*feishuApprovalCardRef); ok && time.Since(ref.at) > feishuApprovalCardTTL {
 			c.approvalCards.Delete(k)
@@ -188,75 +246,61 @@ func (c *FeishuChannel) recordApprovalCard(qid, chatID, messageID string) {
 	})
 }
 
-// lookupApprovalCard resolves the card recorded for a qid. The entry is
-// consumed: repeated clicks (double-click races) fall through to the callback
-// context, and the response-card seal still covers them.
-func (c *FeishuChannel) lookupApprovalCard(qid string) (chatID, messageID string) {
+// takeApprovalCardRef consumes the card recorded for a qid. Consumption makes
+// repeated clicks (double-click races) fall through, and the first click is
+// the one that seals.
+func (c *FeishuChannel) takeApprovalCardRef(qid string) *feishuApprovalCardRef {
 	if qid == "" {
-		return "", ""
+		return nil
 	}
 	v, ok := c.approvalCards.LoadAndDelete(qid)
 	if !ok {
-		return "", ""
+		return nil
 	}
 	ref, ok := v.(*feishuApprovalCardRef)
 	if !ok || time.Since(ref.at) > feishuApprovalCardTTL {
-		return "", ""
+		return nil
 	}
-	return ref.chatID, ref.messageID
+	return ref
 }
 
-// sealApprovalCard best-effort patches the approval card into a verdict-only
-// state (buttons removed) so a resolved question cannot be clicked again.
-func (c *FeishuChannel) sealApprovalCard(ctx context.Context, chatID, messageID string, approved bool) {
-	if messageID == "" {
-		logger.DebugCF("feishu", "approval card seal skipped: no message id", map[string]any{
-			"chat_id": chatID,
+// sealApprovalCard best-effort replaces the prompt card with its verdict-only
+// shape (buttons removed) so a resolved question cannot be clicked again.
+// The CardKit full-card update is the only path with whole-card replace
+// semantics here; sequence is 1 (the first update issued for this card).
+func (c *FeishuChannel) sealApprovalCard(ctx context.Context, ref *feishuApprovalCardRef, approved bool) {
+	if ref == nil {
+		return
+	}
+	if ref.cardID == "" {
+		logger.DebugCF("feishu", "approval card seal skipped: inline card without card_id", map[string]any{
+			"chat_id": ref.chatID, "message_id": ref.messageID,
+		})
+		return
+	}
+	sealed, err := json.Marshal(buildFeishuApprovalSealedCard(approved, ""))
+	if err != nil {
+		logger.WarnCF("feishu", "Failed to build sealed approval card", map[string]any{
+			"error": err.Error(),
 		})
 		return
 	}
 	seal := c.sealCardFn
 	if seal == nil {
-		seal = c.sealApprovalCardAPI
+		seal = c.cardkitUpdateCardJSON
 	}
-	if err := seal(ctx, chatID, messageID, approved); err != nil {
+	if err := seal(ctx, ref.cardID, string(sealed), 1); err != nil {
 		logger.WarnCF("feishu", "Failed to seal approval card", map[string]any{
-			"chat_id": chatID, "message_id": messageID, "error": err.Error(),
+			"chat_id": ref.chatID, "message_id": ref.messageID, "card_id": ref.cardID, "error": err.Error(),
 		})
 		return
 	}
 	logger.InfoCF("feishu", "Approval card sealed", map[string]any{
-		"chat_id": chatID, "message_id": messageID,
+		"chat_id": ref.chatID, "message_id": ref.messageID, "card_id": ref.cardID,
 	})
 }
 
-// sealApprovalCardAPI patches the prompt card into its sealed shape over the
-// message PATCH API.
-func (c *FeishuChannel) sealApprovalCardAPI(ctx context.Context, chatID, messageID string, approved bool) error {
-	if c.client == nil {
-		return fmt.Errorf("feishu client unavailable")
-	}
-	card, err := json.Marshal(buildFeishuApprovalSealedCard(approved, ""))
-	if err != nil {
-		return fmt.Errorf("feishu approval seal card build: %w", err)
-	}
-	return patchCardContent(ctx, c, chatID, messageID, string(card))
-}
-
-// patchCardContent patches an interactive card message with raw card JSON
-// (EditMessage wraps content in a markdown card — wrong shape here).
-func patchCardContent(ctx context.Context, c *FeishuChannel, chatID, messageID, cardContent string) error {
-	req := larkim.NewPatchMessageReqBuilder().
-		MessageId(messageID).
-		Body(larkim.NewPatchMessageReqBodyBuilder().Content(cardContent).Build()).
-		Build()
-	resp, err := c.client.Im.V1.Message.Patch(ctx, req)
-	if err != nil {
-		return fmt.Errorf("feishu approval seal: %w", err)
-	}
-	if !resp.Success() {
-		c.invalidateTokenOnAuthError(resp.Code)
-		return fmt.Errorf("feishu approval seal api error (code=%d msg=%s)", resp.Code, resp.Msg)
-	}
-	return nil
-}
+// The PATCH-based seal (Im.Message.Patch) was removed on 2026-10-09: it
+// reports success on schema-2.0 cards but only partially applies — header
+// replaced, body elements survived. Sealing goes through the CardKit card_id
+// full-card update (sealApprovalCard) instead.

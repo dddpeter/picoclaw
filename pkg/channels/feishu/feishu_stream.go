@@ -516,26 +516,22 @@ func (c *FeishuChannel) handleCardAction(_ context.Context, event *callback.Card
 			})
 			return toast("error", "审批回复发送失败"), nil
 		}
-		// Locate the clicked card for sealing. The qid registry is the
-		// primary source (callback frames were observed in production with an
-		// empty event.context, which silently disabled sealing); the callback
-		// context message id is the fallback for cards sent by older builds.
+		// Seal the clicked card so the question cannot be answered twice.
+		// The card is located through the qid registry (qid embedded in the
+		// button value at render time) and replaced wholesale via the
+		// CardKit card_id update — the only path with verified full-replace
+		// semantics for schema-2.0 cards (Im.Message.Patch claims success
+		// but leaves the old body behind; the callback response card merges
+		// partially; both observed 2026-10-09). No response card: a partial
+		// merge there would fight the CardKit replacement.
 		approved := cmd != feishuApprovalDenyCmd
-		sealChatID, sealMsgID := c.lookupApprovalCard(qid)
-		if sealMsgID == "" && contextMsgID != "" {
-			sealChatID = chatID
-			if event.Event.Context != nil && event.Event.Context.OpenChatID != "" {
-				sealChatID = event.Event.Context.OpenChatID
-			}
-			sealMsgID = contextMsgID
-		}
-		if sealMsgID != "" {
+		if ref := c.takeApprovalCardRef(qid); ref != nil {
 			sealCtx, sealCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer sealCancel()
-			c.sealApprovalCard(sealCtx, sealChatID, sealMsgID, approved)
+			c.sealApprovalCard(sealCtx, ref, approved)
 		} else {
 			logger.WarnCF("feishu", "approval card click: seal target not located", map[string]any{
-				"chat_id": chatID, "qid": qid,
+				"chat_id": chatID, "qid": qid, "context_msg_id": contextMsgID,
 			})
 		}
 		logger.InfoCF("feishu", "approval card clicked; reply enqueued", map[string]any{
@@ -543,29 +539,13 @@ func (c *FeishuChannel) handleCardAction(_ context.Context, event *callback.Card
 			"cmd":     cmd,
 			"sender":  operatorOpenID,
 		})
-		// The response itself carries the sealed card (CardKit-native 立即更新),
-		// so the buttons disappear atomically with the click even when the
-		// PATCH path could not locate the message id.
-		sealedCard := &callback.Card{
-			Type: "raw",
-			Data: buildFeishuApprovalSealedCard(approved, ""),
-		}
 		switch cmd {
 		case feishuApprovalApproveCmd:
-			return &callback.CardActionTriggerResponse{
-				Toast: &callback.Toast{Type: "success", Content: "已批准，继续执行"},
-				Card:  sealedCard,
-			}, nil
+			return toast("success", "已批准，继续执行"), nil
 		case feishuApprovalAlwaysCmd:
-			return &callback.CardActionTriggerResponse{
-				Toast: &callback.Toast{Type: "success", Content: "已批准；本会话内同类操作不再询问"},
-				Card:  sealedCard,
-			}, nil
+			return toast("success", "已批准；本会话内同类操作不再询问"), nil
 		default:
-			return &callback.CardActionTriggerResponse{
-				Toast: &callback.Toast{Type: "success", Content: "已拒绝本次执行"},
-				Card:  sealedCard,
-			}, nil
+			return toast("success", "已拒绝本次执行"), nil
 		}
 	default:
 		logger.InfoCF("feishu", "card action ignored: unknown cmd", map[string]any{"cmd": cmd})
@@ -1122,13 +1102,22 @@ func (c *FeishuChannel) cardkitStreamContent(ctx context.Context, cardID, elemen
 // and the final seal). Feishu caps the card JSON at 30KB — reject locally with
 // a clear error so callers can degrade instead of hitting an opaque API error.
 func (c *FeishuChannel) cardkitUpdateCard(ctx context.Context, cardID string, card map[string]any, sequence int) error {
-	ctx, cancel := context.WithTimeout(ctx, feishuCallTimeout)
-	defer cancel()
-
 	cardJSON, err := json.Marshal(card)
 	if err != nil {
 		return fmt.Errorf("feishu cardkit update: marshal card: %w", err)
 	}
+	return c.cardkitUpdateCardJSON(ctx, cardID, string(cardJSON), sequence)
+}
+
+// cardkitUpdateCardJSON is the pre-marshaled form of cardkitUpdateCard: a
+// full-card replacement on the CardKit entity keyed by card_id. This is the
+// ONLY update path with verified whole-card replace semantics for schema-2.0
+// cards — Im.Message.Patch reports success but only partially applies
+// (header replaces, body elements survive; observed 2026-10-09).
+func (c *FeishuChannel) cardkitUpdateCardJSON(ctx context.Context, cardID, cardJSON string, sequence int) error {
+	ctx, cancel := context.WithTimeout(ctx, feishuCallTimeout)
+	defer cancel()
+
 	if len(cardJSON) > 30000 {
 		return fmt.Errorf("feishu cardkit update: card json %d bytes exceeds Feishu 30KB limit", len(cardJSON))
 	}
@@ -1137,7 +1126,7 @@ func (c *FeishuChannel) cardkitUpdateCard(ctx context.Context, cardID string, ca
 		Body(larkcardkit.NewUpdateCardReqBodyBuilder().
 			Card(larkcardkit.NewCardBuilder().
 				Type("card_json").
-				Data(string(cardJSON)).
+				Data(cardJSON).
 				Build()).
 			Sequence(sequence).
 			Build()).

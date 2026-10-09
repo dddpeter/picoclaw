@@ -165,16 +165,25 @@ func TestHandleCardActionApprovalRequiresChat(t *testing.T) {
 	}
 }
 
-// sealRecorder captures seal calls through the seam used by the click handler.
+// sealRecorder captures seal calls through the seam used by the click handler
+// (cardID, sealedJSON, sequence).
 type sealRecorder struct {
-	mu     sync.Mutex
-	calls  [][3]any // chatID, messageID, approved
+	mu    sync.Mutex
+	calls []struct {
+		cardID string
+		card   string
+		seq    int
+	}
 }
 
-func (r *sealRecorder) fn(ctx context.Context, chatID, messageID string, approved bool) error {
+func (r *sealRecorder) fn(ctx context.Context, cardID, cardJSON string, seq int) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.calls = append(r.calls, [3]any{chatID, messageID, approved})
+	r.calls = append(r.calls, struct {
+		cardID string
+		card   string
+		seq    int
+	}{cardID, cardJSON, seq})
 	return nil
 }
 
@@ -184,24 +193,23 @@ func (r *sealRecorder) count() int {
 	return len(r.calls)
 }
 
-// TestHandleCardActionApprovalSealsViaQID pins the production regression from
-// 2026-10-09: with no callback context at all, the click still seals exactly
-// the card recorded under the button's qid (approve → success verdict, deny →
-// danger verdict), and the response carries the sealed card so the buttons
-// disappear atomically even if the PATCH cannot run.
+// TestHandleCardActionApprovalSealsViaQID pins the production behavior after
+// the 2026-10-09 sealing rework: the click seals exactly the card recorded
+// under the button's qid via one CardKit full-card update (sequence 1), with
+// no dependency on the callback context at all.
 func TestHandleCardActionApprovalSealsViaQID(t *testing.T) {
 	for _, tc := range []struct {
-		cmd      string
-		approved bool
+		cmd     string
+		verdict string
 	}{
-		{feishuApprovalApproveCmd, true},
-		{feishuApprovalAlwaysCmd, true},
-		{feishuApprovalDenyCmd, false},
+		{feishuApprovalApproveCmd, "已批准"},
+		{feishuApprovalAlwaysCmd, "已批准"},
+		{feishuApprovalDenyCmd, "已拒绝"},
 	} {
 		ch, mb := newCardActionTestChannel()
 		rec := &sealRecorder{}
 		ch.sealCardFn = rec.fn
-		ch.recordApprovalCard("qid-live", "chat-1", "om_recorded")
+		ch.recordApprovalCard("qid-live", "chat-1", "om_recorded", "card_rec_1")
 
 		resp, err := ch.handleCardAction(context.Background(),
 			approvalClickEventNoQIDContext("chat-1", "qid-live", tc.cmd))
@@ -212,20 +220,17 @@ func TestHandleCardActionApprovalSealsViaQID(t *testing.T) {
 			t.Fatalf("%s: expected exactly one seal call, got %d", tc.cmd, rec.count())
 		}
 		call := rec.calls[0]
-		if call[0] != "chat-1" || call[1] != "om_recorded" || call[2] != tc.approved {
-			t.Fatalf("%s: seal called with (%v), want (chat-1 om_recorded %v)", tc.cmd, call, tc.approved)
+		if call.cardID != "card_rec_1" || call.seq != 1 {
+			t.Fatalf("%s: seal called with (card=%q seq=%d), want (card_rec_1 seq=1)", tc.cmd, call.cardID, call.seq)
 		}
-		if resp.Card == nil || resp.Card.Type != "raw" {
-			t.Fatalf("%s: response must carry the raw sealed card, got %+v", tc.cmd, resp.Card)
+		if !strings.Contains(call.card, tc.verdict) {
+			t.Fatalf("%s: sealed card must carry the %q verdict, got: %.200s", tc.cmd, tc.verdict, call.card)
 		}
-		sealed, ok := resp.Card.Data.(map[string]any)
-		if !ok {
-			t.Fatalf("%s: sealed card data must be a card object, got %T", tc.cmd, resp.Card.Data)
+		if strings.Contains(call.card, "behaviors") {
+			t.Fatalf("%s: sealed card must not carry buttons, got: %.200s", tc.cmd, call.card)
 		}
-		for _, el := range sealed["body"].(map[string]any)["elements"].([]any) {
-			if m, ok := el.(map[string]any); ok && m["tag"] == "button" {
-				t.Fatalf("%s: response sealed card must not carry buttons", tc.cmd)
-			}
+		if resp.Card != nil {
+			t.Fatalf("%s: response must be toast-only (a response card merge fights the CardKit replace)", tc.cmd)
 		}
 		select {
 		case msg := <-mb.InboundChan():
@@ -239,48 +244,44 @@ func TestHandleCardActionApprovalSealsViaQID(t *testing.T) {
 }
 
 // TestHandleCardActionApprovalSealConsumesQID pins that the registry entry is
-// consumed by the first click: a double-click race must not seal twice via
-// the registry (the second click falls back to context, then the response
-// card).
+// consumed by the first click: a double-click race must not seal twice.
 func TestHandleCardActionApprovalSealConsumesQID(t *testing.T) {
 	ch, _ := newCardActionTestChannel()
 	rec := &sealRecorder{}
 	ch.sealCardFn = rec.fn
-	ch.recordApprovalCard("qid-race", "chat-1", "om_recorded")
+	ch.recordApprovalCard("qid-race", "chat-1", "om_recorded", "card_rec_1")
 
 	if _, err := ch.handleCardAction(context.Background(),
 		approvalClickEventNoQIDContext("chat-1", "qid-race", feishuApprovalApproveCmd)); err != nil {
 		t.Fatalf("first click: %v", err)
 	}
-	// Second click with no context and the now-consumed qid: no registry hit.
-	chatID, msgID := ch.lookupApprovalCard("qid-race")
-	if chatID != "" || msgID != "" {
-		t.Fatalf("qid entry must be consumed by the first click, got (%q,%q)", chatID, msgID)
+	if ref := ch.takeApprovalCardRef("qid-race"); ref != nil {
+		t.Fatalf("qid entry must be consumed by the first click, got %+v", ref)
 	}
 	if rec.count() != 1 {
 		t.Fatalf("expected exactly one seal call, got %d", rec.count())
 	}
 }
 
-// TestHandleCardActionApprovalCardInResponseWithoutTarget pins the floor of
-// the fix: even when the card cannot be located at all (no qid match, no
-// context), the callback response still carries the sealed card so the
-// buttons disappear for the clicker.
-func TestHandleCardActionApprovalCardInResponseWithoutTarget(t *testing.T) {
+// TestHandleCardActionApprovalSealSkipsInlineCard pins the fallback shape: a
+// prompt whose CardKit create failed is sent inline (no card_id recorded) —
+// its clicks still route the reply but never attempt a seal.
+func TestHandleCardActionApprovalSealSkipsInlineCard(t *testing.T) {
 	ch, mb := newCardActionTestChannel()
 	rec := &sealRecorder{}
 	ch.sealCardFn = rec.fn
+	ch.recordApprovalCard("qid-inline", "chat-1", "om_inline", "") // inline fallback: no card_id
 
 	resp, err := ch.handleCardAction(context.Background(),
-		approvalClickEventNoQIDContext("chat-1", "qid-unknown", feishuApprovalApproveCmd))
+		approvalClickEventNoQIDContext("chat-1", "qid-inline", feishuApprovalApproveCmd))
 	if err != nil {
 		t.Fatalf("handleCardAction: %v", err)
 	}
 	if rec.count() != 0 {
-		t.Fatalf("no seal PATCH expected without a located card, got %d calls", rec.count())
+		t.Fatalf("no seal call expected for an inline card, got %d", rec.count())
 	}
-	if resp.Card == nil {
-		t.Fatal("response must still carry the sealed card")
+	if resp == nil || resp.Toast == nil || resp.Toast.Type != "success" {
+		t.Fatalf("expected success toast, got %+v", resp)
 	}
 	select {
 	case <-mb.InboundChan():
