@@ -606,37 +606,61 @@ span.msg-editor-hint svg {
 	list-style: none;
 }
 .msg-text blockquote {
-	margin: 8px 0;
-	padding: 2px 14px;
-	border-left: 3px solid var(--accent);
+	margin: 10px 0;
+	padding: 6px 14px;
+	border-left: 3px solid transparent;
+	border-image: linear-gradient(180deg, var(--primary), var(--primary-deep)) 1;
+	border-radius: 0 8px 8px 0;
+	background: color-mix(in srgb, var(--primary) 5%, transparent);
 	color: var(--text-dim);
 }
 .msg-text table {
 	border-collapse: collapse;
-	margin: 8px 0;
+	margin: 10px 0;
 	/* 宽表横向滚动而非撑破气泡（GitHub markdown-body 同款手法）。 */
 	display: block;
 	width: max-content;
 	max-width: 100%;
 	overflow-x: auto;
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	background: color-mix(in srgb, var(--card) 55%, transparent);
 }
 .msg-text th,
 .msg-text td {
-	border: 1px solid var(--border);
-	padding: 4px 10px;
+	border: 1px solid var(--border-soft);
+	padding: 5px 12px;
+}
+.msg-text th {
+	background: var(--accent-soft);
+	font-weight: 600;
+	/* UA 把 th 居中，GFM 表数据列左对齐更自然 */
+	text-align: left;
+}
+.msg-text tbody tr:nth-child(even) td {
+	background: color-mix(in srgb, var(--primary) 5%, transparent);
 }
 
-/* —— 标题/分隔线此前被 Tailwind v4 preflight 打回 inherit（h1-h6 无字号字重），
- * 且 pi 侧从未写过恢复规则——`## 标题` 渲染出来与正文无异。 —— */
+/* —— 标题：preflight 打回 inherit 的层级恢复 + 渐变视觉层。扁平时间线里
+ * 唯一的"炫"留给 h1/h2——主题渐变 token 做渐变文字（primary → primary-deep
+ * 在五套主题明暗底上都保得住对比度，浅色底最浅端 ≈ 3.2:1，大号粗体达标；
+ * 不支持 background-clip:text 的环境退回纯色 primary）。 —— */
 .msg-text h1,
 .msg-text h2,
 .msg-text h3,
 .msg-text h4,
 .msg-text h5,
 .msg-text h6 {
-	margin: 14px 0 6px;
-	font-weight: 600;
+	margin: 16px 0 8px;
+	font-weight: 700;
 	line-height: 1.35;
+	color: var(--text);
+}
+.msg-text h3,
+.msg-text h4,
+.msg-text h5,
+.msg-text h6 {
+	font-weight: 600;
 }
 .msg-text :is(h1, h2, h3, h4, h5, h6):first-child {
 	margin-top: 0;
@@ -657,11 +681,68 @@ span.msg-editor-hint svg {
 .msg-text h6 {
 	font-size: 1em;
 }
+.msg-text h1,
+.msg-text h2 {
+	color: var(--primary);
+	background-image: linear-gradient(
+		120deg,
+		var(--primary),
+		var(--primary-deep)
+	);
+	-webkit-background-clip: text;
+	background-clip: text;
+	-webkit-text-fill-color: transparent;
+}
+/* -webkit-text-fill-color 会继承：标题内行内 code 自带底色会盖住渐变
+ * 字形导致文字消失——补回实色填充。 */
+.msg-text h1 :where(code),
+.msg-text h2 :where(code) {
+	-webkit-text-fill-color: var(--text);
+}
+/* 浅色家族（light/sakura）主色偏浅（sakura 端 ≈3:1 临界），渐变起点压暗
+ * 一档保可读性；暗色家族不受影响。 */
+:root .msg-text h1,
+:root .msg-text h2 {
+	background-image: linear-gradient(
+		120deg,
+		color-mix(in srgb, var(--primary) 88%, black),
+		var(--primary-deep)
+	);
+}
+/* 暗色家族（dark/ocean/forest）用三段渐变拉开层次：glow → primary → deep；
+ * 浅色底上 glow 端对比度不够，走上面的压暗两段。 */
+.dark .msg-text h1,
+.dark .msg-text h2 {
+	background-image: linear-gradient(
+		120deg,
+		var(--primary-glow),
+		var(--primary) 45%,
+		var(--primary-deep)
+	);
+}
+.msg-text h2::after {
+	content: "";
+	display: block;
+	height: 2px;
+	margin-top: 6px;
+	border-radius: 2px;
+	background: linear-gradient(
+		90deg,
+		color-mix(in srgb, var(--primary) 68%, transparent),
+		transparent 90%
+	);
+}
 
 .msg-text hr {
-	margin: 12px 0;
+	margin: 14px 0;
 	border: none;
-	border-top: 1px solid var(--border);
+	height: 1px;
+	background: linear-gradient(
+		90deg,
+		transparent,
+		color-mix(in srgb, var(--primary) 45%, transparent) 50%,
+		transparent
+	);
 }
 
 /* 正文内 markdown 图片与附件图（.msg-image img）同款观感。 */
@@ -672,22 +753,63 @@ span.msg-editor-hint svg {
 	border: 1px solid var(--border);
 }
 
-/* GFM 任务清单复选框：preflight 抹掉 input 的 margin，文字会贴着框。 */
+/* GFM 任务清单复选框：preflight 抹掉 input 的 margin，文字会贴着框；
+ * 且 disabled+checked 的原生复选框会被浏览器强制灰化（accent-color 失效），
+ * 改为自绘盒子走主题色。 */
 .msg-text input[type="checkbox"] {
+	appearance: none;
+	-webkit-appearance: none;
+	width: 13px;
+	height: 13px;
 	margin-right: 6px;
-	accent-color: var(--accent);
+	vertical-align: -1.5px;
+	border: 1.5px solid color-mix(in srgb, var(--primary) 50%, var(--border));
+	border-radius: 3.5px;
+	background: transparent;
+	transition:
+		background-color 0.15s ease,
+		border-color 0.15s ease;
+}
+.msg-text input[type="checkbox"]:checked {
+	background-color: var(--primary);
+	border-color: var(--primary);
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 8'%3E%3Cpath d='M1 4.2 3.6 6.8 9 1.2' fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+	background-size: 9px 7px;
+	background-repeat: no-repeat;
+	background-position: center;
+}
+
+/* 列表标记染主色：聊天里大量"1-7 对号"式引用，序号醒目有实用价值 */
+.msg-text li::marker {
+	color: var(--primary);
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+}
+
+/* 选中态染主题色——扁平时间线里的一点呼应 */
+.msg-text ::selection {
+	background: color-mix(in srgb, var(--primary) 26%, transparent);
 }
 .msg-text a {
 	color: var(--link);
 	/* GFM autolink 把长 URL 渲染成 <a>，同样要能断行（inline 继承父级
 	 * overflow-wrap，但显式声明以兼容个别浏览器的继承差异）。 */
 	overflow-wrap: anywhere;
+	/* preflight 把 a 的 text-decoration 归为 inherit(=none)：补回下划线并
+	 * 色阶化——平时 45% 透明度，悬停点亮 */
+	text-decoration: underline;
+	text-decoration-color: color-mix(in srgb, var(--link) 45%, transparent);
+	text-underline-offset: 2px;
+	transition: text-decoration-color 0.15s ease;
+}
+.msg-text a:hover {
+	text-decoration-color: var(--link);
 }
 .msg-text code {
 	font-family: var(--mono);
 	font-size: 12.5px;
 	background: var(--bg-elev2);
-	border: 1px solid var(--border-soft);
+	border: 1px solid color-mix(in srgb, var(--primary) 14%, var(--border-soft));
 	border-radius: 4px;
 	padding: 1px 5px;
 }
