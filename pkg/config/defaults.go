@@ -88,6 +88,29 @@ func DefaultConfig() *Config {
 				InterceptorTimeoutMS: 5000,
 				ApprovalTimeoutMS:    60000,
 			},
+			// Fork default: the HITL approval builtin ships enabled with a
+			// conservative ask set (destructive VCS / package-removal
+			// commands), so fresh installs get fail-closed approval cards
+			// out of the box. Loading decodes user JSON over these defaults
+			// (map-merge), so an existing config's own "approval" entry —
+			// including an explicit enabled:false — always wins wholesale;
+			// configs that never mention it inherit this default.
+			Builtins: map[string]BuiltinHookConfig{
+				"approval": {
+					Enabled: true,
+					Config: json.RawMessage(`{
+						"ask_patterns": [
+							"git push",
+							"git reset --hard",
+							"git clean",
+							"\\bbrew\\s+(uninstall|rm)\\b",
+							"\\bpip\\s+uninstall\\b",
+							"\\bnpm\\s+uninstall\\b"
+						],
+						"timeout_ms": 300000
+					}`),
+				},
+			},
 		},
 		ModelList: []*ModelConfig{
 			// ============================================
