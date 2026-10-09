@@ -593,9 +593,17 @@ span.msg-editor-hint svg {
 .msg-text ol {
 	padding-left: 22px;
 	margin: 6px 0;
+	/* Tailwind v4 preflight 把 ol/ul 的 list-style 重置为 none（序号/圆点消失，
+	 * 有序列表引用"1-3/4-7"时用户无从对号）；revert 回 UA 默认
+	 * （ul=disc、ol=decimal，嵌套层级照 UA 规则变化）。 */
+	list-style: revert;
 }
 .msg-text li {
 	margin: 2px 0;
+}
+/* GFM 任务清单（- [ ]）自带复选框，恢复标记后反而多出圆点——保持无标记。 */
+.msg-text .contains-task-list {
+	list-style: none;
 }
 .msg-text blockquote {
 	margin: 8px 0;
