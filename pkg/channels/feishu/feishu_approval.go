@@ -61,15 +61,15 @@ func feishuApprovalButtonElement(chatID, qid, cmd, label, btnType string) map[st
 	}
 }
 
-// feishuApprovalButtonRow lays the three answer buttons out in one row of
-// equal thirds (standalone buttons are block-level and stack vertically).
-// Labels are kept near-equal in length so the thirds render evenly.
+// feishuApprovalButtonRow lays the three answer buttons out in one row,
+// packed from the left at their natural widths (standalone buttons are
+// block-level and stack vertically, hence the column_set wrapper; auto
+// columns shrink to their content instead of splitting the row evenly).
 func feishuApprovalButtonRow(chatID, qid string) map[string]any {
 	column := func(cmd, label, btnType string) map[string]any {
 		return map[string]any{
 			"tag":      "column",
-			"width":    "weighted",
-			"weight":   1,
+			"width":    "auto",
 			"elements": []any{feishuApprovalButtonElement(chatID, qid, cmd, label, btnType)},
 		}
 	}

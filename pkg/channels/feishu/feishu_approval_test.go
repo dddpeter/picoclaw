@@ -108,8 +108,8 @@ func TestBuildApprovalCardButtons(t *testing.T) {
 	labels := make([]string, 0, 3)
 	for _, col := range cols {
 		cm, _ := col.(map[string]any)
-		if cm["width"] != "weighted" || cm["weight"] != 1 {
-			t.Fatalf("columns must be equal-weight thirds, got %v", cm)
+		if cm["width"] != "auto" {
+			t.Fatalf("columns must shrink to content (width auto) for the left-packed row, got %v", cm)
 		}
 		btn := collect(cm["elements"])
 		if len(btn) != 1 {
