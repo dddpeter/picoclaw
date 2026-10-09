@@ -61,6 +61,29 @@ func feishuApprovalButtonElement(chatID, qid, cmd, label, btnType string) map[st
 	}
 }
 
+// feishuApprovalButtonRow lays the three answer buttons out in one row of
+// equal thirds (standalone buttons are block-level and stack vertically).
+// Labels are kept near-equal in length so the thirds render evenly.
+func feishuApprovalButtonRow(chatID, qid string) map[string]any {
+	column := func(cmd, label, btnType string) map[string]any {
+		return map[string]any{
+			"tag":      "column",
+			"width":    "weighted",
+			"weight":   1,
+			"elements": []any{feishuApprovalButtonElement(chatID, qid, cmd, label, btnType)},
+		}
+	}
+	return map[string]any{
+		"tag":       "column_set",
+		"flex_mode": "none",
+		"columns": []any{
+			column(feishuApprovalApproveCmd, "✅ 批准", "primary"),
+			column(feishuApprovalAlwaysCmd, "🔁 本会话", "default"),
+			column(feishuApprovalDenyCmd, "⛔ 拒绝", "danger"),
+		},
+	}
+}
+
 // buildFeishuApprovalCard renders the interactive approval prompt: header,
 // the tool + preview body, and the three answer buttons as standalone
 // elements. No streaming_mode in config — this card never streams, it only
@@ -96,9 +119,7 @@ func buildFeishuApprovalCard(chatID, qid string, prompt channels.ApprovalPrompt)
 		},
 		"body": map[string]any{"elements": []any{
 			map[string]any{"tag": "markdown", "content": body.String()},
-			feishuApprovalButtonElement(chatID, qid, feishuApprovalApproveCmd, "✅ 批准", "primary"),
-			feishuApprovalButtonElement(chatID, qid, feishuApprovalAlwaysCmd, "🔁 批准（本会话免问）", "default"),
-			feishuApprovalButtonElement(chatID, qid, feishuApprovalDenyCmd, "⛔ 拒绝", "danger"),
+			feishuApprovalButtonRow(chatID, qid),
 		}},
 	}
 }

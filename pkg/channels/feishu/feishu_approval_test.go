@@ -59,14 +59,30 @@ func TestBuildApprovalCardButtons(t *testing.T) {
 		t.Error("approval card must be schema 2.0")
 	}
 
-	buttons := 0
-	elements := card["body"].(map[string]any)["elements"].([]any)
-	for _, el := range elements {
-		m, ok := el.(map[string]any)
-		if !ok || m["tag"] != "button" {
-			continue
+	// Buttons live inside a column_set row; collect them recursively.
+	var collect func(node any) []map[string]any
+	collect = func(node any) []map[string]any {
+		var found []map[string]any
+		switch v := node.(type) {
+		case map[string]any:
+			if v["tag"] == "button" {
+				found = append(found, v)
+			}
+			for _, child := range v {
+				found = append(found, collect(child)...)
+			}
+		case []any:
+			for _, child := range v {
+				found = append(found, collect(child)...)
+			}
 		}
-		buttons++
+		return found
+	}
+	buttons := collect(card)
+	if len(buttons) != 3 {
+		t.Fatalf("expected exactly 3 buttons (approve/always/deny), got %d", len(buttons))
+	}
+	for _, m := range buttons {
 		behaviors, _ := m["behaviors"].([]any)
 		if len(behaviors) != 1 {
 			t.Fatalf("button must carry exactly one callback behavior: %v", m)
@@ -79,8 +95,35 @@ func TestBuildApprovalCardButtons(t *testing.T) {
 			t.Fatalf("button value must embed the card qid, got %v", value)
 		}
 	}
-	if buttons != 3 {
-		t.Fatalf("expected exactly 3 buttons (approve/always/deny), got %d", buttons)
+
+	// The three buttons share one row of equal thirds.
+	row := card["body"].(map[string]any)["elements"].([]any)[1].(map[string]any)
+	if row["tag"] != "column_set" {
+		t.Fatalf("buttons must be wrapped in a column_set row, got %v", row["tag"])
+	}
+	cols, _ := row["columns"].([]any)
+	if len(cols) != 3 {
+		t.Fatalf("expected 3 columns (one per button), got %d", len(cols))
+	}
+	labels := make([]string, 0, 3)
+	for _, col := range cols {
+		cm, _ := col.(map[string]any)
+		if cm["width"] != "weighted" || cm["weight"] != 1 {
+			t.Fatalf("columns must be equal-weight thirds, got %v", cm)
+		}
+		btn := collect(cm["elements"])
+		if len(btn) != 1 {
+			t.Fatalf("each column must hold exactly one button, got %d", len(btn))
+		}
+		text := btn[0]["text"].(map[string]any)
+		labels = append(labels, text["content"].(string))
+	}
+	// Near-equal label lengths keep the row rendering evenly (批准/本会话/拒绝).
+	want := []string{"✅ 批准", "🔁 本会话", "⛔ 拒绝"}
+	for i, l := range labels {
+		if l != want[i] {
+			t.Fatalf("button %d label = %q, want %q", i, l, want[i])
+		}
 	}
 
 	// The prompt card is born in streaming_mode: CardKit updates only
