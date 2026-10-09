@@ -9,6 +9,8 @@ export interface SessionSummary {
   channel?: string
   created: string
   updated: string
+  /** True while the session has an in-flight turn (backend turn-marker file). */
+  busy?: boolean
 }
 
 export interface SessionDetail {

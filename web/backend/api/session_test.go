@@ -1938,3 +1938,63 @@ func TestHandleSessions_ChannelQualifiedIDDedup(t *testing.T) {
 		t.Fatalf("ghost session must survive, stat err = %v", err)
 	}
 }
+
+func TestHandleListSessions_TurnMarkerReportsBusy(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	dir := sessionsTestDir(t, configPath)
+	store, storeErr := memory.NewJSONLStore(dir)
+	if storeErr != nil {
+		t.Fatalf("NewJSONLStore() error = %v", storeErr)
+	}
+	sessionKey := legacyPicoSessionPrefix + "busy-jsonl"
+	if err := store.AddFullMessage(nil, sessionKey, providers.Message{
+		Role:    "user",
+		Content: "hello",
+	}); err != nil {
+		t.Fatalf("AddFullMessage(user) error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	list := func() []sessionListItem {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+		}
+		var items []sessionListItem
+		if err := json.Unmarshal(rec.Body.Bytes(), &items); err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		if len(items) != 1 {
+			t.Fatalf("len(items) = %d, want 1", len(items))
+		}
+		return items
+	}
+
+	// No turn marker: not busy.
+	if list()[0].Busy {
+		t.Error("Busy should be false without a turn marker file")
+	}
+	// In-flight turn marker: busy. The marker shares the sanitized-key base
+	// with the .meta.json file, so one ReadDir pass detects it.
+	if err := store.WriteTurnMarker(sessionKey, "agent:main", "glm-4.7"); err != nil {
+		t.Fatalf("WriteTurnMarker() error = %v", err)
+	}
+	if !list()[0].Busy {
+		t.Error("Busy should be true while the turn marker exists")
+	}
+	// Turn exit clears the marker: busy flag follows.
+	if err := store.ClearTurnMarker(sessionKey); err != nil {
+		t.Fatalf("ClearTurnMarker() error = %v", err)
+	}
+	if list()[0].Busy {
+		t.Error("Busy should be false after the turn marker is cleared")
+	}
+}

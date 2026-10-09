@@ -51,6 +51,11 @@ type sessionListItem struct {
 	Channel string `json:"channel,omitempty"`
 	Created string `json:"created"`
 	Updated string `json:"updated"`
+	// Busy reports an in-flight turn for this session, detected via the
+	// JSONL store's turn marker file (<key>.turnmarker.json, written
+	// write-ahead at turn start and cleared on turn exit). Drives the
+	// spinner on background sessions in the web session list.
+	Busy bool `json:"busy,omitempty"`
 }
 
 type sessionChatMessage struct {
@@ -219,6 +224,8 @@ type jsonlSessionRef struct {
 	Key string
 	// Channel is the normalized originating channel; empty when unknown.
 	Channel string
+	// Busy: turn marker file present for this session's key base.
+	Busy bool
 }
 
 type picoLegacySessionRef struct {
@@ -311,6 +318,15 @@ func (h *Handler) findJSONLSessions(dir string) ([]jsonlSessionRef, error) {
 	seen := make(map[string]struct{})
 	seenKeys := make(map[string]struct{})
 	metaBackedBases := make(map[string]struct{})
+	// Turn markers share the sanitized-key base with .meta.json/.jsonl files,
+	// so one ReadDir pass collects every in-flight session.
+	busyBases := make(map[string]struct{})
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), memory.TurnMarkerSuffix) {
+			continue
+		}
+		busyBases[strings.TrimSuffix(entry.Name(), memory.TurnMarkerSuffix)] = struct{}{}
+	}
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".meta.json") {
 			continue
@@ -321,11 +337,15 @@ func (h *Handler) findJSONLSessions(dir string) ([]jsonlSessionRef, error) {
 		if err != nil {
 			continue
 		}
-		ref, ok := sessionRefFromMeta(meta, strings.TrimSuffix(name, ".meta.json"))
+		base := strings.TrimSuffix(name, ".meta.json")
+		ref, ok := sessionRefFromMeta(meta, base)
 		if !ok || ref.Key == "" || ref.ID == "" {
 			continue
 		}
-		metaBackedBases[strings.TrimSuffix(name, ".meta.json")] = struct{}{}
+		if _, busy := busyBases[base]; busy {
+			ref.Busy = true
+		}
+		metaBackedBases[base] = struct{}{}
 		idKey := ref.Channel + "\x00" + ref.ID
 		if _, exists := seen[idKey]; exists {
 			continue
@@ -466,7 +486,7 @@ func (h *Handler) findLegacyPicoSession(dir, sessionID string) (picoLegacySessio
 	return picoLegacySessionRef{}, os.ErrNotExist
 }
 
-func buildSessionListItem(sessionID string, sess sessionFile, channel string, toolFeedbackMaxArgsLength int) sessionListItem {
+func buildSessionListItem(sessionID string, sess sessionFile, channel string, toolFeedbackMaxArgsLength int, busy bool) sessionListItem {
 	transcript := visibleSessionMessages(sess.Messages, toolFeedbackMaxArgsLength)
 
 	preview := ""
@@ -498,6 +518,7 @@ func buildSessionListItem(sessionID string, sess sessionFile, channel string, to
 		Channel:      channel,
 		Created:      sess.Created.Format(time.RFC3339),
 		Updated:      sess.Updated.Format(time.RFC3339),
+		Busy:         busy,
 	}
 }
 
@@ -902,7 +923,7 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			seen[ref.ID] = struct{}{}
-			items = append(items, buildSessionListItem(ref.ID, sess, ref.Channel, toolFeedbackMaxArgsLength))
+			items = append(items, buildSessionListItem(ref.ID, sess, ref.Channel, toolFeedbackMaxArgsLength, ref.Busy))
 		}
 	}
 
@@ -916,7 +937,7 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			seen[ref.ID] = struct{}{}
-			items = append(items, buildSessionListItem(ref.ID, sess, "pico", toolFeedbackMaxArgsLength))
+			items = append(items, buildSessionListItem(ref.ID, sess, "pico", toolFeedbackMaxArgsLength, false))
 		}
 	}
 

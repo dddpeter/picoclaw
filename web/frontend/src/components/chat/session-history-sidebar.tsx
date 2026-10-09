@@ -56,14 +56,16 @@ export function SessionHistorySidebar({
 
   // The gateway writes session files for other channels (feishu, telegram,
   // ...) without any websocket event reaching this page, so poll and refresh
-  // on focus to keep the list current without a manual reload.
+  // on focus to keep the list current without a manual reload. While any
+  // listed session is mid-turn, poll faster so busy spinners settle promptly.
+  const anyBusy = sessions.some((s) => s.busy)
   useEffect(() => {
     const refreshIfVisible = () => {
       if (document.visibilityState === "visible") {
         onAutoRefreshRef.current()
       }
     }
-    const interval = window.setInterval(refreshIfVisible, 30_000)
+    const interval = window.setInterval(refreshIfVisible, anyBusy ? 5_000 : 30_000)
     window.addEventListener("focus", refreshIfVisible)
     document.addEventListener("visibilitychange", refreshIfVisible)
     return () => {
@@ -71,7 +73,7 @@ export function SessionHistorySidebar({
       window.removeEventListener("focus", refreshIfVisible)
       document.removeEventListener("visibilitychange", refreshIfVisible)
     }
-  }, [])
+  }, [anyBusy])
 
   return (
     <aside className="border-border/60 bg-gradient-to-b from-amber-500/[0.09] via-transparent to-teal-500/[0.05] flex w-80 shrink-0 flex-col border-r dark:from-amber-400/[0.10] dark:via-transparent dark:to-teal-400/[0.05]">
@@ -140,8 +142,11 @@ export function SessionHistorySidebar({
                 )}
               >
                 <div className="flex items-center gap-2 pr-6">
-                  {active && activeSessionBusy ? (
-                    <IconLoader2 className="text-primary size-3.5 shrink-0 animate-spin" />
+                  {(active && activeSessionBusy) || session.busy ? (
+                    <IconLoader2
+                      className="text-primary size-3.5 shrink-0 animate-spin"
+                      aria-label={t("chat.turnRunning")}
+                    />
                   ) : (
                     <span
                       className={cn(
