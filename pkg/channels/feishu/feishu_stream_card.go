@@ -1027,7 +1027,9 @@ func buildFeishuFooter(state *feishuStreamState, aborted bool, elapsed time.Dura
 		pct := state.ContextUsed * 100 / state.ContextTotal
 		ctxVal := fmt.Sprintf("%s/%s (%d%%)",
 			formatFeishuTokens(state.ContextUsed), formatFeishuTokens(state.ContextTotal), pct)
-		// Warn colors near the window limit, same scheme as hermes-lark-streaming.
+		// 用量条（■■□□□）先于数字呈现饱满度；告警色与数字同享（>80 橙、
+		// >95 红，同 hermes-lark-streaming 色阶）。
+		ctxVal = feishuContextGauge(pct) + " " + ctxVal
 		switch {
 		case pct > 95:
 			ctxVal = fmt.Sprintf("<font color='red'>%s</font>", ctxVal)
@@ -1036,7 +1038,9 @@ func buildFeishuFooter(state *feishuStreamState, aborted bool, elapsed time.Dura
 		}
 		ctxPart := "📦 " + ctxVal
 		if state.ContextOffset > 0 {
-			ctxPart += fmt.Sprintf(" · ↪ %d", state.ContextOffset)
+			// ContextOffset 是会话历史 token 数（feishu_stream.go 以 HistoryTokens
+			// 赋值），按全文统一的 K/M 紧凑格式呈现，不再裸数字。
+			ctxPart += fmt.Sprintf(" · ↪ %s", formatFeishuTokens(state.ContextOffset))
 		}
 		line2 = append(line2, ctxPart)
 	}
@@ -1070,6 +1074,24 @@ func formatFeishuTokens(n int) string {
 	default:
 		return fmt.Sprintf("%d", n)
 	}
+}
+
+// feishuContextGauge renders a 5-block fullness gauge for the context window
+// (21% → ■□□□□, 50% → ■■■□□). Filled blocks round to nearest, minimum 1 once
+// usage is above zero. ■/□ are universal Unicode squares — safer than rarer
+// gauge glyphs across feishu client fonts.
+func feishuContextGauge(pct int) string {
+	filled := (pct + 10) / 20
+	if filled < 0 {
+		filled = 0
+	}
+	if filled > 5 {
+		filled = 5
+	}
+	if pct > 0 && filled == 0 {
+		filled = 1
+	}
+	return strings.Repeat("■", filled) + strings.Repeat("□", 5-filled)
 }
 
 func feishuCardSummary(answer string) map[string]any {

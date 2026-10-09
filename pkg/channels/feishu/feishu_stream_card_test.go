@@ -515,3 +515,47 @@ func TestFeishuPanelHeaderShowsSegmentLabel(t *testing.T) {
 		t.Errorf("header %q must stay unlabeled without a segment", plainTitle)
 	}
 }
+
+func footerMarkdown(t *testing.T, els []any) string {
+	t.Helper()
+	for _, e := range els {
+		if m, ok := e.(map[string]any); ok && m["tag"] == "markdown" {
+			if c, ok := m["content"].(string); ok {
+				return c
+			}
+		}
+	}
+	t.Fatal("footer elements carry no markdown content")
+	return ""
+}
+
+func TestBuildFeishuFooterContextGaugeAndOffset(t *testing.T) {
+	state := &feishuStreamState{
+		ModelName:     "cbcn/deepseek-v4.1-flash",
+		ContextUsed:   216_900,
+		ContextTotal:  1_000_000,
+		ContextOffset: 59_232,
+	}
+	content := footerMarkdown(t, buildFeishuFooter(state, false, 77*time.Second, ""))
+	for _, want := range []string{"✓ 已完成", "1m17s", "■□□□□ 216.9K/1.0M (21%)", "↪ 59.2K"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("footer %q missing %q", content, want)
+		}
+	}
+	// Low usage stays grey — no warning font on the gauge.
+	if strings.Contains(content, "orange-300") || strings.Contains(content, "color='red'") {
+		t.Errorf("footer %q should not carry warning colors at 21%%", content)
+	}
+
+	// Warning bands recolor gauge + numbers together.
+	warn := &feishuStreamState{ContextUsed: 850_000, ContextTotal: 1_000_000}
+	c2 := footerMarkdown(t, buildFeishuFooter(warn, false, time.Second, ""))
+	if !strings.Contains(c2, "orange-300") || !strings.Contains(c2, "■■■■□") {
+		t.Errorf("footer %q should carry orange gauge at 85%%", c2)
+	}
+	crit := &feishuStreamState{ContextUsed: 960_000, ContextTotal: 1_000_000}
+	c3 := footerMarkdown(t, buildFeishuFooter(crit, false, time.Second, ""))
+	if !strings.Contains(c3, "color='red'") || !strings.Contains(c3, "■■■■■") {
+		t.Errorf("footer %q should carry red gauge at 96%%", c3)
+	}
+}
