@@ -168,7 +168,7 @@ func TestAgentLoop_MountProcessHook_ApprovalDeny(t *testing.T) {
 		t.Fatalf("runAgentLoop failed: %v", err)
 	}
 
-	expected := "Tool execution denied by approval hook: blocked by ipc hook"
+	expected := "Tool execution denied by approval hook: blocked by ipc hook" + hookDeniedDeclinedSuffix()
 	if resp != expected {
 		t.Fatalf("expected %q, got %q", expected, resp)
 	}

@@ -86,3 +86,4 @@ docker/data
 .pi/
 node_modules/
 .vs/
+.codebuddy/

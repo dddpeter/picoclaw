@@ -885,7 +885,7 @@ func TestAgentLoop_Hooks_ToolApproverCanDeny(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runAgentLoop failed: %v", err)
 	}
-	expected := "Tool execution denied by approval hook: blocked"
+	expected := "Tool execution denied by approval hook: blocked" + hookDeniedDeclinedSuffix()
 	if resp != expected {
 		t.Fatalf("expected %q, got %q", expected, resp)
 	}
@@ -1038,7 +1038,7 @@ func TestAgentLoop_Hooks_ToolDenyAction(t *testing.T) {
 		t.Fatalf("runAgentLoop failed: %v", err)
 	}
 
-	expected := "Tool execution denied by hook: tool denied by hook"
+	expected := "Tool execution denied by hook: tool denied by hook" + hookDeniedDeclinedSuffix()
 	if resp != expected {
 		t.Fatalf("expected %q, got %q", expected, resp)
 	}

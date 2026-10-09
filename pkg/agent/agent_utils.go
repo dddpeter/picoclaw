@@ -235,11 +235,22 @@ func cloneEventArguments(args map[string]any) map[string]any {
 	return cloned
 }
 
+// hookDeniedDeclinedSuffix is the shared "declined, don't retry" wording
+// appended to hook/approval denial notices. It backs the kernel rule
+// "Denied means declined": the denial tells the model the *decision* was
+// declined by the human/approval layer, not that a transient error
+// occurred — so re-issuing the same call is wrong and it should adjust.
+func hookDeniedDeclinedSuffix() string {
+	return ". The user (or an approval gate acting for them) declined this action: do not retry it verbatim or with cosmetic changes; adjust your approach."
+}
+
 func hookDeniedToolContent(prefix, reason string) string {
-	if reason == "" {
-		return prefix
+	content := prefix
+	if reason != "" {
+		content += ": " + reason
 	}
-	return prefix + ": " + reason
+	content += hookDeniedDeclinedSuffix()
+	return content
 }
 
 func appendEventContextFields(fields map[string]any, turnCtx *TurnContext) {
