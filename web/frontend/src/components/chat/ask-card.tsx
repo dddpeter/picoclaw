@@ -49,7 +49,9 @@ export function AskCard({
 		setSubmitting(true)
 	}
 
-	const toggle = (qi: number, label: string, multi: boolean) => {
+	const multiQ = info.questions.length > 1
+
+	const toggle = (qi: number, label: string, multi: boolean | undefined) => {
 		if (!actionable) return
 		setDraft((prev) => {
 			if (!multi) {
@@ -61,6 +63,17 @@ export function AskCard({
 				[qi]: cur.includes(label) ? cur.filter((v) => v !== label) : [...cur, label],
 			}
 		})
+	}
+
+	// 交互模型（v1.5，修复多题卡“点一题即发、后题封死”）：
+	// 多题 = 全部选完草稿后统一提交（octop “一卡全问一次提交”语义）；
+	// 单题 = 点击选项即发（保留灵敏）。两者都可用输入框自由作答。
+	const onOptionClick = (qi: number, label: string, multi: boolean | undefined) => {
+		if (multiQ) {
+			toggle(qi, label, multi)
+			return
+		}
+		send(label)
 	}
 
 	const submitMulti = () => {
@@ -120,11 +133,7 @@ export function AskCard({
 												type="button"
 												disabled={submitting || !actionable}
 												title={opt.description}
-												onClick={() =>
-													q.multiSelect
-														? toggle(qi, opt.label, true)
-														: send(opt.label)
-												}
+												onClick={() => onOptionClick(qi, opt.label, q.multiSelect)}
 												className={cn(
 													"inline-flex h-7 cursor-pointer items-center gap-1 rounded-lg border px-2.5 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
 													selected
@@ -154,10 +163,10 @@ export function AskCard({
 
 			{pending ? (
 				<div className="flex flex-wrap items-center gap-2 px-3.5 pt-2.5 pb-3">
-					{multiCount > 0 && (
+					{multiQ && (
 						<button
 							type="button"
-							disabled={submitting}
+							disabled={submitting || multiCount === 0}
 							onClick={submitMulti}
 							className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg px-3 text-[12px] font-medium shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50"
 						>
@@ -173,9 +182,15 @@ export function AskCard({
 					>
 						{t("chat.askSkip")}
 					</button>
-					<span className="text-muted-foreground/70 ml-auto text-[11px]">
-						{t("chat.askInputHint")}
-					</span>
+					{multiQ ? (
+						<span className="text-muted-foreground/70 text-[11px]">
+							{t("chat.askDraftHint", { answered: multiCount, total: info.questions.length })}
+						</span>
+					) : (
+						<span className="text-muted-foreground/70 ml-auto text-[11px]">
+							{t("chat.askInputHint")}
+						</span>
+					)}
 				</div>
 			) : (
 				sealInfo && (

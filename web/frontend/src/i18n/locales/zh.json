@@ -136,6 +136,7 @@
     "askTitle": "需要你的输入",
     "askFreeTextHint": "在输入框直接回复即可",
     "askInputHint": "也可在输入框自由作答（多题按行序）",
+    "askDraftHint": "已选 {{answered}}/{{total}} 题，全部选完后提交",
     "askSubmit": "提交作答",
     "askSkip": "跳过",
     "askSealAnswered": "已作答",
