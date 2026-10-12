@@ -19,8 +19,12 @@ const (
 	TypeMediaCreate   = "media.create"
 	TypeTypingStart   = "typing.start"
 	TypeTypingStop    = "typing.stop"
-	TypeError         = "error"
-	TypePong          = "pong"
+	// TypeTurnStatus is the reconnect signal (octop borrowing §四): sent as
+	// the first frame on connect so a page refresh learns whether a turn is
+	// live for its session. Payload: {active: bool}.
+	TypeTurnStatus = "turn.status"
+	TypeError      = "error"
+	TypePong       = "pong"
 
 	PayloadKeyContent     = "content"
 	PayloadKeyThought     = "thought"

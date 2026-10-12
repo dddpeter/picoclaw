@@ -116,6 +116,11 @@ type PicoChannel struct {
 	cancel             context.CancelFunc
 	progress           *channels.ToolFeedbackAnimator
 	deleteMessageFn    func(context.Context, string, string) error
+	// turnActiveProbe reports whether an agent turn is live for a chatID
+	// ("pico:<sessionID>"). Wired by the gateway; nil = no turn.status
+	// frames (octop borrowing §四).
+	turnActiveProbeMu sync.RWMutex
+	turnActiveProbe   func(chatID string) bool
 	// broadcastFn lets tests intercept outbound broadcasts. nil → broadcastToSession.
 	broadcastFn func(chatID string, msg PicoMessage) error
 }
@@ -161,6 +166,20 @@ func NewPicoChannel(
 	ch.progress = channels.NewToolFeedbackAnimator(ch.EditMessage)
 	ch.deleteMessageFn = ch.DeleteMessage
 	return ch, nil
+}
+
+// SetTurnActiveProbe wires the agent-side turn probe used by the connect
+// turn.status frame (octop borrowing §四).
+func (c *PicoChannel) SetTurnActiveProbe(fn func(chatID string) bool) {
+	c.turnActiveProbeMu.Lock()
+	defer c.turnActiveProbeMu.Unlock()
+	c.turnActiveProbe = fn
+}
+
+func (c *PicoChannel) getTurnActiveProbe() func(chatID string) bool {
+	c.turnActiveProbeMu.RLock()
+	defer c.turnActiveProbeMu.RUnlock()
+	return c.turnActiveProbe
 }
 
 // createAndAddConnection checks MaxConnections and registers a connection atomically.
@@ -1076,6 +1095,17 @@ func (c *PicoChannel) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		"conn_id":    pc.id,
 		"session_id": sessionID,
 	})
+
+	// Reconnect signal (octop borrowing §四): the first frame tells the
+	// client whether a turn is live for its session, so a page refresh no
+	// longer loses the typing state. Weak-resume semantics: the client keeps
+	// receiving subsequent frames; missed chunks are covered by history
+	// replay after the turn ends.
+	if probe := c.getTurnActiveProbe(); probe != nil {
+		status := newMessage(TypeTurnStatus, map[string]any{"active": probe("pico:" + sessionID)})
+		status.SessionID = sessionID
+		pc.writeJSON(status)
+	}
 
 	go c.readLoop(pc)
 }

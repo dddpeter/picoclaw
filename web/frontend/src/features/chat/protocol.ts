@@ -327,6 +327,22 @@ export function handlePicoMessage(
       }))
       break
 
+    case "turn.status": {
+      // 重连信号（octop 借鉴 §四）：连接建立时服务端告知该会话是否有在跑的
+      // turn。active=true 恢复输入/转圈状态；active=false 不动——避免连接
+      // 刚建立时误清正在输入的本地状态。
+      const active = payload.active === true
+      if (active) {
+        updateChatStore((prev) => ({
+          isTyping: true,
+          ...(prev.turnStartedAt
+            ? { lastTurnActivityAt: Date.now() }
+            : { turnStartedAt: Date.now(), lastTurnActivityAt: Date.now() }),
+        }))
+      }
+      break
+    }
+
     case "error": {
       const requestId =
         typeof payload.request_id === "string" ? payload.request_id : ""

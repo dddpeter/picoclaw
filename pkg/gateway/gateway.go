@@ -30,6 +30,7 @@ import (
 	_ "github.com/sipeed/picoclaw/pkg/channels/maixcam"
 	_ "github.com/sipeed/picoclaw/pkg/channels/mqtt"
 	_ "github.com/sipeed/picoclaw/pkg/channels/onebot"
+	"github.com/sipeed/picoclaw/pkg/channels/pico"
 	_ "github.com/sipeed/picoclaw/pkg/channels/pico"
 	_ "github.com/sipeed/picoclaw/pkg/channels/qq"
 	_ "github.com/sipeed/picoclaw/pkg/channels/slack"
@@ -475,6 +476,17 @@ func setupAndStartServices(
 
 	agentLoop.SetChannelManager(runningServices.ChannelManager)
 	agentLoop.SetMediaStore(runningServices.MediaStore)
+
+	// Reconnect signal (octop borrowing §四): let pico WS clients learn on
+	// connect whether a turn is live for their session — a page refresh no
+	// longer loses the typing state (the turn itself survives on the gateway).
+	if ch, ok := runningServices.ChannelManager.GetChannel(config.ChannelPico); ok {
+		if picoCh, ok := ch.(*pico.PicoChannel); ok {
+			picoCh.SetTurnActiveProbe(func(chatID string) bool {
+				return agentLoop.SessionTurnActive(config.ChannelPico, chatID)
+			})
+		}
+	}
 
 	transcriber := asr.DetectTranscriber(cfg)
 	if transcriber != nil {
