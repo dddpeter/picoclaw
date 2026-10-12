@@ -137,6 +137,7 @@
     "askFreeTextHint": "Reply in the input box",
     "askInputHint": "Free-text replies also work (one line per question)",
     "askDraftHint": "{{answered}}/{{total}} answered — submit when done",
+    "askTextPlaceholder": "Type your answer…",
     "askSubmit": "Submit answers",
     "askSkip": "Skip",
     "askSealAnswered": "Answered",

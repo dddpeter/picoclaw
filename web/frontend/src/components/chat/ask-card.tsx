@@ -10,8 +10,11 @@ const OPTION_KEYS = ["A", "B", "C", "D", "E", "F"] as const
 
 /**
  * ask_user 问询卡（octop 借鉴 §三）：agent 被用户决策卡住时弹出的结构化
- * 问题卡——选项可点（点击即发送作答），也可在输入框自由回复（多题按行
- * 序）；多选题累计选择后一次提交。作答回执封存卡片。
+ * 问题卡。交互模型（v1.6）：
+ * - 多题 = 一卡全问一次提交（octop 语义）：选项只入草稿，自由文本题在卡上
+ *   内联输入，全部作答后"提交作答"按行序统一发送；
+ * - 单题 = 点击选项即发；自由文本题提示走输入框；
+ * - 也可全程在输入框自由作答（多题按行序）；/skip 跳过。
  */
 export function AskCard({
 	info,
@@ -26,12 +29,24 @@ export function AskCard({
 }) {
 	const { t } = useTranslation()
 	const [submitting, setSubmitting] = useState(false)
-	// 多选草稿：question index -> 已选 labels。
+	// 草稿：question index -> 已选 labels（选项题）。
 	const [draft, setDraft] = useState<Record<number, string[]>>({})
+	// 自由文本题的内联作答（多题卡自包含：不逼用户去输入框拼行序）。
+	const [textDraft, setTextDraft] = useState<Record<number, string>>({})
 
 	const pending = seal === undefined
 	const actionable = pending && latest
-	const multiCount = Object.values(draft).filter((v) => v.length > 0).length
+	const multiQ = info.questions.length > 1
+
+	// 一题已答 = 选项题有选中，或自由文本题有非空内联输入。
+	const questionAnswered = (qi: number, hasOptions: boolean): boolean => {
+		if (hasOptions) return (draft[qi] ?? []).length > 0
+		return Boolean((textDraft[qi] ?? "").trim())
+	}
+	const answeredCount = info.questions.filter((q, qi) =>
+		questionAnswered(qi, Boolean(q.options && q.options.length > 0)),
+	).length
+	const allAnswered = multiQ && answeredCount === info.questions.length
 
 	// 提交恢复路径：回执丢失（断线窗口）时 30s 后恢复可点，用户重试会得到
 	// 孤儿回执封存（与审批卡同语义）。
@@ -49,8 +64,6 @@ export function AskCard({
 		setSubmitting(true)
 	}
 
-	const multiQ = info.questions.length > 1
-
 	const toggle = (qi: number, label: string, multi: boolean | undefined) => {
 		if (!actionable) return
 		setDraft((prev) => {
@@ -65,9 +78,7 @@ export function AskCard({
 		})
 	}
 
-	// 交互模型（v1.5，修复多题卡“点一题即发、后题封死”）：
-	// 多题 = 全部选完草稿后统一提交（octop “一卡全问一次提交”语义）；
-	// 单题 = 点击选项即发（保留灵敏）。两者都可用输入框自由作答。
+	// 多题：选项只入草稿（修复 v1.5"点一题即发、后题封死"）；单题：即发。
 	const onOptionClick = (qi: number, label: string, multi: boolean | undefined) => {
 		if (multiQ) {
 			toggle(qi, label, multi)
@@ -76,8 +87,14 @@ export function AskCard({
 		send(label)
 	}
 
-	const submitMulti = () => {
-		const lines = info.questions.map((_, qi) => (draft[qi] ?? []).join("; "))
+	// 统一提交：行 i = 题 i（选项题 join "; "，自由文本题取内联输入）。
+	const submitAll = () => {
+		const lines = info.questions.map((q, qi) => {
+			if (q.options && q.options.length > 0) {
+				return (draft[qi] ?? []).join("; ")
+			}
+			return (textDraft[qi] ?? "").trim()
+		})
 		send(lines.join("\n"))
 	}
 
@@ -105,7 +122,7 @@ export function AskCard({
 				<span className={cn("text-[13px] font-semibold", pending ? "text-foreground" : "text-muted-foreground")}>
 					{t("chat.askTitle")}
 				</span>
-				{info.questions.length > 1 && (
+				{multiQ && (
 					<span className="bg-secondary text-secondary-foreground ml-auto rounded px-1.5 py-px font-mono text-[10px]">
 						{info.questions.length} Q
 					</span>
@@ -115,18 +132,18 @@ export function AskCard({
 			<div className="space-y-2.5 px-3.5 pt-1.5">
 				{info.questions.map((q, qi) => {
 					const picked = draft[qi] ?? []
+					const hasOptions = Boolean(q.options && q.options.length > 0)
 					return (
 						<div key={qi}>
 							<div className="text-[13px] leading-relaxed">
-								{info.questions.length > 1 && <span className="text-muted-foreground mr-1">{qi + 1}.</span>}
+								{multiQ && <span className="text-muted-foreground mr-1">{qi + 1}.</span>}
 								{q.header && <span className="text-muted-foreground">【{q.header}】</span>}
 								{q.question}
 								{q.multiSelect && <span className="text-muted-foreground/70 ml-1 text-[11px]">（多选）</span>}
 							</div>
-							{q.options && q.options.length > 0 ? (
+							{hasOptions ? (
 								<div className="mt-1.5 flex flex-wrap gap-1.5">
-									{q.options.map((opt, oi) => {
-										const selected = picked.includes(opt.label)
+									{(q.options ?? []).map((opt, oi) => {										const selected = picked.includes(opt.label)
 										return (
 											<button
 												key={opt.label}
@@ -151,6 +168,20 @@ export function AskCard({
 										)
 									})}
 								</div>
+							) : multiQ ? (
+								<div className="mt-1.5">
+									<input
+										type="text"
+										value={textDraft[qi] ?? ""}
+										disabled={submitting || !actionable}
+										onChange={(e) =>
+											setTextDraft((prev) => ({ ...prev, [qi]: e.target.value }))
+										}
+										placeholder={t("chat.askTextPlaceholder")}
+										maxLength={2000}
+										className="border-border focus-visible:ring-sky-500/30 h-8 w-full max-w-md rounded-lg border bg-transparent px-2.5 text-[13px] outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
+									/>
+								</div>
 							) : (
 								<div className="text-muted-foreground/70 mt-1 text-[11px]">
 									{t("chat.askFreeTextHint")}
@@ -166,8 +197,8 @@ export function AskCard({
 					{multiQ && (
 						<button
 							type="button"
-							disabled={submitting || multiCount === 0}
-							onClick={submitMulti}
+							disabled={submitting || !allAnswered}
+							onClick={submitAll}
 							className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg px-3 text-[12px] font-medium shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50"
 						>
 							{submitting ? <IconLoader2 className="size-3.5 animate-spin" /> : <span aria-hidden>✓</span>}
@@ -184,7 +215,7 @@ export function AskCard({
 					</button>
 					{multiQ ? (
 						<span className="text-muted-foreground/70 text-[11px]">
-							{t("chat.askDraftHint", { answered: multiCount, total: info.questions.length })}
+							{t("chat.askDraftHint", { answered: answeredCount, total: info.questions.length })}
 						</span>
 					) : (
 						<span className="text-muted-foreground/70 ml-auto text-[11px]">
