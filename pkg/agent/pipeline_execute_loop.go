@@ -553,6 +553,12 @@ func (p *Pipeline) runToolInvocation(
 		ts.sessionKey,
 		ts.opts.Dispatch.SessionScope,
 	)
+	// Progressive tool loading (octop borrowing §六): tool_search and direct
+	// calls to unloaded deferred tools are answered here — never executed
+	// blindly.
+	if res, handled := al.interceptDeferredTool(execCtx, ts.sessionKey, toolName, toolArgs, ts.agent.Tools); handled {
+		return res, time.Since(toolStart)
+	}
 	toolResult := ts.agent.Tools.ExecuteWithContext(
 		execCtx,
 		toolName,

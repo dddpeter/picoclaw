@@ -52,6 +52,9 @@ type AgentLoop struct {
 	contextManager   ContextManager
 	memoryCommitter  *memoryCommitter
 	compactScheduler *compactScheduler
+	// toolDefer holds the progressive-tool-loading session state (octop
+	// borrowing §六, tool_defer.go).
+	toolDefer *toolDeferState
 	// idleScanner holds the idle-compaction scanner when started
 	// (atomic.Value-typed via the sync primitives below; nil when off).
 	idleScanner    atomic.Value

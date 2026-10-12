@@ -106,6 +106,7 @@ func NewAgentLoop(
 	configureHookManagerFromConfig(al.hooks, cfg)
 	al.contextManager = al.resolveContextManager()
 	al.compactScheduler = newCompactScheduler(al)
+	al.toolDefer = newToolDeferState()
 	// Fresh-tail size for seahorse sessions (0/absent = 128 messages).
 	seahorse.SetFreshTailCount(cfg.Agents.Defaults.FreshTailMessages)
 

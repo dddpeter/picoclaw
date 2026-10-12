@@ -1742,11 +1742,21 @@ type MCPConfig struct {
 	Discovery  ToolDiscoveryConfig `                                json:"discovery"`
 	// MaxInlineTextChars controls how much MCP text stays inline before it is saved as an artifact.
 	MaxInlineTextChars int `json:"max_inline_text_chars,omitempty" env:"PICOCLAW_TOOLS_MCP_MAX_INLINE_TEXT_CHARS"`
+	// DeferredThreshold enables fine-grained progressive tool loading
+	// (octop borrowing §六): when the connected MCP tool count exceeds this
+	// threshold, not-yet-loaded MCP tools go to the LLM as lightweight
+	// deferred references and a tool_search meta-tool loads full schemas on
+	// demand (session-sticky). 0 disables; default 20.
+	DeferredThreshold int `json:"deferred_tool_threshold,omitempty" env:"PICOCLAW_TOOLS_MCP_DEFERRED_TOOL_THRESHOLD"`
 	// Servers is a map of server name to server configuration
 	Servers map[string]MCPServerConfig `json:"servers,omitempty"`
 }
 
 const DefaultMCPMaxInlineTextChars = 16 * 1024
+
+// DefaultMCPDeferredToolThreshold matches the octop borrowing doc's
+// recommendation: small catalogs are not worth the extra hop.
+const DefaultMCPDeferredToolThreshold = 20
 
 func (c *MCPConfig) GetMaxInlineTextChars() int {
 	if c.MaxInlineTextChars > 0 {
