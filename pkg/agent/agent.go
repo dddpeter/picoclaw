@@ -235,14 +235,13 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 				}
 				if al.tryHandleCompactCommand(ctx, msg, sessionKey) {
 					continue
-					// ask_user replies (octop borrowing u{00a7}u{0048}3): plain text (or /skip)
-					// from the asking chat answers the pending question instead of
-					// leaking into the steering queue.
-					if al.tryHandleAskReply(ctx, msg, sessionKey) {
-						continue
-					}
 				}
-
+				// ask_user replies（octop 借鉴 §三）：plain text（or /skip）
+				// from the asking chat answers the pending question instead of
+				// leaking into the steering queue.
+				if al.tryHandleAskReply(ctx, msg, sessionKey) {
+					continue
+				}
 				msg = al.prepareInboundMessageForAgent(ctx, msg)
 
 				// Another turn is already active (or reserved) for this session — enqueue
