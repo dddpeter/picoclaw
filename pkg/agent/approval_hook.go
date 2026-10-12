@@ -69,6 +69,7 @@ const (
 	ApprovalReplyHintPrefix = "回复 /approve"
 	// Receipts (publishApprovalReceipt / publishTimeoutReceipt).
 	ApprovalReceiptAlwaysPrefix    = "✅ 已批准；本会话内命中规则"
+	ApprovalReceiptAllowAllPrefix  = "✅ 已批准；本会话内所有审批将自动放行"
 	ApprovalReceiptApprovedExact   = "✅ 已批准，继续执行。"
 	ApprovalReceiptDeniedExact     = "⛔ 已拒绝本次工具执行。"
 	ApprovalReceiptTimeoutPrefix   = "⛔ 审批超时"
@@ -102,10 +103,23 @@ type approvalHookConfig struct {
 // to remember the matched rule for the rest of the session. reason carries
 // the optional text typed after /deny (octop borrowing §二): it flows into
 // the denied tool result so the model learns WHY the user refused.
+// allowAll (octop borrowing §一) switches the session to the allow_all tier:
+// every later ask auto-approves, TTL-bounded.
 type approvalReply struct {
 	approved bool
 	always   bool
+	allowAll bool
 	reason   string
+}
+
+// approvalAnswer is parseApprovalReply's outcome: an explicit user answer
+// to a pending approval question, tier-tagged.
+type approvalAnswer struct {
+	ok       bool
+	approved bool
+	always   bool   // "/approve always" — promote the matched pattern (allow_tools)
+	allowAll bool   // "/approve all" — session-wide allow_all tier
+	reason   string // "/deny <reason>"
 }
 
 // pendingApproval is one session's in-flight approval waiter. channel/chatID
@@ -127,8 +141,9 @@ const approvalSessionRuleTTL = 6 * time.Hour
 
 // sessionRuleSet holds one session's always-allow ask patterns.
 type sessionRuleSet struct {
-	mu    sync.Mutex
-	rules map[string]time.Time // ask pattern -> expiry
+	mu            sync.Mutex
+	rules         map[string]time.Time // ask pattern -> expiry (allow_tools tier)
+	allowAllUntil time.Time            // allow_all tier expiry (octop borrowing §一)
 }
 
 // askRule pairs a compiled ask regex with its configured pattern text; the
@@ -319,8 +334,9 @@ func (h *approvalHook) matchedHardDeny(tool string, args map[string]any) string 
 	return matchRules(h.hardDenyTool, h.hardDenyCommand, tool, args)
 }
 
-// ruleActive reports whether the session carries a live always-allow rule
-// for the pattern, pruning it lazily on expiry.
+// ruleActive reports whether the session carries a live auto-approve
+// tier for the pattern: allow_all first (every ask pattern passes), then a
+// per-pattern always rule; both pruned lazily on expiry.
 func (h *approvalHook) ruleActive(sessionKey, pattern string) bool {
 	loaded, ok := h.sessionRules.Load(sessionKey)
 	if !ok {
@@ -332,6 +348,9 @@ func (h *approvalHook) ruleActive(sessionKey, pattern string) bool {
 	}
 	set.mu.Lock()
 	defer set.mu.Unlock()
+	if set.allowAllActiveLocked() {
+		return true
+	}
 	expiry, ok := set.rules[pattern]
 	if !ok {
 		return false
@@ -341,6 +360,48 @@ func (h *approvalHook) ruleActive(sessionKey, pattern string) bool {
 		return false
 	}
 	return true
+}
+
+// allowAllActiveLocked reports whether the session-wide allow_all tier is
+// live, pruning it lazily on expiry. Caller holds set.mu.
+func (set *sessionRuleSet) allowAllActiveLocked() bool {
+	if set.allowAllUntil.IsZero() {
+		return false
+	}
+	if time.Now().After(set.allowAllUntil) {
+		set.allowAllUntil = time.Time{}
+		return false
+	}
+	return true
+}
+
+// allowAllActive reports whether the session is on the allow_all tier.
+func (h *approvalHook) allowAllActive(sessionKey string) bool {
+	loaded, ok := h.sessionRules.Load(sessionKey)
+	if !ok {
+		return false
+	}
+	set, ok := loaded.(*sessionRuleSet)
+	if !ok {
+		return false
+	}
+	set.mu.Lock()
+	defer set.mu.Unlock()
+	return set.allowAllActiveLocked()
+}
+
+// setAllowAll switches the session to the allow_all tier for the TTL —
+// every later ask pattern auto-approves without asking. Hard-deny rules
+// sit above every tier and are unaffected.
+func (h *approvalHook) setAllowAll(sessionKey string) {
+	loaded, _ := h.sessionRules.LoadOrStore(sessionKey, &sessionRuleSet{rules: make(map[string]time.Time)})
+	set, ok := loaded.(*sessionRuleSet)
+	if !ok {
+		return
+	}
+	set.mu.Lock()
+	defer set.mu.Unlock()
+	set.allowAllUntil = time.Now().Add(approvalSessionRuleTTL)
 }
 
 // addSessionRule promotes an ask pattern to session-scope auto-approve.
@@ -597,63 +658,74 @@ func (h *approvalHook) publishTimeoutReceipt(ctx context.Context, req *ToolAppro
 }
 
 // parseApprovalReply recognizes explicit user answers only: /approve /deny
-// (plus yes/no aliases and Chinese 同意/拒绝/批准), and the always-allow
-// forms "/approve always" / "总是允许" which additionally promote the matched
-// rule to session scope. Deny — and only deny — accepts trailing text as the
-// refusal reason ("/deny 别动生产分支"): refusing more eagerly is the
-// fail-closed direction, and the reason flows to the model via the denied
-// tool result. A command-plus-content APPROVE is never an answer —
-// "/approve 请继续删库" carries extra intent and must not silently approve.
-// Deny has no always form (a bare trailing "always" is not a reason).
+// (plus yes/no aliases and Chinese 同意/拒绝/批准), the always-allow form
+// "/approve always" / "总是允许" (promotes the matched pattern to session
+// scope), and the allow_all form "/approve all" / "全部允许" (switches the
+// session tier so every ask pattern auto-approves). Deny — and only deny —
+// accepts trailing text as the refusal reason ("/deny 别动生产分支"):
+// refusing more eagerly is the fail-closed direction, and the reason flows
+// to the model via the denied tool result. A command-plus-content APPROVE
+// is never an answer — "/approve 请继续删库" must not silently approve.
 // Anything else returns ok=false so the message keeps flowing to steering.
-func parseApprovalReply(content string) (approved, always bool, reason string, ok bool) {
+func parseApprovalReply(content string) approvalAnswer {
 	trimmed := strings.TrimSpace(content)
 	if trimmed == "" {
-		return false, false, "", false
+		return approvalAnswer{}
 	}
 	fields := strings.Fields(trimmed)
 	if name, isCmd := commands.CommandName(trimmed); isCmd {
-		if len(fields) == 2 && strings.EqualFold(fields[1], "always") {
-			if strings.ToLower(name) == "approve" {
-				return true, true, "", true
+		lower := strings.ToLower(name)
+		if len(fields) == 2 {
+			switch {
+			case strings.EqualFold(fields[1], "always"):
+				if lower == "approve" {
+					return approvalAnswer{ok: true, approved: true, always: true}
+				}
+				if lower == "deny" || lower == "no" {
+					// "/deny always" — deny has no always form; deny plainly
+					// (a bare trailing "always" is not a reason).
+					return approvalAnswer{ok: true}
+				}
+				return approvalAnswer{}
+			case strings.EqualFold(fields[1], "all"):
+				if lower == "approve" {
+					return approvalAnswer{ok: true, approved: true, allowAll: true}
+				}
+				// "/deny all" etc. fall through to the deny-with-reason path below.
 			}
-			if strings.ToLower(name) == "deny" || strings.ToLower(name) == "no" {
-				// "/deny always" — deny has no always form; deny plainly
-				// (a bare trailing "always" is not a reason).
-				return false, false, "", true
-			}
-			return false, false, "", false
 		}
-		switch strings.ToLower(name) {
+		switch lower {
 		case "approve", "yes":
 			if len(fields) != 1 {
-				return false, false, "", false // trailing content never approves
+				return approvalAnswer{} // trailing content never approves
 			}
-			return true, false, "", true
+			return approvalAnswer{ok: true, approved: true}
 		case "deny", "no":
 			if len(fields) == 1 {
-				return false, false, "", true
+				return approvalAnswer{ok: true}
 			}
 			// "/deny <reason>": trailing text is the user's refusal reason.
 			rest := strings.TrimSpace(trimmed[len(fields[0]):])
 			if strings.EqualFold(rest, "always") {
-				return false, false, "", true
+				return approvalAnswer{ok: true}
 			}
-			return false, false, firstNRunes(rest, approvalDenyReasonMaxRunes), true
+			return approvalAnswer{ok: true, reason: firstNRunes(rest, approvalDenyReasonMaxRunes)}
 		}
-		return false, false, "", false
+		return approvalAnswer{}
 	}
 	if len(fields) == 1 {
 		switch trimmed {
 		case "同意", "批准":
-			return true, false, "", true
+			return approvalAnswer{ok: true, approved: true}
 		case "拒绝":
-			return false, false, "", true
+			return approvalAnswer{ok: true}
 		case "总是允许":
-			return true, true, "", true
+			return approvalAnswer{ok: true, approved: true, always: true}
+		case "全部允许":
+			return approvalAnswer{ok: true, approved: true, allowAll: true}
 		}
 	}
-	return false, false, "", false
+	return approvalAnswer{}
 }
 
 // tryHandleApprovalReply runs in the inbound pump BEFORE the turn-state
@@ -670,8 +742,8 @@ func (al *AgentLoop) tryHandleApprovalReply(ctx context.Context, msg bus.Inbound
 	if hook == nil {
 		return false
 	}
-	approved, always, reason, ok := parseApprovalReply(msg.Content)
-	if !ok {
+	ans := parseApprovalReply(msg.Content)
+	if !ans.ok {
 		return false
 	}
 	loaded, exists := hook.pending.Load(sessionKey)
@@ -699,15 +771,20 @@ func (al *AgentLoop) tryHandleApprovalReply(ctx context.Context, msg bus.Inbound
 		return false
 	}
 	select {
-	case p.resolve <- approvalReply{approved: approved, always: always, reason: reason}:
+	case p.resolve <- approvalReply{approved: ans.approved, always: ans.always, allowAll: ans.allowAll, reason: ans.reason}:
 	default:
 		return false // already resolved by another reply
 	}
 
 	receipt := ApprovalReceiptDeniedExact
-	if approved {
+	if ans.approved {
 		receipt = ApprovalReceiptApprovedExact
-		if always && p.pattern != "" {
+		switch {
+		case ans.allowAll:
+			hook.setAllowAll(sessionKey)
+			receipt = fmt.Sprintf("%s（约 %d 小时后或重启失效）。", ApprovalReceiptAllowAllPrefix,
+				int(approvalSessionRuleTTL.Hours()))
+		case ans.always && p.pattern != "":
 			hook.addSessionRule(sessionKey, p.pattern)
 			receipt = fmt.Sprintf("%s %q 的调用将自动放行（约 %d 小时后或重启失效）。", ApprovalReceiptAlwaysPrefix,
 				p.pattern, int(approvalSessionRuleTTL.Hours()))
@@ -716,8 +793,9 @@ func (al *AgentLoop) tryHandleApprovalReply(ctx context.Context, msg bus.Inbound
 	al.publishApprovalReceipt(ctx, msg, receipt)
 	logger.InfoCF("agent", "Approval reply routed", map[string]any{
 		"session_key": sessionKey,
-		"approved":    approved,
-		"always":      always,
+		"approved":    ans.approved,
+		"always":      ans.always,
+		"allow_all":   ans.allowAll,
 	})
 	return true
 }

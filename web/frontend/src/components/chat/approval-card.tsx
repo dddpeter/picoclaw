@@ -190,6 +190,20 @@ export function ApprovalCard({
 					<button
 						type="button"
 						disabled={submitting !== null || !actionable}
+						onClick={() => send("/approve all", "always")}
+						className="border-border text-muted-foreground hover:text-foreground hover:bg-accent inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border bg-transparent px-3 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+						title={t("chat.approvalAllowAllHint")}
+					>
+						{submitting === "always" ? (
+							<IconLoader2 className="size-3.5 animate-spin" />
+						) : (
+							<span aria-hidden>🌐</span>
+						)}
+						{t("chat.approvalAllowAll")}
+					</button>
+					<button
+						type="button"
+						disabled={submitting !== null || !actionable}
 						onClick={() => send("/deny", "deny")}
 						className="text-red-600 dark:text-red-400 border-red-500/40 hover:bg-red-500/10 inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border bg-transparent px-3.5 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
 					>

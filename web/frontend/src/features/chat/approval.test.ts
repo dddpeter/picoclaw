@@ -66,6 +66,7 @@ describe("matchApprovalReceipt", () => {
   it("matches all receipt forms", () => {
     expect(matchApprovalReceipt("✅ 已批准，继续执行。")).toBe("approved")
     expect(matchApprovalReceipt("✅ 已批准；本会话内命中规则 \"x\" 的调用将自动放行（约 6 小时后或重启失效）。")).toBe("always")
+    expect(matchApprovalReceipt("✅ 已批准；本会话内所有审批将自动放行（约 6 小时后或重启失效）。")).toBe("always")
     expect(matchApprovalReceipt("⛔ 已拒绝本次工具执行。")).toBe("denied")
     expect(matchApprovalReceipt("⛔ 审批超时（5m0s），已按拒绝处理（fail-closed）。")).toBe("timeout")
   })

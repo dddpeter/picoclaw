@@ -327,10 +327,10 @@ func TestApproval_SessionAlwaysAllow(t *testing.T) {
 		{"/deny always", false, false, true},
 	}
 	for _, tc := range cases {
-		a, aw, _, ok := parseApprovalReply(tc.content)
-		if a != tc.approved || aw != tc.always || ok != tc.ok {
-			t.Fatalf("parseApprovalReply(%q) = (%v,%v,%v), want (%v,%v,%v)",
-				tc.content, a, aw, ok, tc.approved, tc.always, tc.ok)
+		ans := parseApprovalReply(tc.content)
+		if ans.approved != tc.approved || ans.always != tc.always || ans.ok != tc.ok {
+			t.Fatalf("parseApprovalReply(%q) = %+v, want (%v,%v,%v)",
+				tc.content, ans, tc.approved, tc.always, tc.ok)
 		}
 	}
 
@@ -481,6 +481,7 @@ func TestApprovalWireFormatPinned(t *testing.T) {
 		{"ask prefix", ApprovalAskPrefix, "⚠️ 需要批准：即将执行工具 "},
 		{"reply hint prefix", ApprovalReplyHintPrefix, "回复 /approve"},
 		{"receipt always prefix", ApprovalReceiptAlwaysPrefix, "✅ 已批准；本会话内命中规则"},
+		{"receipt allow-all prefix", ApprovalReceiptAllowAllPrefix, "✅ 已批准；本会话内所有审批将自动放行"},
 		{"receipt approved", ApprovalReceiptApprovedExact, "✅ 已批准，继续执行。"},
 		{"receipt denied", ApprovalReceiptDeniedExact, "⛔ 已拒绝本次工具执行。"},
 		{"receipt timeout prefix", ApprovalReceiptTimeoutPrefix, "⛔ 审批超时"},
@@ -515,10 +516,10 @@ func TestApproval_DenyWithReason(t *testing.T) {
 			strings.Repeat("长", approvalDenyReasonMaxRunes) + "…"},
 	}
 	for _, tc := range cases {
-		_, _, reason, ok := parseApprovalReply(tc.content)
-		if ok != tc.ok || reason != tc.reason {
+		ans := parseApprovalReply(tc.content)
+		if ans.ok != tc.ok || ans.reason != tc.reason {
 			t.Fatalf("parseApprovalReply(%q) reason=%q ok=%v, want reason=%q ok=%v",
-				tc.content, reason, ok, tc.reason, tc.ok)
+				tc.content, ans.reason, ans.ok, tc.reason, tc.ok)
 		}
 	}
 
@@ -570,5 +571,93 @@ func TestApproval_DenyWithReason(t *testing.T) {
 	}
 	if !strings.Contains(d.Reason, "别动生产分支") {
 		t.Fatalf("typed reason must reach ApprovalDecision.Reason, got %q", d.Reason)
+	}
+}
+
+// TestApproval_SessionAllowAll pins the allow_all tier (octop borrowing §一):
+// "/approve all" (or 全部允许) approves the pending call AND switches the
+// session to allow_all — every later ask pattern auto-approves without a
+// waiter, TTL-bounded and session-isolated. Hard-deny stays above every
+// tier; deny never forms policy.
+func TestApproval_SessionAllowAll(t *testing.T) {
+	// Parse matrix for the allow_all forms.
+	cases := []struct {
+		content  string
+		ok       bool
+		allowAll bool
+	}{
+		{"/approve all", true, true},
+		{"/APPROVE ALL", true, true},
+		{"全部允许", true, true},
+		{"/approve all extra", false, false},
+		{"/approve always", true, false}, // pattern promote, not allow_all
+		{"/deny all", true, false},       // trailing text is a deny reason
+	}
+	for _, tc := range cases {
+		ans := parseApprovalReply(tc.content)
+		if ans.ok != tc.ok || ans.allowAll != tc.allowAll {
+			t.Fatalf("parseApprovalReply(%q) = %+v, want ok=%v allowAll=%v", tc.content, ans, tc.ok, tc.allowAll)
+		}
+	}
+
+	h := approvalTestHook(t, `{"ask_patterns":["git push","rm -rf"],"hard_deny_patterns":["cat /etc/shadow"],"timeout_ms":600000}`)
+
+	// Routing side: "/approve all" resolves the waiter with approved+allowAll.
+	al, _, cleanup := newTurnCoordTestLoop(t, &summarizeStubProvider{})
+	defer cleanup()
+	al.approvalHook = h
+	ch := make(chan approvalReply, 1)
+	h.pending.Store("s-aa", &pendingApproval{resolve: ch, channel: "feishu", chatID: "c", pattern: "git push"})
+	if !al.tryHandleApprovalReply(context.Background(),
+		bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "/approve all"}, "s-aa") {
+		t.Fatal("/approve all must be consumed")
+	}
+	reply := <-ch
+	if !reply.approved || !reply.allowAll || reply.always {
+		t.Fatal("waiter must receive approved+allowAll (not pattern-always)")
+	}
+	if !h.allowAllActive("s-aa") {
+		t.Fatal("/approve all must switch the session to allow_all")
+	}
+	h.pending.Delete("s-aa") // drop the routing fixture before tier assertions
+
+	// allow_all tier: a DIFFERENT ask pattern auto-approves without asking.
+	other := approvalTestRequest("s-aa", "feishu")
+	other.Arguments = map[string]any{"command": "rm -rf /tmp/x"}
+	start := time.Now()
+	d, err := h.ApproveTool(context.Background(), other)
+	if err != nil {
+		t.Fatalf("ApproveTool under allow_all: %v", err)
+	}
+	if !d.Approved {
+		t.Fatalf("allow_all must auto-approve other patterns, got %q", d.Reason)
+	}
+	if time.Since(start) > time.Second {
+		t.Fatal("allow_all auto-approve must be immediate")
+	}
+	if _, exists := h.pending.Load("s-aa"); exists {
+		t.Fatal("allow_all auto-approve must not register a waiter")
+	}
+
+	// Hard deny stays above allow_all.
+	hardReq := approvalTestRequest("s-aa", "feishu")
+	hardReq.Arguments = map[string]any{"command": "cat /etc/shadow"}
+	if d, _ := h.ApproveTool(context.Background(), hardReq); d.Approved {
+		t.Fatal("hard-deny must reject even under allow_all")
+	}
+
+	// Session isolation: another session still asks.
+	if h.allowAllActive("s-other") {
+		t.Fatal("allow_all must not leak across sessions")
+	}
+
+	// TTL re-arm: an expired allow_all re-arms asking.
+	loaded, _ := h.sessionRules.Load("s-aa")
+	set := loaded.(*sessionRuleSet)
+	set.mu.Lock()
+	set.allowAllUntil = time.Now().Add(-time.Second)
+	set.mu.Unlock()
+	if h.allowAllActive("s-aa") {
+		t.Fatal("expired allow_all must re-arm asking")
 	}
 }

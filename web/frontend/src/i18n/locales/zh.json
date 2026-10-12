@@ -121,6 +121,8 @@
     "approvalTitle": "需要你的授权",
     "approvalApprove": "批准",
     "approvalAlways": "批准并保留本会话",
+    "approvalAllowAll": "本会话允许全部",
+    "approvalAllowAllHint": "本会话内所有审批请求自动放行（约 6 小时后或重启失效）；硬拒绝规则不受影响",
     "approvalDeny": "拒绝",
     "approvalDenyWithReason": "拒绝并说明理由",
     "approvalDenyReasonPlaceholder": "告诉模型为什么拒绝（可选）",

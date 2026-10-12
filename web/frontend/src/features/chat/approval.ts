@@ -74,6 +74,9 @@ export type ApprovalReceiptVerdict = ApprovalSeal["verdict"]
  * pending 卡封存为 done（双端在线另一端已答复、或迟到点击）。 */
 export function matchApprovalReceipt(content: string): ApprovalReceiptVerdict | undefined {
   const trimmed = content.trim()
+  if (trimmed.startsWith("✅ 已批准；本会话内所有审批将自动放行")) {
+    return "always"
+  }
   if (trimmed.startsWith("✅ 已批准；本会话内命中规则")) {
     return "always"
   }

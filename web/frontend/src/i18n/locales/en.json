@@ -121,6 +121,8 @@
     "approvalTitle": "Your approval required",
     "approvalApprove": "Approve",
     "approvalAlways": "Approve & always this session",
+    "approvalAllowAll": "Allow all this session",
+    "approvalAllowAllHint": "Auto-approve every approval request this session (~6h or restart); hard-deny rules unaffected",
     "approvalDeny": "Deny",
     "approvalDenyWithReason": "Deny with reason",
     "approvalDenyReasonPlaceholder": "Tell the model why (optional)",
