@@ -545,6 +545,16 @@ func (al *AgentLoop) buildCommandsRuntime(
 				MessageCount:      len(history),
 			}
 		}
+
+		// /compact: force compaction on the current session (octop borrowing
+		// §五). The idle path runs synchronously and reports stats; busy
+		// sessions schedule at turn end.
+		rt.RunCompact = func(ctx context.Context) (*commands.CompactOutcome, error) {
+			if opts == nil {
+				return nil, fmt.Errorf("process options not available")
+			}
+			return al.runManualCompact(ctx, agent, opts.SessionKey)
+		}
 	}
 	return rt
 }

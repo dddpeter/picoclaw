@@ -104,6 +104,10 @@ const (
 	ContextCompressReasonTool ContextCompressReason = "model_tool_request"
 	// ContextCompressReasonSummarize indicates post-turn async summarization.
 	ContextCompressReasonSummarize ContextCompressReason = "summarize"
+	// ContextCompressReasonManual indicates a user-forced compaction via
+	// /compact — idle sessions run it synchronously, busy sessions at turn
+	// end (octop borrowing §五).
+	ContextCompressReasonManual ContextCompressReason = "user_command"
 )
 
 // ContextCompressPayload describes a forced history compression.

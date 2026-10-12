@@ -170,7 +170,7 @@ func (m *seahorseContextManager) Compact(ctx context.Context, req *CompactReques
 	}
 
 	_, err := m.engine.Compact(ctx, req.SessionKey, seahorse.CompactInput{
-		Force:  req.Reason == ContextCompressReasonRetry,
+		Force:  req.Reason == ContextCompressReasonRetry || req.Reason == ContextCompressReasonManual,
 		Budget: &req.Budget,
 	})
 	return err

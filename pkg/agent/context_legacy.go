@@ -40,7 +40,7 @@ func (m *legacyContextManager) Assemble(_ context.Context, req *AssembleRequest)
 
 func (m *legacyContextManager) Compact(_ context.Context, req *CompactRequest) error {
 	switch req.Reason {
-	case ContextCompressReasonProactive, ContextCompressReasonRetry:
+	case ContextCompressReasonProactive, ContextCompressReasonRetry, ContextCompressReasonManual:
 		// Sync emergency compression — budget exceeded.
 		if result, ok := m.forceCompression(req.SessionKey); ok {
 			m.al.emitEvent(

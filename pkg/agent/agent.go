@@ -226,6 +226,9 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 				if al.tryHandleStopCommand(ctx, msg, sessionKey) {
 					continue
 				}
+				if al.tryHandleCompactCommand(ctx, msg, sessionKey) {
+					continue
+				}
 
 				msg = al.prepareInboundMessageForAgent(ctx, msg)
 

@@ -20,6 +20,7 @@ func BuiltinDefinitions() []Definition {
 		newCommand(),
 		titleCommand(),
 		contextCommand(),
+		compactCommand(),
 		statusCommand(),
 		subagentsCommand(),
 		reloadCommand(),

@@ -39,6 +39,28 @@ type ContextStats struct {
 	MessageCount      int
 }
 
+// Compact outcome states for the /compact command (octop borrowing §五).
+const (
+	CompactStateDone      = "done"
+	CompactStateScheduled = "scheduled"
+	CompactStateNothing   = "nothing_to_compact"
+	CompactStateBusy      = "busy"
+)
+
+// CompactOutcome reports a forced context compaction: message and token
+// counts before/after, mirroring octop's CompactResult contract
+// (summarized count + a usage delta the caller can show without a fresh
+// model call).
+type CompactOutcome struct {
+	State            string // done | scheduled | nothing_to_compact | busy
+	MessagesBefore   int
+	MessagesAfter    int
+	UsedBefore       int
+	UsedAfter        int
+	TotalTokens      int
+	CompressAtTokens int
+}
+
 // StopResult describes the outcome of a stop request for the current session.
 type StopResult struct {
 	Stopped  bool
@@ -60,13 +82,17 @@ type Runtime struct {
 	GetEnabledChannels func() []string
 	GetActiveTurn      func() any // Returning any to avoid circular dependency with agent package
 	GetContextStats    func() *ContextStats
-	GetStatusOverview  func() *StatusOverview
-	SwitchModel        func(value string) (oldModel string, err error)
-	ResetModel         func() (model string, err error)
-	SetSessionTitle    func(title string) bool
-	GetSessionTitle    func() (title, source string, ok bool)
-	SwitchChannel      func(value string) error
-	ClearHistory       func() error
+	// RunCompact force-compacts the current session's context (octop
+	// borrowing §五). Idle sessions run synchronously and report stats;
+	// busy/active sessions schedule at turn end without blocking.
+	RunCompact        func(ctx context.Context) (*CompactOutcome, error)
+	GetStatusOverview func() *StatusOverview
+	SwitchModel       func(value string) (oldModel string, err error)
+	ResetModel        func() (model string, err error)
+	SetSessionTitle   func(title string) bool
+	GetSessionTitle   func() (title, source string, ok bool)
+	SwitchChannel     func(value string) error
+	ClearHistory      func() error
 	// NewSession archives the current conversation into a fresh session and
 	// clears the live one; archived reports whether anything was preserved.
 	// When nil, /new falls back to ClearHistory (plain in-place wipe).
