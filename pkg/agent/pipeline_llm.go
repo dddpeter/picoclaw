@@ -78,6 +78,9 @@ func (p *Pipeline) CallLLM(
 	// Progressive tool loading (octop borrowing §六): unload heavy MCP
 	// catalogs into deferred references + tool_search for this session.
 	exec.providerToolDefs = al.applyToolDeferral(ts.sessionKey, exec.providerToolDefs)
+	// ask_user (octop borrowing §三): always available — the model's
+	// structured escape hatch to the user.
+	exec.providerToolDefs = append(exec.providerToolDefs, askUserToolDef())
 
 	// Native web search support
 	webSearchEnabled := al.cfg.Tools.IsToolEnabled("web") && turnProfileToolAllowed(ts.profile, "web_search")

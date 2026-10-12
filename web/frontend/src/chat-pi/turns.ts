@@ -16,6 +16,8 @@ import {
 import type {
 	ApprovalInfo,
 	ApprovalSeal,
+	AskInfo,
+	AskSeal,
 	ChatAttachment,
 	ChatMessage,
 } from "@/store/chat";
@@ -52,6 +54,16 @@ export type PiBlock =
 			/** 最近一张未封存卡 = true（可操作）。服务端每会话只有一个
 			 * waiter，旧 pending 卡的按钮实际作用在最新审批上——禁用防错位。 */
 			latest?: boolean;
+	  }
+	| {
+		type: "ask";
+		id: string;
+		/** ask_user 问询（octop 借鉴 §三）。 */
+		ask: AskInfo;
+		/** 封存结论；缺省 = 待作答。 */
+		seal?: AskSeal;
+		timestamp: number;
+		latest?: boolean;
 	  }
 	| { type: "thinking"; id: string; thinking: string; live: boolean }
 	| {
@@ -256,6 +268,17 @@ export function buildTurns(
 				id: `${message.id}#approval`,
 				approval: message.approval,
 				...(message.approvalSeal ? { seal: message.approvalSeal } : {}),
+				timestamp: parseTimestampMs(message.timestamp),
+			});
+			return;
+		}
+		// ask_user 问询同理：整条消息渲染为问询卡（octop 借鉴 §三）。
+		if (message.ask) {
+			assistant.blocks.push({
+				type: "ask",
+				id: `${message.id}#ask`,
+				ask: message.ask,
+				...(message.askSeal ? { seal: message.askSeal } : {}),
 				timestamp: parseTimestampMs(message.timestamp),
 			});
 			return;

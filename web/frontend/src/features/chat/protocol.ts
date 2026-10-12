@@ -17,6 +17,11 @@ import {
   parseApprovalFromText,
   sealLastApproval,
 } from "@/features/chat/approval"
+import {
+  matchAskReceipt,
+  parseAskFromPayload,
+  sealLastAsk,
+} from "@/features/chat/ask"
 
 export interface PicoMessage {
   type: string
@@ -176,6 +181,9 @@ export function handlePicoMessage(
         !isPlaceholder
           ? (parseApprovalFromPayload(payload) ?? parseApprovalFromText(content))
           : undefined
+      const ask = !isPlaceholder ? parseAskFromPayload(payload) : undefined
+      // 问询回执：封存最近未封 ask 卡（与审批回执同模式）。
+      const askReceipt = !isPlaceholder ? matchAskReceipt(content) : undefined
       // 审批回执：封存最近未封卡并抑制回执文本本身；无配对目标按普通文本。
       const receiptVerdict = !isPlaceholder ? matchApprovalReceipt(content) : undefined
 
@@ -207,6 +215,13 @@ export function handlePicoMessage(
           }
         }
 
+        if (askReceipt) {
+          const sealed = sealLastAsk(prev.messages, askReceipt, timestamp)
+          if (sealed) {
+            return { ...common, messages: sealed }
+          }
+        }
+
         return {
           ...common,
           messages: [
@@ -219,6 +234,7 @@ export function handlePicoMessage(
               ...(modelName ? { modelName } : {}),
               ...(toolCalls ? { toolCalls } : {}),
               ...(approval ? { approval } : {}),
+              ...(ask ? { ask } : {}),,
               attachments,
               timestamp,
             },

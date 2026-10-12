@@ -55,6 +55,10 @@ type AgentLoop struct {
 	// toolDefer holds the progressive-tool-loading session state (octop
 	// borrowing §六, tool_defer.go).
 	toolDefer *toolDeferState
+	// pendingAsks holds in-flight ask_user waits per session; askTimeout
+	// bounds one wait (0 = default, octop borrowing §三 ask_user.go).
+	pendingAsks sync.Map
+	askTimeout  time.Duration
 	// idleScanner holds the idle-compaction scanner when started
 	// (atomic.Value-typed via the sync primitives below; nil when off).
 	idleScanner    atomic.Value
@@ -231,6 +235,12 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 				}
 				if al.tryHandleCompactCommand(ctx, msg, sessionKey) {
 					continue
+					// ask_user replies (octop borrowing u{00a7}u{0048}3): plain text (or /skip)
+					// from the asking chat answers the pending question instead of
+					// leaking into the steering queue.
+					if al.tryHandleAskReply(ctx, msg, sessionKey) {
+						continue
+					}
 				}
 
 				msg = al.prepareInboundMessageForAgent(ctx, msg)

@@ -132,7 +132,15 @@
     "approvalSealAlways": "已批准 · 本会话内自动放行",
     "approvalSealDenied": "已拒绝",
     "approvalSealTimeout": "超时自动拒绝",
-    "approvalSealDone": "已处理"
+    "approvalSealDone": "已处理",
+    "askTitle": "需要你的输入",
+    "askFreeTextHint": "在输入框直接回复即可",
+    "askInputHint": "也可在输入框自由作答（多题按行序）",
+    "askSubmit": "提交作答",
+    "askSkip": "跳过",
+    "askSealAnswered": "已作答",
+    "askSealSkipped": "已跳过",
+    "askSealDone": "已处理"
   },
   "header": {
     "logout": {

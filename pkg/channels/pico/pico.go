@@ -389,6 +389,25 @@ func (c *PicoChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]stri
 			"timeout_ms": msg.Approval.TimeoutMs,
 		}
 	}
+	if msg.Ask != nil {
+		questions := make([]any, 0, len(msg.Ask.Questions))
+		for _, q := range msg.Ask.Questions {
+			opts := make([]any, 0, len(q.Options))
+			for _, o := range q.Options {
+				opts = append(opts, map[string]any{"label": o.Label, "description": o.Description})
+			}
+			questions = append(questions, map[string]any{
+				"question":     q.Question,
+				"header":       q.Header,
+				"options":      opts,
+				"multi_select": q.MultiSelect,
+			})
+		}
+		payload[PayloadKeyAsk] = map[string]any{
+			"questions":  questions,
+			"timeout_ms": msg.Ask.TimeoutMs,
+		}
+	}
 	setContextUsagePayload(payload, msg.ContextUsage)
 	outMsg := newMessage(TypeMessageCreate, payload)
 

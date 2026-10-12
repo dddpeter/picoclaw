@@ -34,6 +34,7 @@ const (
 	PayloadKeyModelName   = "model_name"
 	PayloadKeyUsage       = "usage"
 	PayloadKeyApproval    = "approval"
+	PayloadKeyAsk         = "ask"
 
 	MessageKindThought   = "thought"
 	MessageKindToolCalls = "tool_calls"

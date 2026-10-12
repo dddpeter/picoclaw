@@ -69,6 +69,8 @@ export interface ChatMessage {
   toolCalls?: ChatToolCall[]
   /** 本消息是审批询问 → 渲染为审批卡而非 markdown 文本。 */
   approval?: ApprovalInfo
+  ask?: AskInfo
+  askSeal?: AskSeal
   /** 审批卡的封存结论；未封存 = 待操作。 */
   approvalSeal?: ApprovalSeal
   /** User message queued as steering for the active turn (client-side flag). */
@@ -78,6 +80,30 @@ export interface ChatMessage {
 export interface ContextUsageSegment {
   key: string
   tokens: number
+}
+
+export interface AskOption {
+  label: string
+  description?: string
+}
+
+export interface AskQuestion {
+  question: string
+  header?: string
+  options?: AskOption[]
+  multiSelect?: boolean
+}
+
+/** ask_user 问询卡信息（octop 借鉴 §三）。 */
+export interface AskInfo {
+  questions: AskQuestion[]
+  timeoutMs?: number
+}
+
+/** 问询卡封存：已收到回答 / 已跳过。 */
+export interface AskSeal {
+  verdict: "answered" | "skipped" | "done"
+  at: number
 }
 
 export interface ContextUsage {

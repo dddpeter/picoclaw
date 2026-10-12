@@ -16,6 +16,7 @@ import { ThinkingBlock } from "./thinking-block";
 import { ToolCallBlock, type PiToolView } from "./tool-call-block";
 import type { PiBlock, PiTurn, PiUserPart } from "./turns";
 import { ApprovalCard } from "@/components/chat/approval-card";
+import { AskCard } from "@/components/chat/ask-card";
 import "./pi-chat.css";
 
 /** pi-web-ui Message.tsx formatTime：本地时间 HH:MM。 */
@@ -173,6 +174,13 @@ function PiBlockView({ block, active }: { block: PiBlock; active: boolean }) {
 		case "approval":
 			return <ApprovalCard
 				info={block.approval}
+				seal={block.seal}
+				timestamp={block.timestamp}
+				latest={block.latest}
+			/>
+		case "ask":
+			return <AskCard
+				info={block.ask}
 				seal={block.seal}
 				timestamp={block.timestamp}
 				latest={block.latest}

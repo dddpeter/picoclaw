@@ -1087,3 +1087,60 @@ func TestSend_ApprovalMessageCarriesApprovalPayload(t *testing.T) {
 		t.Fatal("expected approval message to be delivered")
 	}
 }
+
+// TestSend_AskMessageCarriesAskPayload pins the ask_user question payload
+// (octop borrowing §三): the web card consumes payload.ask for precise
+// questions/options; the plain-text fallback rides the same message.
+func TestSend_AskMessageCarriesAskPayload(t *testing.T) {
+	ch := newTestPicoChannel(t)
+
+	if err := ch.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer ch.Stop(context.Background())
+
+	clientConn, received, cleanup := newTestPicoWebSocket(t)
+	defer cleanup()
+	ch.addConnForTest(&picoConn{id: "conn-1", conn: clientConn, sessionID: "sess-1"})
+
+	if _, err := ch.Send(context.Background(), bus.OutboundMessage{
+		ChatID:  "pico:sess-1",
+		Content: "❓ 需要你的输入：\n部署到哪个环境？",
+		Context: bus.InboundContext{Channel: "pico", ChatID: "pico:sess-1"},
+		Ask: &bus.AskRequestMeta{
+			Questions: []bus.AskQuestion{{
+				Question: "部署到哪个环境？",
+				Header:   "环境",
+				Options:  []bus.AskOption{{Label: "staging"}, {Label: "production"}},
+			}},
+			TimeoutMs: 600000,
+		},
+	}); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+
+	select {
+	case msg := <-received:
+		if msg.Type != TypeMessageCreate {
+			t.Fatalf("message type = %q, want message.create", msg.Type)
+		}
+		raw, _ := msg.Payload["ask"].(map[string]any)
+		if raw == nil {
+			t.Fatalf("payload.ask missing: %+v", msg.Payload)
+		}
+		questions, _ := raw["questions"].([]any)
+		if len(questions) != 1 {
+			t.Fatalf("payload.ask.questions len = %d, want 1", len(questions))
+		}
+		q := questions[0].(map[string]any)
+		if q["header"] != "环境" {
+			t.Fatalf("question header = %v", q["header"])
+		}
+		opts, _ := q["options"].([]any)
+		if len(opts) != 2 {
+			t.Fatalf("options len = %d, want 2", len(opts))
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no message received")
+	}
+}

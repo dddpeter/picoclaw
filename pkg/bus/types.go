@@ -98,6 +98,9 @@ type OutboundMessage struct {
 	// field so the web UI gets precise tool/preview/timeout data. Optional
 	// and ignored by channels that do not know it.
 	Approval *ApprovalRequestMeta `json:"approval,omitempty"`
+	// Ask carries a pending ask_user question set (octop borrowing §三);
+	// channels surface it as an interactive card (pico payload "ask").
+	Ask *AskRequestMeta `json:"ask,omitempty"`
 }
 
 // ApprovalRequestMeta describes one pending approval question.
@@ -105,6 +108,29 @@ type ApprovalRequestMeta struct {
 	Tool      string `json:"tool"`
 	Preview   string `json:"preview,omitempty"`
 	TimeoutMs int64  `json:"timeout_ms,omitempty"`
+}
+
+// AskRequestMeta describes a pending agent question for the user (octop
+// borrowing §三 ask_user): the model is blocked on a decision and asks
+// structured questions with clickable options; answers return as the
+// tool result in a deterministic "header: answer" format.
+type AskRequestMeta struct {
+	Questions []AskQuestion `json:"questions"`
+	TimeoutMs int64         `json:"timeout_ms,omitempty"`
+}
+
+// AskQuestion is one question in an ask_user payload.
+type AskQuestion struct {
+	Question    string     `json:"question"`
+	Header      string     `json:"header,omitempty"`
+	Options     []AskOption `json:"options,omitempty"`
+	MultiSelect bool       `json:"multi_select,omitempty"`
+}
+
+// AskOption is one selectable choice of an AskQuestion.
+type AskOption struct {
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
 }
 
 // MediaPart describes a single media attachment to send.

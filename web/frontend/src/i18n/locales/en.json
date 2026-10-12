@@ -132,7 +132,15 @@
     "approvalSealAlways": "Approved · auto-allowed this session",
     "approvalSealDenied": "Denied",
     "approvalSealTimeout": "Timed out · auto-denied",
-    "approvalSealDone": "Handled"
+    "approvalSealDone": "Handled",
+    "askTitle": "Your input needed",
+    "askFreeTextHint": "Reply in the input box",
+    "askInputHint": "Free-text replies also work (one line per question)",
+    "askSubmit": "Submit answers",
+    "askSkip": "Skip",
+    "askSealAnswered": "Answered",
+    "askSealSkipped": "Skipped",
+    "askSealDone": "Handled"
   },
   "header": {
     "logout": {

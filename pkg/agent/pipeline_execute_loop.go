@@ -553,6 +553,11 @@ func (p *Pipeline) runToolInvocation(
 		ts.sessionKey,
 		ts.opts.Dispatch.SessionScope,
 	)
+	// ask_user (octop borrowing §三): intercepted before registry
+	// execution — it blocks on the user's answer, not on a local tool.
+	if toolName == askUserToolName {
+		return al.runAskUser(ls.turnCtx, ts, toolArgs), time.Since(toolStart)
+	}
 	// Progressive tool loading (octop borrowing §六): tool_search and direct
 	// calls to unloaded deferred tools are answered here — never executed
 	// blindly.
