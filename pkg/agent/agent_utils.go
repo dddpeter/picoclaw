@@ -40,6 +40,20 @@ func outboundContextFromInbound(
 	return outboundCtx
 }
 
+// markPicoProgressNote tags an outbound receipt as a non-final beat FOR THE
+// PICO PROTOCOL ONLY (Raw["pico_kind"] — a key no other channel reads).
+// It must NOT ride the generic message_kind=progress_note mark: the channel
+// manager treats ANY non-empty message_kind as auxiliary and drops auxiliary
+// messages inside the finalized-stream suppression window
+// (channels/manager.go dispatch step 3) — an approval/ask receipt lost
+// there fails the interaction silently on streaming chats.
+func markPicoProgressNote(msg *bus.OutboundMessage) {
+	if msg.Context.Raw == nil {
+		msg.Context.Raw = map[string]string{}
+	}
+	msg.Context.Raw["pico_kind"] = messageKindProgressNote
+}
+
 func outboundScopeFromSessionScope(scope *session.SessionScope) *bus.OutboundScope {
 	if scope == nil {
 		return nil

@@ -17,8 +17,12 @@ func FormatCompactReply(outcome *CompactOutcome, err error) string {
 	}
 	switch outcome.State {
 	case CompactStateNothing:
+		// Two producers share this tier: history below the command floor, and
+		// engine-side floors (leaf chunk fanout, protected tail) that left
+		// nothing compactable — both mean "re-run once the conversation
+		// grows", so one message serves both.
 		return fmt.Sprintf(
-			"Nothing to compact: history has only %d messages.",
+			"Nothing to compact: history has %d messages and no compactable chunk outside the protected tail.",
 			outcome.MessagesBefore)
 	case CompactStateScheduled:
 		return "♻️ A turn is active on this session; compaction is scheduled to run when it ends."
@@ -29,11 +33,15 @@ func FormatCompactReply(outcome *CompactOutcome, err error) string {
 		if outcome.TotalTokens > 0 {
 			pct = outcome.UsedBefore * 100 / outcome.TotalTokens
 		}
-		return fmt.Sprintf(
-			"✅ Compacted: history %d → %d messages; context ~%s → ~%s of %s tokens (%d%% of window). Full transcript preserved; details stay re-readable.",
+		reply := fmt.Sprintf(
+			"✅ Compacted: history %d → %d messages; context ~%s → ~%s of %s tokens (%d%% of window).",
 			outcome.MessagesBefore, outcome.MessagesAfter,
 			formatCompactTokens(outcome.UsedBefore), formatCompactTokens(outcome.UsedAfter),
 			formatCompactTokens(outcome.TotalTokens), pct)
+		if outcome.TokensSaved > 0 {
+			reply += fmt.Sprintf(" Engine reclaimed ~%s context tokens.", formatCompactTokens(outcome.TokensSaved))
+		}
+		return reply + " Full transcript preserved; details stay re-readable."
 	default:
 		return "Compaction finished with unknown state: " + outcome.State
 	}

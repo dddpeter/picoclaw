@@ -36,16 +36,20 @@ const (
 	askUserMaxOptions   = 6
 	askMaxQuestionRunes = 400
 	askMaxLabelRunes    = 120
+	// askMaxAnswerRunes caps one free-text answer line (the /deny reason cap
+	// is the precedent — a pasted log must not ride into the context whole).
+	askMaxAnswerRunes = 4000
 
 	// defaultAskUserTimeout bounds one ask wait (soft). Generous on purpose:
 	// the user may be away; the stall watchdog is kept calm by touchActivity.
 	defaultAskUserTimeout = 10 * time.Minute
-
-	// askKeepAliveInterval keeps the stall watchdog calm during the wait
-	// (octop borrowing §三-5: without this a multi-question wait would be
-	// mistaken for a stalled turn and hard-aborted).
-	askKeepAliveInterval = 30 * time.Second
 )
+
+// askKeepAliveInterval keeps the stall watchdog calm during the wait
+// (octop borrowing §三-5: without this a multi-question wait would be
+// mistaken for a stalled turn and hard-aborted). Var (not const) so tests
+// can shrink it.
+var askKeepAliveInterval = 30 * time.Second
 
 // askOptionKeys maps "A".."F" / "1".."6" reply tokens to option indexes.
 var askOptionKeys = []string{"A", "B", "C", "D", "E", "F"}
@@ -228,18 +232,45 @@ func (al *AgentLoop) runAskUser(ctx context.Context, ts *turnState, args map[str
 
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
-	keepAlive := time.NewTicker(askKeepAliveInterval)
+	// Keepalive cadence must sit well under the watchdog's stall threshold:
+	// the heartbeat loop clamps stallAfter to >= 2×interval, so an
+	// aggressively configured heartbeat (10s beats → 20s threshold) would
+	// outrun a fixed 30s keepalive (review P1-4).
+	keepAliveInterval := askKeepAliveInterval
+	if stall := al.askStallThreshold(ts); stall > 0 {
+		if third := stall / 3; third < keepAliveInterval {
+			keepAliveInterval = third
+		}
+	}
+	if keepAliveInterval < 50*time.Millisecond {
+		keepAliveInterval = 50 * time.Millisecond
+	}
+	keepAlive := time.NewTicker(keepAliveInterval)
 	defer keepAlive.Stop()
 
-	select {
-	case reply := <-resolve:
-		return askResultFor(questions, reply)
-	case <-ctx.Done():
-		return tools.NewToolResult("The turn was aborted before the user answered; treat the questions as unanswered.")
-	case <-timer.C:
-		return tools.NewToolResult(fmt.Sprintf(
-			"The user did not answer within %s. Treat the questions as unanswered and decide how to continue.",
-			timeout.Round(time.Second)))
+	for {
+		select {
+		case reply := <-resolve:
+			return askResultFor(questions, reply)
+		case <-ctx.Done():
+			// Close the late-reply race before returning: without this, a
+			// reply arriving in the return-to-defer window would be consumed
+			// and acknowledged while the turn proceeds as unanswered
+			// (review P2-3; the defers stay as safety nets).
+			al.pendingAsks.CompareAndDelete(ts.sessionKey, waiter)
+			return tools.NewToolResult("The turn was aborted before the user answered; treat the questions as unanswered.")
+		case <-timer.C:
+			al.pendingAsks.CompareAndDelete(ts.sessionKey, waiter)
+			al.publishAskTimeoutReceipt(ts, timeout)
+			return tools.NewToolResult(fmt.Sprintf(
+				"The user did not answer within %s. Treat the questions as unanswered and decide how to continue.",
+				timeout.Round(time.Second)))
+		case <-keepAlive.C:
+			// Octop borrowing §三-5: the wait itself counts as progress —
+			// without these beats the stall watchdog hard-aborts the turn
+			// on the second question of a multi-question ask.
+			ts.touchActivity()
+		}
 	}
 }
 
@@ -294,6 +325,8 @@ func (al *AgentLoop) publishAskQuestion(ts *turnState, questions []bus.AskQuesti
 		Questions: questions,
 		TimeoutMs: timeout.Milliseconds(),
 	}
+	// The pico channel marks ask/approval cards as progress_note by payload
+	// presence — no generic message_kind here (see markPicoProgressNote).
 	pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = al.bus.PublishOutbound(pubCtx, msg)
@@ -334,12 +367,14 @@ func formatAskCardText(questions []bus.AskQuestion, timeout time.Duration) strin
 // §三-3), AFTER the approval interceptor: an explicit /skip — or any plain
 // text — FROM THE SAME CHANNEL/CHAT the question was asked in resolves the
 // waiter and is consumed (never enters the model context). Slash commands
-// other than /skip fall through to the command path. Returns true when
-// consumed.
+// other than /skip fall through to the command path; a bare orphan /skip
+// (no pending ask) is consumed with a receipt instead of leaking the
+// protocol word into the model context (the /stop precedent). Returns true
+// when consumed.
 func (al *AgentLoop) tryHandleAskReply(ctx context.Context, msg bus.InboundMessage, sessionKey string) bool {
 	loaded, ok := al.pendingAsks.Load(sessionKey)
 	if !ok {
-		return false
+		return al.consumeOrphanSkip(ctx, msg)
 	}
 	p, ok := loaded.(*pendingAsk)
 	if !ok {
@@ -358,7 +393,7 @@ func (al *AgentLoop) tryHandleAskReply(ctx context.Context, msg bus.InboundMessa
 	default:
 		return false // already resolved by another reply
 	}
-	al.publishAskReceipt(ctx, msg)
+	al.publishAskReceipt(ctx, msg, commands.HasCommandPrefix(msg.Content))
 	logger.InfoCF("agent", "Ask reply routed", map[string]any{
 		"session_key": sessionKey,
 		"skipped":     commands.HasCommandPrefix(msg.Content),
@@ -366,9 +401,28 @@ func (al *AgentLoop) tryHandleAskReply(ctx context.Context, msg bus.InboundMessa
 	return true
 }
 
+// consumeOrphanSkip answers a bare /skip that has no pending ask with a
+// receipt, so the protocol word never reaches the model context (mirrors the
+// approval orphan handling in tryHandleApprovalReply).
+func (al *AgentLoop) consumeOrphanSkip(ctx context.Context, msg bus.InboundMessage) bool {
+	if !commands.HasCommandPrefix(msg.Content) {
+		return false
+	}
+	if name, isCmd := commands.CommandName(msg.Content); !isCmd || name != "skip" {
+		return false
+	}
+	if fields := lenFields(msg.Content); fields != 1 {
+		return false // trailing content — not a bare /skip
+	}
+	al.publishAskReceiptText(ctx, msg, "❓ 当前没有待回答的问题。")
+	return true
+}
+
 // collectAskReply parses one inbound message into the per-question answer
 // set: /skip → skipped; otherwise split lines (fewer lines than questions
-// leave the rest empty) with option-token normalization.
+// leave the rest empty) with option-token normalization. Lines are capped
+// (review P2-2: a pasted log would otherwise ride into the model context
+// verbatim; the /deny reason cap is the precedent).
 func collectAskReply(questions []bus.AskQuestion, text string) askReply {
 	trimmed := strings.TrimSpace(text)
 	if name, isCmd := commands.CommandName(trimmed); isCmd && name == "skip" {
@@ -380,7 +434,7 @@ func collectAskReply(questions []bus.AskQuestion, text string) askReply {
 		if i >= len(lines) {
 			break
 		}
-		answers[i] = normalizeAskAnswer(questions[i], strings.TrimSpace(lines[i]))
+		answers[i] = normalizeAskAnswer(questions[i], firstNRunes(strings.TrimSpace(lines[i]), askMaxAnswerRunes))
 	}
 	return askReply{answers: answers}
 }
@@ -447,16 +501,67 @@ func atoiSmall(s string) (int, bool) {
 }
 
 // publishAskReceipt acknowledges the answer on the surface it came from.
-func (al *AgentLoop) publishAskReceipt(ctx context.Context, msg bus.InboundMessage) {
+// Skip and answer get distinct receipts so the web card can seal with the
+// right verdict (review P2-1: both used to say "已收到回答").
+func (al *AgentLoop) publishAskReceipt(ctx context.Context, msg bus.InboundMessage, skipped bool) {
+	if skipped {
+		al.publishAskReceiptText(ctx, msg, "⏭️ 已跳过问询，继续。")
+		return
+	}
+	al.publishAskReceiptText(ctx, msg, "📝 已收到回答，正在继续。")
+}
+
+// publishAskTimeoutReceipt tells the asking surface the wait is over, so
+// interactive cards seal instead of hanging clickable after the soft timeout
+// (review P2-5; the approval hook's publishTimeoutReceipt precedent).
+func (al *AgentLoop) publishAskTimeoutReceipt(ts *turnState, timeout time.Duration) {
 	if al.bus == nil {
 		return
 	}
+	msg := outboundMessageForTurn(ts, fmt.Sprintf("⏰ 问询超过 %s 未作答，按未作答处理，继续执行。", timeout.Round(time.Minute)))
+	markPicoProgressNote(&msg)
 	pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_ = al.bus.PublishOutbound(pubCtx, bus.OutboundMessage{
+	_ = al.bus.PublishOutbound(pubCtx, msg)
+}
+
+// publishAskReceiptText delivers a raw receipt text as a non-final beat
+// (review P1-3: receipts must not read as the turn's final answer — the
+// model keeps generating after the answer arrives).
+func (al *AgentLoop) publishAskReceiptText(ctx context.Context, msg bus.InboundMessage, text string) {
+	if al.bus == nil {
+		return
+	}
+	out := bus.OutboundMessage{
 		Channel: msg.Channel,
 		ChatID:  msg.ChatID,
 		Context: outboundContextFromInbound(nil, msg.Channel, msg.ChatID, ""),
-		Content: "📝 已收到回答，正在继续。",
-	})
+		Content: text,
+	}
+	markPicoProgressNote(&out)
+	pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = al.bus.PublishOutbound(pubCtx, out)
+}
+
+// askStallThreshold mirrors the heartbeat loop's stall-threshold derivation
+// (ts override → config, clamped to >= 2× the heartbeat interval) so the
+// ask keepalive can pace itself under it. 0 = watchdog disabled.
+func (al *AgentLoop) askStallThreshold(ts *turnState) time.Duration {
+	if ts == nil {
+		return 0
+	}
+	stall := ts.stallInterruptAfter
+	if stall <= 0 && al != nil && al.GetConfig() != nil {
+		stall = time.Duration(al.GetConfig().Agents.Defaults.GetProgressStallInterruptSeconds()) * time.Second
+	}
+	if stall <= 0 {
+		return 0
+	}
+	if al != nil && al.GetConfig() != nil {
+		if interval := time.Duration(al.GetConfig().Agents.Defaults.GetProgressHeartbeatSeconds()) * time.Second; interval > 0 && stall < 2*interval {
+			stall = 2 * interval
+		}
+	}
+	return stall
 }

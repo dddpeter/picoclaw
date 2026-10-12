@@ -97,13 +97,27 @@ func estimateJSONTokens(s string) int {
 	return max(1, int(math.Round(float64(len(s))/jsonCharsPerToken)))
 }
 
-// mediaRefTokens bills one media:// reference by type: image extensions get
-// the tile-grid cost, everything else the generic media block cost.
+// mediaRefTokens bills one media reference by type: image references get
+// the tile-grid cost, everything else the generic media block cost. Two
+// production shapes are recognized: inline data URLs (the current-turn
+// image path — `data:image/...;base64`) and file-style refs whose extension
+// names a raster/vector format. Plain `media://<uuid>` store refs carry no
+// type information in the ref itself (the mime lives in the store's
+// metadata, unreachable from this package) and bill as "other" — a known
+// under-count for stored images, noted in fork-overview §25.1.
 func mediaRefTokens(ref string) int {
-	if isImageExt(mediaRefExt(ref)) {
+	if isImageMediaRef(ref) {
 		return imageMediaTokens
 	}
 	return otherMediaTokens
+}
+
+// isImageMediaRef reports whether a media reference names an image.
+func isImageMediaRef(ref string) bool {
+	if strings.HasPrefix(ref, "data:image/") {
+		return true
+	}
+	return isImageExt(mediaRefExt(ref))
 }
 
 // mediaRefExt extracts the lowercase extension of a media ref (may be empty).

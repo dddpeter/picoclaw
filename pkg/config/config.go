@@ -1746,7 +1746,7 @@ type MCPConfig struct {
 	// (octop borrowing §六): when the connected MCP tool count exceeds this
 	// threshold, not-yet-loaded MCP tools go to the LLM as lightweight
 	// deferred references and a tool_search meta-tool loads full schemas on
-	// demand (session-sticky). 0 disables; default 20.
+	// demand (session-sticky). 0/absent = default (20); NEGATIVE disables.
 	DeferredThreshold int `json:"deferred_tool_threshold,omitempty" env:"PICOCLAW_TOOLS_MCP_DEFERRED_TOOL_THRESHOLD"`
 	// Servers is a map of server name to server configuration
 	Servers map[string]MCPServerConfig `json:"servers,omitempty"`

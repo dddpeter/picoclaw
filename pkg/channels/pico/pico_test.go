@@ -1144,3 +1144,68 @@ func TestSend_AskMessageCarriesAskPayload(t *testing.T) {
 		t.Fatal("no message received")
 	}
 }
+
+// TestSetContextUsagePayloadCarriesSegments pins the wire contract (review
+// P1-6): context_usage.segments must survive the pico payload serialization
+// — dropping them left the web ring's stacked breakdown dead on the wire.
+func TestSetContextUsagePayloadCarriesSegments(t *testing.T) {
+	payload := map[string]any{}
+	setContextUsagePayload(payload, &bus.ContextUsage{
+		UsedTokens:   1000,
+		TotalTokens:  8000,
+		Segments: []bus.ContextUsageSegment{
+			{Key: "conversation", Tokens: 700},
+			{Key: "mcp", Tokens: 300},
+		},
+	})
+	raw, ok := payload["context_usage"].(map[string]any)
+	if !ok {
+		t.Fatalf("context_usage payload missing: %+v", payload)
+	}
+	segs, ok := raw["segments"].([]map[string]any)
+	if !ok || len(segs) != 2 {
+		t.Fatalf("segments must serialize as a list of {key,tokens}, got: %#v", raw["segments"])
+	}
+	if segs[0]["key"] != "conversation" || segs[1]["tokens"] != 300 {
+		t.Fatalf("segments content mismatch: %#v", segs)
+	}
+
+	// No segments → field omitted (single-color fallback on the web ring).
+	empty := map[string]any{}
+	setContextUsagePayload(empty, &bus.ContextUsage{UsedTokens: 10, TotalTokens: 100})
+	if raw, _ := empty["context_usage"].(map[string]any); raw != nil {
+		if _, exists := raw["segments"]; exists {
+			t.Fatal("segments must be omitted when empty")
+		}
+	}
+}
+
+// TestOutboundMessageIsProgressNote_CardsAndPicoKind pins the P1-3 wire
+// decision: the pico-scoped receipt marker (pico_kind) and the generic
+// message_kind path count as non-final beats, while approval/ask CARDS are
+// deliberately NOT marked on the wire — older pico clients (the TUI) render
+// progress_note as a status-line-only beat and would drop the card from the
+// timeline (review P1-2). The web frontend derives non-final semantics from
+// the ask/approval payload instead.
+func TestOutboundMessageIsProgressNote_CardsAndPicoKind(t *testing.T) {
+	askCard := bus.OutboundMessage{Content: "❓", Ask: &bus.AskRequestMeta{}}
+	if outboundMessageIsProgressNote(askCard) {
+		t.Fatal("ask cards stay unmarked on the wire (TUI timeline visibility)")
+	}
+	approvalCard := bus.OutboundMessage{Content: "⚠️", Approval: &bus.ApprovalRequestMeta{}}
+	if outboundMessageIsProgressNote(approvalCard) {
+		t.Fatal("approval cards stay unmarked on the wire (TUI timeline visibility)")
+	}
+	receipt := bus.OutboundMessage{Content: "📝 已收到回答", Context: bus.InboundContext{Raw: map[string]string{"pico_kind": "progress_note"}}}
+	if !outboundMessageIsProgressNote(receipt) {
+		t.Fatal("pico_kind=progress_note receipts must read as non-final beats")
+	}
+	heartbeat := bus.OutboundMessage{Content: "⏳", Context: bus.InboundContext{Raw: map[string]string{"message_kind": "progress_note"}}}
+	if !outboundMessageIsProgressNote(heartbeat) {
+		t.Fatal("message_kind=progress_note beats keep their existing meaning")
+	}
+	final := bus.OutboundMessage{Content: "done, here is the answer"}
+	if outboundMessageIsProgressNote(final) {
+		t.Fatal("plain final answers must stay final")
+	}
+}

@@ -107,7 +107,10 @@ func (al *AgentLoop) deferralThreshold() int {
 // applyToolDeferral rewrites the LLM-facing tool definitions for a session:
 // when the MCP tool count exceeds the threshold, unloaded MCP tools become
 // deferred references and the tool_search meta-tool joins the set. Loaded
-// tools (session-sticky) and non-MCP tools stay verbatim.
+// tools (session-sticky) and non-MCP tools stay verbatim. Idempotent: an
+// input that already carries tool_search keeps exactly one (the BeforeLLM
+// echo path re-feeds the rewritten set — review P0-1: the unconditional
+// append used to duplicate it on every LLM request).
 func (al *AgentLoop) applyToolDeferral(sessionKey string, defs []providers.ToolDefinition) []providers.ToolDefinition {
 	threshold := al.deferralThreshold()
 	if threshold <= 0 || len(defs) == 0 {
@@ -125,6 +128,9 @@ func (al *AgentLoop) applyToolDeferral(sessionKey string, defs []providers.ToolD
 
 	out := make([]providers.ToolDefinition, 0, len(defs)+1)
 	for _, d := range defs {
+		if d.Function.Name == toolSearchToolName {
+			continue // dedup: re-appended once below
+		}
 		if isMCPToolName(d.Function.Name) && !al.toolDefer.isLoaded(sessionKey, d.Function.Name) {
 			out = append(out, deferredToolRef(d))
 			continue
@@ -133,6 +139,32 @@ func (al *AgentLoop) applyToolDeferral(sessionKey string, defs []providers.ToolD
 	}
 	out = append(out, toolSearchToolDef())
 	return out
+}
+
+// appendMetaToolDefs applies tool deferral and re-adds the ask_user meta
+// tool after any list rebuild (main path and BeforeLLM echo path alike), so
+// hooks that rewrite Tools can neither drop nor duplicate the meta tools
+// (review P0-1 + P3-1). Empty input stays empty — a deliberately cleared
+// tool list (graceful terminal) must not regain tools.
+func (al *AgentLoop) appendMetaToolDefs(sessionKey string, defs []providers.ToolDefinition) []providers.ToolDefinition {
+	if len(defs) == 0 {
+		return defs
+	}
+	defs = al.applyToolDeferral(sessionKey, defs)
+	if !containsToolDef(defs, askUserToolName) {
+		defs = append(defs, askUserToolDef())
+	}
+	return defs
+}
+
+// containsToolDef reports whether defs already carries the named tool.
+func containsToolDef(defs []providers.ToolDefinition, name string) bool {
+	for _, d := range defs {
+		if d.Function.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // deferredToolRef renders the lightweight reference the LLM sees for an
@@ -180,17 +212,24 @@ func toolSearchToolDef() providers.ToolDefinition {
 //   - tool_search: match the catalog, load, and answer with full definitions;
 //   - a direct call to an unloaded deferred MCP tool: auto-load it and answer
 //     with its schema plus a retry instruction (never execute blindly).
+//
+// The deferral gate counts the PROFILE-FILTERED catalog — the same view
+// applyToolDeferral gated when building the LLM tool list. Counting the raw
+// registry instead made an allowlist profile over a large catalog intercept
+// first calls to tools the model never saw as deferred references (review
+// E-P1-2: swallowed iteration + polluted loaded set).
 func (al *AgentLoop) interceptDeferredTool(
 	_ context.Context,
 	sessionKey, toolName string,
 	args map[string]any,
 	reg *tools.ToolRegistry,
+	profile config.EffectiveTurnProfile,
 ) (*tools.ToolResult, bool) {
 	threshold := al.deferralThreshold()
 	if threshold <= 0 || reg == nil {
 		return nil, false
 	}
-	defs := reg.ToProviderDefs()
+	defs := filterToolsByTurnProfile(reg.ToProviderDefs(), profile)
 	mcpCount := 0
 	for _, d := range defs {
 		if isMCPToolName(d.Function.Name) {

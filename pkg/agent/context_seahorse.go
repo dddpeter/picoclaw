@@ -158,22 +158,48 @@ func (m *seahorseContextManager) Assemble(ctx context.Context, req *AssembleRequ
 
 // Compact compresses conversation history via seahorse summarization.
 func (m *seahorseContextManager) Compact(ctx context.Context, req *CompactRequest) error {
+	_, err := m.CompactWithStats(ctx, req)
+	return err
+}
+
+// CompactWithStats is Compact with engine-reported reclamation stats (the
+// JSONL transcript never shrinks, so callers cannot derive them from message
+// counts — review P1-5). Manual compactions narrow the protected fresh tail
+// to manualCompactKeepTail (octop borrowing §五 keep-6).
+func (m *seahorseContextManager) CompactWithStats(ctx context.Context, req *CompactRequest) (*compactEngineStats, error) {
 	if req == nil {
-		return nil
+		return nil, nil
 	}
 
 	// For retry (LLM overflow), use aggressive CompactUntilUnder to guarantee
 	// context shrinks below budget (spec lines ~1410).
 	if req.Reason == ContextCompressReasonRetry && req.Budget > 0 {
-		_, err := m.engine.CompactUntilUnder(ctx, req.SessionKey, req.Budget)
-		return err
+		res, err := m.engine.CompactUntilUnder(ctx, req.SessionKey, req.Budget)
+		return engineStatsFrom(res), err
 	}
 
-	_, err := m.engine.Compact(ctx, req.SessionKey, seahorse.CompactInput{
-		Force:  req.Reason == ContextCompressReasonRetry || req.Reason == ContextCompressReasonManual,
-		Budget: &req.Budget,
+	keepTail := 0
+	if req.Reason == ContextCompressReasonManual {
+		keepTail = manualCompactKeepTail
+	}
+	res, err := m.engine.Compact(ctx, req.SessionKey, seahorse.CompactInput{
+		Force:    req.Reason == ContextCompressReasonRetry || req.Reason == ContextCompressReasonManual,
+		Budget:   &req.Budget,
+		KeepTail: keepTail,
 	})
-	return err
+	return engineStatsFrom(res), err
+}
+
+// engineStatsFrom adapts the seahorse result; nil stays nil so callers can
+// distinguish "stats unavailable" from "nothing happened".
+func engineStatsFrom(res *seahorse.CompactResult) *compactEngineStats {
+	if res == nil {
+		return nil
+	}
+	return &compactEngineStats{
+		TokensSaved: res.TokensSaved,
+		Summaries:   res.LeafSummaries + res.CondensedSummaries,
+	}
 }
 
 // Ingest records a message into seahorse SQLite.

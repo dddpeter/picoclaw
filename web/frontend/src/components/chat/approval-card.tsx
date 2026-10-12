@@ -44,12 +44,13 @@ export function ApprovalCard({
 	info,
 	seal,
 	timestamp,
-	latest = true,
+	latest = false,
 }: {
 	info: ApprovalInfo
 	seal?: ApprovalSeal
 	timestamp: number
-	/** false = 存在更新的待审批问题，本卡按钮禁用（防批准对象错位）。 */
+	/** false = 存在更新的待审批问题，本卡按钮禁用（防批准对象错位）。
+	 * 默认 false：buildTurns 只显式标记每类最近一张未封存卡。 */
 	latest?: boolean
 }) {
 	const { t } = useTranslation()

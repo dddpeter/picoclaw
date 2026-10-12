@@ -2157,4 +2157,23 @@ func TestHandleGetSession_PendingAskFromMarker(t *testing.T) {
 	if q["header"] != "环境" {
 		t.Fatalf("question header = %#v", q["header"])
 	}
+
+	// Fresh marker (started now, timeout ahead): stale must be FALSE so the
+	// restored card stays actionable — the stale branch has its own seal
+	// above; the fresh branch is the reload-while-waiting path.
+	if err := store.WriteAskMarker(memory.AskMarker{
+		SessionKey: sessionKey,
+		Questions:  questions,
+		TimeoutMs:  300000,
+		StartedAt:  time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatalf("WriteAskMarker(fresh) error = %v", err)
+	}
+	fresh, exists := get()["pending_ask"].(map[string]any)
+	if !exists {
+		t.Fatal("pending_ask should be present for a fresh marker")
+	}
+	if stale, ok := fresh["stale"].(bool); !ok || stale {
+		t.Fatalf("a marker inside its timeout window must not be stale: %#v", fresh)
+	}
 }

@@ -603,9 +603,9 @@ func (h *approvalHook) publishAsk(ctx context.Context, req *ToolApprovalRequest,
 	if prompt.Preview != "" {
 		content += "\n" + prompt.Preview
 	}
-	content += fmt.Sprintf("\n\n%s 允许、/approve always 本会话内不再询问、/deny 拒绝（超过 %s 未回复将按拒绝处理）", ApprovalReplyHintPrefix, h.timeout)
+	content += fmt.Sprintf("\n\n%s 允许、/approve always 本会话内不再询问此规则、/approve all 本会话全部允许、/deny 拒绝（超过 %s 未回复将按拒绝处理）", ApprovalReplyHintPrefix, h.timeout)
 
-	_ = al.bus.PublishOutbound(publishCtx, bus.OutboundMessage{
+	askMsg := bus.OutboundMessage{
 		Channel:    channel,
 		ChatID:     chatID,
 		Context:    outboundContextFromInbound(req.Context.Inbound, channel, chatID, ""),
@@ -619,7 +619,10 @@ func (h *approvalHook) publishAsk(ctx context.Context, req *ToolApprovalRequest,
 			Preview:   prompt.Preview,
 			TimeoutMs: h.timeout.Milliseconds(),
 		},
-	})
+	}
+	// The pico channel marks approval cards as progress_note by payload
+	// presence; other channels deliver the card unchanged.
+	_ = al.bus.PublishOutbound(publishCtx, askMsg)
 }
 
 // approvalMarkerStoreFor resolves the session-layer approval marker store
@@ -647,14 +650,19 @@ func (h *approvalHook) publishTimeoutReceipt(ctx context.Context, req *ToolAppro
 	}
 	publishCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_ = al.bus.PublishOutbound(publishCtx, bus.OutboundMessage{
+	timeoutMsg := bus.OutboundMessage{
 		Channel:    channel,
 		ChatID:     chatID,
 		Context:    outboundContextFromInbound(req.Context.Inbound, channel, chatID, ""),
 		AgentID:    req.Meta.AgentID,
 		SessionKey: req.Meta.SessionKey,
 		Content:    fmt.Sprintf("%s（%s），已按拒绝处理（fail-closed）。", ApprovalReceiptTimeoutPrefix, h.timeout),
-	})
+	}
+	// Pico-scoped non-final beat (review P1-3): the denied tool's result is
+	// still being processed — the receipt must not read as the turn's final
+	// answer on streaming surfaces.
+	markPicoProgressNote(&timeoutMsg)
+	_ = al.bus.PublishOutbound(publishCtx, timeoutMsg)
 }
 
 // parseApprovalReply recognizes explicit user answers only: /approve /deny
@@ -706,9 +714,6 @@ func parseApprovalReply(content string) approvalAnswer {
 			}
 			// "/deny <reason>": trailing text is the user's refusal reason.
 			rest := strings.TrimSpace(trimmed[len(fields[0]):])
-			if strings.EqualFold(rest, "always") {
-				return approvalAnswer{ok: true}
-			}
 			return approvalAnswer{ok: true, reason: firstNRunes(rest, approvalDenyReasonMaxRunes)}
 		}
 		return approvalAnswer{}
@@ -808,11 +813,16 @@ func (al *AgentLoop) publishApprovalReceipt(ctx context.Context, msg bus.Inbound
 	}
 	publishCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_ = al.bus.PublishOutbound(publishCtx, bus.OutboundMessage{
+	out := bus.OutboundMessage{
 		Channel:    msg.Channel,
 		ChatID:     msg.ChatID,
 		Context:    outboundContextFromInbound(nil, msg.Channel, msg.ChatID, ""),
 		SessionKey: msg.SessionKey,
 		Content:    content,
-	})
+	}
+	// Pico-scoped non-final beat (review P1-3): the model keeps generating
+	// after the decision — the receipt must not read as the turn's final
+	// answer on streaming surfaces.
+	markPicoProgressNote(&out)
+	_ = al.bus.PublishOutbound(publishCtx, out)
 }

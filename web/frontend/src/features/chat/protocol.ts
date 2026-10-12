@@ -176,7 +176,8 @@ export function handlePicoMessage(
         (kind === "normal" || message.type === "media.create")
       const turnStats = turnFinished ? parseTurnStats(payload) : undefined
       // 审批询问：v1 payload 优先，v0 兜底文本特征（历史回放同款解析）。
-      // 注意询问本身是 kind=normal 的终结消息（turnFinished），不能据此排除。
+      // 注意：审批/问询卡现走 kind=progress_note（非终结帧），但历史回放
+      // 与兜底文本通道仍可能以 kind=normal 到达，解析与 kind 无关。
       const approval =
         !isPlaceholder
           ? (parseApprovalFromPayload(payload) ?? parseApprovalFromText(content))

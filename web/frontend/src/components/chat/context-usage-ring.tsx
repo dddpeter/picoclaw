@@ -165,7 +165,9 @@ export function ContextUsageRing({
               {formatTokens(usage.compress_at_tokens)}
             </span>
           </div>
-          <div className="bg-muted mt-1.5 h-1.5 w-full overflow-hidden rounded-full">
+          {/* flex 让分段块横向排成堆叠条——块级 div 默认纵向堆叠，固定高度
+              + overflow-hidden 下只有第一段可见（评审 P1-6）。 */}
+          <div className="bg-muted mt-1.5 flex h-1.5 w-full overflow-hidden rounded-full">
             {usage.segments && usage.segments.length > 0 ? (
               // 分段堆叠条：一段一色，宽度按占 used 比例（octop 借鉴 §五）。
               usage.segments
@@ -173,8 +175,8 @@ export function ContextUsageRing({
                 .map((s) => (
                   <div
                     key={s.key}
-                    className={`${segmentColor(s.key)} h-full transition-all first:rounded-l-full last:rounded-r-full`}
-                    style={{ width: `${Math.min(100, (s.tokens / Math.max(1, usage.compress_at_tokens)) * 100)}%` }}
+                    className={`${segmentColor(s.key)} h-full min-w-0 transition-all first:rounded-l-full last:rounded-r-full`}
+                    style={{ width: `${Math.min(100, (s.tokens / Math.max(1, usage.used_tokens)) * 100)}%` }}
                   />
                 ))
             ) : (

@@ -107,3 +107,26 @@ func TestEstimator_ToolDefs_CJKDescription(t *testing.T) {
 		t.Fatalf("CJK tool description should estimate ~63+overhead tokens, got %d", got)
 	}
 }
+
+// TestEstimator_DataURLImageTyping pins the production media shapes (review
+// P1-7): current-turn inline images ride data URLs — the image tile cost
+// must fire on the `data:image/` prefix, while extension-less media:// store
+// refs (mime lives in store metadata, unreachable here) stay at the generic
+// block cost as a documented under-count.
+func TestEstimator_DataURLImageTyping(t *testing.T) {
+	dataURLMsg := providers.Message{Media: []string{"data:image/png;base64,iVBORw0KGgo="}}
+	storeRefMsg := providers.Message{Media: []string{"media://3f06b1a2-0000-4000-8000-1c2d3e4f5a6b"}}
+
+	dataURLTokens := EstimateMessageTokens(dataURLMsg)
+	storeRefTokens := EstimateMessageTokens(storeRefMsg)
+
+	if dataURLTokens < 1200 {
+		t.Fatalf("data:image/ URL must bill as an image (>= 1200), got %d", dataURLTokens)
+	}
+	if storeRefTokens > 600 {
+		t.Fatalf("extension-less media:// ref must bill at the generic block cost (<= 600), got %d", storeRefTokens)
+	}
+	if dataURLTokens < storeRefTokens*2 {
+		t.Fatalf("image data URL must far out-cost a plain media ref: %d vs %d", dataURLTokens, storeRefTokens)
+	}
+}

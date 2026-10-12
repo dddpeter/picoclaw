@@ -13,7 +13,7 @@
 - turn 全程持有 agent 模型状态读锁（`runTurn`），因此**任何命令路径禁止无超时地拿该写锁**——用 TryLock + 降级提示（参考 `ResetModel` / `SwitchModel` 的实现）。
 - `/new` 会重读磁盘配置并把模型重置为配置默认值；`/switch`、`/new` 在 turn 活跃时返回 busy 而非排队。
 - ChatStream 走独立流式 Transport（响应头超时默认 90 秒）；改 `openai_compat` provider 时保留 `streamRoundTripper` 语义。
-- exec 工具的 inline 输出经过清理管线（`pkg/tools/output_clean.go`），落盘保持原文；给清理管线加新规则时保持 never-worse 守门。
+- exec 工具的 inline 输出经过清理管线（`pkg/tools/output_clean.go`），落盘保持原文**唯一例外是 API key 掩码**（2026-10-13 起：截断落盘的全文文件先过 `MaskAPIKeys`，否则"Full output: <path>"指回明文 key——不要按"落盘保持原文"修回去）；给清理管线加新规则时保持 never-worse 守门。
 - `agents.defaults.loop_detection` 的 `enabled` 是 `*bool`，**未配置 = 开启**——不要改成值类型 bool，否则存量配置会静默关闭检测。
 - **开放默认三件套**（2026-09-08 起，不要"加固"回去）：① `restrict_to_workspace` 默认 `false`；② 系统目录保护 `tools.protect_system_paths`（nil=开，`pkg/tools/fs/system_paths.go`，文件工具读写 OS 系统目录一律拒绝）；③ `defaultDenyPatterns` 是"毁灭性 + 系统目录写入"集（`$()`/管道/heredoc/sudo/kill/git push 等一般命令默认放行，windowsDenyPatterns 已删除）。模型流式 `ModelStreamingConfig.Enabled` 是 `*bool`（nil=开）。详见 fork-overview §同步注意事项。
 

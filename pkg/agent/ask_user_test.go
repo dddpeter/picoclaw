@@ -268,3 +268,170 @@ func TestAskUser_NeverFormsApprovalPolicy(t *testing.T) {
 		t.Fatal("ask answers must never form approval session rules or allow_all")
 	}
 }
+
+// TestRunAskUser_KeepAliveCalmsWatchdog pins §三-5: the wait itself counts
+// as progress — the keepalive branch keeps touching the turn's activity so
+// the stall watchdog never mistakes the blocked ask for a dead turn.
+func TestRunAskUser_KeepAliveCalmsWatchdog(t *testing.T) {
+	al, _, cleanup := newTurnCoordTestLoop(t, &summarizeStubProvider{})
+	defer cleanup()
+
+	orig := askKeepAliveInterval
+	askKeepAliveInterval = 10 * time.Millisecond
+	t.Cleanup(func() { askKeepAliveInterval = orig })
+
+	al.askTimeout = 150 * time.Millisecond
+	ts := buildAskTurnState(t, al, "feishu", "ck", "agent_default:ask:ka")
+	res := al.runAskUser(context.Background(), ts, askUserArgs(bus.AskQuestion{Question: "q"}))
+	if res.IsError {
+		t.Fatalf("timeout must stay a soft failure, got: %+v", res)
+	}
+	// The wait lasted ~150ms with 10ms keepalive beats: the last touch must
+	// be within a couple of intervals of "now", not the turn-start stamp.
+	if idle := ts.activityIdleFor(time.Now()); idle > 3*askKeepAliveInterval {
+		t.Fatalf("keepalive must keep touching activity during the wait, idle=%v", idle)
+	}
+}
+
+// TestRunAskUser_CardAndReceiptsAreNonFinal pins the wire contract (review
+// P1-3): receipts carry the PICO-SCOPED non-final marker (Raw["pico_kind"])
+// — never the generic message_kind, which the channel manager treats as
+// auxiliary and drops inside the finalized-stream suppression window — and
+// the card needs no marker at all (the pico channel marks ask/approval
+// cards by payload presence). The timeout receipt itself is the
+// anti-ghost-card fix (review P2-5).
+func TestRunAskUser_CardAndReceiptsAreNonFinal(t *testing.T) {
+	al, _, cleanup := newTurnCoordTestLoop(t, &summarizeStubProvider{})
+	defer cleanup()
+	al.askTimeout = 20 * time.Millisecond
+	ts := buildAskTurnState(t, al, "feishu", "ct", "agent_default:ask:to")
+
+	res := al.runAskUser(context.Background(), ts, askUserArgs(bus.AskQuestion{Question: "q"}))
+	if res.IsError {
+		t.Fatalf("timeout must stay a soft failure, got: %+v", res)
+	}
+
+	sawCard, sawTimeoutReceipt := false, false
+	for {
+		var out bus.OutboundMessage
+		var ok bool
+		select {
+		case out, ok = <-al.bus.(*bus.MessageBus).OutboundChan():
+			if !ok {
+				break
+			}
+		default:
+			ok = false
+		}
+		if !ok {
+			break
+		}
+		if kind := out.Context.Raw["message_kind"]; kind != "" {
+			t.Fatalf("ask outbounds must NOT use the generic message_kind (droppable as auxiliary), got %q", kind)
+		}
+		if out.Ask != nil {
+			sawCard = true
+		}
+		if strings.Contains(out.Content, "问询超过") {
+			sawTimeoutReceipt = true
+			if out.Context.Raw["pico_kind"] != "progress_note" {
+				t.Fatal("the timeout receipt must carry the pico-scoped progress marker")
+			}
+		}
+	}
+	if !sawCard {
+		t.Fatal("the question card must be published")
+	}
+	if !sawTimeoutReceipt {
+		t.Fatal("the timeout receipt must be published so cards seal instead of hanging")
+	}
+}
+
+// TestTryHandleAskReply_OrphanSkip pins the /stop-precedent orphan handling:
+// a bare /skip with no pending ask is consumed with a receipt (never leaks
+// into the model context); trailing content and other commands still fall
+// through.
+func TestTryHandleAskReply_OrphanSkip(t *testing.T) {
+	al, _, cleanup := newTurnCoordTestLoop(t, &summarizeStubProvider{})
+	defer cleanup()
+
+	if !al.tryHandleAskReply(context.Background(),
+		bus.InboundMessage{Channel: "feishu", ChatID: "c1", Content: "/skip"}, "agent_default:ask:orphan") {
+		t.Fatal("a bare orphan /skip must be consumed with a receipt")
+	}
+	if al.tryHandleAskReply(context.Background(),
+		bus.InboundMessage{Channel: "feishu", ChatID: "c1", Content: "/skip please"}, "agent_default:ask:orphan") {
+		t.Fatal("/skip with trailing content is not a bare skip — must fall through")
+	}
+
+	sawReceipt := false
+	for {
+		var out bus.OutboundMessage
+		select {
+		case out = <-al.bus.(*bus.MessageBus).OutboundChan():
+		default:
+			out = bus.OutboundMessage{}
+		}
+		if out.Content == "" {
+			break
+		}
+		if strings.Contains(out.Content, "当前没有待回答的问题") {
+			sawReceipt = true
+		}
+	}
+	if !sawReceipt {
+		t.Fatal("the orphan /skip must be answered with a receipt")
+	}
+}
+
+// TestTryHandleAskReply_SkipReceiptDistinct pins the two receipt texts
+// (review P2-1): answering and skipping seal the web card with different
+// verdicts, so the skip receipt must be distinguishable from the answer one.
+func TestTryHandleAskReply_SkipReceiptDistinct(t *testing.T) {
+	al, _, cleanup := newTurnCoordTestLoop(t, &summarizeStubProvider{})
+	defer cleanup()
+	ch := make(chan askReply, 1)
+	al.pendingAsks.Store("agent_default:ask:sk", &pendingAsk{
+		resolve:   ch,
+		channel:   "feishu",
+		chatID:    "c1",
+		questions: []bus.AskQuestion{{Question: "q"}},
+	})
+	if !al.tryHandleAskReply(context.Background(),
+		bus.InboundMessage{Channel: "feishu", ChatID: "c1", Content: "/skip"}, "agent_default:ask:sk") {
+		t.Fatal("/skip must be consumed")
+	}
+	for {
+		var out bus.OutboundMessage
+		select {
+		case out = <-al.bus.(*bus.MessageBus).OutboundChan():
+		default:
+			out = bus.OutboundMessage{}
+		}
+		if out.Content == "" {
+			break
+		}
+		if strings.Contains(out.Content, "已收到回答") {
+			t.Fatalf("skip receipt must not read as an answer receipt, got: %s", out.Content)
+		}
+		if strings.Contains(out.Content, "已跳过问询") {
+			return
+		}
+	}
+	t.Fatal("the skip receipt was not published")
+}
+
+// TestCollectAskReply_CapsAnswerRunes pins the free-text cap (review P2-2):
+// a pasted log line rides into the model context truncated, not whole.
+func TestCollectAskReply_CapsAnswerRunes(t *testing.T) {
+	qs := []bus.AskQuestion{{Question: "q"}}
+	long := strings.Repeat("字", askMaxAnswerRunes+100)
+	reply := collectAskReply(qs, long)
+	got := []rune(reply.answers[0])
+	if len(got) > askMaxAnswerRunes+1 { // +1 for the ellipsis rune
+		t.Fatalf("answer must be capped to %d runes (+ellipsis), got %d", askMaxAnswerRunes, len(got))
+	}
+	if got[len(got)-1] != '…' {
+		t.Fatalf("capped answer must end with the ellipsis marker, got: ...%s", string(got[len(got)-3:]))
+	}
+}

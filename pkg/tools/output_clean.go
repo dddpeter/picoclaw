@@ -37,10 +37,13 @@ var (
 // octop-harness pii.py): config-value filtering only catches picoclaw's own
 // secrets; keys pasted from elsewhere (cat .env, error logs) slip through
 // unless the shape itself is recognized. Length floors are set high enough
-// that ordinary prose lookalikes never match.
+// that ordinary prose lookalikes never match — real sk- bodies are ≥43
+// chars, so the floor sits well above CI/k8s-style long slugs that merely
+// start with sk- (review P3-4 raised it from 28 to 32; going higher would
+// need provider-specific evidence).
 var apiKeyPatterns = []*regexp.Regexp{
 	// OpenAI / OpenAI-compatible / Anthropic (sk-, sk-proj-, sk-ant-...).
-	regexp.MustCompile(`sk-(?:ant-|proj-)?[A-Za-z0-9_-]{28,}`),
+	regexp.MustCompile(`sk-(?:ant-|proj-)?[A-Za-z0-9_-]{32,}`),
 	// AWS access key ids.
 	regexp.MustCompile(`\b(?:AKIA|ASIA)[0-9A-Z]{16}\b`),
 	// Google API keys.

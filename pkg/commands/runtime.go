@@ -69,6 +69,10 @@ type CompactOutcome struct {
 	UsedAfter        int
 	TotalTokens      int
 	CompressAtTokens int
+	// TokensSaved is the engine-reported reclamation (seahorse). The JSONL
+	// transcript never shrinks, so MessagesAfter alone under-reports what
+	// the live context window lost. 0 = engine stats unavailable (legacy).
+	TokensSaved int
 }
 
 // StopResult describes the outcome of a stop request for the current session.

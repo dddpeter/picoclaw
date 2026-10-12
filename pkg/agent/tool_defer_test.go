@@ -167,7 +167,7 @@ func TestToolSearchIntercept(t *testing.T) {
 	}
 
 	res, handled := al.interceptDeferredTool(context.Background(), "s-ts", toolSearchToolName,
-		map[string]any{"query": "issue labels", "max_results": 2}, agent.Tools)
+		map[string]any{"query": "issue labels", "max_results": 2}, agent.Tools, config.EffectiveTurnProfile{})
 	if !handled {
 		t.Fatal("tool_search must be handled by the interceptor")
 	}
@@ -211,7 +211,7 @@ func TestDeferredDirectCallAutoLoads(t *testing.T) {
 	}
 
 	res, handled := al.interceptDeferredTool(context.Background(), "s-direct",
-		defs[7].Function.Name, map[string]any{"title": "x"}, agent.Tools)
+		defs[7].Function.Name, map[string]any{"title": "x"}, agent.Tools, config.EffectiveTurnProfile{})
 	if !handled {
 		t.Fatal("direct call to an unloaded deferred tool must be intercepted")
 	}
@@ -222,7 +222,7 @@ func TestDeferredDirectCallAutoLoads(t *testing.T) {
 
 	// Loaded now: the same call falls through to the real tool.
 	_, handled = al.interceptDeferredTool(context.Background(), "s-direct",
-		defs[7].Function.Name, map[string]any{"title": "x"}, agent.Tools)
+		defs[7].Function.Name, map[string]any{"title": "x"}, agent.Tools, config.EffectiveTurnProfile{})
 	if handled {
 		t.Fatal("loaded tool must execute for real, not be intercepted again")
 	}
@@ -257,5 +257,39 @@ func TestToolDefer_DefaultThresholdPinsDoc(t *testing.T) {
 	def20 := mcpDefs(20)
 	if out := al.applyToolDeferral("s-def", def20); len(out) != len(def20) {
 		t.Fatalf("20 MCP tools at the default 20 must not defer: %d defs", len(out))
+	}
+}
+
+// TestAppendMetaToolDefs_Idempotent pins the P0-1 fix: feeding the rewritten
+// set back (the BeforeLLM echo path — HookManager returns a clone even with
+// no hooks) must not duplicate tool_search nor drop ask_user. Providers
+// reject duplicate tool names (Anthropic 400s), so this is a turn-killer
+// when it regresses.
+func TestAppendMetaToolDefs_Idempotent(t *testing.T) {
+	al, _ := deferTestLoop(t, 20)
+	base := append(mcpDefs(30), builtinDef("read"))
+
+	once := al.appendMetaToolDefs("s-idem", base)
+	twice := al.appendMetaToolDefs("s-idem", once) // the echo-path replay
+
+	countNamed := func(defs []providers.ToolDefinition, name string) int {
+		n := 0
+		for _, d := range defs {
+			if d.Function.Name == name {
+				n++
+			}
+		}
+		return n
+	}
+	if got := countNamed(twice, toolSearchToolName); got != 1 {
+		t.Fatalf("tool_search must appear exactly once after replay, got %d", got)
+	}
+	if got := countNamed(twice, askUserToolName); got != 1 {
+		t.Fatalf("ask_user must appear exactly once after replay, got %d", got)
+	}
+
+	// A deliberately cleared tool list (graceful terminal shape) stays empty.
+	if got := al.appendMetaToolDefs("s-idem", nil); len(got) != 0 {
+		t.Fatalf("empty tool list must stay empty, got %d defs", len(got))
 	}
 }

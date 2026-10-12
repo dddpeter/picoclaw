@@ -8,9 +8,13 @@ package agent
 // WS turn.status frame (octop borrowing §四: a page refresh must not lose
 // the typing state when the turn itself survived on the gateway).
 //
-// Lock-free Range over the active-turn map; placeholders count as active
-// (the session is claimed and about to run). The turn count is bounded by
-// concurrent sessions, so the scan is cheap.
+// The Range over the active-turn map is lock-free; each entry's snapshot
+// takes that turn's own mu.RLock (short critical sections — cancels happen
+// outside the lock — so this never blocks meaningfully and never touches
+// the model-state mutex). Placeholders count as active (the session is
+// claimed and about to run, and carry channel/chatID from the claiming
+// message). The turn count is bounded by concurrent sessions, so the scan
+// is cheap.
 func (al *AgentLoop) SessionTurnActive(channel, chatID string) bool {
 	if al == nil || channel == "" || chatID == "" {
 		return false

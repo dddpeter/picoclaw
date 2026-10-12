@@ -239,3 +239,43 @@ describe("feedback observation registry", () => {
 		expect(feedbackEndedAt(buildTurns(messages, { ...ALL, now: 222 }))).toBe(111);
 	});
 });
+
+describe("buildTurns 卡片 latest 门控", () => {
+	const approvalMsg = (id: string, extra: Partial<ChatMessage> = {}): ChatMessage =>
+		assistant(id, "⚠️ 需要批准：即将执行工具 shell", {
+			approval: { tool: "shell" },
+			...extra,
+		});
+	const askMsg = (id: string, extra: Partial<ChatMessage> = {}): ChatMessage =>
+		assistant(id, "", { ask: { questions: [{ question: "q" }] }, ...extra });
+
+	it("marks only the newest unsealed card of each type as latest", () => {
+		const turns = buildTurns(
+			[
+				user("u1"),
+				approvalMsg("a1"),
+				approvalMsg("a2", { approvalSeal: { verdict: "approved", at: 2 } }),
+				askMsg("k1"),
+				askMsg("k2"),
+			],
+			ALL,
+		);
+		const blocks = turns.flatMap((t) => t.assistant?.blocks ?? []);
+		const approvalBlocks = blocks.filter((b) => b.type === "approval");
+		const askBlocks = blocks.filter((b) => b.type === "ask");
+		// a1 是唯一未封存审批卡 → latest；a2 已封存不参与。
+		expect(approvalBlocks[0].latest).toBe(true);
+		// 两张未封存 ask 卡：只有较新的 k2 是 latest，旧的 k2 之前那张保持
+		// undefined（组件默认 false → 按钮禁用，防提交错位）。
+		expect(askBlocks[0].latest).toBeUndefined();
+		expect(askBlocks[1].latest).toBe(true);
+	});
+
+	it("leaves stale ghost cards non-actionable when a fresh card exists", () => {
+		// 超时幽灵卡（未封存）+ 新卡并存：旧卡必须不可操作。
+		const turns = buildTurns([user("u1"), askMsg("ghost"), askMsg("fresh")], ALL);
+		const askBlocks = turns.flatMap((t) => t.assistant?.blocks ?? []).filter((b) => b.type === "ask");
+		expect(askBlocks[0].latest).toBeUndefined();
+		expect(askBlocks[1].latest).toBe(true);
+	});
+});

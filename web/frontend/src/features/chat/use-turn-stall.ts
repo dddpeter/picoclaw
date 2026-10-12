@@ -20,7 +20,7 @@ export interface TurnStallState {
 }
 
 export function useTurnStall(): TurnStallState {
-  const { isTyping, turnStartedAt, lastTurnActivityAt } =
+  const { isTyping, turnStartedAt, lastTurnActivityAt, messages } =
     useAtomValue(chatAtom)
   const [now, setNow] = useState(() => Date.now())
 
@@ -33,6 +33,18 @@ export function useTurnStall(): TurnStallState {
   }, [isTyping])
 
   if (!isTyping) {
+    return { stalled: false }
+  }
+  // 等待用户输入（未封存的问询/审批卡）= 回合活跃，不是卡死：卡为
+  // progress_note 非终结帧后 isTyping 在整个等待期为真，而 ask 等待
+  // （默认 10 分钟）可以合法地超过卡死阈值（评审 P2-3）。
+  const waitingOnUser = messages.some(
+    (m) =>
+      m.role === "assistant" &&
+      ((m.ask !== undefined && m.askSeal === undefined) ||
+        (m.approval !== undefined && m.approvalSeal === undefined)),
+  )
+  if (waitingOnUser) {
     return { stalled: false }
   }
   const since = lastTurnActivityAt ?? turnStartedAt

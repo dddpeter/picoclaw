@@ -143,3 +143,23 @@ func TestCleanCommandOutput_MasksKeysInPipeline(t *testing.T) {
 		t.Fatalf("surrounding lines must survive, got %q", got)
 	}
 }
+
+// TestMaskAPIKeys_NeverWorse pins the property the cleaning pipeline's
+// guardrail depends on (octop borrowing §十一): masking only ever shortens.
+// A future pattern that could lengthen output would silently defeat the
+// never-worse comparison in CleanCommandOutput.
+func TestMaskAPIKeys_NeverWorse(t *testing.T) {
+	samples := []string{
+		"",
+		"plain text without any credentials",
+		"key: sk-4b829b7ba0aa40648d5318b0025f2abcdeadbeef and AKIAIOSFODNN7EXAMPLE",
+		"two keys sk-ant-api03-9d1a2b3c4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8 and hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+		"strings.Repeat-style long text with an embedded AIzaSyA1B2C3D4E5F6G7H8I9J0K1L2M3N4O5P6Q7R8 token",
+		"unicode 中文段落与 sk-4b829b7ba0aa40648d5318b0025f2abcdeadbeef 混排",
+	}
+	for _, s := range samples {
+		if got := MaskAPIKeys(s); len(got) > len(s) {
+			t.Fatalf("MaskAPIKeys must never lengthen: in=%d out=%d for %.60s", len(s), len(got), s)
+		}
+	}
+}

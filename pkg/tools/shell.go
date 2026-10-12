@@ -80,13 +80,24 @@ var (
 		// Disk wiping (must be followed by space/args).
 		regexp.MustCompile(`(^|[^-\w])\b(format|mkfs|diskpart)\b\s`),
 		regexp.MustCompile(`\bdd\s+if=`),
-		// dd writing a block device regardless of operand order (octop §十一
+		// dd writing a BLOCK device regardless of operand order (octop §十一
 		// audit: `dd of=/dev/sda` without a leading `if=` slipped past the
-		// pattern above).
-		regexp.MustCompile(`\bdd\s+[^|;&]*\bof=/dev/`),
+		// pattern above). The device list mirrors the `>` redirect rule below
+		// on purpose: benign char devices (/dev/null, /dev/zero, /dev/random,
+		// /dev/stdout) stay allowed — `dd of=/dev/null` is the canonical
+		// throughput test and writing /dev/random is legitimate entropy
+		// addition (issue #964 pinned the same line for redirects). Quoted
+		// targets count; variable indirection (`of=$D`) is not statically
+		// catchable and stays a documented gap like `rm -rf $DIR`.
+		regexp.MustCompile(`\bdd\s+[^|;&]*\bof=("|')?/dev/(sd[a-z]|hd[a-z]|vd[a-z]|xvd[a-z]|nvme\d|mmcblk\d|loop\d|dm-\d|md\d|sr\d|nbd\d|mapper/|disk/|block/)`),
 		// kill targeting every process (-1) or PID 1 — machine-killing (octop
 		// dangerous_shell_commands.yaml CRITICAL); regular PIDs stay allowed.
-		regexp.MustCompile(`\bkill\s+(-\w+\s+)*-9\s+(-1\b|1\b)`),
+		// Covers the -9, -KILL, -s KILL/-s9, and POSIX -n <signum> spellings,
+		// `--` separators, and kill -9 0 (the gateway's own process group on
+		// a personal deploy). guardCommand lowercases, so -KILL arrives as
+		// -kill.
+		regexp.MustCompile(`\bkill\s+(-\w+\s+|--\s+)*-9\s+(-\w+\s+|--\s+)*(-1\b|1\b|0\b)`),
+		regexp.MustCompile(`\bkill\s+(-\w+\s+)*(--\s+)?(-kill\b|-s\s*kill\b|-s\s*9\b|-n\s+9\b)\s+(-\w+\s+)*(--\s+)?(-1\b|1\b|0\b)`),
 		// Block writes to block devices (all common naming schemes).
 		regexp.MustCompile(
 			`>\s*/dev/(sd[a-z]|hd[a-z]|vd[a-z]|xvd[a-z]|nvme\d|mmcblk\d|loop\d|dm-\d|md\d|sr\d|nbd\d)`,
@@ -711,7 +722,11 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string, timeout tim
 		if errors.Is(cmdCtx.Err(), context.DeadlineExceeded) {
 			msg := fmt.Sprintf("Command timed out after %v", timeout)
 			if output != "" {
-				msg += "\n\nPartial output before timeout:\n" + output
+				// Same inline-cleaning path as the success branch (review
+				// P2-9): the partial output reaches the model verbatim
+				// otherwise, bypassing both the cleanup pipeline and the
+				// API-key mask.
+				msg += "\n\nPartial output before timeout:\n" + CleanCommandOutput(command, output)
 			}
 			msg += "\n\nTip: if this command needs longer, re-run it with background=true (returns a sessionId) and use poll/read to check progress, or pass timeout=<seconds> to extend this run's wait."
 			return &ToolResult{
@@ -757,16 +772,22 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string, timeout tim
 
 	// Clean the inline path only (progress redraws, ANSI escapes, oversized
 	// lines burn context tokens without carrying information). The raw
-	// output stays untouched for persistence below; never-worse guarded, so
-	// commands whose output is already clean see no change at all.
+	// output stays untouched for persistence below except for the API-key
+	// mask (see there); never-worse guarded, so commands whose output is
+	// already clean see no change at all.
 	rawOutput := output
 	output = CleanCommandOutput(command, output)
 
 	// Keep the tail: command output usually matters at the end (errors,
 	// final results). Line+byte caps with an explicit notice for the model;
 	// the untruncated output is preserved to a file the model can read back.
+	// The persisted copy is masked first (review P2-9): masking only
+	// shortens, so the "persist the raw output" guardrail against the
+	// shape-rewriting cleanup pipeline is untouched — but an unmasked
+	// full-output file plus a "Full output: <path>" pointer would let the
+	// model read leaked API keys straight back.
 	if truncation := TruncateTail(output, TruncationOptions{}); truncation.Truncated {
-		fullPath := t.persistFullOutput(rawOutput)
+		fullPath := t.persistFullOutput(MaskAPIKeys(rawOutput))
 		output = truncation.Content + "\n\n" + truncation.Notice()
 		if fullPath != "" {
 			output += fmt.Sprintf(" Full output: %s", fullPath)

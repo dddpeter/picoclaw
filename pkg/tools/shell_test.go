@@ -2068,14 +2068,27 @@ func TestForkDenyDefaults(t *testing.T) {
 		// 0777 with leading zero still blocked on root-ish single-component
 		// paths; sticky-bit 1777 and multi-component personal paths are not.
 		"chmod 0777 /usr",
-		// dd writing block devices without `if=` first (octop rule-set gap
-		// found in the §十一 audit: only `dd if=` was covered).
+		// dd writing BLOCK devices without `if=` first (octop rule-set gap
+		// found in the §十一 audit). The device list mirrors the redirect
+		// rule; benign char devices (null/zero/random/stdout) stay allowed
+		// (issue #964 pinned the same line for redirects).
 		"dd of=/dev/sda",
 		"dd bs=4M if=image.img of=/dev/nvme0n1",
-		// kill targeting every process / PID 1 — machine-killing (octop
-		// dangerous_shell_commands.yaml CRITICAL).
+		`dd of="/dev/sda"`,
+		"dd of=/dev/mapper/crypt-root",
+		"dd of=/dev/disk/by-id/ata-BOOT",
+		// kill targeting every process / PID 1 / own process group —
+		// machine-killing (octop dangerous_shell_commands.yaml CRITICAL),
+		// across the -9, -KILL and -s KILL spellings and `--` separators.
 		"kill -9 -1",
 		"kill -9 1",
+		"kill -9 0",
+		"kill -KILL -1",
+		"kill -s KILL 1",
+		"kill -s 9 -1",
+		"kill -s9 -1",   // -s<sig> without the space (bash builtin)
+		"kill -n 9 1",   // POSIX -n <signum> spelling
+		"kill -9 -- -1",
 	}
 	allowed := []string{
 		"rm -r builddir",
@@ -2085,10 +2098,22 @@ func TestForkDenyDefaults(t *testing.T) {
 		"echo hi > /tmp/out.txt",
 		"kill -0 123",
 		"kill -9 123", // a regular PID is not machine-killing
+		"kill -9 12",  // nor a two-digit one (no prefix confusion)
+		"kill -TERM 123",
 		"git push origin main",
 		"chmod 1777 /tmp",
 		"tar -czf rm.tar dir",
 		"docker rm box -f",
+		// dd to benign char devices: /dev/null is the canonical throughput
+		// sink, writing /dev/random adds entropy, /dev/stdout is a byte cap.
+		"dd of=/dev/null",
+		"echo x | dd of=/dev/null bs=1M",
+		"dd of=/dev/zero",
+		"dd of=/dev/random",
+		"dd of=/dev/stdout",
+		// Variable indirection is statically uncatchable (documented gap, same
+		// stance as `rm -rf $DIR`).
+		"dd of=$TARGET",
 	}
 	if runtime.GOOS == "windows" {
 		blocked = append(blocked,

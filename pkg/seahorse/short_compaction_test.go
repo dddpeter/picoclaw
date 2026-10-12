@@ -976,7 +976,7 @@ func TestCompactLeafForceBypassesFreshTail(t *testing.T) {
 	}
 
 	// Without force: should return nil (all in fresh tail)
-	summaryID, err := ce.compactLeaf(ctx, convID)
+	summaryID, err := ce.compactLeaf(ctx, convID, false, 0)
 	if err != nil {
 		t.Fatalf("compactLeaf no-force: %v", err)
 	}
@@ -985,7 +985,7 @@ func TestCompactLeafForceBypassesFreshTail(t *testing.T) {
 	}
 
 	// With force: should compact despite fresh tail protection
-	summaryID, err = ce.compactLeaf(ctx, convID, true)
+	summaryID, err = ce.compactLeaf(ctx, convID, true, 0)
 	if err != nil {
 		t.Fatalf("compactLeaf force: %v", err)
 	}
@@ -1017,7 +1017,7 @@ func TestCompactLeafAccumulatesUpToLeafChunkTokens(t *testing.T) {
 		s.AppendContextMessage(ctx, convID, m.ID)
 	}
 
-	summaryID, err := ce.compactLeaf(ctx, convID)
+	summaryID, err := ce.compactLeaf(ctx, convID, false, 0)
 	if err != nil {
 		t.Fatalf("compactLeaf: %v", err)
 	}
@@ -1037,5 +1037,42 @@ func TestCompactLeafAccumulatesUpToLeafChunkTokens(t *testing.T) {
 	if summary.SourceMessageTokenCount > LeafChunkTokens {
 		t.Errorf("source tokens = %d, should be <= LeafChunkTokens (%d)",
 			summary.SourceMessageTokenCount, LeafChunkTokens)
+	}
+}
+
+// TestCompactLeafKeepTailOverride pins the manual /compact keep-6 semantics
+// (octop borrowing §五): a keepTail override NARROWS the protected tail, so
+// sessions between keepTail and the engine's default fresh tail compact
+// without force (the review P1-5 "no-op under 136 messages" fix). A keepTail
+// wider than the default never widens protection.
+func TestCompactLeafKeepTailOverride(t *testing.T) {
+	ce, s, convID := newTestCompactionEngine(t)
+	ctx := context.Background()
+
+	// Seed a session with enough messages that keep-6 leaves a full leaf
+	// chunk (>= LeafMinFanout) outside the tail, while the default fresh
+	// tail still protects everything: keepTail + LeafMinFanout + 2.
+	total := 6 + LeafMinFanout + 2
+	if total >= FreshTailCountValue() {
+		t.Skip("engine constants make this scenario unreachable")
+	}
+	for i := 0; i < total; i++ {
+		m, _ := s.AddMessage(ctx, convID, "user", fmt.Sprintf("keep-tail test message %d", i), 100)
+		s.AppendContextMessage(ctx, convID, m.ID)
+	}
+
+	// Default tail protects everything → no candidate without force.
+	if id, err := ce.compactLeaf(ctx, convID, false, 0); err != nil || id != nil {
+		t.Fatalf("default tail must protect everything below FreshTailCount, got id=%v err=%v", id, err)
+	}
+	// keep-6 narrows the window → the older messages compact.
+	if id, err := ce.compactLeaf(ctx, convID, false, 6); err != nil || id == nil {
+		t.Fatalf("keepTail=6 must compact the messages outside the last 6, got id=%v err=%v", id, err)
+	}
+	// An override wider than the default never widens protection: same result
+	// as the default (nothing left to compact after the previous call is fine;
+	// the invariant is that it does not error nor bypass more than default).
+	if _, err := ce.compactLeaf(ctx, convID, false, FreshTailCountValue()*2); err != nil {
+		t.Fatalf("wide keepTail must behave like the default (no error), got %v", err)
 	}
 }

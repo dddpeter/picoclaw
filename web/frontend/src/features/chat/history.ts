@@ -1,11 +1,12 @@
 import { getSessionHistory } from "@/api/sessions"
 import { pairApprovalHistory } from "@/features/chat/approval"
+import { parseAskQuestions } from "@/features/chat/ask"
 import { normalizeUnixTimestamp } from "@/features/chat/state"
 import {
   parseToolCallsValue,
   toolCallsSignature,
 } from "@/features/chat/tool-calls"
-import type { AskQuestion, ChatAttachment, ChatMessage } from "@/store/chat"
+import type { ChatAttachment, ChatMessage } from "@/store/chat"
 
 function toChatAttachments({
   media,
@@ -104,10 +105,14 @@ export async function loadSessionMessages(
   // 历史里已有未封存 ask 卡时不重复注入。
   const pendingAsk = detail.pending_ask
   const pendingAskQuestions = pendingAsk?.questions
+  // 归一化后再判空：全部条目缺 question 字段时 parseAskQuestions 会返回
+  // 空数组，不能注入一张 questions: [] 的空卡。
+  const normalizedAskQuestions = Array.isArray(pendingAskQuestions)
+    ? parseAskQuestions(pendingAskQuestions)
+    : []
   if (
     pendingAsk &&
-    Array.isArray(pendingAskQuestions) &&
-    pendingAskQuestions.length > 0 &&
+    normalizedAskQuestions.length > 0 &&
     !paired.some((m) => m.role === "assistant" && m.ask && !m.askSeal)
   ) {
     // stale：网关在问询等待中崩溃残留——等待者已死、超时早已软失败。
@@ -127,7 +132,9 @@ export async function loadSessionMessages(
       content: "",
       kind: "normal",
       ask: {
-        questions: pendingAskQuestions as unknown as AskQuestion[],
+        // 复用 live 路径的归一化（multi_select → multiSelect 等）——裸
+        // as-cast 会把恢复卡上的多选题退化成单选（评审 P1-2）。
+        questions: normalizedAskQuestions,
         ...(pendingAsk.timeout_ms && pendingAsk.timeout_ms > 0
           ? { timeoutMs: pendingAsk.timeout_ms }
           : {}),

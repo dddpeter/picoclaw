@@ -182,7 +182,6 @@ function PiBlockView({ block, active }: { block: PiBlock; active: boolean }) {
 			return <AskCard
 				info={block.ask}
 				seal={block.seal}
-				timestamp={block.timestamp}
 				latest={block.latest}
 			/>;
 		case "thinking":

@@ -43,6 +43,11 @@ function parseAssistantMessageKind(
   if (kind === "tool_calls" || toolCalls) {
     return "tool_calls"
   }
+  // 审批/问询卡：回合仍在跑（阻塞等用户）——非终结。卡在 wire 上不带
+  // kind（TUI 等旧客户端要把卡当普通消息进时间线），由 payload 推导。
+  if (payload.ask !== undefined || payload.approval !== undefined) {
+    return "progress_note"
+  }
   return "normal"
 }
 

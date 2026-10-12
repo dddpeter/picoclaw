@@ -372,19 +372,22 @@ export function buildTurns(
 		});
 	}
 
-	// 审批卡可操作性：只标最近一张未封存卡为 latest（从后往前找第一张）。
-	// 服务端每会话只有一个审批 waiter，旧 pending 卡按钮实际作用在最新
-	// 审批上——前端把非 latest 的 pending 卡按钮禁用，防批准对象错位。
-	let latestMarked = false;
-	for (let t = turns.length - 1; t >= 0 && !latestMarked; t--) {
-		const blocks = turns[t].assistant?.blocks;
-		if (!blocks) continue;
-		for (let b = blocks.length - 1; b >= 0; b--) {
-			const block = blocks[b];
-			if (block.type === "approval" && !block.seal) {
-				block.latest = true;
-				latestMarked = true;
-				break;
+	// 审批/问询卡可操作性：每类只把最近一张未封存卡标为 latest，其余
+	// 未封存卡保持 undefined（组件默认 false → 按钮禁用）。服务端每会话
+	// 同类只有一个 waiter，旧 pending 卡的提交会错位作用于最新 waiter
+	// （超时幽灵卡 + 新卡并存是最常见的错位场景）。
+	for (const blockType of ["approval", "ask"] as const) {
+		let latestMarked = false;
+		for (let t = turns.length - 1; t >= 0 && !latestMarked; t--) {
+			const blocks = turns[t].assistant?.blocks;
+			if (!blocks) continue;
+			for (let b = blocks.length - 1; b >= 0; b--) {
+				const block = blocks[b];
+				if (block.type === blockType && !block.seal) {
+					block.latest = true;
+					latestMarked = true;
+					break;
+				}
 			}
 		}
 	}

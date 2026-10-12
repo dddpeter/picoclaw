@@ -15,6 +15,11 @@ import (
 type CompactInput struct {
 	Budget *int // Token budget override
 	Force  bool // Force compaction even if below threshold
+	// KeepTail overrides the protected fresh-tail message count for leaf
+	// compaction (0 = engine default). A smaller value lets manual /compact
+	// compact closer to the tail than the automatic path (octop borrowing
+	// §五 keep-6 semantics).
+	KeepTail int
 }
 
 // CompactResult describes what was compacted.
@@ -47,7 +52,7 @@ func (e *CompactionEngine) Compact(ctx context.Context, convID int64, input Comp
 	result := &CompactResult{}
 
 	// Phase 1: leaf compaction (synchronous, every turn)
-	summaryID, err := e.compactLeaf(ctx, convID)
+	summaryID, err := e.compactLeaf(ctx, convID, false, input.KeepTail)
 	if err != nil {
 		return nil, fmt.Errorf("compact leaf: %w", err)
 	}
@@ -115,7 +120,7 @@ func (e *CompactionEngine) CompactUntilUnder(ctx context.Context, convID int64, 
 		}
 
 		// Try leaf first
-		summaryID, err := e.compactLeaf(ctx, convID, true)
+		summaryID, err := e.compactLeaf(ctx, convID, true, 0)
 		if err != nil {
 			return result, err
 		}
@@ -167,8 +172,10 @@ func (e *CompactionEngine) CompactUntilUnder(ctx context.Context, convID int64, 
 }
 
 // compactLeaf compresses the oldest contiguous message chunk into a leaf summary.
-// When force is true, FreshTailCount protection is bypassed (used by CompactUntilUnder).
-func (e *CompactionEngine) compactLeaf(ctx context.Context, convID int64, force ...bool) (*string, error) {
+// When force is true, FreshTailCount protection is bypassed (used by
+// CompactUntilUnder). keepTail > 0 narrows (never widens) the protected tail
+// for this call — the manual /compact keep-6 semantics (octop borrowing §五).
+func (e *CompactionEngine) compactLeaf(ctx context.Context, convID int64, force bool, keepTail int) (*string, error) {
 	items, err := e.store.GetContextItems(ctx, convID)
 	if err != nil {
 		return nil, err
@@ -189,10 +196,13 @@ func (e *CompactionEngine) compactLeaf(ctx context.Context, convID int64, force 
 		return nil, nil
 	}
 
-	// Calculate fresh tail boundary (bypass when forced)
-	useForce := len(force) > 0 && force[0]
-	tailStartIdx := len(items) - FreshTailCountValue()
-	if useForce {
+	// Calculate fresh tail boundary (bypass when forced; keepTail narrows it)
+	tail := FreshTailCountValue()
+	if keepTail > 0 && keepTail < tail {
+		tail = keepTail
+	}
+	tailStartIdx := len(items) - tail
+	if force {
 		tailStartIdx = len(items) // allow compacting everything
 	}
 	if tailStartIdx < 0 {

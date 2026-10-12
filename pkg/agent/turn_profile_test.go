@@ -429,8 +429,10 @@ func TestTurnProfile_SubTurnInheritsParentToolProfile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("spawnSubTurn() error = %v", err)
 	}
-	if len(provider.tools) != 1 {
-		t.Fatalf("child provider tools len = %d, want 1: %#v", len(provider.tools), provider.tools)
+	// Child (sub-turn) inherits the same shape: allowlisted tool + the
+	// always-on ask_user meta tool (see the parent-profile test above).
+	if len(provider.tools) != 2 {
+		t.Fatalf("child provider tools len = %d, want 2 (echo_text + ask_user): %#v", len(provider.tools), provider.tools)
 	}
 	if provider.tools[0].Function.Name != "echo_text" {
 		t.Fatalf("child provider tool = %q, want echo_text", provider.tools[0].Function.Name)
@@ -747,8 +749,12 @@ func TestTurnProfile_ToolsCustomFiltersProviderToolsAndHookAdditions(t *testing.
 	if err != nil {
 		t.Fatalf("runAgentLoop() error = %v", err)
 	}
-	if len(provider.tools) != 1 {
-		t.Fatalf("provider tools len = %d, want 1: %#v", len(provider.tools), provider.tools)
+	// Custom allowlist turns keep the ask_user meta tool alongside the
+	// allowlisted set: it is appended AFTER profile filtering on every
+	// iteration (appendMetaToolDefs), so the escape hatch stays available
+	// mid-turn instead of vanishing from iteration 2 onward (review P0-1).
+	if len(provider.tools) != 2 {
+		t.Fatalf("provider tools len = %d, want 2 (echo_text + ask_user): %#v", len(provider.tools), provider.tools)
 	}
 	if provider.tools[0].Function.Name != "echo_text" {
 		t.Fatalf("provider tool = %q, want echo_text", provider.tools[0].Function.Name)

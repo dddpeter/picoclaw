@@ -66,13 +66,21 @@ func outboundMessageIsToolCalls(msg bus.OutboundMessage) bool {
 }
 
 // outboundMessageIsProgressNote reports whether the message is a non-final
-// progress beat (heartbeat / stall-watchdog notice) rather than the turn's
-// final answer.
+// beat rather than the turn's final answer: an explicit progress_note mark
+// (heartbeat / stall-watchdog notice) or the pico-scoped receipt marker
+// (approval/ask answer receipts — the model keeps generating behind them).
+// Approval/ask CARDS are deliberately NOT marked here: older pico clients
+// (the TUI) render progress_note as a status-line-only beat and would drop
+// the card from the timeline — the web frontend derives the non-final
+// semantics from the ask/approval payload itself instead (review P1-2).
 func outboundMessageIsProgressNote(msg bus.OutboundMessage) bool {
 	if len(msg.Context.Raw) == 0 {
 		return false
 	}
-	return strings.EqualFold(strings.TrimSpace(msg.Context.Raw["message_kind"]), MessageKindProgressNote)
+	if strings.EqualFold(strings.TrimSpace(msg.Context.Raw["message_kind"]), MessageKindProgressNote) {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(msg.Context.Raw["pico_kind"]), MessageKindProgressNote)
 }
 
 func outboundMessageFinalizesTrackedToolFeedback(msg bus.OutboundMessage) bool {
@@ -1504,7 +1512,7 @@ func setContextUsagePayload(payload map[string]any, u *bus.ContextUsage) {
 	if u == nil {
 		return
 	}
-	payload["context_usage"] = map[string]any{
+	usage := map[string]any{
 		"used_tokens":         u.UsedTokens,
 		"total_tokens":        u.TotalTokens,
 		"history_tokens":      u.HistoryTokens,
@@ -1512,6 +1520,20 @@ func setContextUsagePayload(payload map[string]any, u *bus.ContextUsage) {
 		"summarize_at_tokens": u.SummarizeAtTokens,
 		"used_percent":        u.UsedPercent,
 	}
+	// Segments (octop borrowing §五): the web ring's stacked breakdown reads
+	// context_usage.segments — dropping them here left the whole feature dead
+	// on the wire (review P1-6).
+	if len(u.Segments) > 0 {
+		segments := make([]map[string]any, 0, len(u.Segments))
+		for _, seg := range u.Segments {
+			segments = append(segments, map[string]any{
+				"key":    seg.Key,
+				"tokens": seg.Tokens,
+			})
+		}
+		usage["segments"] = segments
+	}
+	payload["context_usage"] = usage
 }
 
 // setTurnUsagePayload attaches real per-turn LLM token usage to the payload.

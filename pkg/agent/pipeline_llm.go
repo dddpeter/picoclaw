@@ -75,12 +75,10 @@ func (p *Pipeline) CallLLM(
 	exec.gracefulTerminal, _ = ts.gracefulInterruptRequested()
 	exec.providerToolDefs = ts.agent.Tools.ToProviderDefs()
 	exec.providerToolDefs = filterToolsByTurnProfile(exec.providerToolDefs, ts.profile)
-	// Progressive tool loading (octop borrowing §六): unload heavy MCP
-	// catalogs into deferred references + tool_search for this session.
-	exec.providerToolDefs = al.applyToolDeferral(ts.sessionKey, exec.providerToolDefs)
-	// ask_user (octop borrowing §三): always available — the model's
-	// structured escape hatch to the user.
-	exec.providerToolDefs = append(exec.providerToolDefs, askUserToolDef())
+	// Progressive tool loading (§六) + ask_user (§三) meta tools: one shared
+	// injection point — appendMetaToolDefs is idempotent, so the BeforeLLM
+	// echo path below can replay it safely (review P0-1).
+	exec.providerToolDefs = al.appendMetaToolDefs(ts.sessionKey, exec.providerToolDefs)
 
 	// Native web search support
 	webSearchEnabled := al.cfg.Tools.IsToolEnabled("web") && turnProfileToolAllowed(ts.profile, "web_search")
@@ -166,8 +164,12 @@ func (p *Pipeline) CallLLM(
 				prevModel := exec.llmModel
 				exec.llmModel = llmReq.Model
 				exec.callMessages = llmReq.Messages
+				// Rebuilt tool list: replay the meta-tool injection so hooks
+				// can neither drop ask_user nor duplicate tool_search
+				// (review P0-1). Empty tool lists (graceful terminal) stay
+				// empty — appendMetaToolDefs no-ops on them.
 				exec.providerToolDefs = filterToolsByTurnProfile(llmReq.Tools, ts.profile)
-				exec.providerToolDefs = al.applyToolDeferral(ts.sessionKey, exec.providerToolDefs)
+				exec.providerToolDefs = al.appendMetaToolDefs(ts.sessionKey, exec.providerToolDefs)
 				exec.llmOpts = llmReq.Options
 				if strings.TrimSpace(exec.llmModel) != "" && exec.llmModel != prevModel {
 					if err := p.applyBeforeLLMModelRewrite(ts, exec); err != nil {
@@ -210,6 +212,11 @@ func (p *Pipeline) CallLLM(
 	} else {
 		delete(exec.llmOpts, "native_search")
 	}
+	// The hook echo and the native-search adjustment above may both have
+	// rewritten the tool set — recompute the cached token cost once at the
+	// single exit so the clamp and iteration-boundary checks never see a
+	// stale count (review P0-1/P2-1).
+	exec.toolDefTokens = EstimateToolDefsTokens(exec.providerToolDefs)
 
 	al.emitEvent(
 		runtimeevents.KindAgentLLMRequest,

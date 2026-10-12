@@ -560,7 +560,7 @@ func (al *AgentLoop) buildCommandsRuntime(
 			if opts == nil {
 				return nil, fmt.Errorf("process options not available")
 			}
-			return al.runManualCompact(ctx, agent, opts.SessionKey)
+			return al.runManualCompact(ctx, agent, opts.SessionKey, manualCompactFromWorker)
 		}
 	}
 	return rt

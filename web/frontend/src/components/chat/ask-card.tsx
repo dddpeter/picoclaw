@@ -19,12 +19,12 @@ const OPTION_KEYS = ["A", "B", "C", "D", "E", "F"] as const
 export function AskCard({
 	info,
 	seal,
-	latest = true,
+	latest = false,
 }: {
 	info: AskInfo
 	seal?: AskSeal
-	/** 询问时刻（保留以对齐 PiBlock 形状；v1 无倒计时）。 */
-	timestamp?: number
+	/** false = 存在更新的未封存问询卡，本卡按钮禁用（防提交错位）。
+	 * 默认 false：buildTurns 只显式标记最近一张未封存卡。 */
 	latest?: boolean
 }) {
 	const { t } = useTranslation()
@@ -143,7 +143,8 @@ export function AskCard({
 							</div>
 							{hasOptions ? (
 								<div className="mt-1.5 flex flex-wrap gap-1.5">
-									{(q.options ?? []).map((opt, oi) => {										const selected = picked.includes(opt.label)
+									{(q.options ?? []).map((opt, oi) => {
+										const selected = picked.includes(opt.label)
 										return (
 											<button
 												key={opt.label}
@@ -168,21 +169,29 @@ export function AskCard({
 										)
 									})}
 								</div>
-							) : multiQ ? (
-								<div className="mt-1.5">
-									<input
-										type="text"
-										value={textDraft[qi] ?? ""}
-										disabled={submitting || !actionable}
-										onChange={(e) =>
-											setTextDraft((prev) => ({ ...prev, [qi]: e.target.value }))
-										}
-										placeholder={t("chat.askTextPlaceholder")}
-										maxLength={2000}
-										className="border-border focus-visible:ring-sky-500/30 h-8 w-full max-w-md rounded-lg border bg-transparent px-2.5 text-[13px] outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
-									/>
-								</div>
-							) : (
+								) : multiQ ? (
+									<div className="mt-1.5">
+										<input
+											type="text"
+											value={textDraft[qi] ?? ""}
+											disabled={submitting || !actionable}
+											onChange={(e) =>
+												setTextDraft((prev) => ({ ...prev, [qi]: e.target.value }))
+											}
+											onKeyDown={(e) => {
+												// Enter 提交（对齐审批卡拒绝理由输入的先例）；输入法
+												// 组合态的 Enter 不算。
+												if (e.key === "Enter" && !e.nativeEvent.isComposing && allAnswered) {
+													e.preventDefault()
+													submitAll()
+												}
+											}}
+											placeholder={t("chat.askTextPlaceholder")}
+											maxLength={2000}
+											className="border-border focus-visible:ring-sky-500/30 h-8 w-full max-w-md rounded-lg border bg-transparent px-2.5 text-[13px] outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
+										/>
+									</div>
+								) : (
 								<div className="text-muted-foreground/70 mt-1 text-[11px]">
 									{t("chat.askFreeTextHint")}
 								</div>
@@ -197,7 +206,7 @@ export function AskCard({
 					{multiQ && (
 						<button
 							type="button"
-							disabled={submitting || !allAnswered}
+							disabled={submitting || !actionable || !allAnswered}
 							onClick={submitAll}
 							className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg px-3 text-[12px] font-medium shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50"
 						>
@@ -207,7 +216,7 @@ export function AskCard({
 					)}
 					<button
 						type="button"
-						disabled={submitting}
+						disabled={submitting || !actionable}
 						onClick={() => send("/skip")}
 						className="text-muted-foreground hover:text-foreground hover:bg-accent inline-flex h-7 cursor-pointer items-center rounded-lg border border-transparent bg-transparent px-2 text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
 					>
