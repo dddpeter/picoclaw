@@ -111,7 +111,7 @@ func newIdleTestLoop(t *testing.T, store *idleTestStore, cm ContextManager, msgs
 	agent.ContextWindow = 500
 	agent.MaxTokens = 64
 	for i := 0; i < msgs; i++ {
-		store.AddFullMessage("s1", providers.Message{Role: "user", Content: "消息内容" + string(rune('a'+i%26)) + "PaddingPaddingPaddingPadding"})
+		store.AddFullMessage("s1", providers.Message{Role: "user", Content: "消息内容" + string(rune('a'+i%26)) + "PaddingPaddingPaddingPaddingPaddingPaddingPaddingPadding"})
 	}
 	if err := store.Save("s1"); err != nil {
 		t.Fatalf("Save: %v", err)

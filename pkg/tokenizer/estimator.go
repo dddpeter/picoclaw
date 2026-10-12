@@ -2,90 +2,190 @@ package tokenizer
 
 import (
 	"encoding/json"
-	"unicode/utf8"
+	"math"
+	"strings"
 
 	"github.com/sipeed/picoclaw/pkg/providers"
 )
 
+// Token cost model (borrowed from octop-harness context_usage.py, see
+// docs/design/octop-borrowing-analysis.zh.md §七):
+//
+// BPE vocabularies spend roughly one token per 1-2 CJK characters against
+// ~4 latin characters — a flat chars/2.5 conversion under-counts a Chinese
+// prompt by more than a third, delaying every threshold built on these
+// estimates (compaction watermarks, tool-trigger ratios, usage display).
+const (
+	cjkCharsPerToken   = 1.6
+	latinCharsPerToken = 4.0
+	jsonCharsPerToken  = 3.0
+)
+
+// messageFramingTokens is the role marker + JSON structure + separators the
+// chat template adds around every message.
+const messageFramingTokens = 4
+
+// perSystemPartOverheadTokens / perToolDefOverheadTokens account for the JSON
+// structure (type, text, cache_control) around each block/tool definition.
+const (
+	perSystemPartOverheadTokens = 8
+	perToolDefOverheadTokens    = 8
+)
+
+// Inline media cost more than any placeholder text suggests: images are
+// billed as a tile grid (provider- and resolution-specific, ~1600 mid-range),
+// other media blocks ~400.
+const (
+	imageMediaTokens   = 1600
+	otherMediaTokens   = 400
+	imageExtHintLenMax = 8 // extension lookback bound for media refs
+)
+
+// isCJK reports whether r falls in the token-expensive East Asian ranges:
+// kana, CJK extension A, unified ideographs, compatibility ideographs,
+// halfwidth katakana, and hangul syllables.
+func isCJK(r rune) bool {
+	switch {
+	case r >= 0x3040 && r <= 0x30FF: // hiragana + katakana
+		return true
+	case r >= 0x3400 && r <= 0x4DBF: // CJK extension A
+		return true
+	case r >= 0x4E00 && r <= 0x9FFF: // CJK unified ideographs
+		return true
+	case r >= 0xF900 && r <= 0xFAFF: // CJK compatibility ideographs
+		return true
+	case r >= 0xFF66 && r <= 0xFF9F: // halfwidth katakana
+		return true
+	case r >= 0xAC00 && r <= 0xD7AF: // hangul syllables
+		return true
+	default:
+		return false
+	}
+}
+
+// estimateTextTokens classifies runes by script: CJK ≈ 1.6 chars/token,
+// everything else ≈ 4 chars/token. Non-empty input yields at least 1.
+func estimateTextTokens(s string) int {
+	if s == "" {
+		return 0
+	}
+	cjk, total := 0, 0
+	for _, r := range s {
+		total++
+		if isCJK(r) {
+			cjk++
+		}
+	}
+	est := float64(cjk)/cjkCharsPerToken + float64(total-cjk)/latinCharsPerToken
+	return max(1, int(math.Round(est)))
+}
+
+// estimateJSONTokens estimates serialized JSON, which packs denser than
+// prose: braces, quotes, colons, and snake_case keys each split off (~3
+// chars/token).
+func estimateJSONTokens(s string) int {
+	if s == "" {
+		return 0
+	}
+	return max(1, int(math.Round(float64(len(s))/jsonCharsPerToken)))
+}
+
+// mediaRefTokens bills one media:// reference by type: image extensions get
+// the tile-grid cost, everything else the generic media block cost.
+func mediaRefTokens(ref string) int {
+	if isImageExt(mediaRefExt(ref)) {
+		return imageMediaTokens
+	}
+	return otherMediaTokens
+}
+
+// mediaRefExt extracts the lowercase extension of a media ref (may be empty).
+func mediaRefExt(ref string) string {
+	if len(ref) > imageExtHintLenMax {
+		ref = ref[len(ref)-imageExtHintLenMax:]
+	}
+	if i := strings.LastIndexByte(ref, '.'); i >= 0 {
+		return strings.ToLower(ref[i+1:])
+	}
+	return ""
+}
+
+// isImageExt reports whether ext names a raster/vector image format.
+func isImageExt(ext string) bool {
+	switch ext {
+	case "png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "svg":
+		return true
+	default:
+		return false
+	}
+}
+
 // EstimateMessageTokens estimates the token count for a single message,
 // including Content, ReasoningContent, ToolCalls arguments, ToolCallID
-// metadata, and Media items. Uses a heuristic of 2.5 characters per token.
+// metadata, and Media items. Script-aware: CJK content costs ~1.6 chars per
+// token against ~4 for latin; JSON arguments ~3 chars per token; media items
+// are billed per type (image tile grid vs generic block).
 func EstimateMessageTokens(msg providers.Message) int {
-	contentChars := utf8.RuneCountInString(msg.Content)
-
 	// SystemParts are structured system blocks used for cache-aware adapters.
-	// They carry the same content as Content, but in multiple blocks.
-	// We estimate them as an alternative representation, not additive.
-	systemPartsChars := 0
+	// They carry the same content as Content, but in multiple blocks. We
+	// estimate them as an alternative representation, not additive.
+	systemPartsTokens := 0
 	if len(msg.SystemParts) > 0 {
 		for _, part := range msg.SystemParts {
-			systemPartsChars += utf8.RuneCountInString(part.Text)
+			systemPartsTokens += estimateTextTokens(part.Text) + perSystemPartOverheadTokens
 		}
-		// Per-part overhead for JSON structure (type, text, cache_control).
-		const perPartOverhead = 20
-		systemPartsChars += len(msg.SystemParts) * perPartOverhead
 	}
 
 	// Use the larger of the two representations to stay conservative.
-	chars := contentChars
-	if systemPartsChars > chars {
-		chars = systemPartsChars
+	tokens := estimateTextTokens(msg.Content)
+	if systemPartsTokens > tokens {
+		tokens = systemPartsTokens
 	}
 
-	chars += utf8.RuneCountInString(msg.ReasoningContent)
+	tokens += estimateTextTokens(msg.ReasoningContent)
 
 	for _, tc := range msg.ToolCalls {
-		chars += len(tc.ID) + len(tc.Type)
+		// IDs and type markers are ASCII wire-format overhead.
+		tokens += estimateTextTokens(tc.ID) + estimateTextTokens(tc.Type)
 		if tc.Function != nil {
-			// Count function name + arguments (the wire format for most providers).
-			// tc.Name mirrors tc.Function.Name — count only once to avoid double-counting.
-			chars += len(tc.Function.Name) + len(tc.Function.Arguments)
+			// Name is a short ASCII identifier; arguments are wire JSON.
+			tokens += estimateTextTokens(tc.Function.Name) + estimateJSONTokens(tc.Function.Arguments)
 		} else {
-			// Fallback: some provider formats use top-level Name without Function.
-			chars += len(tc.Name)
+			tokens += estimateTextTokens(tc.Name)
 		}
 	}
 
-	if msg.ToolCallID != "" {
-		chars += len(msg.ToolCallID)
+	tokens += estimateTextTokens(msg.ToolCallID)
+
+	tokens += messageFramingTokens
+
+	for _, ref := range msg.Media {
+		tokens += mediaRefTokens(ref)
 	}
-
-	// Per-message overhead for role label, JSON structure, separators.
-	const messageOverhead = 12
-	chars += messageOverhead
-
-	tokens := chars * 2 / 5
-
-	// Media items (images, files) are serialized by provider adapters into
-	// multipart or image_url payloads. Add a fixed per-item token estimate
-	// directly (not through the chars heuristic) since actual cost depends
-	// on resolution and provider-specific image tokenization.
-	const mediaTokensPerItem = 256
-	tokens += len(msg.Media) * mediaTokensPerItem
 
 	return tokens
 }
 
 // EstimateToolDefsTokens estimates the total token cost of tool definitions
-// as they appear in the LLM request.
+// as they appear in the LLM request: names and descriptions are
+// prose-classified (CJK-aware), parameter schemas are JSON-density adjusted.
 func EstimateToolDefsTokens(defs []providers.ToolDefinition) int {
 	if len(defs) == 0 {
 		return 0
 	}
 
-	totalChars := 0
+	total := 0
 	for _, d := range defs {
-		totalChars += len(d.Function.Name) + len(d.Function.Description)
+		total += estimateTextTokens(d.Function.Name) + estimateTextTokens(d.Function.Description)
 
 		if d.Function.Parameters != nil {
 			if paramJSON, err := json.Marshal(d.Function.Parameters); err == nil {
-				totalChars += len(paramJSON)
+				total += estimateJSONTokens(string(paramJSON))
 			}
 		}
 
-		// Per-tool overhead: type field, JSON structure, separators.
-		totalChars += 20
+		total += perToolDefOverheadTokens
 	}
 
-	return totalChars * 2 / 5
+	return total
 }

@@ -88,10 +88,10 @@ func TestPipeline_CallLLM_ReclampOnRetry(t *testing.T) {
 	// attempt is genuinely clamped, not floored.
 	ts.agent.MaxTokens = 32_768
 	configured := ts.agent.MaxTokens
-	// ~160k-token prompt (chars×2/5) under a 170k window: the clamp bites
+	// ~160k-token prompt (latin ≈ 4 chars/token) under a 170k window: the clamp bites
 	// on the first attempt; after the retry compaction empties the history
 	// the rebuilt context is tiny and the clamp must release.
-	exec.callMessages = []providers.Message{{Role: "user", Content: strings.Repeat("x", 400_000)}}
+	exec.callMessages = []providers.Message{{Role: "user", Content: strings.Repeat("x", 640_000)}}
 	exec.messages = exec.callMessages
 	exec.currentTurnStart = 0
 	ts.agent.ContextWindow = 170_000

@@ -482,8 +482,8 @@ func TestEstimateMessageTokens_LargeArguments(t *testing.T) {
 	}
 
 	tokens := EstimateMessageTokens(msg)
-	// 5000+ chars → at least 2000 tokens with the 2.5 char/token heuristic
-	if tokens < 2000 {
+	// 5000+ chars of JSON → 3 chars/token heuristic → at least 1600 tokens
+	if tokens < 1600 {
 		t.Errorf("large tool call arguments should produce significant token count, got %d", tokens)
 	}
 }
@@ -521,11 +521,12 @@ func TestEstimateMessageTokens_MediaItems(t *testing.T) {
 			mediaTokens, plainTokens)
 	}
 
-	// Each media item should add exactly 256 tokens (not run through chars*2/5).
-	expectedDelta := 256 * 2
+	// Each image media item adds a flat tile-grid cost (not run through the
+	// chars heuristic); other media types add the generic block cost.
+	expectedDelta := 1600 * 2 // two .png refs
 	actualDelta := mediaTokens - plainTokens
 	if actualDelta != expectedDelta {
-		t.Errorf("2 media items should add %d tokens, got delta %d", expectedDelta, actualDelta)
+		t.Errorf("2 image media items should add %d tokens, got delta %d", expectedDelta, actualDelta)
 	}
 }
 
@@ -772,9 +773,9 @@ func TestEstimateMessageTokens_WithReasoningAndMedia(t *testing.T) {
 
 	tokens := EstimateMessageTokens(msg)
 
-	// ReasoningContent alone is ~1700 chars → ~680 tokens.
-	// Content + TC + overhead adds more. Should be well above 500.
-	if tokens < 500 {
+	// ReasoningContent alone is ~1750 chars → ~438 tokens (latin ≈ 4 chars/token).
+	// Content + TC + overhead adds more. Should be well above 400.
+	if tokens < 400 {
 		t.Errorf("message with reasoning+toolcalls should have significant tokens, got %d", tokens)
 	}
 
@@ -862,7 +863,7 @@ func TestTrimHistoryToFitContextWindow_DropsOldestTurns(t *testing.T) {
 	trimmedHistory, messages, fit := trimHistoryToFitContextWindow(
 		history,
 		build,
-		700,
+		450,
 		nil,
 		0,
 	)
@@ -875,7 +876,7 @@ func TestTrimHistoryToFitContextWindow_DropsOldestTurns(t *testing.T) {
 	if trimmedHistory[0].Content != history[2].Content {
 		t.Fatalf("first kept message = %q, want second turn start", trimmedHistory[0].Content)
 	}
-	if isOverContextBudget(700, messages, nil, 0) {
+	if isOverContextBudget(450, messages, nil, 0) {
 		t.Fatal("trimmed messages should be within budget")
 	}
 }

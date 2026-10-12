@@ -161,9 +161,9 @@ func TestPipeline_CallLLM_IterationBoundaryClampsMaxTokens(t *testing.T) {
 	// exercises clamping, not the floor.
 	ts.agent.MaxTokens = 32_768
 	configured := ts.agent.MaxTokens
-	// Estimator: chars*2/5 → 400k chars ≈ 160k tokens. Window leaves less
+	// Estimator: latin ≈ 4 chars/token → 640k chars ≈ 160k tokens. Window leaves less
 	// room than the configured output budget.
-	exec.callMessages = []providers.Message{{Role: "user", Content: strings.Repeat("x", 400_000)}}
+	exec.callMessages = []providers.Message{{Role: "user", Content: strings.Repeat("x", 640_000)}}
 	exec.messages = exec.callMessages
 	ts.agent.ContextWindow = 160_000 + configured + iterationCompactSafetyTokens/2
 
