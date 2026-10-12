@@ -234,7 +234,7 @@ export function handlePicoMessage(
               ...(modelName ? { modelName } : {}),
               ...(toolCalls ? { toolCalls } : {}),
               ...(approval ? { approval } : {}),
-              ...(ask ? { ask } : {}),,
+              ...(ask ? { ask } : {}),
               attachments,
               timestamp,
             },

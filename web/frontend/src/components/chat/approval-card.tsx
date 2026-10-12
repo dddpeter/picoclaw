@@ -160,6 +160,7 @@ export function ApprovalCard({
 			)}
 
 			{pending ? (
+				<>
 				<div className="flex flex-wrap items-center gap-2 px-3.5 pt-2.5 pb-3">
 					<button
 						type="button"
@@ -223,7 +224,7 @@ export function ApprovalCard({
 						{t("chat.approvalDenyWithReason")}
 					</button>
 				</div>
-				{pending && denyWithReason && actionable && (
+				{denyWithReason && actionable && (
 					<div className="flex items-center gap-2 px-3.5 pb-3">
 						<input
 							type="text"
@@ -249,6 +250,7 @@ export function ApprovalCard({
 						</button>
 					</div>
 				)}
+				</>
 			) : (
 				sealInfo && (
 					<div className="flex items-center gap-2 px-3.5 pt-2 pb-3">

@@ -16,12 +16,12 @@ const OPTION_KEYS = ["A", "B", "C", "D", "E", "F"] as const
 export function AskCard({
 	info,
 	seal,
-	timestamp,
 	latest = true,
 }: {
 	info: AskInfo
 	seal?: AskSeal
-	timestamp: number
+	/** 询问时刻（保留以对齐 PiBlock 形状；v1 无倒计时）。 */
+	timestamp?: number
 	latest?: boolean
 }) {
 	const { t } = useTranslation()
@@ -64,7 +64,7 @@ export function AskCard({
 	}
 
 	const submitMulti = () => {
-		const lines = info.questions.map((q, qi) => (draft[qi] ?? []).join("; "))
+		const lines = info.questions.map((_, qi) => (draft[qi] ?? []).join("; "))
 		send(lines.join("\n"))
 	}
 

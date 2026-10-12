@@ -102,8 +102,10 @@ export async function loadSessionMessages(
   }
   // ask_user 问询卡同模式恢复（octop 借鉴 §三）：标记与卡片同生命周期，
   // 历史里已有未封存 ask 卡时不重复注入。
-  const pendingAskQuestions = detail.pending_ask?.questions
+  const pendingAsk = detail.pending_ask
+  const pendingAskQuestions = pendingAsk?.questions
   if (
+    pendingAsk &&
     Array.isArray(pendingAskQuestions) &&
     pendingAskQuestions.length > 0 &&
     !paired.some((m) => m.role === "assistant" && m.ask && !m.askSeal)
@@ -111,13 +113,11 @@ export async function loadSessionMessages(
     // stale：网关在问询等待中崩溃残留——等待者已死、超时早已软失败。
     // 预封存为 done（低权重），不渲染可点卡。作答路由本身是状态驱动，
     // 刷新后仍可在输入框作答；这里只还原可视化。
-    const staleSeal = detail.pending_ask?.stale
+    const staleSeal = pendingAsk.stale
       ? {
           askSeal: {
             verdict: "done" as const,
-            at:
-              (detail.pending_ask.started_at ?? 0) +
-              (detail.pending_ask.timeout_ms ?? 0),
+            at: (pendingAsk.started_at ?? 0) + (pendingAsk.timeout_ms ?? 0),
           },
         }
       : {}
@@ -127,12 +127,12 @@ export async function loadSessionMessages(
       content: "",
       kind: "normal",
       ask: {
-        questions: pendingAskQuestions as AskQuestion[],
-        ...(detail.pending_ask.timeout_ms && detail.pending_ask.timeout_ms > 0
-          ? { timeoutMs: detail.pending_ask.timeout_ms }
+        questions: pendingAskQuestions as unknown as AskQuestion[],
+        ...(pendingAsk.timeout_ms && pendingAsk.timeout_ms > 0
+          ? { timeoutMs: pendingAsk.timeout_ms }
           : {}),
       },
-      timestamp: detail.pending_ask.started_at ?? Date.now(),
+      timestamp: pendingAsk.started_at ?? Date.now(),
       ...staleSeal,
     })
   }
