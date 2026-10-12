@@ -48,6 +48,11 @@ const (
 	// approvalAskPreviewRunes bounds the command/args preview in the ask
 	// message so a huge tool call cannot blow up the chat bubble.
 	approvalAskPreviewRunes = 200
+
+	// approvalDenyReasonMaxRunes bounds the optional /deny reason so a giant
+	// paste cannot blow up the denied tool result (octop caps decision
+	// messages at 8000 chars; a refusal reason needs far less).
+	approvalDenyReasonMaxRunes = 2000
 )
 
 // Approval text wire format — the web frontend parses these exact strings
@@ -94,10 +99,13 @@ type approvalHookConfig struct {
 }
 
 // approvalReply carries the user's answer; always asks the waiter's owner
-// to remember the matched rule for the rest of the session.
+// to remember the matched rule for the rest of the session. reason carries
+// the optional text typed after /deny (octop borrowing §二): it flows into
+// the denied tool result so the model learns WHY the user refused.
 type approvalReply struct {
 	approved bool
 	always   bool
+	reason   string
 }
 
 // pendingApproval is one session's in-flight approval waiter. channel/chatID
@@ -437,9 +445,13 @@ func (h *approvalHook) ApproveTool(ctx context.Context, req *ToolApprovalRequest
 	select {
 	case reply := <-resolve:
 		if !reply.approved {
+			reason := fmt.Sprintf("user denied %q via approval reply", req.Tool)
+			if reply.reason != "" {
+				reason = fmt.Sprintf("user denied %q via approval reply: %s", req.Tool, reply.reason)
+			}
 			return ApprovalDecision{
 				Approved: false,
-				Reason:   fmt.Sprintf("user denied %q via approval reply", req.Tool),
+				Reason:   reason,
 			}, nil
 		}
 		return ApprovalDecision{Approved: true}, nil
@@ -587,46 +599,61 @@ func (h *approvalHook) publishTimeoutReceipt(ctx context.Context, req *ToolAppro
 // parseApprovalReply recognizes explicit user answers only: /approve /deny
 // (plus yes/no aliases and Chinese 同意/拒绝/批准), and the always-allow
 // forms "/approve always" / "总是允许" which additionally promote the matched
-// rule to session scope. A command form only counts when it is the ENTIRE
-// message (or exactly command+always) — "/approve 请继续删库" carries extra
-// intent and must not silently approve (fail-closed: better to ask again
-// than to mis-approve). Deny has no always form: refusals stay per-call.
+// rule to session scope. Deny — and only deny — accepts trailing text as the
+// refusal reason ("/deny 别动生产分支"): refusing more eagerly is the
+// fail-closed direction, and the reason flows to the model via the denied
+// tool result. A command-plus-content APPROVE is never an answer —
+// "/approve 请继续删库" carries extra intent and must not silently approve.
+// Deny has no always form (a bare trailing "always" is not a reason).
 // Anything else returns ok=false so the message keeps flowing to steering.
-func parseApprovalReply(content string) (approved, always, ok bool) {
+func parseApprovalReply(content string) (approved, always bool, reason string, ok bool) {
 	trimmed := strings.TrimSpace(content)
 	if trimmed == "" {
-		return false, false, false
+		return false, false, "", false
 	}
 	fields := strings.Fields(trimmed)
 	if name, isCmd := commands.CommandName(trimmed); isCmd {
 		if len(fields) == 2 && strings.EqualFold(fields[1], "always") {
 			if strings.ToLower(name) == "approve" {
-				return true, true, true
+				return true, true, "", true
 			}
-			return false, false, false
-		}
-		if len(fields) != 1 {
-			return false, false, false // command plus trailing content — not an answer
+			if strings.ToLower(name) == "deny" || strings.ToLower(name) == "no" {
+				// "/deny always" — deny has no always form; deny plainly
+				// (a bare trailing "always" is not a reason).
+				return false, false, "", true
+			}
+			return false, false, "", false
 		}
 		switch strings.ToLower(name) {
 		case "approve", "yes":
-			return true, false, true
+			if len(fields) != 1 {
+				return false, false, "", false // trailing content never approves
+			}
+			return true, false, "", true
 		case "deny", "no":
-			return false, false, true
+			if len(fields) == 1 {
+				return false, false, "", true
+			}
+			// "/deny <reason>": trailing text is the user's refusal reason.
+			rest := strings.TrimSpace(trimmed[len(fields[0]):])
+			if strings.EqualFold(rest, "always") {
+				return false, false, "", true
+			}
+			return false, false, firstNRunes(rest, approvalDenyReasonMaxRunes), true
 		}
-		return false, false, false
+		return false, false, "", false
 	}
 	if len(fields) == 1 {
 		switch trimmed {
 		case "同意", "批准":
-			return true, false, true
+			return true, false, "", true
 		case "拒绝":
-			return false, false, true
+			return false, false, "", true
 		case "总是允许":
-			return true, true, true
+			return true, true, "", true
 		}
 	}
-	return false, false, false
+	return false, false, "", false
 }
 
 // tryHandleApprovalReply runs in the inbound pump BEFORE the turn-state
@@ -643,7 +670,7 @@ func (al *AgentLoop) tryHandleApprovalReply(ctx context.Context, msg bus.Inbound
 	if hook == nil {
 		return false
 	}
-	approved, always, ok := parseApprovalReply(msg.Content)
+	approved, always, reason, ok := parseApprovalReply(msg.Content)
 	if !ok {
 		return false
 	}
@@ -652,7 +679,7 @@ func (al *AgentLoop) tryHandleApprovalReply(ctx context.Context, msg bus.Inbound
 		// Orphan approval token (late click / typed reply after the question
 		// expired or was already answered): drop with a receipt instead of
 		// leaking the protocol word into steering or a fresh turn.
-		al.publishApprovalReceipt(ctx, msg, ApprovalReceiptNoPendingPrefix + "，本次回复已忽略。")
+		al.publishApprovalReceipt(ctx, msg, ApprovalReceiptNoPendingPrefix+"，本次回复已忽略。")
 		logger.InfoCF("agent", "Orphan approval reply dropped", map[string]any{
 			"session_key": sessionKey,
 			"content":     msg.Content,
@@ -672,7 +699,7 @@ func (al *AgentLoop) tryHandleApprovalReply(ctx context.Context, msg bus.Inbound
 		return false
 	}
 	select {
-	case p.resolve <- approvalReply{approved: approved, always: always}:
+	case p.resolve <- approvalReply{approved: approved, always: always, reason: reason}:
 	default:
 		return false // already resolved by another reply
 	}

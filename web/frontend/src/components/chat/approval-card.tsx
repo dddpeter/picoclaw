@@ -55,6 +55,10 @@ export function ApprovalCard({
 	const { t } = useTranslation()
 	const [submitting, setSubmitting] = useState<null | "approve" | "always" | "deny">(null)
 	const [now, setNow] = useState(Date.now())
+	// 拒绝带理由（octop 借鉴 §二）：/deny <reason> 的理由回注给模型，
+	// 让它理解为什么被拒并改道；纯拒绝仍是一键。
+	const [denyWithReason, setDenyWithReason] = useState(false)
+	const [denyReason, setDenyReason] = useState("")
 
 	const pending = seal === undefined
 	const actionable = pending && latest
@@ -88,6 +92,11 @@ export function ApprovalCard({
 			return // 发送失败保持可点（连接恢复后重试）
 		}
 		setSubmitting(which)
+	}
+
+	const sendDenyWithReason = () => {
+		const reason = denyReason.trim()
+		send(reason ? `/deny ${reason}` : "/deny", "deny")
 	}
 
 	const sealInfo = seal ? sealLabel(t, seal.verdict) : undefined
@@ -191,7 +200,41 @@ export function ApprovalCard({
 						)}
 						{t("chat.approvalDeny")}
 					</button>
+					<button
+						type="button"
+						disabled={submitting !== null || !actionable}
+						onClick={() => setDenyWithReason((v) => !v)}
+						className="text-muted-foreground hover:text-red-600 dark:hover:text-red-400 inline-flex h-8 cursor-pointer items-center rounded-lg px-2 text-[12px] underline-offset-2 transition-colors hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+					>
+						{t("chat.approvalDenyWithReason")}
+					</button>
 				</div>
+				{pending && denyWithReason && actionable && (
+					<div className="flex items-center gap-2 px-3.5 pb-3">
+						<input
+							type="text"
+							value={denyReason}
+							onChange={(e) => setDenyReason(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+									e.preventDefault()
+									sendDenyWithReason()
+								}
+								}}
+							maxLength={2000}
+							placeholder={t("chat.approvalDenyReasonPlaceholder")}
+							className="border-red-500/30 focus-visible:ring-red-500/30 h-8 w-full rounded-lg border bg-transparent px-2.5 text-[13px] outline-none focus-visible:ring-2"
+						/>
+						<button
+							type="button"
+							disabled={submitting !== null}
+							onClick={sendDenyWithReason}
+							className="text-red-600 dark:text-red-400 border-red-500/40 hover:bg-red-500/10 inline-flex h-8 shrink-0 cursor-pointer items-center rounded-lg border bg-transparent px-3 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+						>
+							{t("chat.approvalDenyReasonSend")}
+						</button>
+					</div>
+				)}
 			) : (
 				sealInfo && (
 					<div className="flex items-center gap-2 px-3.5 pt-2 pb-3">

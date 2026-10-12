@@ -320,12 +320,14 @@ func TestApproval_SessionAlwaysAllow(t *testing.T) {
 		{"/APPROVE ALWAYS", true, true, true},
 		{"总是允许", true, true, true},
 		{"/approve", true, false, true},
-		{"/deny always", false, false, false}, // deny has no always form
 		{"/approve always extra", false, false, false},
 		{"/approve always吧", false, false, false},
+		// "/deny always" is a plain deny without reason (deny has no always
+		// form; a bare trailing "always" must not become a weird reason).
+		{"/deny always", false, false, true},
 	}
 	for _, tc := range cases {
-		a, aw, ok := parseApprovalReply(tc.content)
+		a, aw, _, ok := parseApprovalReply(tc.content)
 		if a != tc.approved || aw != tc.always || ok != tc.ok {
 			t.Fatalf("parseApprovalReply(%q) = (%v,%v,%v), want (%v,%v,%v)",
 				tc.content, a, aw, ok, tc.approved, tc.always, tc.ok)
@@ -488,5 +490,85 @@ func TestApprovalWireFormatPinned(t *testing.T) {
 		if pin.got != pin.want {
 			t.Errorf("%s drifted: got %q want %q (frontend approval.ts must be updated in lockstep)", pin.name, pin.got, pin.want)
 		}
+	}
+}
+
+// TestApproval_DenyWithReason pins the deny-with-reason flow (octop
+// borrowing §二): "/deny <text>" is a valid answer carrying the reason to
+// the waiter, the reason reaches ApprovalDecision.Reason (and thus the
+// denied tool result the model sees), and it is bounded. Approve keeps its
+// strict whole-message rule — trailing content never approves.
+func TestApproval_DenyWithReason(t *testing.T) {
+	// Parse matrix: deny accepts trailing text as the reason; approve does not.
+	cases := []struct {
+		content string
+		ok      bool
+		reason  string
+	}{
+		{"/deny", true, ""},
+		{"/deny 别动生产分支", true, "别动生产分支"},
+		{"/deny   先看 diff 再说  ", true, "先看 diff 再说"},
+		{"/DENY prod only", true, "prod only"},
+		{"/deny always", true, ""}, // bare "always" is not a reason
+		{"/approve 别执行", false, ""},
+		{"/deny " + strings.Repeat("长", approvalDenyReasonMaxRunes+50), true,
+			strings.Repeat("长", approvalDenyReasonMaxRunes) + "…"},
+	}
+	for _, tc := range cases {
+		_, _, reason, ok := parseApprovalReply(tc.content)
+		if ok != tc.ok || reason != tc.reason {
+			t.Fatalf("parseApprovalReply(%q) reason=%q ok=%v, want reason=%q ok=%v",
+				tc.content, reason, ok, tc.reason, tc.ok)
+		}
+	}
+
+	// Routing side: the waiter receives the reason typed by the user.
+	h := approvalTestHook(t, `{"ask_patterns":["git push"]}`)
+	al, _, cleanup := newTurnCoordTestLoop(t, &summarizeStubProvider{})
+	defer cleanup()
+	al.approvalHook = h
+	ch := make(chan approvalReply, 1)
+	h.pending.Store("s-r", &pendingApproval{resolve: ch, channel: "feishu", chatID: "c", pattern: "git push"})
+	if !al.tryHandleApprovalReply(context.Background(),
+		bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "/deny 别动生产分支"}, "s-r") {
+		t.Fatal("/deny with reason must be consumed")
+	}
+	reply := <-ch
+	if reply.approved || reply.always {
+		t.Fatal("deny-with-reason must not approve")
+	}
+	if reply.reason != "别动生产分支" {
+		t.Fatalf("waiter reason = %q, want the typed reason", reply.reason)
+	}
+
+	// Full chain: the reason surfaces in ApprovalDecision.Reason (this is
+	// what appendDeniedToolResult renders into the tool result for the model).
+	decided := make(chan ApprovalDecision, 1)
+	go func() {
+		d, err := h.ApproveTool(context.Background(), approvalTestRequest("s-chain", "feishu"))
+		if err != nil {
+			t.Errorf("ApproveTool: %v", err)
+		}
+		decided <- d
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	var waiter *pendingApproval
+	for time.Now().Before(deadline) {
+		if loaded, ok := h.pending.Load("s-chain"); ok {
+			waiter = loaded.(*pendingApproval)
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if waiter == nil {
+		t.Fatal("waiter not registered")
+	}
+	waiter.resolve <- approvalReply{approved: false, reason: "别动生产分支"}
+	d := <-decided
+	if d.Approved {
+		t.Fatal("deny reply must not approve")
+	}
+	if !strings.Contains(d.Reason, "别动生产分支") {
+		t.Fatalf("typed reason must reach ApprovalDecision.Reason, got %q", d.Reason)
 	}
 }
