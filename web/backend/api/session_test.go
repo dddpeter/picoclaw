@@ -2082,3 +2082,79 @@ func TestHandleGetSession_PendingApprovalFromMarker(t *testing.T) {
 		t.Fatal("marker within timeout+grace must not be stale")
 	}
 }
+
+// TestHandleGetSession_PendingAskFromMarker pins the ask marker surface
+// (octop borrowing §三): pending_ask carries the raw questions JSON,
+// timeout and started_at; stale markers are flagged so the frontend can
+// pre-seal the restored card instead of showing a clickable ghost.
+func TestHandleGetSession_PendingAskFromMarker(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	dir := sessionsTestDir(t, configPath)
+	store, storeErr := memory.NewJSONLStore(dir)
+	if storeErr != nil {
+		t.Fatalf("NewJSONLStore() error = %v", storeErr)
+	}
+	sessionKey := legacyPicoSessionPrefix + "ask-jsonl"
+	if err := store.AddFullMessage(nil, sessionKey, providers.Message{
+		Role:    "user",
+		Content: "which environment",
+	}); err != nil {
+		t.Fatalf("AddFullMessage(user) error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	get := func() map[string]any {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/sessions/ask-jsonl", nil)
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+		}
+		var resp map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		return resp
+	}
+
+	if _, exists := get()["pending_ask"]; exists {
+		t.Fatal("pending_ask should be absent without a marker")
+	}
+
+	questions, _ := json.Marshal([]map[string]any{
+		{"question": "部署到哪个环境？", "header": "环境",
+			"options": []map[string]any{{"label": "staging"}, {"label": "production"}}},
+	})
+	if err := store.WriteAskMarker(memory.AskMarker{
+		SessionKey: sessionKey,
+		Questions:  questions,
+		TimeoutMs:  300000,
+		StartedAt:  1790000000000,
+	}); err != nil {
+		t.Fatalf("WriteAskMarker() error = %v", err)
+	}
+	pending, exists := get()["pending_ask"].(map[string]any)
+	if !exists {
+		t.Fatal("pending_ask should be present with a marker")
+	}
+	if pending["timeout_ms"] != float64(300000) || pending["started_at"] != float64(1790000000000) {
+		t.Fatalf("pending_ask numerics = %#v", pending)
+	}
+	if stale, ok := pending["stale"].(bool); !ok || !stale {
+		t.Fatalf("marker older than timeout+grace must be stale: %#v", pending)
+	}
+	qs, ok := pending["questions"].([]any)
+	if !ok || len(qs) != 1 {
+		t.Fatalf("pending_ask.questions = %#v", pending["questions"])
+	}
+	q := qs[0].(map[string]any)
+	if q["header"] != "环境" {
+		t.Fatalf("question header = %#v", q["header"])
+	}
+}

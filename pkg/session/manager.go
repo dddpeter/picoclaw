@@ -22,19 +22,21 @@ type Session struct {
 }
 
 type SessionManager struct {
-	sessions map[string]*Session
-	mu       sync.RWMutex
-	storage  string
-	inflight inflightTurnMem
+	sessions        map[string]*Session
+	mu              sync.RWMutex
+	storage         string
+	inflight        inflightTurnMem
 	approvalPending approvalPendingMem
+	askPending      askPendingMem
 }
 
 func NewSessionManager(storage string) *SessionManager {
 	sm := &SessionManager{
-		sessions: make(map[string]*Session),
-		storage:  storage,
+		sessions:        make(map[string]*Session),
+		storage:         storage,
 		inflight:        inflightTurnMem{turns: make(map[string]InflightTurn)},
 		approvalPending: approvalPendingMem{pending: make(map[string]memory.ApprovalMarker)},
+		askPending:      askPendingMem{pending: make(map[string]memory.AskMarker)},
 	}
 
 	if storage != "" {

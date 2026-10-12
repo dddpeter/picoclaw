@@ -5,6 +5,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -13,7 +14,9 @@ import (
 	"github.com/sipeed/picoclaw/pkg/commands"
 	"github.com/sipeed/picoclaw/pkg/constants"
 	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/sipeed/picoclaw/pkg/memory"
 	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/picoclaw/pkg/session"
 	"github.com/sipeed/picoclaw/pkg/tools"
 )
 
@@ -207,6 +210,22 @@ func (al *AgentLoop) runAskUser(ctx context.Context, ts *turnState, args map[str
 
 	al.publishAskQuestion(ts, questions, timeout)
 
+	// Pending-ask marker (web ask card — octop borrowing §三): the question
+	// itself is outbound-only and never enters the transcript; the marker
+	// restores the card after a page reload. Cleared on every exit path
+	// below (answer / skip / timeout / abort) via the defer.
+	if ms := askMarkerStoreFor(al, ts.agent.ID); ms != nil {
+		if questionsJSON, jerr := json.Marshal(questions); jerr == nil {
+			ms.MarkAskPending(memory.AskMarker{
+				SessionKey: ts.sessionKey,
+				AgentID:    ts.agent.ID,
+				Questions:  questionsJSON,
+				TimeoutMs:  timeout.Milliseconds(),
+			})
+			defer ms.ClearAskPending(ts.sessionKey)
+		}
+	}
+
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	keepAlive := time.NewTicker(askKeepAliveInterval)
@@ -246,6 +265,20 @@ func askResultFor(questions []bus.AskQuestion, reply askReply) *tools.ToolResult
 		fmt.Fprintf(&b, "\n- %s: %s", label, answer)
 	}
 	return tools.NewToolResult(b.String())
+}
+
+// askMarkerStoreFor resolves the session-layer ask marker store for the
+// asking agent (durable on the JSONL backend; nil when unavailable).
+func askMarkerStoreFor(al *AgentLoop, agentID string) session.AskMarkerStore {
+	if al == nil || al.registry == nil || agentID == "" {
+		return nil
+	}
+	agent, ok := al.registry.GetAgent(agentID)
+	if !ok || agent.Sessions == nil {
+		return nil
+	}
+	ms, _ := agent.Sessions.(session.AskMarkerStore)
+	return ms
 }
 
 // publishAskQuestion sends the question card: structured payload for

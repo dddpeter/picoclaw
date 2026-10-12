@@ -1072,6 +1072,31 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Pending ask_user question set (web ask card — octop borrowing §三):
+	// same restore semantics as the approval marker; a stale marker (gateway
+	// crash mid-ask — the waiter died and its question long timed out) is
+	// pre-flagged so the frontend seals the restored card instead of showing
+	// a clickable ghost.
+	if refErr == nil {
+		if data, mErr := os.ReadFile(memory.AskMarkerFile(dir, ref.Key)); mErr == nil {
+			var marker memory.AskMarker
+			if jErr := json.Unmarshal(data, &marker); jErr == nil && marker.SessionKey != "" {
+				stale := marker.StartedAt > 0 && marker.TimeoutMs > 0 &&
+					time.Now().UnixMilli() > marker.StartedAt+marker.TimeoutMs+staleApprovalGraceMs
+				questions := json.RawMessage(marker.Questions)
+				if len(questions) == 0 {
+					questions = json.RawMessage("[]")
+				}
+				resp["pending_ask"] = map[string]any{
+					"questions":  questions,
+					"timeout_ms": marker.TimeoutMs,
+					"started_at": marker.StartedAt,
+					"stale":      stale,
+				}
+			}
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }

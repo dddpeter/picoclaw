@@ -25,6 +25,15 @@ export interface SessionDetail {
     /** 后端判定标记已过期（网关在审批等待中崩溃残留）：卡以 timeout 预封存呈现。 */
     stale?: boolean
   }
+  /** Pending ask_user question set restored from the durable marker
+   * (octop 借鉴 §三)：questions 为后端透传的原始 JSON 数组。 */
+  pending_ask?: {
+    questions?: Array<Record<string, unknown>>
+    timeout_ms?: number
+    started_at?: number
+    /** 网关在问询等待中崩溃残留：卡预封存为已处理，不再可点。 */
+    stale?: boolean
+  }
   messages: {
     role: "user" | "assistant"
     content: string
