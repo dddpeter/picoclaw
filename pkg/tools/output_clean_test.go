@@ -98,3 +98,48 @@ func TestCleanCommandOutput_PreservesCRLFLineContent(t *testing.T) {
 		t.Fatalf("CRLF line endings must not be treated as progress redraws, got %q", got)
 	}
 }
+
+// TestMaskAPIKeys pins the format-based credential mask (octop borrowing
+// §十一, pii.py formats): configured-secret filtering only knows values from
+// picoclaw's own config; keys pasted from elsewhere (cat .env, error logs)
+// slip through unless the FORMAT itself is recognized.
+func TestMaskAPIKeys(t *testing.T) {
+	openai := "sk-4b829b7ba0aa40648d5318b0025f2abcdeadbeef"
+	anthropic := "sk-ant-api03-9d1a2b3c4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b"
+	aws := "AKIAIOSFODNN7EXAMPLE"
+	google := "AIzaSyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r"
+	hf := "hf_axBcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTt"
+
+	in := "config:\n  openai: " + openai + "\n  aws: " + aws + "\n  g: " + google + "\n  hf: " + hf + "\n  anth: " + anthropic + "\n"
+	got := MaskAPIKeys(in)
+	for _, key := range []string{openai, aws, google, hf, anthropic} {
+		if strings.Contains(got, key) {
+			t.Fatalf("key %q must be masked, got: %s", key[:12], got)
+		}
+	}
+	for _, frag := range []string{"sk-4", "AKIA", "AIza", "hf_a"} {
+		if !strings.Contains(got, frag) {
+			t.Fatalf("mask keeps a short prefix, missing %q in: %s", frag, got)
+		}
+	}
+	// Plain prose with short sk- lookalikes stays untouched.
+	plain := "task sk-1 short and sk-not-a-key stay visible\n"
+	if got := MaskAPIKeys(plain); got != plain {
+		t.Fatalf("short lookalikes must not be masked, got %q", got)
+	}
+}
+
+// TestCleanCommandOutput_MasksKeysInPipeline pins integration: cat .env
+// output going through the inline pipeline gets keys masked (never-worse
+// holds — masking only shortens).
+func TestCleanCommandOutput_MasksKeysInPipeline(t *testing.T) {
+	key := "sk-4b829b7ba0aa40648d5318b0025f2abcdeadbeef"
+	in := "OPENAI_API_KEY=" + key + "\nMODE=prod\n"
+	got := CleanCommandOutput("cat .env", in)
+	if strings.Contains(got, key) {
+		t.Fatalf("cat .env output must mask the key, got %q", got)
+	}
+	if !strings.Contains(got, "MODE=prod") {
+		t.Fatalf("surrounding lines must survive, got %q", got)
+	}
+}

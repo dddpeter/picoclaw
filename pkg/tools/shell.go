@@ -80,6 +80,13 @@ var (
 		// Disk wiping (must be followed by space/args).
 		regexp.MustCompile(`(^|[^-\w])\b(format|mkfs|diskpart)\b\s`),
 		regexp.MustCompile(`\bdd\s+if=`),
+		// dd writing a block device regardless of operand order (octop §十一
+		// audit: `dd of=/dev/sda` without a leading `if=` slipped past the
+		// pattern above).
+		regexp.MustCompile(`\bdd\s+[^|;&]*\bof=/dev/`),
+		// kill targeting every process (-1) or PID 1 — machine-killing (octop
+		// dangerous_shell_commands.yaml CRITICAL); regular PIDs stay allowed.
+		regexp.MustCompile(`\bkill\s+(-\w+\s+)*-9\s+(-1\b|1\b)`),
 		// Block writes to block devices (all common naming schemes).
 		regexp.MustCompile(
 			`>\s*/dev/(sd[a-z]|hd[a-z]|vd[a-z]|xvd[a-z]|nvme\d|mmcblk\d|loop\d|dm-\d|md\d|sr\d|nbd\d)`,

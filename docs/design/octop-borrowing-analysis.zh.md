@@ -163,7 +163,7 @@ Octop 对"断线期间发生了什么"的承诺是诚实的**弱续流**：重�
 
 测试锚点建议：`TestEstimator_CJKVsLatin`、`TestEstimator_MixedContentWeighted`、`TestEstimator_JSONDenser`、`TestEstimator_ImageVsOtherMedia`、`TestCompactionThresholds_WithCJKCorpus`。
 
-## 八、"先落盘再转发"的历史顺序承诺（优先级：中，审计点）
+## 八、"先落盘再转发"的历史顺序承诺（优先级：中，审计点）【已审计 2026-10-12，结论：现状合理，不照搬】
 
 **来源**：`docs/versioned-history.md`——v2 历史的持久化契约写得非常清楚，两段值得原样抄进设计原则：
 
@@ -174,19 +174,18 @@ Octop 对"断线期间发生了什么"的承诺是诚实的**弱续流**：重�
 
 **picoclaw 现状**：会话 JSONL 走 `SessionManager.Save(key)`（`pkg/session/manager.go:210`，全量保存）。本轮调研未逐条核实 outbounds 转发与 Save 的先后顺序及崩溃窗口的语义——不下结论，列为审计项。
 
-**审计清单**：
-1. 逐个出站路径（IM channel Send、pico WS 推送、web approval ask）确认：对应会话记录的持久化点在转发之前还是之后？
-2. 若在之后：崩溃窗口内用户看过但历史缺失的消息有哪些（尤其审批 ask 本身——marker 机制已保证它可恢复，但正文消息未必）。
-3. 若审计发现"转发在前"，评估把关键类别（assistant 完整消息、审批 ask）挪到先落盘的成本；JSONL 追加写本身廉价，主要是时序调整。
-4. turn 终态语义：picoclaw turn marker 已有 4 字段（`turn_marker.go`），对照 `complete/partial/interrupted` 的区分度，看 split-turn/崩溃恢复路径是否已隐式覆盖。
+**审计结论（2026-10-12）**：
+1. **终结 assistant 消息已是先落盘后投递**：`pipeline_finalize.go:81-93` 先 `AddFullMessage`+`Save` 再 seal/publish，且 Save 失败会 `cancelConfiguredStreamingLLMWithReason(streamCancelReasonSessionSaveError)` 取消投递——比 Octop v2 的"失败停发"契约还严一格。
+2. 工具结果与流式增量：转发在前（流式面板/IM 卡片实时更新），集中落盘在 finalize/工具交付点——这是流式延迟换来的固有取舍；崩溃窗口的可见性由 restart recovery marker 兜底。
+3. 判定：**不照搬 Octop 的逐条 commit-before-forward**（那会缓冲每个 token 牺牲流式卖点）；现状保留，仅在此文档化语义。
 
-## 九、工具媒体事件的重放去重（优先级：中，审计点）
+## 九、工具媒体事件的重放去重（优先级：中，审计点）【已审计 2026-10-12，结论：无等价风险面，无需动作】
 
 **来源**：`stream_project.py:46-63`。两个守卫：`saw_tool_call`（本 turn 见过真实 `tool_call_chunk` 才允许从 tool_result 提取媒体外发——历史 tool_result 经 `PatchToolCallsMiddleware` 的 `Overwrite(full_history)` 重放时不得再次推送）+ `emitted_media_ids`（按 tool_call_id 去重，同一结果不重发）。另 `processor.py:1127` 在 dashboard 路径复用了同一对守卫并注释了动机。
 
 **picoclaw 现状**：飞书流式卡片重放问题已在 `2026-10-04-feishu-streaming-card-bug-review.zh.md` 处理过（同族问题）；但"媒体/工具事件只在本 turn 真实调用后外发 + 按 call id 去重"这对守卫在 pico/web 路径是否等价存在，未逐条核实。
 
-**审计清单**：web 图片产出（`agent_media.go` 相关出站）、pico 工具卡片、IM 媒体推送三条路径各确认一次：重放/回填触发时会不会重复推；若有疑点，照抄这对守卫（成本极低：一个 bool + 一个 map）。
+**审计结论（2026-10-12）**：picoclaw **没有 Overwrite(full_history) 型重放源**（无 LangGraph checkpoint 回放；历史回填只发生在 web 前端拉 session detail，不推 channel）。等价风险面由既有的 consume-once 守卫覆盖：`takeToolFeedbackMessage`（取走即清）、`outboundMessageFinalizesTrackedToolFeedback`；飞书流式卡片重放已在 2026-10-04 bug review 修复。saw_tool_call/emitted_media_ids 对无需引入。
 
 ## 十、结构化审批回复与入口校验（优先级：低，随协议演进）
 
@@ -203,8 +202,8 @@ picoclaw 目前 `/approve` `/deny` 单工具文本已够用；若将来升级为
 | 版本偏差垫片模式 | `hitl/stream_compat.py` | 上游（octop-harness/LangGraph v2）把 interrupt 挪了位置，Octop 用 import 时安装的垫片把语义补回来而不是锁死上游版本。picoclaw 同步上游时同族问题可参照：兼容层放消费侧入口、幂等安装、附最小复现注释 |
 | IM 一次性投递模式 | `response_mode.py` `collapse_to_invoke_response` | 不支持流式卡片的 IM 上把流式 turn 折叠成一条终稿：缓冲 delta、工具调用前的正文视为进度旁白丢弃、终稿+媒体一次性投递。审计 picoclaw 非流式 IM 通道（如部分微信形态）是否有等价折叠；注意它明确保留 ask_agent 旁白 |
 | ADR 习惯 | `docs/adr/` | 数据库双后端等决定各一页：背景/决定/后果。picoclaw 的设计文档已有同等作用，ADR 的增量价值是"一决定一页、可引用"，慢慢补即可 |
-| 危险命令规则集 | `octop-harness/security/tool_guard/rules/dangerous_shell_commands.yaml`（14KB） | 三档 severity（MEDIUM 宽 catch-all 建议复核 / HIGH / CRITICAL 定向破坏）+ `exclude_patterns` + `remediation` 文案 + 威胁分类。映射：MEDIUM 素材 → ask_patterns，HIGH/CRITICAL 对照补 defaultDenyPatterns 漏项（如 fork 炸弹、`dd of=/dev/*`、`kill -9 -1`）；remediation 文案抄进 `appendDeniedToolResult`（拒绝带理由 §二 的天然素材库）。守住开放默认三件套——只补 CRITICAL 级真实毁灭性模式 |
-| PII / API key 掩码 | `octop-harness/middleware/pii.py` | API key 格式库（`sk-`/`sk-ant-`/`AKIA`/`AIzaSy`/`hf_`/`api_key=` 后 hex）+ 中国手机号 + 18 位身份证 MOD 11-2 校验；策略"前缀+末 4+星号"。落点：exec 输出清理管线（`pkg/tools/output_clean.go`，保持 never-worse 守门）——`cat .env`、带 key 的报错日志进上下文是真实风险 |
+| 危险命令规则集 | `octop-harness/security/tool_guard/rules/dangerous_shell_commands.yaml`（14KB） | 三档 severity + exclude_patterns + remediation。**已落地对照补丁**：deny 集补 `dd of=/dev/*`（无 if= 前缀漏网）与 `kill -9 -1/1`（CRITICAL 级机器杀灭）；其余 fork 集已比 octop 更细（rm r+f 六变体）；remediation 文案已由 §二 拒绝带理由覆盖 |
+| PII / API key 掩码 | `octop-harness/middleware/pii.py` | **已落地**：`output_clean.go` 增 MaskAPIKeys（sk-/sk-ant-/sk-proj-/AKIA/AIza/hf_ 格式库，`sk-4…beef` 掩码形态）——配置值过滤只认 picoclaw 自己的 secret，`cat .env` 场景的第三方 key 此前直进模型上下文；掩码只缩短，never-worse 守门保持；bypass 路径（--json/tee）仍原样（结构化输出不重塑，遗留取舍已注） |
 | 多模态感知选模 | `octop-harness/middleware/model_router.py` | 默认选择器检测最新用户消息含非文本块 → 路由多模态模型；优先级链 configurable.model → 用户 hook → 内建检测 → default → 首个可用。审计 picoclaw default chain 是否已有按内容自动切多模态，缺则补 |
 
 ## 十二、评估后不借鉴的部分

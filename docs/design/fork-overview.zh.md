@@ -36,6 +36,7 @@
 | 品牌层重设计（Limulus · 鲎） | `<2026-10-05>` | `pkg/env.go`、`web/frontend/public/`、`web/backend/icon.*`、`scripts/gen_brand_icons.ps1`、`assets/brand/` | 本文 §22 |
 | agentscope-go 借鉴四件套 | `<2026-10-05>` | `pkg/agent/approval_hook.go`、`pkg/agent/compact_context_tool.go`、`pkg/tools/output_budget.go`、`pkg/agent/agent_media.go`、`pkg/config/config.go` | 本文 §23、`docs/design/agentscope-go-borrowing-analysis.zh.md` |
 | 按模型上下文窗口（context_window） | `<2026-10-08>` | `pkg/config/config.go`（ModelConfig.ContextWindow）、`pkg/agent/instance.go`（min 解析 + liveCompactionBudget）、`pkg/agent/agent_command.go`（swap 跟随） | 本文 §24、`docs/guides/configuration.zh.md`「按模型上下文窗口」 |
+| Octop 借鉴七件套 | `<2026-10-12>` | `pkg/tokenizer/estimator.go`（CJK 感知估算）、`pkg/agent/approval_hook.go`（拒绝带理由+策略三档）、`pkg/commands/cmd_compact.go`+`pkg/agent/manual_compact.go`（/compact）、`pkg/agent/context_usage.go`（分段计量）、`pkg/agent/tool_defer.go`（渐进工具加载）、`pkg/agent/turn_active.go`+`pkg/channels/pico`（turn_status 重连信号）、`pkg/agent/ask_user.go`（ask_user 问询）、`pkg/tools/shell.go`+`output_clean.go`（deny 补丁+API key 掩码） | 本文 §25、`docs/design/octop-borrowing-analysis.zh.md` |
 
 ## 1. 飞书 CardKit v2 流式卡片
 
@@ -417,3 +418,21 @@
 - **范围**：只作用于**当前主模型**条目；fallback 候选/轻量路由/图像模型的条目值不参与 min（fallback 中途切换的小窗口模型由既有溢出兜底路径处理）。`Validate` 拒绝负值。
 - 测试锚点：`TestNewAgentInstance_PerModelContextWindow`（min 语义/预算派生/不能抬高）、`TestNewAgentInstance_PerModelContextWindowClampInterplay`（钳制先于 cap）、`TestNewAgentInstance_PerModelContextWindowHeuristic`（推导窗口同样折叠）、`TestSwapAgentModelReCapsContextWindow`（切换跟随 + 预算重绑 + 切回还原）、`TestSwapAgentModelVsUnlockedWindowReads`（swap 与异步读的并发契约，-race 下必须干净——Windows 本机 cgo 损坏跑不了 -race，Linux/CI 上生效）、config 侧 `TestModelConfigContextWindowJSON`（JSON 标签/负值校验）与 `TestExpandMultiKeyModels_CarriesContextWindow`。
 - 上游同步注意：`pkg/config/config.go` 的 `ModelConfig.ContextWindow`、`instance.go` 的 `applyModelContextWindowCap`/`baseGatingWindow`/`liveCompactionBudget`、`agent_command.go` swap 内窗口重算块——均为 fork 行为；上游若改 `swapAgentModelLocked` 的字段搬运清单或 `NewAgentInstance` 的窗口推导，同步时保留 per-model min 与预算重绑语义。
+
+## 25. Octop 借鉴七件套（2026-10-12）
+
+调研 `TencentCloud/Octop`（平台层）+ `octop-harness`（引擎层，浅克隆）后的定向借鉴，设计与取舍全文见 `docs/design/octop-borrowing-analysis.zh.md`。不搬中断-检查点模型与 deepagents 中间件框架；借协议语义层与用户面：
+
+1. **CJK 感知 token 估算**（`pkg/tokenizer/estimator.go`）：CJK ≈1.6 字/token vs 拉丁 4、JSON 3、图片 1600/其他媒体 400（旧平铺 2.5 字/token 对纯中文低估 ~36%，压缩门系统性偏晚）；同步校准钉死旧值的测试（行为修正非回归）。
+2. **拒绝带理由**（`approval_hook.go`）：`/deny <理由>` 尾随文本经被拒工具结果回注给模型；approve 仍整条严格匹配。跨语言回执契约不变。
+3. **审批会话策略三档**（同上）：`/approve all`（全部允许）新增 allow_all 层，与既有 `/approve always`（规则提升）并列；6h TTL；硬拒绝恒在最前不被任何层绕过。
+4. **/compact 手动压缩 + 上下文分段**（`cmd_compact.go`+`manual_compact.go`+`context_usage.go`）：四档契约（done/scheduled/nothing/busy，turn 活跃经共享调度器回合尾执行非阻塞）；`bus.ContextUsage.Segments` 六段拆分（system_prompt/skills/tool_definitions/mcp/subagents/conversation，和恒等 UsedTokens）——MCP 膨胀一眼可见，web 环分段堆叠条。
+5. **渐进式工具加载**（`tool_defer.go`）：MCP 工具数超阈值（默认 20，`tools.mcp.deferred_tool_threshold`，负数关）时未加载工具以延迟引用进 LLM + `tool_search` 元工具按需装载；会话粘性；直调未加载工具自动装载回执 schema 重试（弱模型兜底）。
+6. **turn_status 重连信号**（`turn_active.go`+pico 通道）：WS 连接建立首帧告知该会话是否有在跑 turn，页面刷新不再丢失回合状态（弱续流：收后续不补历史，JSONL 回放兜底）。
+7. **ask_user 结构化问询**（`ask_user.go`）：agent 被用户决策卡住时发起结构化问题（1-5 题×6 选项）并阻塞等待；作答路由先于 steering；超时/无通道=软失败（与审批 fail-closed 相反）；等待期 touchActivity 防 stall watchdog 误杀；永不形成审批策略。web AskCard + IM 文本卡。
+
+附带小件：deny 集补 `dd of=/dev/*`（无 if= 前缀漏网）与 `kill -9 -1/1`（octop 危险命令集对照）；`output_clean.go` 增 API key 格式掩码（sk-/AKIA/AIza/hf_，`cat .env` 场景的第三方 key 不再进模型上下文，never-worse 守门保持）。
+
+审计结论（§八/§九，只读）：终结 assistant 消息已是先落盘后投递（Save 失败取消投递）；工具结果/流式增量为转发在前集中落盘——流式延迟换来的合理取舍，restart recovery 兜底可见性，不照搬 Octop 逐条提交。picoclaw 无 Overwrite 型重放源，consume-once 守卫（takeToolFeedbackMessage 族）已覆盖等价风险，无需 saw_tool_call 对。
+
+上游同步注意：`estimator.go` 全文件、`approval_hook.go` 的 parseApprovalReply 结构体签名与 allow_all 层、`shell.go` defaultDenyPatterns 尾部新增两枚、`output_clean.go` 的 MaskAPIKeys、`agent.go` busy 分支的 compact/ask 拦截顺序（审批 > stop > compact > ask > steering）——均为 fork 行为，同步时保留。

@@ -2068,6 +2068,14 @@ func TestForkDenyDefaults(t *testing.T) {
 		// 0777 with leading zero still blocked on root-ish single-component
 		// paths; sticky-bit 1777 and multi-component personal paths are not.
 		"chmod 0777 /usr",
+		// dd writing block devices without `if=` first (octop rule-set gap
+		// found in the §十一 audit: only `dd if=` was covered).
+		"dd of=/dev/sda",
+		"dd bs=4M if=image.img of=/dev/nvme0n1",
+		// kill targeting every process / PID 1 — machine-killing (octop
+		// dangerous_shell_commands.yaml CRITICAL).
+		"kill -9 -1",
+		"kill -9 1",
 	}
 	allowed := []string{
 		"rm -r builddir",
@@ -2076,6 +2084,7 @@ func TestForkDenyDefaults(t *testing.T) {
 		"cp /etc/hosts /tmp/hosts-copy",
 		"echo hi > /tmp/out.txt",
 		"kill -0 123",
+		"kill -9 123", // a regular PID is not machine-killing
 		"git push origin main",
 		"chmod 1777 /tmp",
 		"tar -czf rm.tar dir",

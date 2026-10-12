@@ -33,6 +33,38 @@ var (
 	controlBytePattern = regexp.MustCompile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 )
 
+// apiKeyPatterns recognize credential FORMATS (octop borrowing §十一,
+// octop-harness pii.py): config-value filtering only catches picoclaw's own
+// secrets; keys pasted from elsewhere (cat .env, error logs) slip through
+// unless the shape itself is recognized. Length floors are set high enough
+// that ordinary prose lookalikes never match.
+var apiKeyPatterns = []*regexp.Regexp{
+	// OpenAI / OpenAI-compatible / Anthropic (sk-, sk-proj-, sk-ant-...).
+	regexp.MustCompile(`sk-(?:ant-|proj-)?[A-Za-z0-9_-]{28,}`),
+	// AWS access key ids.
+	regexp.MustCompile(`\b(?:AKIA|ASIA)[0-9A-Z]{16}\b`),
+	// Google API keys.
+	regexp.MustCompile(`\bAIza[0-9A-Za-z_-]{35,}\b`),
+	// HuggingFace tokens.
+	regexp.MustCompile(`\bhf_[A-Za-z0-9]{30,}\b`),
+}
+
+// MaskAPIKeys replaces format-matched credentials with a short
+// prefix…suffix form so the model sees THAT a key existed without the key
+// itself. Best-effort and length-shrinking only — the never-worse guard of
+// the cleaning pipeline is preserved by construction.
+func MaskAPIKeys(s string) string {
+	for _, re := range apiKeyPatterns {
+		s = re.ReplaceAllStringFunc(s, func(tok string) string {
+			if len(tok) <= 10 {
+				return tok
+			}
+			return tok[:4] + "…" + tok[len(tok)-4:]
+		})
+	}
+	return s
+}
+
 // CleanCommandOutput applies the inline cleaning pipeline to a command's
 // output. The command participates in the decision: invocations that produce
 // structured or teed output are passed through untouched so nothing the user
@@ -44,6 +76,9 @@ func CleanCommandOutput(command, output string) string {
 	cleaned := collapseProgressLines(output)
 	cleaned = stripANSI(cleaned)
 	cleaned = compressLongLines(cleaned)
+	// Credential masking rides last (octop borrowing §十一): masking only
+	// shortens, so the never-worse comparison below stays sound.
+	cleaned = MaskAPIKeys(cleaned)
 	if len(cleaned) >= len(output) {
 		return output
 	}
