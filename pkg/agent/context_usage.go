@@ -1,8 +1,24 @@
 package agent
 
 import (
+	"strings"
+
 	"github.com/sipeed/picoclaw/pkg/bus"
+	"github.com/sipeed/picoclaw/pkg/providers"
 )
+
+// subagentToolNames are the registry tools that expose subagent spawning /
+// delegation; their definitions form the "subagents" context segment.
+var subagentToolNames = map[string]bool{
+	"spawn":        true,
+	"spawn_status": true,
+	"subagent":     true,
+	"delegate":     true,
+}
+
+func isSubagentToolName(name string) bool {
+	return subagentToolNames[name]
+}
 
 // computeContextUsage estimates current context window consumption for the
 // given agent and session. Includes history, system prompt (with dynamic context,
@@ -33,19 +49,35 @@ func computeContextUsage(agent *AgentInstance, sessionKey string) *bus.ContextUs
 	// System message tokens: uses EstimateSystemTokens which mirrors
 	// the full system message composition in BuildMessages (static prompt,
 	// dynamic context, active skills, summary with wrapping prefix).
+	// The segment split (octop borrowing §五) separates the base prompt
+	// from the active-skills block; pass nil for active skills — skills are
+	// only injected when the user explicitly activates them via /use, which
+	// is rare. Using nil matches the common case and avoids over-counting.
 	systemTokens := 0
+	skillsTokens := 0
 	if agent.ContextBuilder != nil {
 		summary := agent.Sessions.GetSummary(sessionKey)
-		// Pass nil for active skills: skills are only injected when the user
-		// explicitly activates them via /use, which is rare. Using nil matches
-		// the common case and avoids over-counting all installed skills.
-		systemTokens = agent.ContextBuilder.EstimateSystemTokens(summary, nil)
+		systemTokens, skillsTokens = agent.ContextBuilder.estimateSystemTokenSegments(summary, nil)
 	}
 
-	// Tool definition tokens
+	// Tool definition tokens, split by origin (octop borrowing §五):
+	// mcp_* tools → mcp; the subagent spawn set → subagents; everything
+	// else → tool_definitions. MCP bloat becomes visible at a glance.
 	toolTokens := 0
+	toolSeg, mcpSeg, subagentSeg := 0, 0, 0
 	if agent.Tools != nil {
-		toolTokens = EstimateToolDefsTokens(agent.Tools.ToProviderDefs())
+		for _, def := range agent.Tools.ToProviderDefs() {
+			tokens := EstimateToolDefsTokens([]providers.ToolDefinition{def})
+			toolTokens += tokens
+			switch {
+			case strings.HasPrefix(def.Function.Name, "mcp_"):
+				mcpSeg += tokens
+			case isSubagentToolName(def.Function.Name):
+				subagentSeg += tokens
+			default:
+				toolSeg += tokens
+			}
+		}
 	}
 
 	// Used = history + system (includes summary) + tools
@@ -99,6 +131,14 @@ func computeContextUsage(agent *AgentInstance, sessionKey string) *bus.ContextUs
 		CompressAtTokens:  compressAt,
 		SummarizeAtTokens: summarizeAt,
 		UsedPercent:       usedPercent,
+		Segments: []bus.ContextUsageSegment{
+			{Key: "system_prompt", Tokens: systemTokens},
+			{Key: "skills", Tokens: skillsTokens},
+			{Key: "tool_definitions", Tokens: toolSeg},
+			{Key: "mcp", Tokens: mcpSeg},
+			{Key: "subagents", Tokens: subagentSeg},
+			{Key: "conversation", Tokens: historyTokens},
+		},
 	}
 }
 

@@ -14,6 +14,33 @@ function formatTokens(n: number): string {
   return String(n)
 }
 
+/** 分段色（octop 借鉴 §五）：环与弹层共用同一套。 */
+const SEGMENT_COLORS: Record<string, string> = {
+  system_prompt: "bg-slate-400",
+  skills: "bg-amber-400",
+  tool_definitions: "bg-violet-400",
+  mcp: "bg-fuchsia-400",
+  subagents: "bg-blue-400",
+  conversation: "bg-cyan-400",
+}
+
+const SEGMENT_LABELS: Record<string, string> = {
+  system_prompt: "System",
+  skills: "Skills",
+  tool_definitions: "Tools",
+  mcp: "MCP",
+  subagents: "Subagents",
+  conversation: "History",
+}
+
+function segmentColor(key: string): string {
+  return SEGMENT_COLORS[key] ?? "bg-muted-foreground/50"
+}
+
+function segmentLabel(key: string): string {
+  return SEGMENT_LABELS[key] ?? key
+}
+
 export function ContextUsageRing({
   usage,
   onDetailClick,
@@ -139,11 +166,40 @@ export function ContextUsageRing({
             </span>
           </div>
           <div className="bg-muted mt-1.5 h-1.5 w-full overflow-hidden rounded-full">
-            <div
-              className="h-full rounded-full bg-orange-500 transition-all"
-              style={{ width: `${barPercent}%` }}
-            />
+            {usage.segments && usage.segments.length > 0 ? (
+              // 分段堆叠条：一段一色，宽度按占 used 比例（octop 借鉴 §五）。
+              usage.segments
+                .filter((s) => s.tokens > 0)
+                .map((s) => (
+                  <div
+                    key={s.key}
+                    className={`${segmentColor(s.key)} h-full transition-all first:rounded-l-full last:rounded-r-full`}
+                    style={{ width: `${Math.min(100, (s.tokens / Math.max(1, usage.compress_at_tokens)) * 100)}%` }}
+                  />
+                ))
+            ) : (
+              <div
+                className="h-full rounded-full bg-orange-500 transition-all"
+                style={{ width: `${barPercent}%` }}
+              />
+            )}
           </div>
+
+          {usage.segments && usage.segments.some((s) => s.tokens > 0) && (
+            <div className="mt-2 space-y-0.5">
+              {usage.segments
+                .filter((s) => s.tokens > 0)
+                .map((s) => (
+                  <div key={s.key} className="flex items-center justify-between text-[10px]">
+                    <span className="text-muted-foreground flex items-center gap-1.5">
+                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${segmentColor(s.key)}`} />
+                      {segmentLabel(s.key)}
+                    </span>
+                    <span className="tabular-nums">{formatTokens(s.tokens)}</span>
+                  </div>
+                ))}
+            </div>
+          )}
 
           <div className="mt-2 space-y-0.5">
             {usage.history_tokens != null && usage.history_tokens > 0 && (

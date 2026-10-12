@@ -80,6 +80,13 @@ func estimateTextTokens(s string) int {
 	return max(1, int(math.Round(est)))
 }
 
+// EstimateTextTokens is the exported script-aware text estimator, for
+// callers outside the tokenizer (context.go's system-prompt segments) so
+// both use one CJK-aware cost model.
+func EstimateTextTokens(s string) int {
+	return estimateTextTokens(s)
+}
+
 // estimateJSONTokens estimates serialized JSON, which packs denser than
 // prose: braces, quotes, colons, and snake_case keys each split off (~3
 // chars/token).

@@ -75,6 +75,11 @@ export interface ChatMessage {
   steering?: boolean
 }
 
+export interface ContextUsageSegment {
+  key: string
+  tokens: number
+}
+
 export interface ContextUsage {
   used_tokens: number
   total_tokens: number
@@ -82,6 +87,8 @@ export interface ContextUsage {
   compress_at_tokens: number
   summarize_at_tokens?: number
   used_percent: number
+  /** used 的来源拆分（octop 借鉴 §五）：system_prompt/skills/tool_definitions/mcp/subagents/conversation。 */
+  segments?: ContextUsageSegment[]
 }
 
 /** 回合末次 LLM 用量快照（封板消息 usage 载荷；token 为末次调用口径，与飞书卡片一致）。 */

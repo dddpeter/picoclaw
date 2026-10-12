@@ -37,6 +37,16 @@ type ContextStats struct {
 	SummarizeAtTokens int // soft summarization trigger
 	UsedPercent       int // 0-100
 	MessageCount      int
+	// Segments partitions UsedTokens by origin (octop borrowing §五):
+	// system_prompt / skills / tool_definitions / mcp / subagents /
+	// conversation. Nil when unavailable.
+	Segments []ContextSegment
+}
+
+// ContextSegment is one origin bucket of the context window usage.
+type ContextSegment struct {
+	Key    string
+	Tokens int
 }
 
 // Compact outcome states for the /compact command (octop borrowing §五).

@@ -535,7 +535,7 @@ func (al *AgentLoop) buildCommandsRuntime(
 				return nil
 			}
 			history := agent.Sessions.GetHistory(opts.SessionKey)
-			return &commands.ContextStats{
+			stats := &commands.ContextStats{
 				UsedTokens:        usage.UsedTokens,
 				TotalTokens:       usage.TotalTokens,
 				HistoryTokens:     usage.HistoryTokens,
@@ -544,6 +544,13 @@ func (al *AgentLoop) buildCommandsRuntime(
 				UsedPercent:       usage.UsedPercent,
 				MessageCount:      len(history),
 			}
+			for _, seg := range usage.Segments {
+				stats.Segments = append(stats.Segments, commands.ContextSegment{
+					Key:    seg.Key,
+					Tokens: seg.Tokens,
+				})
+			}
+			return stats
 		}
 
 		// /compact: force compaction on the current session (octop borrowing

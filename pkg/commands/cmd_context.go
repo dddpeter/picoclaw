@@ -41,5 +41,17 @@ func formatContextStats(s *ContextStats) string {
 		s.UsedPercent,
 		remaining,
 	)
+	// Segment breakdown (octop borrowing §五): where the tokens live —
+	// system prompt, tools, MCP, subagents, conversation. MCP bloat is
+	// visible at a glance.
+	if len(s.Segments) > 0 {
+		msg += "  \nBreakdown:"
+		for _, seg := range s.Segments {
+			if seg.Tokens <= 0 {
+				continue
+			}
+			msg += fmt.Sprintf("  \n- %s: ~%d", seg.Key, seg.Tokens)
+		}
+	}
 	return msg
 }

@@ -82,6 +82,21 @@ function parseContextUsage(
   const total = Number(obj.total_tokens)
   if (!Number.isFinite(used) || !Number.isFinite(total) || total <= 0)
     return undefined
+  // 分段（octop 借鉴 §五）：used 的来源拆分——MCP 膨胀一眼可见。
+  let segments: ContextUsage["segments"]
+  if (Array.isArray(obj.segments)) {
+    const parsed = obj.segments
+      .map((s) => {
+        if (!s || typeof s !== "object") return undefined
+        const seg = s as Record<string, unknown>
+        const key = typeof seg.key === "string" ? seg.key.trim() : ""
+        const tokens = Number(seg.tokens)
+        if (!key || !Number.isFinite(tokens)) return undefined
+        return { key, tokens }
+      })
+      .filter((s): s is { key: string; tokens: number } => s !== undefined)
+    if (parsed.length > 0) segments = parsed
+  }
   return {
     used_tokens: used,
     total_tokens: total,
@@ -89,6 +104,7 @@ function parseContextUsage(
     compress_at_tokens: Number(obj.compress_at_tokens) || 0,
     summarize_at_tokens: obj.summarize_at_tokens != null ? Number(obj.summarize_at_tokens) : undefined,
     used_percent: Number(obj.used_percent) || 0,
+    segments,
   }
 }
 

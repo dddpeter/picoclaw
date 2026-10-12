@@ -70,6 +70,16 @@ type ContextUsage struct {
 	CompressAtTokens  int `json:"compress_at_tokens"`  // hard budget compression threshold (contextWindow - maxTokens)
 	SummarizeAtTokens int `json:"summarize_at_tokens"` // soft summarization trigger (vs history tokens)
 	UsedPercent       int `json:"used_percent"`        // 0-100, relative to compressAt
+	// Segments partitions UsedTokens by origin (octop borrowing §五):
+	// system_prompt / skills / tool_definitions / mcp / subagents /
+	// conversation. Empty when the caller could not compute a breakdown.
+	Segments []ContextUsageSegment `json:"segments,omitempty"`
+}
+
+// ContextUsageSegment is one origin bucket of the context window usage.
+type ContextUsageSegment struct {
+	Key    string `json:"key"`
+	Tokens int    `json:"tokens"`
 }
 
 type OutboundMessage struct {

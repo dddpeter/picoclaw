@@ -12,12 +12,12 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/skills"
+	"github.com/sipeed/picoclaw/pkg/tokenizer"
 	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
@@ -529,17 +529,27 @@ func xmlEscapeForPrompt(s string) string {
 // wrapping prefixes and separators. This avoids needing all per-request parameters
 // that BuildMessages requires (media, channel, chatID, sender, etc.).
 func (cb *ContextBuilder) EstimateSystemTokens(summary string, activeSkills []string) int {
+	base, skills := cb.estimateSystemTokenSegments(summary, activeSkills)
+	return base + skills
+}
+
+// estimateSystemTokenSegments splits the system-message estimate into the
+// base prompt (static + dynamic + contributed parts + summary) and the
+// active-skills block (octop borrowing §五 segments). Both use the
+// script-aware tokenizer, so CJK prompts are no longer under-counted by the
+// old flat chars/2.5 conversion.
+func (cb *ContextBuilder) estimateSystemTokenSegments(summary string, activeSkills []string) (base, skills int) {
 	staticPrompt := cb.BuildSystemPromptWithCache()
 
 	// Dynamic context is small and varies per request; use a representative estimate.
 	// Actual buildDynamicContext produces ~200-400 chars of time/runtime/session info.
 	const dynamicContextChars = 300
 
-	totalChars := utf8.RuneCountInString(staticPrompt) + dynamicContextChars
+	base = tokenizer.EstimateTextTokens(staticPrompt)
+	base += tokenizer.EstimateTextTokens(strings.Repeat("x", dynamicContextChars))
 
 	if skillsText := cb.buildActiveSkillsContext(activeSkills); skillsText != "" {
-		totalChars += utf8.RuneCountInString(skillsText)
-		totalChars += 7 // separator \n\n---\n\n
+		skills = tokenizer.EstimateTextTokens(skillsText) + 7 // separator \n\n---\n\n
 	}
 
 	if contributedParts, err := cb.promptRegistryOrDefault().Collect(context.Background(), PromptBuildRequest{
@@ -550,8 +560,8 @@ func (cb *ContextBuilder) EstimateSystemTokens(summary string, activeSkills []st
 			if strings.TrimSpace(part.Content) == "" {
 				continue
 			}
-			totalChars += utf8.RuneCountInString(part.Content)
-			totalChars += 7 // separator
+			base += tokenizer.EstimateTextTokens(part.Content)
+			base += 7 // separator
 		}
 	}
 
@@ -559,11 +569,10 @@ func (cb *ContextBuilder) EstimateSystemTokens(summary string, activeSkills []st
 		// Matches the CONTEXT_SUMMARY: prefix added in BuildMessages
 		const summaryPrefix = "CONTEXT_SUMMARY: The following is an approximate summary of prior conversation " +
 			"for reference only. It may be incomplete or outdated — always defer to explicit instructions.\n\n"
-		totalChars += utf8.RuneCountInString(summaryPrefix) + utf8.RuneCountInString(summary)
-		totalChars += 7 // separator
+		base += tokenizer.EstimateTextTokens(summaryPrefix) + tokenizer.EstimateTextTokens(summary)
+		base += 7 // separator
 	}
-
-	return totalChars * 2 / 5 // same heuristic as tokenizer.EstimateMessageTokens
+	return base, skills
 }
 
 // InvalidateCache clears the cached system prompt.
