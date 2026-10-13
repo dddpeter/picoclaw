@@ -121,10 +121,10 @@ type AskRequestMeta struct {
 
 // AskQuestion is one question in an ask_user payload.
 type AskQuestion struct {
-	Question    string     `json:"question"`
-	Header      string     `json:"header,omitempty"`
+	Question    string      `json:"question"`
+	Header      string      `json:"header,omitempty"`
 	Options     []AskOption `json:"options,omitempty"`
-	MultiSelect bool       `json:"multi_select,omitempty"`
+	MultiSelect bool        `json:"multi_select,omitempty"`
 }
 
 // AskOption is one selectable choice of an AskQuestion.

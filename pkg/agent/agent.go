@@ -225,16 +225,16 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 			// The placeholder ensures GetActiveTurnBySession() never returns nil
 			// during turn setup. Each placeholder has a unique turnID to prevent
 			// cross-worker cleanup issues.
-		placeholder := &turnState{
-			turnID: makePendingTurnID(sessionKey, al.turnSeq.Add(1)),
-			phase:  TurnPhaseSetup,
-			// Claim visibility (octop borrowing §四): the placeholder must
-			// answer the turn-status probe (channel+chatID) during the
-			// claim→runTurn window, or a page refresh in exactly that window
-			// reports no live turn while one is about to start.
-			channel: msg.Channel,
-			chatID:  msg.ChatID,
-		}
+			placeholder := &turnState{
+				turnID: makePendingTurnID(sessionKey, al.turnSeq.Add(1)),
+				phase:  TurnPhaseSetup,
+				// Claim visibility (octop borrowing §四): the placeholder must
+				// answer the turn-status probe (channel+chatID) during the
+				// claim→runTurn window, or a page refresh in exactly that window
+				// reports no live turn while one is about to start.
+				channel: msg.Channel,
+				chatID:  msg.ChatID,
+			}
 			if _, loaded := al.activeTurnStates.LoadOrStore(sessionKey, placeholder); loaded {
 				if al.tryHandleStopCommand(ctx, msg, sessionKey) {
 					continue

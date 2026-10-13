@@ -533,10 +533,11 @@ func (al *AgentLoop) publishAskReceiptText(ctx context.Context, msg bus.InboundM
 		return
 	}
 	out := bus.OutboundMessage{
-		Channel: msg.Channel,
-		ChatID:  msg.ChatID,
-		Context: outboundContextFromInbound(nil, msg.Channel, msg.ChatID, ""),
-		Content: text,
+		Channel:    msg.Channel,
+		ChatID:     msg.ChatID,
+		Context:    outboundContextFromInbound(nil, msg.Channel, msg.ChatID, ""),
+		SessionKey: msg.SessionKey,
+		Content:    text,
 	}
 	markPicoProgressNote(&out)
 	pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

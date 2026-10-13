@@ -2086,8 +2086,8 @@ func TestForkDenyDefaults(t *testing.T) {
 		"kill -KILL -1",
 		"kill -s KILL 1",
 		"kill -s 9 -1",
-		"kill -s9 -1",   // -s<sig> without the space (bash builtin)
-		"kill -n 9 1",   // POSIX -n <signum> spelling
+		"kill -s9 -1", // -s<sig> without the space (bash builtin)
+		"kill -n 9 1", // POSIX -n <signum> spelling
 		"kill -9 -- -1",
 	}
 	allowed := []string{

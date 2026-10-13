@@ -1151,8 +1151,8 @@ func TestSend_AskMessageCarriesAskPayload(t *testing.T) {
 func TestSetContextUsagePayloadCarriesSegments(t *testing.T) {
 	payload := map[string]any{}
 	setContextUsagePayload(payload, &bus.ContextUsage{
-		UsedTokens:   1000,
-		TotalTokens:  8000,
+		UsedTokens:  1000,
+		TotalTokens: 8000,
 		Segments: []bus.ContextUsageSegment{
 			{Key: "conversation", Tokens: 700},
 			{Key: "mcp", Tokens: 300},
