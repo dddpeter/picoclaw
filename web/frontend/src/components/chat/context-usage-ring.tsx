@@ -168,17 +168,22 @@ export function ContextUsageRing({
           {/* flex 让分段块横向排成堆叠条——块级 div 默认纵向堆叠，固定高度
               + overflow-hidden 下只有第一段可见（评审 P1-6）。 */}
           <div className="bg-muted mt-1.5 flex h-1.5 w-full overflow-hidden rounded-full">
-            {usage.segments && usage.segments.length > 0 ? (
-              // 分段堆叠条：一段一色，宽度按占 used 比例（octop 借鉴 §五）。
-              usage.segments
-                .filter((s) => s.tokens > 0)
-                .map((s) => (
+            {usage.segments && usage.segments.some((s) => s.tokens > 0) ? (
+              // 分段堆叠条：一段一色（octop 借鉴 §五）。比例基数用各段
+              // tokens 之和而非 used_tokens（评审 P4）：主数字异常为 0 而
+              // 分段仍有数据时，按 used 做分母每段都会截到 100%，堆叠条
+              // 视觉全溢出。
+              (() => {
+                const visible = usage.segments!.filter((s) => s.tokens > 0)
+                const total = visible.reduce((a, s) => a + s.tokens, 0) || 1
+                return visible.map((s) => (
                   <div
                     key={s.key}
                     className={`${segmentColor(s.key)} h-full min-w-0 transition-all first:rounded-l-full last:rounded-r-full`}
-                    style={{ width: `${Math.min(100, (s.tokens / Math.max(1, usage.used_tokens)) * 100)}%` }}
+                    style={{ width: `${(s.tokens / total) * 100}%` }}
                   />
                 ))
+              })()
             ) : (
               <div
                 className="h-full rounded-full bg-orange-500 transition-all"

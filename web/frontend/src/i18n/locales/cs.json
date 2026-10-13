@@ -143,7 +143,22 @@
     "approvalSealAlways": "Schváleno · v relaci vždy povoleno",
     "approvalSealDenied": "Zamítnuto",
     "approvalSealTimeout": "Vypršel čas · automaticky zamítnuto",
-    "approvalSealDone": "Vyřízeno"
+    "approvalSealDone": "Vyřízeno",
+    "approvalAllowAll": "Povolit vše v této relaci",
+    "approvalAllowAllHint": "Všechny žádosti o schválení budou v této relaci automaticky povoleny (platí ~6 hodin nebo do restartu); pravidla tvrdého odepření zůstávají nedotčena",
+    "approvalDenyReasonPlaceholder": "Řekněte modelu, proč odmítáte (nepovinné)",
+    "approvalDenyReasonSend": "Odeslat odmítnutí",
+    "approvalDenyWithReason": "Odmítnout s odůvodněním",
+    "askDraftHint": "Vybráno {{answered}}/{{total}} otázek, odešlete po vyplnění všech",
+    "askFreeTextHint": "Odpovědět můžete přímo ve vstupním poli",
+    "askInputHint": "Můžete také odpovědět volně ve vstupním poli (u více otázek podle pořadí řádků)",
+    "askSealAnswered": "Zodpovězeno",
+    "askSealDone": "Vyřízeno",
+    "askSealSkipped": "Přeskočeno",
+    "askSkip": "Přeskočit",
+    "askSubmit": "Odeslat odpovědi",
+    "askTextPlaceholder": "Zadejte odpověď…",
+    "askTitle": "Potřebuji vaši odpověď"
   },
   "header": {
     "logout": {
@@ -1106,6 +1121,15 @@
       "desc": {
         "open": "Blokuje jen destruktivní příkazy (doporučeno)",
         "strict": "Blokuje i sudo, roury, správce balíčků…"
+      }
+    }
+  },
+  "tpl": {
+    "sk": {
+      "ask": {
+        "title": "Navigace dovedností",
+        "desc": "Řekni mi, který postup použít",
+        "prompt": "Nejprve popíši situaci, kterou potřebuji vyřešit; ty určíš nejvhodnější pracovní postup (upevnění požadavků / plán rozdělení / testy první / ladění / architektura / kontrola / předání atd.), vysvětlíš, proč jej doporučuješ a jak bys postupoval, a po mém potvrzení jej provedeš."
       }
     }
   }

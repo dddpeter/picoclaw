@@ -352,6 +352,12 @@ export function handlePicoMessage(
       if (active) {
         updateChatStore((prev) => ({
           isTyping: true,
+          // 清上一轮的终态残留（评审 P4）：重连恢复的 active 帧若不清
+          // turnStats/turnStatus/turnElapsedMs，新回合结束的瞬间会闪现
+          // 上一轮的用量/耗时快照。
+          turnStats: undefined,
+          turnStatus: undefined,
+          turnElapsedMs: undefined,
           ...(prev.turnStartedAt
             ? { lastTurnActivityAt: Date.now() }
             : { turnStartedAt: Date.now(), lastTurnActivityAt: Date.now() }),

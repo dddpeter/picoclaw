@@ -6,6 +6,10 @@ import type { AskInfo, AskOption, AskQuestion, AskSeal, ChatMessage } from "@/st
 const ASK_RECEIVED_PREFIX = "📝 已收到回答"
 const ASK_SKIPPED_PREFIX = "⏭️ 已跳过问询"
 const ASK_TIMEOUT_PREFIX = "⏰ 问询超过"
+/** 超时回执的第二特征段（Go 端 publishAskTimeoutReceipt 固定文案）：
+ *  双特征匹配把误报面收窄到真实回执——普通聊天恰好以 "⏰ 问询超过"
+ *  开头的概率已低，再要求包含完整处理语义则几乎为零（评审 P4）。 */
+const ASK_TIMEOUT_CONFIRM = "未作答，按未作答处理"
 /** 孤儿 /skip 的回执（consumeOrphanSkip）：封存幽灵卡而非落成普通文本。 */
 const ASK_ORPHAN_PREFIX = "❓ 当前没有待回答的问题"
 
@@ -77,8 +81,8 @@ export function matchAskReceipt(content: string): AskReceiptVerdict | undefined 
   if (trimmed.startsWith(ASK_SKIPPED_PREFIX)) {
     return "skipped"
   }
-  if (trimmed.startsWith(ASK_TIMEOUT_PREFIX)) {
-   	// 超时软失败与 stale 恢复同档：低权重"已结束"，不渲染可点卡。
+  if (trimmed.startsWith(ASK_TIMEOUT_PREFIX) && trimmed.includes(ASK_TIMEOUT_CONFIRM)) {
+  	// 超时软失败与 stale 恢复同档：低权重"已结束"，不渲染可点卡。
     return "done"
   }
   if (trimmed.startsWith(ASK_ORPHAN_PREFIX)) {
