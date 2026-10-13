@@ -178,7 +178,7 @@ func TestFinalizeFallsBackToMinimalSealWhenCardRejected(t *testing.T) {
 func TestCancelOversizedAnswerClampsInCard(t *testing.T) {
 	fake := &sizeGuardAPIFake{}
 	s := newSizeGuardStreamer(t, fake)
-	s.answer = strings.Repeat("字", 12000) // 36KB partial answer
+	s.answer = strings.Repeat("字", 12000)                                             // 36KB partial answer
 	s.state.Tools = append(s.state.Tools, bus.ToolStep{Tool: "demo", Result: "done"}) // panel → not an empty card
 
 	s.CancelWithReason(context.Background(), "stop_command")

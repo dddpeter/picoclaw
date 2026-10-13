@@ -438,11 +438,11 @@ func (c *FeishuChannel) handleCardAction(_ context.Context, event *callback.Card
 	// the card's message id (observed empty in production on 2026-10-09,
 	// which silently disabled the PATCH seal).
 	logger.InfoCF("feishu", "card action received", map[string]any{
-		"cmd":             cmd,
-		"chat_id":         chatID,
-		"operator":        operatorOpenID,
-		"qid":             qid,
-		"context_msg_id":  contextMsgID,
+		"cmd":            cmd,
+		"chat_id":        chatID,
+		"operator":       operatorOpenID,
+		"qid":            qid,
+		"context_msg_id": contextMsgID,
 	})
 
 	// Resolve the operator through the same sender gate as typed messages;

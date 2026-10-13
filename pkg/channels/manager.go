@@ -2212,8 +2212,8 @@ func (m *Manager) SendToChannel(ctx context.Context, channelName, chatID, conten
 // Compile-time assurance that the manager's streamer wrappers preserve the
 // optional capability interfaces the agent pushes tool steps through.
 var (
-	_ bus.ToolStepStreamer      = (*finalizeHookStreamer)(nil)
-	_ bus.ToolStepStreamer      = (*splitMarkerStreamer)(nil)
-	_ bus.CancelReasonStreamer  = (*finalizeHookStreamer)(nil)
-	_ bus.CancelReasonStreamer  = (*splitMarkerStreamer)(nil)
+	_ bus.ToolStepStreamer     = (*finalizeHookStreamer)(nil)
+	_ bus.ToolStepStreamer     = (*splitMarkerStreamer)(nil)
+	_ bus.CancelReasonStreamer = (*finalizeHookStreamer)(nil)
+	_ bus.CancelReasonStreamer = (*splitMarkerStreamer)(nil)
 )

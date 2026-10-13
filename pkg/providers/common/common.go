@@ -362,7 +362,6 @@ func ParseResponse(body io.Reader) (*LLMResponse, error) {
 	}, nil
 }
 
-
 // DecodeToolCallArguments decodes a tool call's arguments from raw JSON.
 func DecodeToolCallArguments(raw json.RawMessage, name string) map[string]any {
 	arguments := make(map[string]any)

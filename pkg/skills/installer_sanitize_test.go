@@ -10,7 +10,7 @@ func TestSanitizeRemoteFileName(t *testing.T) {
 		{"SKILL.md", "SKILL.md"},
 		{"scripts", "scripts"},
 		{"my tool notes.txt", "my tool notes.txt"}, // spaces are legal
-		{"a..b.md", "a..b.md"},                    // not a dot-dot component
+		{"a..b.md", "a..b.md"},                     // not a dot-dot component
 		{"..hidden", "..hidden"},
 	}
 	for _, c := range ok {

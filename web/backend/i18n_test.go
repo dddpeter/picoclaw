@@ -7,17 +7,17 @@ import "testing"
 // all map to the Chinese table; anything else falls back to English.
 func TestSetLanguageNormalizesForms(t *testing.T) {
 	cases := map[string]Language{
-		"zh":               LanguageChinese,
-		"zh_CN":            LanguageChinese,
-		"zh_CN.UTF-8":      LanguageChinese,
-		"zh-TW":            LanguageChinese,
-		"zh-hk":            LanguageChinese,
-		"chinese":          LanguageChinese,
-		" ZH ":             LanguageChinese,
-		"en":               LanguageEnglish,
-		"en_US.UTF-8":      LanguageEnglish,
-		"fr":               LanguageEnglish,
-		"":                 LanguageEnglish,
+		"zh":          LanguageChinese,
+		"zh_CN":       LanguageChinese,
+		"zh_CN.UTF-8": LanguageChinese,
+		"zh-TW":       LanguageChinese,
+		"zh-hk":       LanguageChinese,
+		"chinese":     LanguageChinese,
+		" ZH ":        LanguageChinese,
+		"en":          LanguageEnglish,
+		"en_US.UTF-8": LanguageEnglish,
+		"fr":          LanguageEnglish,
+		"":            LanguageEnglish,
 	}
 	for in, want := range cases {
 		SetLanguage(in)

@@ -36,8 +36,8 @@ type Handler struct {
 	pluginsInstallRoot string // injected test override; empty = user default
 	pluginsDataRoot    string
 	// Serializes prompt-template file writes; path override is injected by tests.
-	promptTemplatesMu         sync.Mutex
-	promptTemplatesDataPath   string // injected test override; empty = next to configPath
+	promptTemplatesMu       sync.Mutex
+	promptTemplatesDataPath string // injected test override; empty = next to configPath
 }
 
 // NewHandler creates an instance of the API handler.

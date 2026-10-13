@@ -38,7 +38,8 @@ func TestParseRetryAfterHeader(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("%s: ParseRetryAfterHeader(%q) = %v, want %v", tc.name, tc.value, got, tc.want)
 		}
-	}}
+	}
+}
 
 // TestHandleErrorResponseCapturesRetryAfter: the Retry-After header of a 429
 // must survive into the HTTPError so the fallback cooldown can honor it.

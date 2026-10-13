@@ -531,7 +531,7 @@ func (c *FeishuChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMess
 	for _, part := range msg.Parts {
 		if err := c.sendMediaPartFn(ctx, msg.ChatID, part, store); err != nil {
 			// Partial delivery: retrying the batch would duplicate the parts
-		// already in the chat, so the manager must not retry (B6).
+			// already in the chat, so the manager must not retry (B6).
 			return nil, channels.MediaSendErr(sent, err)
 		}
 		sent++

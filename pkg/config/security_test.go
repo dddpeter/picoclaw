@@ -168,7 +168,7 @@ func TestSaveAndLoadSecurityConfig(t *testing.T) {
 		info, err := os.Stat(secPath)
 		require.NoError(t, err)
 		if runtime.GOOS != "windows" {
-		assert.Equal(t, os.FileMode(0o600), info.Mode())
+			assert.Equal(t, os.FileMode(0o600), info.Mode())
 		}
 
 		file, err := os.ReadFile(secPath)

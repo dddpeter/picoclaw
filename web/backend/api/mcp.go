@@ -39,10 +39,10 @@ type mcpServerDTO struct {
 }
 
 type mcpConfigResponse struct {
-	Enabled            bool              `json:"enabled"`
-	MaxInlineTextChars int               `json:"maxInlineTextChars"`
-	Discovery          mcpDiscoveryDTO   `json:"discovery"`
-	Servers            []mcpServerDTO    `json:"servers"`
+	Enabled            bool            `json:"enabled"`
+	MaxInlineTextChars int             `json:"maxInlineTextChars"`
+	Discovery          mcpDiscoveryDTO `json:"discovery"`
+	Servers            []mcpServerDTO  `json:"servers"`
 	// PluginServers are the Agent Plugins-bridged servers (read-only view:
 	// the gateway merges them in memory at load time; they are never part
 	// of config.json and a PUT request cannot modify them).

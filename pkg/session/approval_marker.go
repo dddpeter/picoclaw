@@ -57,8 +57,8 @@ func (b *JSONLBackend) ClearApprovalPending(sessionKey string) {
 // memory only — after a restart the map is empty, matching the legacy
 // backend's degraded turn-marker behavior.
 type approvalPendingMem struct {
-	mu       sync.Mutex
-	pending  map[string]memory.ApprovalMarker
+	mu      sync.Mutex
+	pending map[string]memory.ApprovalMarker
 }
 
 // MarkApprovalPending implements ApprovalMarkerStore.
