@@ -93,9 +93,10 @@ var (
 		// kill targeting every process (-1), PID 1, or the session's own
 		// process group (0) — machine-killing (octop
 		// dangerous_shell_commands.yaml CRITICAL); regular PIDs stay allowed.
-		// The first rule is TARGET-SIDE (review P2-2): any benign-flagged kill
-		// whose target is -1/-0/1/0 is fatal regardless of the signal spelling
-		// (`kill -15 -1`, `kill -- -1`, `kill -term 1`, bare `kill 1`). Two
+		// The first rule is TARGET-SIDE (review P2-2): a benign-flagged kill
+		// whose FIRST target is -1/-0/1/0 is fatal for the enumerated signal
+		// spellings (`kill -15 -1`, `kill -- -1`, `kill -term 1`, bare
+		// `kill 1`). Two
 		// paths kill the ambiguity between "-1 as the SIGHUP SPELLING"
 		// (kill -1 123 — benign, must stay allowed) and "-1 as the TARGET"
 		// (kill -9 -1 — fatal): a bare -1/-0 target is only matched when a
@@ -110,6 +111,23 @@ var (
 		// -s9/-n 9).
 		regexp.MustCompile(`\bkill\s+(?:(?:--\s+|-[1-9]\d*\s+|-s\s+(?:kill|term|hup|int|quit|usr1|usr2|[1-9]\d*)\s+|-(?:term|hup|int|quit|usr1|usr2|kill|tstp|cont|pipe|alrm)\s+|-sig(?:term|hup|int|quit|usr1|usr2|kill)\s+)+(-1\b|-0\b|1\b|0\b)|(?:1|0)\b)`),
 		regexp.MustCompile(`\bkill\s+(-\w+\s+)*(--\s+)?(-kill\b|-s\s*kill\b|-s\s*9\b|-n\s+9\b)\s+(-\w+\s+)*(--\s+)?(-1\b|1\b|0\b)`),
+		// The third rule is the TARGET-AT-END fallback (review round 2):
+		// closes the shapes the flagged enumeration above structurally
+		// misses — a benign pid ahead of the dangerous target (`kill 123
+		// -1`, `kill -9 123 -1`), unenumerated signal names (`kill -s segv
+		// -1`, `kill -s stop -1`), POSIX -n with a non-9 signum (`kill -n 15
+		// -1`), and attached -s/-sig forms (`kill -sterm -1`). Instead of
+		// enumerating signal spellings it enumerates ARGUMENTS as "any
+		// token except exactly -l/-0" (RE2 has no lookahead), so the
+		// introspection spellings can never match, and the dangerous target
+		// must not be the first token (bare `kill -1` stays a usage-error
+		// allow; `kill -0 -1`/`kill -0 0` probes stay allowed too).
+		// Termination is end-of-command or a shell metachar, covering
+		// `kill 5 -1; echo done`, `kill 5 -1 &` and `kill 5 -1 > log`.
+		// Known residual gaps: a newline right after the target (`kill 5
+		// -1\necho hi`) and variable indirection stay uncatchable — same
+		// documented-gap class as `rm -rf $DIR`.
+		regexp.MustCompile(`\bkill\s+(?:(?:[^\s;|&\r\n-][^\s;|&\r\n]*|-l[^\s;|&\r\n][^\s;|&\r\n]*|-0[^\s;|&\r\n][^\s;|&\r\n]*|-[^\s;|&\r\nl0][^\s;|&\r\n]*)\s+)+(?:-1\b|-0\b|1\b|0\b)(?:\s*[;|&<>]|[\s&]*$)`),
 		// Block writes to block devices (all common naming schemes).
 		regexp.MustCompile(
 			`>\s*/dev/(sd[a-z]|hd[a-z]|vd[a-z]|xvd[a-z]|nvme\d|mmcblk\d|loop\d|dm-\d|md\d|sr\d|nbd\d)`,

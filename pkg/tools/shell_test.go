@@ -2089,9 +2089,9 @@ func TestForkDenyDefaults(t *testing.T) {
 		"kill -s9 -1", // -s<sig> without the space (bash builtin)
 		"kill -n 9 1", // POSIX -n <signum> spelling
 		"kill -9 -- -1",
-		// TARGET-side (review P2-2): -1/1/0 as the target is fatal under ANY
-		// signal spelling, not just -9 — `kill -15 -1` and `kill -- -1` used
-		// to slip past the signal-specific rules above.
+		// TARGET-side (review P2-2): -1/1/0 as the target is fatal for the
+		// enumerated signal spellings, not just -9 — `kill -15 -1` and
+		// `kill -- -1` used to slip past the signal-specific rules above.
 		"kill -- -1",
 		"kill -15 -1",
 		"kill -term -1",
@@ -2102,6 +2102,25 @@ func TestForkDenyDefaults(t *testing.T) {
 		"kill 1",     // bare PID 1
 		"kill 0",     // own process group, no flags
 		"kill -s term -1",
+		// TARGET-at-end fallback (review round 2): closes the shapes the
+		// flagged enumeration structurally misses — a benign pid ahead of
+		// the dangerous target, unenumerated signal names, POSIX -n with a
+		// non-9 signum, attached -s/-sig forms, and shell metachars after
+		// the target.
+		"kill 5 -1",             // benign pid, then every-process target
+		"kill 123 -1",           // ditto, bare (default TERM)
+		"kill -9 123 -1",        // KILL to a regular pid, then -1
+		"kill -n 15 -1",         // POSIX -n spelling with a non-9 signum
+		"kill -n 2 -1",          // INT via -n
+		"kill -s segv -1",       // unenumerated signal name
+		"kill -s stop -1",       // freeze-everything spelling
+		"kill -sigsegv -1",      // attached -sig form, unenumerated
+		"kill -sterm -1",        // attached -s form
+		"kill 1 -0",             // TERM to pid 1 and the own process group
+		"kill 5 -1; echo done",  // segment terminator after the target
+		"kill 5 -1 &",           // backgrounded
+		"kill 5 -1 > /dev/null", // redirect after the target
+		"cd /tmp && kill 5 -1",  // compound command, target at the end
 	}
 	allowed := []string{
 		"rm -r builddir",
@@ -2131,6 +2150,18 @@ func TestForkDenyDefaults(t *testing.T) {
 		// zero-flag draft of the target-side rule regressed this case).
 		"kill -1 123",
 		"kill -1",
+		// Fallback-rule false-positive guards (review round 2): -0/-l are
+		// excluded from the fallback's argument enumeration, so probes and
+		// listing stay allowed even with a trailing 1/0 or a redirect.
+		"kill -0 -1",                    // probe the every-process spec (signal 0)
+		"kill -0 0",                     // probe the own process group
+		"kill -l 1 > /dev/null",         // list signal 1, harmless redirect
+		"kill -l 1; kill -0 123",        // introspection segments only
+		"kill -l -0",                    // list signal 0
+		"kill %1",                       // shell job spec, not machine-killing
+		"taskkill /f /pid 5",            // not the kill builtin (no \bkill)
+		"pkill -f foo",                  // ditto
+		"echo kill 5 123",               // kill as text, benign pids
 		"git push origin main",
 		"chmod 1777 /tmp",
 		"tar -czf rm.tar dir",
