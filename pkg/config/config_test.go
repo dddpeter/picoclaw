@@ -3329,3 +3329,24 @@ func TestAgentDefaults_EffectiveCooldownEnabled(t *testing.T) {
 		t.Fatal("explicit cooldown_enabled=false must disable cooldowns")
 	}
 }
+
+// TestAgentDefaults_GetAskTimeoutMS pins the ask_user wait bound accessor
+// (octop borrowing §三; review P3-C): nil receiver / zero / negative all
+// fall back to the 10-minute default, a positive value passes through.
+func TestAgentDefaults_GetAskTimeoutMS(t *testing.T) {
+	cases := []struct {
+		name string
+		d    *AgentDefaults
+		want int
+	}{
+		{"nil receiver", nil, 600000},
+		{"zero falls back", &AgentDefaults{}, 600000},
+		{"negative falls back", &AgentDefaults{AskTimeoutMS: -1}, 600000},
+		{"configured passes through", &AgentDefaults{AskTimeoutMS: 120000}, 120000},
+	}
+	for _, tc := range cases {
+		if got := tc.d.GetAskTimeoutMS(); got != tc.want {
+			t.Errorf("%s: GetAskTimeoutMS() = %d, want %d", tc.name, got, tc.want)
+		}
+	}
+}

@@ -34,8 +34,15 @@ type TurnMarker struct {
 // lost to restart recovery.
 const TurnMarkerSuffix = ".turnmarker.json"
 
+// TurnMarkerFile resolves the turn marker path for a session key within
+// dir. Exported for the web session API (same sanitizeKey semantics as the
+// store).
+func TurnMarkerFile(dir, sessionKey string) string {
+	return filepath.Join(dir, sanitizeKey(sessionKey)+TurnMarkerSuffix)
+}
+
 func (s *JSONLStore) turnMarkerPath(key string) string {
-	return filepath.Join(s.dir, sanitizeKey(key)+TurnMarkerSuffix)
+	return TurnMarkerFile(s.dir, key)
 }
 
 // WriteTurnMarker atomically records the in-flight turn for a session.

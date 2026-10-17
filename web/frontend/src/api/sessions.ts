@@ -34,6 +34,10 @@ export interface SessionDetail {
     /** 网关在问询等待中崩溃残留：卡预封存为已处理，不再可点。 */
     stale?: boolean
   }
+  /** An in-flight turn for this session, detected via the write-ahead turn
+   * marker (octop 借鉴 §四)：the REST twin of the WS turn.status frame —
+   * covers initial hydration before the socket settles. */
+  turn_active?: boolean
   messages: {
     role: "user" | "assistant"
     content: string

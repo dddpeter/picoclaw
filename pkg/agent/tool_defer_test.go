@@ -293,3 +293,30 @@ func TestAppendMetaToolDefs_Idempotent(t *testing.T) {
 		t.Fatalf("empty tool list must stay empty, got %d defs", len(got))
 	}
 }
+
+// TestToolDefer_SessionBoundEviction pins the loaded-set bound (octop
+// borrowing §六: octop keeps a 2048-thread catalog LRU; this is its FIFO
+// twin): the 2049th session evicts the OLDEST HALF, the newest stays, and
+// the map never exceeds the bound.
+func TestToolDefer_SessionBoundEviction(t *testing.T) {
+	d := newToolDeferState()
+	for i := range toolDeferMaxSessions + 1 {
+		d.markLoaded(fmt.Sprintf("s-%d", i), "mcp_srv_tool")
+	}
+	// Insertion of session 2049 evicted sessions 0..1023 (the oldest half).
+	if d.isLoaded("s-0", "mcp_srv_tool") {
+		t.Fatal("the oldest session must be evicted once the bound is hit")
+	}
+	if !d.isLoaded("s-1024", "mcp_srv_tool") {
+		t.Fatal("sessions inside the kept half must stay loaded")
+	}
+	if !d.isLoaded(fmt.Sprintf("s-%d", toolDeferMaxSessions), "mcp_srv_tool") {
+		t.Fatal("the newest session must stay loaded")
+	}
+	d.mu.Lock()
+	n := len(d.loaded)
+	d.mu.Unlock()
+	if n > toolDeferMaxSessions {
+		t.Fatalf("loaded set must stay bounded: %d > %d", n, toolDeferMaxSessions)
+	}
+}

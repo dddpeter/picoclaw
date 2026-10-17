@@ -77,7 +77,8 @@ function parseAttachments(
   return attachments.length > 0 ? attachments : undefined
 }
 
-function parseContextUsage(
+/** 解析 payload.context_usage（含 §五分段）。导出供协议层单测直接驱动。 */
+export function parseContextUsage(
   payload: Record<string, unknown>,
 ): ContextUsage | undefined {
   const raw = payload.context_usage

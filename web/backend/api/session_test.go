@@ -2177,3 +2177,75 @@ func TestHandleGetSession_PendingAskFromMarker(t *testing.T) {
 		t.Fatalf("a marker inside its timeout window must not be stale: %#v", fresh)
 	}
 }
+
+// TestHandleGetSession_TurnActiveFromTurnMarker pins turn_active (octop
+// borrowing §四-2): the REST twin of the WS turn.status frame — write-ahead
+// turn-marker detection, the list endpoint's Busy flag on the detail view.
+// Also pins the corrupt-marker self-heal (review P3-3): an unreadable ask
+// marker is removed instead of shadowing the endpoint forever.
+func TestHandleGetSession_TurnActiveFromTurnMarker(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	dir := sessionsTestDir(t, configPath)
+	store, storeErr := memory.NewJSONLStore(dir)
+	if storeErr != nil {
+		t.Fatalf("NewJSONLStore() error = %v", storeErr)
+	}
+	sessionKey := legacyPicoSessionPrefix + "turn-active"
+	if err := store.AddFullMessage(nil, sessionKey, providers.Message{
+		Role:    "user",
+		Content: "hello",
+	}); err != nil {
+		t.Fatalf("AddFullMessage(user) error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	get := func() map[string]any {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/sessions/turn-active", nil)
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+		}
+		var resp map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		return resp
+	}
+
+	// Field is always present (spec §四-2: unreadable reads false, never
+	// blocks the response).
+	if active, ok := get()["turn_active"].(bool); !ok || active {
+		t.Fatalf("turn_active should be false without a turn marker: %#v", get()["turn_active"])
+	}
+	if err := store.WriteTurnMarker(sessionKey, "agent:main", "glm-4.7"); err != nil {
+		t.Fatalf("WriteTurnMarker() error = %v", err)
+	}
+	if active, ok := get()["turn_active"].(bool); !ok || !active {
+		t.Fatalf("turn_active should be true while the turn marker exists: %#v", get()["turn_active"])
+	}
+	if err := store.ClearTurnMarker(sessionKey); err != nil {
+		t.Fatalf("ClearTurnMarker() error = %v", err)
+	}
+	if active, ok := get()["turn_active"].(bool); !ok || active {
+		t.Fatalf("turn_active should be false after the marker is cleared: %#v", get()["turn_active"])
+	}
+
+	// Corrupt ask marker: the endpoint self-heals (removes the file) so a
+	// broken write cannot shadow every later read (review P3-3).
+	if err := os.WriteFile(memory.AskMarkerFile(dir, sessionKey), []byte("{not json"), 0o644); err != nil {
+		t.Fatalf("WriteFile(corrupt marker) error = %v", err)
+	}
+	if _, exists := get()["pending_ask"]; exists {
+		t.Fatal("a corrupt ask marker must not surface as pending_ask")
+	}
+	if _, statErr := os.Stat(memory.AskMarkerFile(dir, sessionKey)); !os.IsNotExist(statErr) {
+		t.Fatal("a corrupt ask marker must be removed (self-heal)")
+	}
+}

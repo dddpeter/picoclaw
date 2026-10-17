@@ -2089,6 +2089,19 @@ func TestForkDenyDefaults(t *testing.T) {
 		"kill -s9 -1", // -s<sig> without the space (bash builtin)
 		"kill -n 9 1", // POSIX -n <signum> spelling
 		"kill -9 -- -1",
+		// TARGET-side (review P2-2): -1/1/0 as the target is fatal under ANY
+		// signal spelling, not just -9 — `kill -15 -1` and `kill -- -1` used
+		// to slip past the signal-specific rules above.
+		"kill -- -1",
+		"kill -15 -1",
+		"kill -term -1",
+		"kill -term 1",
+		"kill -1 1",
+		"kill -1 -1",
+		"kill -1 -0", // SIGHUP to the session's own process group — gateway suicide
+		"kill 1",     // bare PID 1
+		"kill 0",     // own process group, no flags
+		"kill -s term -1",
 	}
 	allowed := []string{
 		"rm -r builddir",
@@ -2100,6 +2113,24 @@ func TestForkDenyDefaults(t *testing.T) {
 		"kill -9 123", // a regular PID is not machine-killing
 		"kill -9 12",  // nor a two-digit one (no prefix confusion)
 		"kill -TERM 123",
+		// kill -l LISTS signals (kills nothing); kill -0 probes existence
+		// (signal 0 is a no-op) — both must stay allowed under the
+		// target-side rule (review P2-2 false-positive guards).
+		"kill -l",
+		"kill -l 1",
+		"kill -l 9",
+		"kill -l KILL",
+		"kill -0 1",
+		"kill -0 123",
+		"kill -15 123",
+		"kill -term 123",
+		"kill 123",
+		// -1 as the SIGHUP SPELLING (not the target): `kill -1 <pid>` is a
+		// benign HUP to a normal PID, and bare `kill -1` is a usage error on
+		// every shell — both must stay allowed (self-review: the first
+		// zero-flag draft of the target-side rule regressed this case).
+		"kill -1 123",
+		"kill -1",
 		"git push origin main",
 		"chmod 1777 /tmp",
 		"tar -czf rm.tar dir",

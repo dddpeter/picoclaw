@@ -269,7 +269,7 @@ export async function hydrateActiveSession() {
   }
 
   hydratePromise = loadSessionMessages(storedSessionId)
-    .then(({ messages: historyMessages, channel }) => {
+    .then(({ messages: historyMessages, channel, turnActive }) => {
       const currentState = getChatState()
       if (currentState.activeSessionId !== storedSessionId) {
         return
@@ -289,9 +289,11 @@ export async function hydrateActiveSession() {
 
       updateChatStore({
         messages: historyMessages,
-        isTyping: false,
-        turnStartedAt: undefined,
-        lastTurnActivityAt: undefined,
+        // REST 重连信号（octop 借鉴 §四）：hydrate 时 turn 仍在跑则恢复转圈态
+        // （与 WS turn.status 帧同语义），否则保持干净的空闲态。
+        isTyping: turnActive,
+        turnStartedAt: turnActive ? Date.now() : undefined,
+        lastTurnActivityAt: turnActive ? Date.now() : undefined,
         activeSessionChannel: channel,
         hasHydratedActiveSession: true,
       })
@@ -405,16 +407,16 @@ export async function switchChatSession(sessionId: string, channel?: string) {
   }
 
   try {
-    const { messages: historyMessages, channel: detailChannel } =
+    const { messages: historyMessages, channel: detailChannel, turnActive } =
       await loadSessionMessages(sessionId, channel)
 
     disconnectChatInternal({ clearDesiredConnection: false })
     setActiveSessionId(sessionId)
     updateChatStore({
       messages: historyMessages,
-      isTyping: false,
-      turnStartedAt: undefined,
-      lastTurnActivityAt: undefined,
+      isTyping: turnActive,
+      turnStartedAt: turnActive ? Date.now() : undefined,
+      lastTurnActivityAt: turnActive ? Date.now() : undefined,
       turnElapsedMs: undefined,
       turnStats: undefined,
       turnStatus: undefined,

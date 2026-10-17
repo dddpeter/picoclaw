@@ -590,23 +590,29 @@ type AgentDefaults struct {
 	// cancel) so a hung turn can finalize and release the session. If the
 	// turn still shows no activity one heartbeat interval later, a hard
 	// abort follows. 0 disables the watchdog (fork feature).
-	ProgressStallInterruptSeconds int                 `json:"progress_stall_interrupt_seconds,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_PROGRESS_STALL_INTERRUPT_SECONDS"`
-	SummarizeMessageThreshold     int                 `json:"summarize_message_threshold"      env:"PICOCLAW_AGENTS_DEFAULTS_SUMMARIZE_MESSAGE_THRESHOLD"`
-	SummarizeTokenPercent         int                 `json:"summarize_token_percent"          env:"PICOCLAW_AGENTS_DEFAULTS_SUMMARIZE_TOKEN_PERCENT"`
-	MaxMediaSize                  int                 `json:"max_media_size,omitempty"         env:"PICOCLAW_AGENTS_DEFAULTS_MAX_MEDIA_SIZE"`
-	MaxContextImages              int                 `json:"max_context_images,omitempty"     env:"PICOCLAW_AGENTS_DEFAULTS_MAX_CONTEXT_IMAGES"`
-	Routing                       *RoutingConfig      `json:"routing,omitempty"`
-	SteeringMode                  string              `json:"steering_mode,omitempty"          env:"PICOCLAW_AGENTS_DEFAULTS_STEERING_MODE"`      // "one-at-a-time" (default) or "all"
-	MaxParallelTurns              int                 `json:"max_parallel_turns"               env:"PICOCLAW_AGENTS_DEFAULTS_MAX_PARALLEL_TURNS"` // Max concurrent turns (0 or 1 = sequential)
-	SubTurn                       SubTurnConfig       `json:"subturn"                                                                                      envPrefix:"PICOCLAW_AGENTS_DEFAULTS_SUBTURN_"`
-	ToolFeedback                  ToolFeedbackConfig  `json:"tool_feedback,omitempty"`
-	SplitOnMarker                 bool                `json:"split_on_marker"                  env:"PICOCLAW_AGENTS_DEFAULTS_SPLIT_ON_MARKER"` // split messages on <|[SPLIT]|> marker
-	ContextManager                string              `json:"context_manager,omitempty"        env:"PICOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER"`
-	ContextManagerConfig          json.RawMessage     `json:"context_manager_config,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER_CONFIG"`
-	TurnProfile                   TurnProfileConfig   `json:"turn_profile,omitempty"`
-	MaxLLMRetries                 int                 `json:"max_llm_retries,omitempty"        env:"PICOCLAW_AGENTS_DEFAULTS_MAX_LLM_RETRIES"`
-	LLMRetryBackoffSecs           int                 `json:"llm_retry_backoff_secs,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_LLM_RETRY_BACKOFF_SECS"`
-	LoopDetection                 LoopDetectionConfig `json:"loop_detection,omitempty"`
+	ProgressStallInterruptSeconds int `json:"progress_stall_interrupt_seconds,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_PROGRESS_STALL_INTERRUPT_SECONDS"`
+	// AskTimeoutMS bounds one ask_user wait before it soft-fails as "user
+	// did not answer" (octop borrowing §三; fork feature). Unlike the
+	// approval timeout this is a UX bound, not a safety gate: expiry lets
+	// the model continue with a safe default. 0/negative = default
+	// (10 minutes, agent.defaultAskUserTimeout).
+	AskTimeoutMS              int                 `json:"ask_timeout_ms,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_ASK_TIMEOUT_MS"`
+	SummarizeMessageThreshold int                 `json:"summarize_message_threshold"      env:"PICOCLAW_AGENTS_DEFAULTS_SUMMARIZE_MESSAGE_THRESHOLD"`
+	SummarizeTokenPercent     int                 `json:"summarize_token_percent"          env:"PICOCLAW_AGENTS_DEFAULTS_SUMMARIZE_TOKEN_PERCENT"`
+	MaxMediaSize              int                 `json:"max_media_size,omitempty"         env:"PICOCLAW_AGENTS_DEFAULTS_MAX_MEDIA_SIZE"`
+	MaxContextImages          int                 `json:"max_context_images,omitempty"     env:"PICOCLAW_AGENTS_DEFAULTS_MAX_CONTEXT_IMAGES"`
+	Routing                   *RoutingConfig      `json:"routing,omitempty"`
+	SteeringMode              string              `json:"steering_mode,omitempty"          env:"PICOCLAW_AGENTS_DEFAULTS_STEERING_MODE"`      // "one-at-a-time" (default) or "all"
+	MaxParallelTurns          int                 `json:"max_parallel_turns"               env:"PICOCLAW_AGENTS_DEFAULTS_MAX_PARALLEL_TURNS"` // Max concurrent turns (0 or 1 = sequential)
+	SubTurn                   SubTurnConfig       `json:"subturn"                                                                                      envPrefix:"PICOCLAW_AGENTS_DEFAULTS_SUBTURN_"`
+	ToolFeedback              ToolFeedbackConfig  `json:"tool_feedback,omitempty"`
+	SplitOnMarker             bool                `json:"split_on_marker"                  env:"PICOCLAW_AGENTS_DEFAULTS_SPLIT_ON_MARKER"` // split messages on <|[SPLIT]|> marker
+	ContextManager            string              `json:"context_manager,omitempty"        env:"PICOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER"`
+	ContextManagerConfig      json.RawMessage     `json:"context_manager_config,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER_CONFIG"`
+	TurnProfile               TurnProfileConfig   `json:"turn_profile,omitempty"`
+	MaxLLMRetries             int                 `json:"max_llm_retries,omitempty"        env:"PICOCLAW_AGENTS_DEFAULTS_MAX_LLM_RETRIES"`
+	LLMRetryBackoffSecs       int                 `json:"llm_retry_backoff_secs,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_LLM_RETRY_BACKOFF_SECS"`
+	LoopDetection             LoopDetectionConfig `json:"loop_detection,omitempty"`
 	// RestartRecovery controls post-restart sealing/notification for sessions
 	// whose turn was interrupted by a gateway restart (fork feature).
 	RestartRecovery RestartRecoveryConfig `json:"restart_recovery,omitempty"`
@@ -785,6 +791,15 @@ func (d *AgentDefaults) GetProgressStallInterruptSeconds() int {
 		return 0
 	}
 	return d.ProgressStallInterruptSeconds
+}
+
+// GetAskTimeoutMS returns the ask_user wait bound in milliseconds; <= 0
+// falls back to the 10-minute default (600000, agent.defaultAskUserTimeout).
+func (d *AgentDefaults) GetAskTimeoutMS() int {
+	if d == nil || d.AskTimeoutMS <= 0 {
+		return 600000
+	}
+	return d.AskTimeoutMS
 }
 
 // GetAutoContinueTurns clamps negative values to 0 (disabled).

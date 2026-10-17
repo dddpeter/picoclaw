@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
@@ -68,6 +69,12 @@ type pendingAsk struct {
 	channel   string
 	chatID    string
 	questions []bus.AskQuestion
+	// mu+resolved close the late-reply window (review P3-2): once the
+	// waiter's owner has decided (answer consumed / timeout / abort),
+	// tryHandleAskReply must neither deliver into the buffer nor publish
+	// an acknowledgment for the retired waiter.
+	mu       sync.Mutex
+	resolved bool
 }
 
 // askUserToolDef is the LLM-facing definition (kept out of the registry,
@@ -202,22 +209,25 @@ func (al *AgentLoop) runAskUser(ctx context.Context, ts *turnState, args map[str
 	}
 	if prev, loaded := al.pendingAsks.Swap(ts.sessionKey, waiter); loaded {
 		// Stale ask from an aborted path: answer it as skipped so its waiter
-		// (if any) unblocks instead of dangling.
+		// (if any) unblocks instead of dangling. Resolving it first keeps a
+		// racing reply from acking a waiter that is being retired.
 		if p, ok := prev.(*pendingAsk); ok {
+			p.mu.Lock()
+			p.resolved = true
+			p.mu.Unlock()
 			select {
 			case p.resolve <- askReply{skipped: true}:
 			default:
 			}
 		}
 	}
-	defer al.pendingAsks.CompareAndDelete(ts.sessionKey, waiter)
 
 	al.publishAskQuestion(ts, questions, timeout)
 
 	// Pending-ask marker (web ask card — octop borrowing §三): the question
 	// itself is outbound-only and never enters the transcript; the marker
-	// restores the card after a page reload. Cleared on every exit path
-	// below (answer / skip / timeout / abort) via the defer.
+	// restores the card after a page reload.
+	clearMarker := func() {}
 	if ms := askMarkerStoreFor(al, ts.agent.ID); ms != nil {
 		if questionsJSON, jerr := json.Marshal(questions); jerr == nil {
 			ms.MarkAskPending(memory.AskMarker{
@@ -226,9 +236,23 @@ func (al *AgentLoop) runAskUser(ctx context.Context, ts *turnState, args map[str
 				Questions:  questionsJSON,
 				TimeoutMs:  timeout.Milliseconds(),
 			})
-			defer ms.ClearAskPending(ts.sessionKey)
+			clearMarker = func() { ms.ClearAskPending(ts.sessionKey) }
 		}
 	}
+	// finish retires the waiter on every exit path (answer / skip / timeout
+	// / abort) and runs BEFORE the exit side effects (receipt publish,
+	// return), so a reply racing the decision can neither land in the
+	// buffer nor draw an acknowledgment for a question the model already
+	// abandoned (review P3-2: the old deferred-only CAS left a window where
+	// tryHandleAskReply still saw the map entry and acked into the void).
+	finish := func() {
+		waiter.mu.Lock()
+		waiter.resolved = true
+		waiter.mu.Unlock()
+		al.pendingAsks.CompareAndDelete(ts.sessionKey, waiter)
+		clearMarker()
+	}
+	defer finish() // safety net; every branch below calls finish first
 
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
@@ -251,16 +275,34 @@ func (al *AgentLoop) runAskUser(ctx context.Context, ts *turnState, args map[str
 	for {
 		select {
 		case reply := <-resolve:
+			finish()
 			return askResultFor(questions, reply)
 		case <-ctx.Done():
-			// Close the late-reply race before returning: without this, a
-			// reply arriving in the return-to-defer window would be consumed
-			// and acknowledged while the turn proceeds as unanswered
-			// (review P2-3; the defers stay as safety nets).
-			al.pendingAsks.CompareAndDelete(ts.sessionKey, waiter)
+			// Retire FIRST, then drain (review P3-A): with resolved set, no
+			// racing reply can be delivered or acknowledged anymore, so the
+			// drain below is the LAST legal pickup — a reply that raced into
+			// the buffer before the flag still wins over the abort.
+			finish()
+			select {
+			case reply := <-resolve:
+				return askResultFor(questions, reply)
+			default:
+			}
 			return tools.NewToolResult("The turn was aborted before the user answered; treat the questions as unanswered.")
 		case <-timer.C:
-			al.pendingAsks.CompareAndDelete(ts.sessionKey, waiter)
+			// Retire FIRST, then drain (review P3-A): the drain-first order
+			// left a window where a reply sneaking between the empty drain and
+			// the resolved flag drew a "received" receipt while the waiter
+			// went on to publish the timeout — two contradicting receipts and
+			// a silently discarded answer. With the flag set no new delivery
+			// is possible; the drain is the last legal pickup, so an on-time
+			// answer still beats the timer (review P3-2).
+			finish()
+			select {
+			case reply := <-resolve:
+				return askResultFor(questions, reply)
+			default:
+			}
 			al.publishAskTimeoutReceipt(ts, timeout)
 			return tools.NewToolResult(fmt.Sprintf(
 				"The user did not answer within %s. Treat the questions as unanswered and decide how to continue.",
@@ -388,11 +430,19 @@ func (al *AgentLoop) tryHandleAskReply(ctx context.Context, msg bus.InboundMessa
 			return false // other commands still route normally
 		}
 	}
+	reply := collectAskReply(p.questions, msg.Content)
+	p.mu.Lock()
+	if p.resolved {
+		p.mu.Unlock()
+		return false // waiter already finished (timeout/abort); the message flows on
+	}
 	select {
-	case p.resolve <- collectAskReply(p.questions, msg.Content):
+	case p.resolve <- reply:
 	default:
+		p.mu.Unlock()
 		return false // already resolved by another reply
 	}
+	p.mu.Unlock()
 	al.publishAskReceipt(ctx, msg, commands.HasCommandPrefix(msg.Content))
 	logger.InfoCF("agent", "Ask reply routed", map[string]any{
 		"session_key": sessionKey,

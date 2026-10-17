@@ -107,6 +107,10 @@ func NewAgentLoop(
 	al.contextManager = al.resolveContextManager()
 	al.compactScheduler = newCompactScheduler(al)
 	al.toolDefer = newToolDeferState()
+	// ask_user wait bound (octop borrowing §三): configurable per fork
+	// convention (agents.defaults.ask_timeout_ms); tests may override the
+	// field directly to shrink waits.
+	al.askTimeout = time.Duration(cfg.Agents.Defaults.GetAskTimeoutMS()) * time.Millisecond
 	// Fresh-tail size for seahorse sessions (0/absent = 128 messages).
 	seahorse.SetFreshTailCount(cfg.Agents.Defaults.FreshTailMessages)
 

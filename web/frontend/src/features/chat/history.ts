@@ -44,7 +44,13 @@ function toChatAttachments({
 export async function loadSessionMessages(
   sessionId: string,
   channel?: string,
-): Promise<{ messages: ChatMessage[]; channel?: string }> {
+): Promise<{
+  messages: ChatMessage[]
+  channel?: string
+  /** REST 重连信号（octop 借鉴 §四）：该会话是否有在跑的 turn（turn-marker
+   * 探测）——WS turn.status 帧未就绪时的初始 hydrate 兜底。 */
+  turnActive?: boolean
+}> {
   const detail = await getSessionHistory(sessionId, channel)
   const messages = detail.messages.map((message, index) => ({
     id: `hist-${index}-${Date.now()}`,
@@ -143,7 +149,11 @@ export async function loadSessionMessages(
       ...staleSeal,
     })
   }
-  return { messages: paired, channel: detail.channel }
+  return {
+    messages: paired,
+    channel: detail.channel,
+    turnActive: detail.turn_active === true,
+  }
 }
 
 function normalizeMessageTimestamp(timestamp: number | string): string {

@@ -435,3 +435,34 @@ func TestCollectAskReply_CapsAnswerRunes(t *testing.T) {
 		t.Fatalf("capped answer must end with the ellipsis marker, got: ...%s", string(got[len(got)-3:]))
 	}
 }
+
+// TestTryHandleAskReply_RetiredWaiterFlowsOn pins the late-reply window fix
+// (review P3-2): once the waiter's owner decided (timeout/abort set resolved
+// before deleting the map entry), a racing reply from the asking chat is
+// neither consumed nor acknowledged — it flows on like any normal message
+// instead of drawing a receipt for a question the model already abandoned.
+func TestTryHandleAskReply_RetiredWaiterFlowsOn(t *testing.T) {
+	al, _, cleanup := newTurnCoordTestLoop(t, &summarizeStubProvider{})
+	defer cleanup()
+	ch := make(chan askReply, 1)
+	p := &pendingAsk{
+		resolve:   ch,
+		channel:   "feishu",
+		chatID:    "c1",
+		questions: []bus.AskQuestion{{Question: "q"}},
+	}
+	p.mu.Lock()
+	p.resolved = true
+	p.mu.Unlock()
+	al.pendingAsks.Store("agent_default:ask:retired", p)
+
+	if al.tryHandleAskReply(context.Background(),
+		bus.InboundMessage{Channel: "feishu", ChatID: "c1", Content: "答案"}, "agent_default:ask:retired") {
+		t.Fatal("a retired waiter must not consume or ack the reply")
+	}
+	select {
+	case <-ch:
+		t.Fatal("no reply may be delivered to a retired waiter")
+	default:
+	}
+}

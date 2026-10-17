@@ -90,13 +90,25 @@ var (
 		// targets count; variable indirection (`of=$D`) is not statically
 		// catchable and stays a documented gap like `rm -rf $DIR`.
 		regexp.MustCompile(`\bdd\s+[^|;&]*\bof=("|')?/dev/(sd[a-z]|hd[a-z]|vd[a-z]|xvd[a-z]|nvme\d|mmcblk\d|loop\d|dm-\d|md\d|sr\d|nbd\d|mapper/|disk/|block/)`),
-		// kill targeting every process (-1) or PID 1 — machine-killing (octop
+		// kill targeting every process (-1), PID 1, or the session's own
+		// process group (0) — machine-killing (octop
 		// dangerous_shell_commands.yaml CRITICAL); regular PIDs stay allowed.
-		// Covers the -9, -KILL, -s KILL/-s9, and POSIX -n <signum> spellings,
-		// `--` separators, and kill -9 0 (the gateway's own process group on
-		// a personal deploy). guardCommand lowercases, so -KILL arrives as
-		// -kill.
-		regexp.MustCompile(`\bkill\s+(-\w+\s+|--\s+)*-9\s+(-\w+\s+|--\s+)*(-1\b|1\b|0\b)`),
+		// The first rule is TARGET-SIDE (review P2-2): any benign-flagged kill
+		// whose target is -1/-0/1/0 is fatal regardless of the signal spelling
+		// (`kill -15 -1`, `kill -- -1`, `kill -term 1`, bare `kill 1`). Two
+		// paths kill the ambiguity between "-1 as the SIGHUP SPELLING"
+		// (kill -1 123 — benign, must stay allowed) and "-1 as the TARGET"
+		// (kill -9 -1 — fatal): a bare -1/-0 target is only matched when a
+		// signal flag or `--` precedes it (the flags chain eats the signal
+		// position), while the zero-flag path only matches bare 1/0 — `kill -1`
+		// alone is a usage error on every shell, so leaving it allowed is
+		// correct. Signal flags are enumerated (numeric, common names,
+		// `-s <name>`) so the introspection spelling `kill -l 1` (LIST signal
+		// 1, kills nothing) and the existence probe `kill -0 <pid>` (signal 0)
+		// never match. guardCommand lowercases, so -TERM arrives as -term.
+		// The second rule covers the bare-word KILL spellings (-kill/-s kill/
+		// -s9/-n 9).
+		regexp.MustCompile(`\bkill\s+(?:(?:--\s+|-[1-9]\d*\s+|-s\s+(?:kill|term|hup|int|quit|usr1|usr2|[1-9]\d*)\s+|-(?:term|hup|int|quit|usr1|usr2|kill|tstp|cont|pipe|alrm)\s+|-sig(?:term|hup|int|quit|usr1|usr2|kill)\s+)+(-1\b|-0\b|1\b|0\b)|(?:1|0)\b)`),
 		regexp.MustCompile(`\bkill\s+(-\w+\s+)*(--\s+)?(-kill\b|-s\s*kill\b|-s\s*9\b|-n\s+9\b)\s+(-\w+\s+)*(--\s+)?(-1\b|1\b|0\b)`),
 		// Block writes to block devices (all common naming schemes).
 		regexp.MustCompile(

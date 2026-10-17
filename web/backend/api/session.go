@@ -1047,6 +1047,17 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		"created":  sess.Created.Format(time.RFC3339),
 		"updated":  sess.Updated.Format(time.RFC3339),
 	}
+	// turn_active (octop borrowing §四-2): the REST twin of the pico WS
+	// turn.status frame. Same write-ahead turn-marker detection as the
+	// list endpoint's Busy flag, so the initial REST hydration (before the
+	// socket settles) can restore the typing state too. Unreadable or
+	// missing reads false — never blocks the response (spec §四-2).
+	resp["turn_active"] = false
+	if refErr == nil {
+		if _, statErr := os.Stat(memory.TurnMarkerFile(dir, ref.Key)); statErr == nil {
+			resp["turn_active"] = true
+		}
+	}
 	// Pending HITL approval (web approval card): the ask is outbound-only and
 	// never enters the transcript; the durable marker restores the pending
 	// card after a page reload. JSONL sessions only — legacy fallback.
@@ -1068,6 +1079,10 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 					"started_at": marker.StartedAt,
 					"stale":      stale,
 				}
+			} else {
+				// Corrupt marker: self-heal (memory.ReadAskMarker's policy) so it
+				// cannot shadow every later read of this endpoint (review P3-3).
+				_ = os.Remove(memory.ApprovalMarkerFile(dir, ref.Key))
 			}
 		}
 	}
@@ -1093,6 +1108,12 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 					"started_at": marker.StartedAt,
 					"stale":      stale,
 				}
+			} else {
+				// Corrupt marker: self-heal — the memory layer's ReadAskMarker
+				// removes unreadable markers, and this inline read must match
+				// that policy or a corrupt file shadows the endpoint forever
+				// (review P3-3).
+				_ = os.Remove(memory.AskMarkerFile(dir, ref.Key))
 			}
 		}
 	}

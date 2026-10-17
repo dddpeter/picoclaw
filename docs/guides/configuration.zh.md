@@ -627,6 +627,26 @@ Agent 将每隔 30 分钟（可配置）读取此文件，并使用可用工具�
 
 同批泛化（无新配置键）：任何工具输出触发 `max_tool_output_bytes` 截断时，未截断原文自动落盘到 `<workspace>/tmp/tool-output-*.log` 并附 `Full output: <路径>` 引用（此前仅 exec 有此待遇；落盘失败退回纯截断）。**注意**：落盘的是**未经敏感过滤的原文**（与 exec 落盘语义一致——过滤只作用于送模型的副本），文件位于 workspace 内、agent 本身可读；启动时自动清扫超过 7 天的 `tool-output-*` / `shell-output-*` 落盘文件。
 
+### 问询等待上限 (ask_timeout_ms)
+
+`ask_user` 工具（agent 结构化问询，借鉴 octop §三）阻塞等待用户作答的软超时（fork 新增）：
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "ask_timeout_ms": 600000
+    }
+  }
+}
+```
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `ask_timeout_ms` | `600000`（10 分钟） | 到点**软失败**：工具返回「用户未作答」，模型自行改道收尾（与审批超时=fail-closed 拒绝的语义相反）。0/负数/缺省 = 默认 |
+
+迟到回复不丢：超时判定后到达的作答不再被消费或回执（流入 steering）；与 deadline 同刻到达的回复优先于超时。
+
 ### 上下文窗口可信开关 (trust_configured_context_window)
 
 `agents.defaults.context_window` 常被填成营销数字（如 1M），而模型真实窗口小得多——所有压缩门信任虚高值后永不触发，长会话最终以「上游返回 200 + 空响应」形式溢出（2026-10-04 排查结论）。
