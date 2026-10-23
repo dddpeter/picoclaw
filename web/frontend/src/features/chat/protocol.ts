@@ -1,17 +1,6 @@
 import { toast } from "sonner"
 
 import {
-  parseAssistantMessageCreateState,
-  parseAssistantMessageUpdateState,
-} from "@/features/chat/assistant-message-state"
-import { normalizeUnixTimestamp } from "@/features/chat/state"
-import {
-  type ChatAttachment,
-  type ContextUsage,
-  type TurnStats,
-  updateChatStore,
-} from "@/store/chat"
-import {
   matchApprovalReceipt,
   parseApprovalFromPayload,
   parseApprovalFromText,
@@ -22,6 +11,17 @@ import {
   parseAskFromPayload,
   sealLastAsk,
 } from "@/features/chat/ask"
+import {
+  parseAssistantMessageCreateState,
+  parseAssistantMessageUpdateState,
+} from "@/features/chat/assistant-message-state"
+import { normalizeUnixTimestamp } from "@/features/chat/state"
+import {
+  type ChatAttachment,
+  type ContextUsage,
+  type TurnStats,
+  updateChatStore,
+} from "@/store/chat"
 
 export interface PicoMessage {
   type: string
@@ -106,9 +106,13 @@ export function parseContextUsage(
   return {
     used_tokens: used,
     total_tokens: total,
-    history_tokens: obj.history_tokens != null ? Number(obj.history_tokens) : undefined,
+    history_tokens:
+      obj.history_tokens != null ? Number(obj.history_tokens) : undefined,
     compress_at_tokens: Number(obj.compress_at_tokens) || 0,
-    summarize_at_tokens: obj.summarize_at_tokens != null ? Number(obj.summarize_at_tokens) : undefined,
+    summarize_at_tokens:
+      obj.summarize_at_tokens != null
+        ? Number(obj.summarize_at_tokens)
+        : undefined,
     used_percent: Number(obj.used_percent) || 0,
     segments,
   }
@@ -122,8 +126,9 @@ function parseModelName(payload: Record<string, unknown>): string | undefined {
   return modelName || undefined
 }
 
-/** 封板消息的 usage 载荷 → 回合用量快照（末次调用口径，含 LLM 调用次数）。 */
-function parseTurnStats(
+/** 封板消息的 usage 载荷 → 回合用量快照（末次调用口径，含 LLM 调用次数与
+ * 缓存命中）。导出供协议层单测直接驱动。 */
+export function parseTurnStats(
   payload: Record<string, unknown>,
 ): TurnStats | undefined {
   const raw = payload.usage
@@ -134,6 +139,7 @@ function parseTurnStats(
   const input = Number(obj.input_tokens)
   const output = Number(obj.output_tokens)
   const llmCalls = Number(obj.llm_calls)
+  const cached = Number(obj.cached_tokens)
   if (!Number.isFinite(input) || !Number.isFinite(output)) {
     return undefined
   }
@@ -141,6 +147,7 @@ function parseTurnStats(
   return {
     inputTokens: Math.max(0, input),
     outputTokens: Math.max(0, output),
+    ...(Number.isFinite(cached) && cached > 0 ? { cachedTokens: cached } : {}),
     ...(Number.isFinite(llmCalls) && llmCalls > 0 ? { llmCalls } : {}),
     ...(modelName ? { modelName } : {}),
   }
@@ -173,21 +180,21 @@ export function handlePicoMessage(
           : Date.now()
 
       const turnFinished =
-        !isPlaceholder &&
-        (kind === "normal" || message.type === "media.create")
+        !isPlaceholder && (kind === "normal" || message.type === "media.create")
       const turnStats = turnFinished ? parseTurnStats(payload) : undefined
       // 审批询问：v1 payload 优先，v0 兜底文本特征（历史回放同款解析）。
       // 注意：审批/问询卡现走 kind=progress_note（非终结帧），但历史回放
       // 与兜底文本通道仍可能以 kind=normal 到达，解析与 kind 无关。
-      const approval =
-        !isPlaceholder
-          ? (parseApprovalFromPayload(payload) ?? parseApprovalFromText(content))
-          : undefined
+      const approval = !isPlaceholder
+        ? (parseApprovalFromPayload(payload) ?? parseApprovalFromText(content))
+        : undefined
       const ask = !isPlaceholder ? parseAskFromPayload(payload) : undefined
       // 问询回执：封存最近未封 ask 卡（与审批回执同模式）。
       const askReceipt = !isPlaceholder ? matchAskReceipt(content) : undefined
       // 审批回执：封存最近未封卡并抑制回执文本本身；无配对目标按普通文本。
-      const receiptVerdict = !isPlaceholder ? matchApprovalReceipt(content) : undefined
+      const receiptVerdict = !isPlaceholder
+        ? matchApprovalReceipt(content)
+        : undefined
 
       updateChatStore((prev) => {
         const turnState = isPlaceholder
@@ -211,7 +218,11 @@ export function handlePicoMessage(
         }
 
         if (receiptVerdict) {
-          const sealed = sealLastApproval(prev.messages, receiptVerdict, timestamp)
+          const sealed = sealLastApproval(
+            prev.messages,
+            receiptVerdict,
+            timestamp,
+          )
           if (sealed) {
             return { ...common, messages: sealed }
           }

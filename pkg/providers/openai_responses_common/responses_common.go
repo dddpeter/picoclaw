@@ -266,6 +266,13 @@ func parseResponse(apiResp *responses.Response) *protocoltypes.LLMResponse {
 			CompletionTokens: int(apiResp.Usage.OutputTokens),
 			TotalTokens:      int(apiResp.Usage.TotalTokens),
 		}
+		// input_tokens_details.cached_tokens（含于 input_tokens）：命中明细
+		// 供 footer ⚡ 展示。
+		if cached := apiResp.Usage.InputTokensDetails.CachedTokens; cached > 0 {
+			usage.PromptTokensDetails = &protocoltypes.PromptTokensDetails{
+				CachedTokens: int(cached),
+			}
+		}
 	}
 
 	return &protocoltypes.LLMResponse{

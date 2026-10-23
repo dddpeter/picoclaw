@@ -564,8 +564,10 @@ func (p *streamingChunkPublisher) seal(ctx context.Context, content string, cont
 	}
 	if p.ts != nil {
 		if usage := p.ts.GetLastUsage(); usage != nil {
-			if setter, ok := p.streamer.(interface{ SetTurnUsage(in, out int) }); ok {
-				setter.SetTurnUsage(usage.PromptTokens, usage.CompletionTokens)
+			if setter, ok := p.streamer.(interface {
+				SetTurnUsage(usage providers.UsageInfo)
+			}); ok {
+				setter.SetTurnUsage(*usage)
 			}
 		}
 		if setter, ok := p.streamer.(interface{ SetTurnLLMCalls(n int) }); ok {

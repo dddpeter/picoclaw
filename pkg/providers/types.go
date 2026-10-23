@@ -14,6 +14,7 @@ type (
 	LLMResponse            = protocoltypes.LLMResponse
 	StreamChunk            = protocoltypes.StreamChunk
 	UsageInfo              = protocoltypes.UsageInfo
+	PromptTokensDetails    = protocoltypes.PromptTokensDetails
 	Message                = protocoltypes.Message
 	ToolDefinition         = protocoltypes.ToolDefinition
 	ToolFunctionDefinition = protocoltypes.ToolFunctionDefinition

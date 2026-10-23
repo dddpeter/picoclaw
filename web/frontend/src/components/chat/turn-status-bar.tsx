@@ -23,7 +23,7 @@ function formatDuration(ms: number): string {
 }
 
 function Sep() {
-	return <span className="text-muted-foreground/35 select-none">·</span>
+  return <span className="text-muted-foreground/35 select-none">|</span>
 }
 
 /**
@@ -33,115 +33,141 @@ function Sep() {
  * 回合进行中不显示上一回合的 token/API（陈旧），只保留实时项。
  */
 export function TurnStatusBar() {
-	const { t } = useTranslation()
-	const { isTyping, turnStartedAt, turnElapsedMs, turnStats, turnStatus, contextUsage } =
-		useAtomValue(chatAtom)
-	const [now, setNow] = useState(Date.now())
+  const { t } = useTranslation()
+  const {
+    isTyping,
+    turnStartedAt,
+    turnElapsedMs,
+    turnStats,
+    turnStatus,
+    contextUsage,
+  } = useAtomValue(chatAtom)
+  const [now, setNow] = useState(Date.now())
 
-	useEffect(() => {
-		if (!isTyping) return
-		const timer = setInterval(() => setNow(Date.now()), 1000)
-		return () => clearInterval(timer)
-	}, [isTyping])
+  useEffect(() => {
+    if (!isTyping) return
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [isTyping])
 
-	const elapsed =
-		isTyping && turnStartedAt !== undefined
-			? now - turnStartedAt
-			: turnElapsedMs
-	// 首回合进行中、或已有任一已结算数据（耗时/用量）时显示。
-	const visible = isTyping || turnStats !== undefined || turnElapsedMs !== undefined
-	if (!visible) return null
+  const elapsed =
+    isTyping && turnStartedAt !== undefined
+      ? now - turnStartedAt
+      : turnElapsedMs
+  // 首回合进行中、或已有任一已结算数据（耗时/用量）时显示。
+  const visible =
+    isTyping || turnStats !== undefined || turnElapsedMs !== undefined
+  if (!visible) return null
 
-	const status = isTyping ? "running" : (turnStatus ?? "done")
-	const statusLabel =
-		status === "running"
-			? t("chat.turnRunning")
-			: status === "error"
-				? t("chat.turnFailed")
-				: t("chat.turnDone")
+  const status = isTyping ? "running" : (turnStatus ?? "done")
+  const statusLabel =
+    status === "running"
+      ? t("chat.turnRunning")
+      : status === "error"
+        ? t("chat.turnFailed")
+        : t("chat.turnDone")
 
-	const showUsage = !isTyping && turnStats !== undefined
-	const usage = showUsage ? turnStats : undefined
+  const showUsage = !isTyping && turnStats !== undefined
+  const usage = showUsage ? turnStats : undefined
+  // 缓存命中率内嵌在输入 token 后（口径同飞书卡片 footer：cached 含于
+  // input，截断取整）：↑ 1.2K(⚡72%) ↓ 3.4K；无缓存数据整段省略。
+  const cachedTokens = usage?.cachedTokens ?? 0
+  const inputTokens = usage?.inputTokens ?? 0
+  const cachedPart =
+    cachedTokens > 0 && inputTokens > 0
+      ? // 病态上游（cached > input）封顶 100%，与飞书卡片 footer 同口径。
+        `(⚡${Math.min(100, Math.floor((cachedTokens / inputTokens) * 100))}%)`
+      : ""
 
-	const ctx = contextUsage
-	const ctxPct =
-		ctx && ctx.total_tokens > 0
-			? Math.min(100, Math.round((ctx.used_tokens / ctx.total_tokens) * 100))
-			: 0
-	const ctxGaugeColor =
-		ctxPct > 95 ? "bg-red-500" : ctxPct > 80 ? "bg-amber-500" : "bg-primary"
+  const ctx = contextUsage
+  const ctxPct =
+    ctx && ctx.total_tokens > 0
+      ? Math.min(100, Math.round((ctx.used_tokens / ctx.total_tokens) * 100))
+      : 0
+  const ctxGaugeColor =
+    ctxPct > 95 ? "bg-red-500" : ctxPct > 80 ? "bg-amber-500" : "bg-primary"
 
-	return (
-		<div
-			role="status"
-			aria-label={statusLabel}
-			className="border-border/50 bg-muted/40 text-muted-foreground mb-1.5 inline-flex max-w-full items-center gap-2 self-end overflow-hidden rounded-full border px-3 py-[3px] text-[11px] tabular-nums shadow-sm backdrop-blur-sm"
-		>
-			{status === "running" ? (
-				<span className="relative flex size-1.5 shrink-0">
-					<span className="bg-primary absolute inline-flex h-full w-full animate-ping rounded-full opacity-60" />
-					<span className="bg-primary relative inline-flex size-1.5 rounded-full" />
-				</span>
-			) : (
-				<span
-					className={cn(
-						"size-1.5 shrink-0 rounded-full",
-						status === "error" ? "bg-red-500" : "bg-emerald-500 dark:bg-emerald-400",
-					)}
-				/>
-			)}
-			<span
-				className={cn(
-					"shrink-0",
-					status === "error" && "text-red-600 dark:text-red-400",
-					status === "done" && "text-emerald-700 dark:text-emerald-400",
-				)}
-			>
-				{statusLabel}
-			</span>
-			{elapsed !== undefined && (
-				<>
-					<Sep />
-					<span className="shrink-0">⏱ {formatDuration(elapsed)}</span>
-				</>
-			)}
-			{usage?.modelName && (
-				<>
-					<Sep />
-					<span className="max-w-45 truncate font-mono text-[10.5px]">{usage.modelName}</span>
-				</>
-			)}
-			{(usage?.llmCalls ?? 0) > 1 && (
-				<>
-					<Sep />
-					<span className="shrink-0">API ×{usage?.llmCalls}</span>
-				</>
-			)}
-			{usage && (usage.inputTokens > 0 || usage.outputTokens > 0) && (
-				<>
-					<Sep />
-					<span className="shrink-0">
-						↑ {formatTokens(usage.inputTokens)} ↓ {formatTokens(usage.outputTokens)}
-					</span>
-				</>
-			)}
-			{ctx && ctx.total_tokens > 0 && ctx.used_tokens > 0 && (
-				<>
-					<Sep />
-					<span className="inline-flex shrink-0 items-center gap-1.5">
-						<span className="bg-muted-foreground/20 h-1 w-10 overflow-hidden rounded-full">
-							<span
-								className={cn("h-full rounded-full transition-all duration-300", ctxGaugeColor)}
-								style={{ width: `${ctxPct}%` }}
-							/>
-						</span>
-						{formatTokens(ctx.used_tokens)}/{formatTokens(ctx.total_tokens)} ({ctxPct}%)
-					</span>
-					{(ctx.history_tokens ?? 0) > 0 && (
-						<span className="shrink-0">↪ {formatTokens(ctx.history_tokens ?? 0)}</span>
-					)}
-				</>
-			)}
-		</div>
-	)
+  return (
+    <div
+      role="status"
+      aria-label={statusLabel}
+      className="border-border/50 bg-muted/40 text-muted-foreground mb-1.5 inline-flex max-w-full items-center gap-2 self-end overflow-hidden rounded-full border px-3 py-[3px] text-[11px] tabular-nums shadow-sm backdrop-blur-sm"
+    >
+      {status === "running" ? (
+        <span className="relative flex size-1.5 shrink-0">
+          <span className="bg-primary absolute inline-flex h-full w-full animate-ping rounded-full opacity-60" />
+          <span className="bg-primary relative inline-flex size-1.5 rounded-full" />
+        </span>
+      ) : (
+        <span
+          className={cn(
+            "size-1.5 shrink-0 rounded-full",
+            status === "error"
+              ? "bg-red-500"
+              : "bg-emerald-500 dark:bg-emerald-400",
+          )}
+        />
+      )}
+      <span
+        className={cn(
+          "shrink-0",
+          status === "error" && "text-red-600 dark:text-red-400",
+          status === "done" && "text-emerald-700 dark:text-emerald-400",
+        )}
+      >
+        {statusLabel}
+      </span>
+      {elapsed !== undefined && (
+        <>
+          <Sep />
+          <span className="shrink-0">⏱ {formatDuration(elapsed)}</span>
+        </>
+      )}
+      {usage?.modelName && (
+        <>
+          <Sep />
+          <span className="max-w-45 truncate font-mono text-[10.5px]">
+            {usage.modelName}
+          </span>
+        </>
+      )}
+      {(usage?.llmCalls ?? 0) > 1 && (
+        <>
+          <Sep />
+          <span className="shrink-0">API ×{usage?.llmCalls}</span>
+        </>
+      )}
+      {usage && (usage.inputTokens > 0 || usage.outputTokens > 0) && (
+        <>
+          <Sep />
+          <span className="shrink-0">
+            {`↑ ${formatTokens(usage.inputTokens)}${cachedPart} ↓ ${formatTokens(usage.outputTokens)}`}
+          </span>
+        </>
+      )}
+      {ctx && ctx.total_tokens > 0 && ctx.used_tokens > 0 && (
+        <>
+          <Sep />
+          <span className="inline-flex shrink-0 items-center gap-1.5">
+            <span className="bg-muted-foreground/20 h-1 w-10 overflow-hidden rounded-full">
+              <span
+                className={cn(
+                  "h-full rounded-full transition-all duration-300",
+                  ctxGaugeColor,
+                )}
+                style={{ width: `${ctxPct}%` }}
+              />
+            </span>
+            {formatTokens(ctx.used_tokens)}/{formatTokens(ctx.total_tokens)} (
+            {ctxPct}%)
+          </span>
+          {(ctx.history_tokens ?? 0) > 0 && (
+            <span className="shrink-0">
+              ↪ {formatTokens(ctx.history_tokens ?? 0)}
+            </span>
+          )}
+        </>
+      )}
+    </div>
+  )
 }

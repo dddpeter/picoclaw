@@ -20,6 +20,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/channels"
 	"github.com/sipeed/picoclaw/pkg/identity"
 	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/sipeed/picoclaw/pkg/providers"
 )
 
 // Streaming throttles. The answer element uses Feishu's native typewriter
@@ -1055,10 +1056,11 @@ func (s *feishuCardStreamer) SetSegmentLabel(label string) {
 	s.mu.Unlock()
 }
 
-func (s *feishuCardStreamer) SetTurnUsage(inputTokens, outputTokens int) {
+func (s *feishuCardStreamer) SetTurnUsage(usage providers.UsageInfo) {
 	s.mu.Lock()
-	s.state.InputTokens = inputTokens
-	s.state.OutputTokens = outputTokens
+	s.state.InputTokens = usage.PromptTokens
+	s.state.OutputTokens = usage.CompletionTokens
+	s.state.CachedTokens = usage.CachedTokens()
 	s.mu.Unlock()
 }
 

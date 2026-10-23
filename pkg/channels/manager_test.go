@@ -16,6 +16,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/config"
 	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
 	"github.com/sipeed/picoclaw/pkg/media"
+	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
@@ -3390,15 +3391,13 @@ func TestManager_SendPlaceholder(t *testing.T) {
 // SetTurnUsage is not part of the bus.Streamer interface).
 type turnUsageTrackingStreamer struct {
 	mockStreamer
-	inputTokens  int
-	outputTokens int
-	usageCalls   int
+	usage      providers.UsageInfo
+	usageCalls int
 }
 
-func (m *turnUsageTrackingStreamer) SetTurnUsage(inputTokens, outputTokens int) {
+func (m *turnUsageTrackingStreamer) SetTurnUsage(usage providers.UsageInfo) {
 	m.usageCalls++
-	m.inputTokens = inputTokens
-	m.outputTokens = outputTokens
+	m.usage = usage
 }
 
 func TestFinalizeHookStreamerForwardsTurnUsage(t *testing.T) {
@@ -3409,13 +3408,13 @@ func TestFinalizeHookStreamerForwardsTurnUsage(t *testing.T) {
 	if !ok {
 		t.Fatal("finalizeHookStreamer does not satisfy turnUsageStreamer")
 	}
-	setter.SetTurnUsage(1234, 567)
+	setter.SetTurnUsage(providers.UsageInfo{PromptTokens: 1234, CompletionTokens: 567})
 
 	if inner.usageCalls != 1 {
 		t.Fatalf("inner SetTurnUsage calls = %d, want 1", inner.usageCalls)
 	}
-	if inner.inputTokens != 1234 || inner.outputTokens != 567 {
-		t.Errorf("inner usage = (%d, %d), want (1234, 567)", inner.inputTokens, inner.outputTokens)
+	if inner.usage.PromptTokens != 1234 || inner.usage.CompletionTokens != 567 {
+		t.Errorf("inner usage = (%d, %d), want (1234, 567)", inner.usage.PromptTokens, inner.usage.CompletionTokens)
 	}
 }
 
@@ -3427,12 +3426,12 @@ func TestSplitMarkerStreamerForwardsTurnUsage(t *testing.T) {
 	if !ok {
 		t.Fatal("splitMarkerStreamer does not satisfy turnUsageStreamer")
 	}
-	setter.SetTurnUsage(1234, 567)
+	setter.SetTurnUsage(providers.UsageInfo{PromptTokens: 1234, CompletionTokens: 567})
 
 	if inner.usageCalls != 1 {
 		t.Fatalf("inner SetTurnUsage calls = %d, want 1", inner.usageCalls)
 	}
-	if inner.inputTokens != 1234 || inner.outputTokens != 567 {
-		t.Errorf("inner usage = (%d, %d), want (1234, 567)", inner.inputTokens, inner.outputTokens)
+	if inner.usage.PromptTokens != 1234 || inner.usage.CompletionTokens != 567 {
+		t.Errorf("inner usage = (%d, %d), want (1234, 567)", inner.usage.PromptTokens, inner.usage.CompletionTokens)
 	}
 }

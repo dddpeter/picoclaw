@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/sipeed/picoclaw/pkg/isolation"
+	"github.com/sipeed/picoclaw/pkg/providers/protocoltypes"
 )
 
 // ClaudeCliProvider implements LLMProvider using the claude CLI as a subprocess.
@@ -144,6 +145,10 @@ func (p *ClaudeCliProvider) parseClaudeCliResponse(output string) (*LLMResponse,
 			PromptTokens:     resp.Usage.InputTokens + resp.Usage.CacheCreationInputTokens + resp.Usage.CacheReadInputTokens,
 			CompletionTokens: resp.Usage.OutputTokens,
 			TotalTokens:      resp.Usage.InputTokens + resp.Usage.CacheCreationInputTokens + resp.Usage.CacheReadInputTokens + resp.Usage.OutputTokens,
+			// 命中明细（cache_read，含于 PromptTokens）供 footer ⚡ 展示。
+			PromptTokensDetails: &protocoltypes.PromptTokensDetails{
+				CachedTokens: resp.Usage.CacheReadInputTokens,
+			},
 		}
 	}
 

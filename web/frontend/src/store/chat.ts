@@ -121,6 +121,8 @@ export interface ContextUsage {
 export interface TurnStats {
   inputTokens: number
   outputTokens: number
+  /** 输入 token 中的缓存命中部分（⚡；含于 inputTokens，无数据时省略）。 */
+  cachedTokens?: number
   llmCalls?: number
   modelName?: string
 }

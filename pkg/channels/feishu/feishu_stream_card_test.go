@@ -529,6 +529,59 @@ func footerMarkdown(t *testing.T, els []any) string {
 	return ""
 }
 
+// 缓存命中率内嵌在输入 token 后（⚡ 含于 ↑）；无缓存数据整段省略。
+func TestBuildFeishuFooterCachedTokens(t *testing.T) {
+	hit := &feishuStreamState{
+		ModelName:    "glm-5.3",
+		InputTokens:  1234,
+		OutputTokens: 567,
+		CachedTokens: 900,
+	}
+	content := footerMarkdown(t, buildFeishuFooter(hit, false, time.Second, ""))
+	if !strings.Contains(content, "↑ 1.2K(⚡72%) ↓ 567") {
+		t.Errorf("footer %q missing cached-embedded token part", content)
+	}
+
+	miss := &feishuStreamState{ModelName: "glm-5.3", InputTokens: 1234, OutputTokens: 567}
+	plain := footerMarkdown(t, buildFeishuFooter(miss, false, time.Second, ""))
+	if !strings.Contains(plain, "↑ 1.2K ↓ 567") {
+		t.Errorf("footer %q missing plain token part", plain)
+	}
+	if strings.Contains(plain, "⚡") {
+		t.Errorf("footer %q should omit the ⚡ part without cache data", plain)
+	}
+
+	// 病态上游 cached > input：命中率封顶 100%，不越界。
+	weird := &feishuStreamState{InputTokens: 500, OutputTokens: 10, CachedTokens: 800}
+	clamped := footerMarkdown(t, buildFeishuFooter(weird, false, time.Second, ""))
+	if !strings.Contains(clamped, "(⚡100%)") {
+		t.Errorf("footer %q should clamp cache ratio at 100%%", clamped)
+	}
+}
+
+// 单行布局（fork 2026-10-23）：各项以竖线分割、客户端自动换行，不再手写 \n。
+func TestBuildFeishuFooterSingleLinePipeSeparated(t *testing.T) {
+	state := &feishuStreamState{
+		ModelName:     "glm-5.3",
+		InputTokens:   1234,
+		OutputTokens:  567,
+		LLMCalls:      3,
+		ContextUsed:   8100,
+		ContextTotal:  128000,
+		ContextOffset: 2000,
+	}
+	content := footerMarkdown(t, buildFeishuFooter(state, false, 12*time.Second, ""))
+	if strings.Contains(content, "\n") {
+		t.Errorf("footer should be a single line, got:\n%s", content)
+	}
+	if !strings.Contains(content, " | ") {
+		t.Errorf("footer %q missing pipe separators", content)
+	}
+	if strings.Contains(content, " · ") {
+		t.Errorf("footer %q should not use '·' between items (internal sub-parts keep it)", content)
+	}
+}
+
 func TestBuildFeishuFooterContextGaugeAndOffset(t *testing.T) {
 	state := &feishuStreamState{
 		ModelName:     "cbcn/deepseek-v4.1-flash",

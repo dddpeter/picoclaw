@@ -402,15 +402,23 @@ func parseResponse(resp *anthropic.Message) (*LLMResponse, error) {
 		finishReason = "stop"
 	}
 
+	// Anthropic 口径 input_tokens 不含缓存部分：cache_read+cache_creation 并入
+	// PromptTokens，对齐 OpenAI "prompt_tokens 已含 cached" 与 claude CLI 的
+	// 现有行为；命中明细单独记录供 footer ⚡ 展示。
+	cacheRead := int(resp.Usage.CacheReadInputTokens)
+	promptTokens := int(resp.Usage.InputTokens) + cacheRead + int(resp.Usage.CacheCreationInputTokens)
 	return &LLMResponse{
 		Content:      content.String(),
 		Reasoning:    reasoning.String(),
 		ToolCalls:    toolCalls,
 		FinishReason: finishReason,
 		Usage: &UsageInfo{
-			PromptTokens:     int(resp.Usage.InputTokens),
+			PromptTokens:     promptTokens,
 			CompletionTokens: int(resp.Usage.OutputTokens),
-			TotalTokens:      int(resp.Usage.InputTokens + resp.Usage.OutputTokens),
+			TotalTokens:      promptTokens + int(resp.Usage.OutputTokens),
+			PromptTokensDetails: &protocoltypes.PromptTokensDetails{
+				CachedTokens: cacheRead,
+			},
 		},
 	}, nil
 }

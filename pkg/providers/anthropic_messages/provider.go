@@ -382,14 +382,21 @@ func parseResponseBody(body []byte) (*LLMResponse, error) {
 		finishReason = "stop"
 	}
 
+	// 同 anthropic provider：cache_read+cache_creation 并入 PromptTokens（对齐
+	// OpenAI "prompt_tokens 已含 cached" 口径），命中明细供 footer ⚡ 展示。
+	cacheRead := int(resp.Usage.CacheReadInputTokens)
+	promptTokens := int(resp.Usage.InputTokens) + cacheRead + int(resp.Usage.CacheCreationInputTokens)
 	return &LLMResponse{
 		Content:      content.String(),
 		ToolCalls:    toolCalls,
 		FinishReason: finishReason,
 		Usage: &UsageInfo{
-			PromptTokens:     int(resp.Usage.InputTokens),
+			PromptTokens:     promptTokens,
 			CompletionTokens: int(resp.Usage.OutputTokens),
-			TotalTokens:      int(resp.Usage.InputTokens + resp.Usage.OutputTokens),
+			TotalTokens:      promptTokens + int(resp.Usage.OutputTokens),
+			PromptTokensDetails: &protocoltypes.PromptTokensDetails{
+				CachedTokens: cacheRead,
+			},
 		},
 	}, nil
 }
@@ -415,6 +422,8 @@ type contentBlock struct {
 }
 
 type usageInfo struct {
-	InputTokens  int64 `json:"input_tokens"`
-	OutputTokens int64 `json:"output_tokens"`
+	InputTokens              int64 `json:"input_tokens"`
+	OutputTokens             int64 `json:"output_tokens"`
+	CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
 }

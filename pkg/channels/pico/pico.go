@@ -23,6 +23,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/identity"
 	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
@@ -604,8 +605,7 @@ type picoStreamer struct {
 	channel          *PicoChannel
 	chatID           string
 	modelName        string
-	turnInputTokens  int
-	turnOutputTokens int
+	turnUsage        providers.UsageInfo
 	turnLLMCalls     int
 	messageID        string
 	reasoningID      string
@@ -630,14 +630,13 @@ func (s *picoStreamer) SetModelName(modelName string) {
 }
 
 // SetTurnUsage records the real per-turn LLM token usage to emit on finalize.
-func (s *picoStreamer) SetTurnUsage(inputTokens, outputTokens int) {
+func (s *picoStreamer) SetTurnUsage(usage providers.UsageInfo) {
 	if s == nil {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.turnInputTokens = inputTokens
-	s.turnOutputTokens = outputTokens
+	s.turnUsage = usage
 }
 
 // SetTurnLLMCalls records the per-turn LLM API call count to emit on finalize
@@ -759,7 +758,7 @@ func (s *picoStreamer) sendLocked(ctx context.Context, content string, contextUs
 			payload[PayloadKeyModelName] = s.modelName
 		}
 		setContextUsagePayload(payload, contextUsage)
-		setTurnUsagePayload(payload, s.turnInputTokens, s.turnOutputTokens, s.turnLLMCalls)
+		setTurnUsagePayload(payload, s.turnUsage, s.turnLLMCalls)
 		outMsg := newMessage(TypeMessageCreate, payload)
 		if err := s.channel.broadcast(s.chatID, outMsg); err != nil {
 			return err
@@ -772,7 +771,7 @@ func (s *picoStreamer) sendLocked(ctx context.Context, content string, contextUs
 		if s.modelName != "" {
 			payload[PayloadKeyModelName] = s.modelName
 		}
-		setTurnUsagePayload(payload, s.turnInputTokens, s.turnOutputTokens, s.turnLLMCalls)
+		setTurnUsagePayload(payload, s.turnUsage, s.turnLLMCalls)
 		if err := s.channel.editMessagePayload(ctx, s.chatID, s.messageID, payload, contextUsage); err != nil {
 			return err
 		}
@@ -1539,20 +1538,25 @@ func setContextUsagePayload(payload map[string]any, u *bus.ContextUsage) {
 // setTurnUsagePayload attaches real per-turn LLM token usage to the payload.
 // Input and output are kept separate (billed at different rates); total is a
 // convenience sum; llm_calls is the per-turn API call count for the web status
-// bar. Omitted entirely when all counts are zero.
-func setTurnUsagePayload(payload map[string]any, inputTokens, outputTokens, llmCalls int) {
-	if inputTokens <= 0 && outputTokens <= 0 && llmCalls <= 0 {
+// bar; cached_tokens is the prompt-cache hit count inside input_tokens
+// (omitted when the upstream reports none). Omitted entirely when all counts
+// are zero.
+func setTurnUsagePayload(payload map[string]any, usage providers.UsageInfo, llmCalls int) {
+	if usage.PromptTokens <= 0 && usage.CompletionTokens <= 0 && llmCalls <= 0 {
 		return
 	}
-	usage := map[string]any{
-		"input_tokens":  inputTokens,
-		"output_tokens": outputTokens,
-		"total_tokens":  inputTokens + outputTokens,
+	u := map[string]any{
+		"input_tokens":  usage.PromptTokens,
+		"output_tokens": usage.CompletionTokens,
+		"total_tokens":  usage.PromptTokens + usage.CompletionTokens,
+	}
+	if cached := usage.CachedTokens(); cached > 0 {
+		u["cached_tokens"] = cached
 	}
 	if llmCalls > 0 {
-		usage["llm_calls"] = llmCalls
+		u["llm_calls"] = llmCalls
 	}
-	payload[PayloadKeyUsage] = usage
+	payload[PayloadKeyUsage] = u
 }
 
 func picoToolCallsPayload(msg bus.OutboundMessage) ([]utils.VisibleToolCall, bool) {

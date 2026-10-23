@@ -49,10 +49,36 @@ type ReasoningDetail struct {
 	Text   string `json:"text"`
 }
 
+// PromptTokensDetails carries the OpenAI-style per-token breakdown of the
+// prompt; only cached_tokens is consumed today (prompt-cache hit count).
+type PromptTokensDetails struct {
+	CachedTokens int `json:"cached_tokens"`
+}
+
 type UsageInfo struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+	// PromptTokensDetails holds prompt_tokens_details.cached_tokens — the
+	// OpenAI/GLM nested spelling. Nil when the provider omits it. Under this
+	// dialect PromptTokens already includes the cached portion.
+	PromptTokensDetails *PromptTokensDetails `json:"prompt_tokens_details,omitempty"`
+	// PromptCacheHitTokens is DeepSeek's flat prompt_cache_hit_tokens spelling
+	// returned by some OpenAI-compatible gateways instead of the nested object.
+	PromptCacheHitTokens int `json:"prompt_cache_hit_tokens,omitempty"`
+}
+
+// CachedTokens returns the normalized prompt-cache hit count across provider
+// dialects (max of both spellings; 0 when the upstream reports none).
+func (u *UsageInfo) CachedTokens() int {
+	if u == nil {
+		return 0
+	}
+	cached := u.PromptCacheHitTokens
+	if u.PromptTokensDetails != nil && u.PromptTokensDetails.CachedTokens > cached {
+		cached = u.PromptTokensDetails.CachedTokens
+	}
+	return cached
 }
 
 // CacheControl marks a content block for LLM-side prefix caching.

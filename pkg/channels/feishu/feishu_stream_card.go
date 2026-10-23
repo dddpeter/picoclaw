@@ -195,6 +195,10 @@ type feishuStreamState struct {
 	ModelName    string
 	InputTokens  int
 	OutputTokens int
+	// CachedTokens is the prompt-cache hit count inside InputTokens (⚡ in the
+	// footer); 0 when the provider reports no cache breakdown — the ⚡ part is
+	// then omitted entirely.
+	CachedTokens int
 	// SegmentLabel marks auto-continue continuation segments (e.g. "续 2/3")
 	// so the panel header can distinguish continuation cards from the
 	// original turn's card (fork feature).
@@ -1021,7 +1025,20 @@ func buildFeishuFooter(state *feishuStreamState, aborted bool, elapsed time.Dura
 	}
 	line2 := []string{}
 	if state.InputTokens > 0 || state.OutputTokens > 0 {
-		line2 = append(line2, fmt.Sprintf("↑ %s ↓ %s", formatFeishuTokens(state.InputTokens), formatFeishuTokens(state.OutputTokens)))
+		// 缓存命中以命中率内嵌在输入 token 后（OpenAI/GLM 口径 prompt_tokens
+		// 已含 cached_tokens）：↑ 1.2K(⚡72%) ↓ 3.4K；无缓存数据整段省略。
+		// 截断取整，与下方 📦 上下文百分比同口径。
+		inPart := formatFeishuTokens(state.InputTokens)
+		if state.CachedTokens > 0 && state.InputTokens > 0 {
+			// 病态上游（cached > input，如双拼写语义不一致）封顶 100%，
+			// 仪表读数不越界。
+			pct := state.CachedTokens * 100 / state.InputTokens
+			if pct > 100 {
+				pct = 100
+			}
+			inPart += fmt.Sprintf("(⚡%d%%)", pct)
+		}
+		line2 = append(line2, fmt.Sprintf("↑ %s ↓ %s", inPart, formatFeishuTokens(state.OutputTokens)))
 	}
 	if state.ContextTotal > 0 && state.ContextUsed > 0 {
 		pct := state.ContextUsed * 100 / state.ContextTotal
@@ -1037,26 +1054,25 @@ func buildFeishuFooter(state *feishuStreamState, aborted bool, elapsed time.Dura
 			ctxVal = fmt.Sprintf("<font color='orange-300'>%s</font>", ctxVal)
 		}
 		ctxPart := "📦 " + ctxVal
+		line2 = append(line2, ctxPart)
 		if state.ContextOffset > 0 {
 			// ContextOffset 是会话历史 token 数（feishu_stream.go 以 HistoryTokens
-			// 赋值），按全文统一的 K/M 紧凑格式呈现，不再裸数字。
-			ctxPart += fmt.Sprintf(" · ↪ %s", formatFeishuTokens(state.ContextOffset))
+			// 赋值），按全文统一的 K/M 紧凑格式呈现；独立成项与各项竖线分割。
+			line2 = append(line2, fmt.Sprintf("↪ %s", formatFeishuTokens(state.ContextOffset)))
 		}
-		line2 = append(line2, ctxPart)
 	}
 	// Status verdict carries the color (green when done, amber family when
-	// interrupted); metrics lines stay grey so the context-warning colors
-	// inside them remain the only accents on line two.
+	// interrupted); metrics stay grey so the context-warning colors inside
+	// them remain the only accents. One line, pipe-separated — the client
+	// word-wraps it naturally (fork, 2026-10-23, was two "·"-joined lines).
 	statusColor := "green"
 	if aborted {
 		statusColor = feishuAmberColor
 	}
+	metrics := append(line1, line2...)
 	content := fmt.Sprintf("<font color='%s'>%s</font>", statusColor, status)
-	if len(line1) > 0 {
-		content += fmt.Sprintf(" <font color='grey'>%s</font>", strings.Join(line1, " · "))
-	}
-	if len(line2) > 0 {
-		content += fmt.Sprintf("\n<font color='grey'>%s</font>", strings.Join(line2, " · "))
+	if len(metrics) > 0 {
+		content += fmt.Sprintf(" <font color='grey'>%s</font>", strings.Join(metrics, " | "))
 	}
 	return []any{
 		map[string]any{"tag": "hr"},

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/sipeed/picoclaw/pkg/isolation"
+	"github.com/sipeed/picoclaw/pkg/providers/protocoltypes"
 )
 
 // CodexCliProvider implements LLMProvider by wrapping the codex CLI as a subprocess.
@@ -192,6 +193,10 @@ func (p *CodexCliProvider) parseJSONLEvents(output string) (*LLMResponse, error)
 					PromptTokens:     promptTokens,
 					CompletionTokens: event.Usage.OutputTokens,
 					TotalTokens:      promptTokens + event.Usage.OutputTokens,
+					// 命中明细（cached_input，含于 PromptTokens）供 footer ⚡ 展示。
+					PromptTokensDetails: &protocoltypes.PromptTokensDetails{
+						CachedTokens: event.Usage.CachedInputTokens,
+					},
 				}
 			}
 		case "error":
