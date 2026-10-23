@@ -529,6 +529,29 @@ func footerMarkdown(t *testing.T, els []any) string {
 	return ""
 }
 
+// width_mode=fill 需覆盖同一张卡的全部生命周期 config（流式/降级/封板×2），
+// 任一处缺失会在该阶段发生宽度跳变（fork 2026-10-23）。
+func TestFeishuCardWidthModeFill(t *testing.T) {
+	if cfg := feishuStreamingCardConfig(); cfg["width_mode"] != "fill" {
+		t.Errorf("streaming config width_mode = %v, want fill", cfg["width_mode"])
+	}
+	degraded := map[string]any{}
+	degradeFeishuCardConfig(degraded)
+	if c := degraded["config"].(map[string]any); c["width_mode"] != "fill" {
+		t.Errorf("degraded config width_mode = %v, want fill", c["width_mode"])
+	}
+	state := &feishuStreamState{ModelName: "m"}
+	finals := map[string]map[string]any{
+		"budget":  buildFeishuFinalCardBudget(state, "answer", "answer", false, time.Second, "", 0),
+		"minimal": buildFeishuMinimalFinalCard(state, "answer", false, time.Second, ""),
+	}
+	for name, card := range finals {
+		if c := card["config"].(map[string]any); c["width_mode"] != "fill" {
+			t.Errorf("%s final card width_mode = %v, want fill", name, c["width_mode"])
+		}
+	}
+}
+
 // 缓存命中率内嵌在输入 token 后（⚡ 含于 ↑）；无缓存数据整段省略。
 func TestBuildFeishuFooterCachedTokens(t *testing.T) {
 	hit := &feishuStreamState{

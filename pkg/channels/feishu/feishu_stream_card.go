@@ -280,6 +280,10 @@ const feishuStopCmd = "stop"
 // turns streaming_mode off and kills the typewriter on the answer element.
 func feishuStreamingCardConfig() map[string]any {
 	return map[string]any{
+		// width_mode=fill：卡片撑满聊天窗口宽度（默认 600px 上限），
+		// footer 单行竖线更少折行。同一张卡的降级/封板 config 必须同值，
+		// 否则流式→封板瞬间宽度跳变。
+		"width_mode":     "fill",
 		"streaming_mode": true,
 		"streaming_config": map[string]any{
 			"print_frequency_ms": map[string]any{"default": 70},
@@ -301,7 +305,7 @@ func feishuStreamingCardConfig() map[string]any {
 // plain updatable one, for cards whose streaming mode Feishu closed (code
 // 200850): element streaming is gone, but full-card updates keep working.
 func degradeFeishuCardConfig(card map[string]any) {
-	card["config"] = map[string]any{"update_multi": true}
+	card["config"] = map[string]any{"update_multi": true, "width_mode": "fill"}
 }
 
 // buildFeishuRefreshCard builds the mid-stream full-card update: the process
@@ -920,6 +924,7 @@ func buildFeishuMinimalFinalCard(state *feishuStreamState, content string, abort
 		"schema": "2.0",
 		"config": map[string]any{
 			"streaming_mode": false,
+			"width_mode":     "fill",
 			"locales":        []string{"zh_cn", "en_us"},
 			"summary":        feishuCardSummary(content),
 		},
@@ -979,6 +984,7 @@ func buildFeishuFinalCardBudget(state *feishuStreamState, composed, summarySourc
 		"schema": "2.0",
 		"config": map[string]any{
 			"streaming_mode": false,
+			"width_mode":     "fill",
 			"locales":        []string{"zh_cn", "en_us"},
 			"summary":        feishuCardSummary(summarySource),
 		},
