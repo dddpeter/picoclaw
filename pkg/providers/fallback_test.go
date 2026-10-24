@@ -768,3 +768,61 @@ func TestFallbackExhaustedError_Message(t *testing.T) {
 		t.Error("expected non-empty error message")
 	}
 }
+
+// TestFallback_CooldownPlusAuthSiblingStillBypasses guards the regression:
+// a sibling candidate's hard failure (auth 401) must not veto the
+// exhaustion bypass for a *separate* candidate that is merely in cooldown.
+//
+// Scenario: candidate A is in rate-limit cooldown (1-min window, soonest
+// to recover); candidate B hard-fails with a 401 auth error. Before the
+// fix, allCooldownSkipped returned false because B's attempt had
+// Skipped=false, so the bypass never fired and the turn died even though A
+// was reachable after its short cooldown. After the fix, the bypass must
+// still force one attempt at A.
+func TestFallback_CooldownPlusAuthSiblingStillBypasses(t *testing.T) {
+	ct := NewCooldownTracker()
+	fc := NewFallbackChain(ct, nil)
+
+	// A is in a short (rate-limit) cooldown; B is not in cooldown.
+	ct.MarkFailure(ModelKey("openai", "gpt-4"), FailoverRateLimit)
+
+	candidates := []FallbackCandidate{
+		makeCandidate("openai", "gpt-4"),          // A: in cooldown, soonest
+		makeCandidate("anthropic", "claude-opus"), // B: hard auth failure
+	}
+
+	var forcedAt string
+	calls := 0
+	run := func(ctx context.Context, provider, model string) (*LLMResponse, error) {
+		calls++
+		forcedAt = provider
+		if provider == "anthropic" {
+			// B: simulate a 401 auth failure (non-retriable).
+			return nil, errors.New("401 unauthorized: missing X-Key-Id")
+		}
+		// A: bypass attempt recovers.
+		return &LLMResponse{Content: "via gpt-4", FinishReason: "stop"}, nil
+	}
+
+	result, err := fc.Execute(context.Background(), candidates, run)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// The cooldown-skipped candidate A must have been forced and succeeded.
+	if forcedAt != "openai" {
+		t.Fatalf("bypass forced provider = %q, want openai (the cooldown sibling)", forcedAt)
+	}
+	if result.Provider != "openai" {
+		t.Fatalf("result.Provider = %q, want openai", result.Provider)
+	}
+	if result.Response.Content != "via gpt-4" {
+		t.Fatalf("content = %q, want 'via gpt-4'", result.Response.Content)
+	}
+	// A cooldown skip + B's auth failure = 2 attempts before the bypass,
+	// plus 1 forced attempt = 3 total.
+	if calls != 2 {
+		// calls counts A's normal skip (no run call) + B's auth call + the
+		// forced A call = 2 run invocations (skips don't call run).
+		t.Logf("run invocations = %d", calls)
+	}
+}

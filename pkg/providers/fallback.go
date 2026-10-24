@@ -294,25 +294,46 @@ func (fc *FallbackChain) executeCandidates(
 			Duration: elapsed,
 		})
 
-		// If this was the last candidate, return aggregate error.
+		// If this was the last candidate, fall through to the cooldown
+		// bypass below instead of returning exhausted immediately. A
+		// retriable failure on the last candidate (auth 401, rate-limit)
+		// must not veto the exhaustion bypass: an earlier candidate may be
+		// in a short cooldown and worth one forced attempt. The bypass
+		// returns FallbackExhaustedError when nothing else can be done.
 		if i == len(candidates)-1 {
-			return nil, &FallbackExhaustedError{Attempts: result.Attempts}
+			break
 		}
 	}
 
-	// All candidates were skipped by cooldown: rather than failing the turn,
-	// force one attempt at the soonest-recovering candidate. Cooldowns steer
+	// No candidate succeeded (we fell off the loop without an early return).
+	// Rather than failing the turn outright, force one attempt at the
+	// soonest-recovering candidate that is still in cooldown. Cooldowns steer
 	// selection toward healthy candidates — they must not hard-block the only
 	// options left (observed: a transient aggregator blip cooling every
 	// candidate turned the rest of the cooldown window into dead turns).
+	//
+	// The bypass fires when at least one attempt was a cooldown skip with a
+	// positive remaining window — even if *other* candidates failed for
+	// different reasons (auth 401, rate-limit, etc.). A hard failure on one
+	// candidate must not veto the cooldown-bypass for its siblings: that was
+	// the original dead-turn bug (one sibling's 401 silenced the whole pool).
 	// Billing disables are typically hours out, so the minimum-remaining pick
-	// naturally prefers rate-limit candidates.
-	if !force && len(result.Attempts) == len(candidates) && allCooldownSkipped(result.Attempts) {
-		best := 0
-		for i := 1; i < len(result.Attempts); i++ {
-			if result.Attempts[i].CooldownRemaining < result.Attempts[best].CooldownRemaining {
+	// naturally prefers rate-limit candidates over hard-auth failures.
+	if !force && len(result.Attempts) == len(candidates) && hasCooldownSkipped(result.Attempts) {
+		// Pick the cooldown-skipped candidate with the smallest remaining
+		// window. Non-skipped attempts carry CooldownRemaining == 0 and are
+		// therefore never chosen over a real (in-window) cooldown skip.
+		best := -1
+		for i, a := range result.Attempts {
+			if !a.Skipped || a.Reason != FailoverRateLimit || a.CooldownRemaining <= 0 {
+				continue
+			}
+			if best == -1 || a.CooldownRemaining < result.Attempts[best].CooldownRemaining {
 				best = i
 			}
+		}
+		if best == -1 {
+			return nil, &FallbackExhaustedError{Attempts: result.Attempts}
 		}
 		inner, err := fc.executeCandidates(ctx, candidates[best:best+1], run, true)
 		if inner != nil {
@@ -331,14 +352,17 @@ func (fc *FallbackChain) executeCandidates(
 	return nil, &FallbackExhaustedError{Attempts: result.Attempts}
 }
 
-// allCooldownSkipped reports whether every attempt is a cooldown skip.
-func allCooldownSkipped(attempts []FallbackAttempt) bool {
+// hasCooldownSkipped reports whether at least one attempt was skipped because
+// the candidate was in cooldown (with a positive remaining window). Used by
+// the exhaustion bypass to force one attempt at the soonest-recovering
+// candidate even when siblings failed for unrelated reasons.
+func hasCooldownSkipped(attempts []FallbackAttempt) bool {
 	for _, a := range attempts {
-		if !a.Skipped || a.CooldownRemaining <= 0 {
-			return false
+		if a.Skipped && a.Reason == FailoverRateLimit && a.CooldownRemaining > 0 {
+			return true
 		}
 	}
-	return true
+	return false
 }
 
 // ExecuteImage runs the fallback chain for image/vision requests.
