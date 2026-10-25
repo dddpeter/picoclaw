@@ -20,7 +20,16 @@
 
 [中文](docs/project/README.zh.md) | [日本語](docs/project/README.ja.md) | [한국어](docs/project/README.ko.md) | [Português](docs/project/README.pt-br.md) | [Tiếng Việt](docs/project/README.vi.md) | [Français](docs/project/README.fr.md) | [Italiano](docs/project/README.it.md) | [Bahasa Indonesia](docs/project/README.id.md) | [Malay](docs/project/README.ms.md) | **English**
 
-> **About this fork** — this repository is a personal fork of [sipeed/picoclaw](https://github.com/sipeed/picoclaw) with additions on top of upstream: Feishu CardKit streaming cards with a process panel, OpenViking shared-memory recall/commit, `/new` (reset conversation **and** the configured default model, re-reading the config file), non-blocking `/switch`, streamed-response header timeout, inline command-output cleaning, and low-progress loop detection. See [docs/design/fork-overview.zh.md](docs/design/fork-overview.zh.md) (中文) for the full feature map and upstream-sync notes. The fork's features are only available when **building from source**; the install channels below point to upstream releases.
+> **About this fork (v0.5.0)** — this repository is a personal fork of [sipeed/picoclaw](https://github.com/sipeed/picoclaw) with substantial additions on top of upstream:
+>
+> - **HITL approval gate** — gated commands/tools ask before running (fail-closed on timeout; enabled by default), with in-chat approval cards on web and Feishu, session tiers `/approve always` / `/approve all` / `/approve off`, `/deny <reason>`, and group-chat answers pinned to the triggering user
+> - **Structured ask_user questions** — the agent asks the user 1-5 multiple-choice questions and blocks for the answer (web ask card with refresh recovery; answers never enter the model context)
+> - **Context engineering** — per-model context windows (`model_list[].context_window` min-cap with `/switch` following), `/compact` manual compaction, six-segment context usage metering, progressive MCP tool loading (`tool_search`), iteration-boundary compaction, split-turn prefix summarization, idle-session compaction, auto-continue on output caps
+> - **Reliability** — restart recovery (interrupted turns sealed with a resume hint), stall watchdog + progress heartbeats, turn-status reconnect signal (page refresh no longer loses turn state)
+> - **Tools & UX** — LSP diagnostics/fix tools, exec timeout guidance with per-call `timeout`, third-party API-key masking in tool output, `picoclaw tui` terminal client, web `/mcp` management page, turn status bar, Feishu streaming cards with process panel/usage bar/cache-hit footer
+> - plus the earlier fork features: OpenViking shared-memory recall/commit, `/new` archive rotation with model reset, non-blocking `/switch`, streamed-response header timeout, inline command-output cleaning, low-progress loop detection
+>
+> See [docs/design/fork-overview.zh.md](docs/design/fork-overview.zh.md) (中文) for the full feature map and upstream-sync notes. The fork's features are only available when **building from source**; the install channels below point to upstream releases.
 
 </div>
 

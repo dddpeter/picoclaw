@@ -5,9 +5,45 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [0.5.0] - 2026-10-25
 
-### 2026-10-23 评审修复轮（五组并行评审 + 全量核实）
+### Added
+（v0.4.0 以来 87 个功能提交的浓缩，按域分组；细节见 docs/design/fork-overview.zh.md）
+
+**HITL 审批门禁**（agentscope-go/octop 借鉴）
+- 内置审批钩子：ask_patterns 匹配的命令/工具先问后执行，超时 fail-closed；单清单配方 `inherit_exec_deny_patterns`（exec deny 表直接作为审批范围）与 `hard_deny_patterns` 不可批准地板
+- web 消息流内嵌审批卡（三按钮 + 倒计时 + 封存留痕 + 刷新恢复）与飞书原生交互卡；会话策略三档 `/approve always`（规则提升）/`/approve all`（会话全局放行）/`/approve off`（随时撤销）；`/deny` 尾随理由回注模型；群聊答案钉住触发用户
+- 输出清理管线新增第三方 API key 格式掩码（sk-/AKIA/AIza/hf_/ghp_/xoxb-），`cat .env` 场景的明文 key 不再进模型上下文
+
+**ask_user 结构化问询**（octop 借鉴 §三）
+- agent 被用户决策卡住时发起结构化问题（1-5 题×6 选项）并阻塞等待；web 问询卡（多题草稿统一提交、单题多选、刷新恢复）；作答先于 steering 路由、永不进模型上下文、永不形成审批策略
+
+**上下文工程**
+- 按模型上下文窗口：`model_list[].context_window` 条目 min 钳制生效窗口，`/switch`/`/new`/重启恢复三条路径跟随；显示（declared）与门控（gating）分离
+- `/compact` 手动强制压缩（done/scheduled/nothing/busy/unavailable 五档契约，空闲分支异步化 + 有界等待）；上下文分段计量：used 按来源拆六段（system_prompt/skills/tool_definitions/mcp/subagents/conversation），口径镜像实际出站请求
+- 渐进式工具加载（octop 借鉴 §六）：MCP 工具数超阈值（默认 20）时未加载工具以延迟引用进 LLM，`tool_search` 元工具按需装载、会话粘性、`/new` 清空
+- 长任务上下文防线：迭代边界压缩 + 动态 max_tokens 钳制（pi 借鉴）、split-turn 前缀摘要、空闲会话后台压缩扫描器、截断答案自动续写（auto_continue_turns 默认 2 段）
+
+**工具**
+- LSP 诊断与源码修复（参考 pi-lsp：`lsp_diagnostics`/`lsp_fix`，路由到配置的 language server）
+- exec 超时返回引导改用 background 会话 + per-call `timeout` 参数；文件系统工具 Windows 兼容性五件套
+
+**可靠性**
+- 重启恢复：网关重启后封口中断会话并提示可继续（turn-in-flight 标记 + 悬空 tool_calls 补合成结果），全 agent 会话遍历，启动后异步执行
+- 卡死三层防护：stall watchdog 强制释放 + 长任务进度心跳（闲置超阈值发布进度步骤）+ 前端卡死提示；`turn_status` 重连信号（页面刷新不再丢失回合状态）
+
+**Web / TUI / 飞书**
+- `picoclaw tui` 终端客户端（网关客户端型，参考 pi 设计语言：token 色板/背景色块消息/会话历史）
+- web：`/mcp` 管理页（卡片编辑/草稿/连接测试/运行徽章）、回合状态栏（耗时/模型/API 次数/用量/上下文）、聊天 markdown 渲染升级、会话列表全渠道、频道侧边栏改版、五套主题切换
+- 飞书：流式卡片过程面板（续段标识、上下文用量条、LLM 缓存命中 footer、width_mode=fill）
+
+**其它**
+- cron 热重载（改任务不再重启网关）与唤醒门、自动化建议、蓝图模板与 `/learn` 命令；`/new` 改为归档轮换（旧对话独立成档）；品牌层重设计 PicoClaw → Limulus（鲎）；web 控制台五套主题切换（参考 metacubexd 调色板模型，含防闪烁引导与旧值兼容）
+
+### Changed
+- **审批 builtin 默认启用**（升级冲击）：存量配置若从未写 `hooks.builtins.approval`，升级后 `git push`/`git reset --hard`/`git clean`/brew/pip/npm uninstall 六条模式开箱即弹出审批卡（fail-closed，cron/心跳回合同样生效）；显式 `"enabled": false` 关闭（见 docs/guides/configuration.zh.md「升级冲击」）
+
+### Fixed — 2026-10-23 评审修复轮（五组并行评审 + 全量核实）
 
 **安全**
 - API key 掩码无条件执行：`--json`/`| tee`/`# nofilter` bypass 不再豁免掩码（此前 `cat .env # nofilter` 可把明文 key 送进模型上下文）；`sk-` 模式补 `\b` 边界（`--task-…`/`desk-…` 误掩消除）；格式库新增 `ghp_` 与 `xoxb-`
@@ -45,10 +81,7 @@
 
 **文档**：审批默认启用的升级冲击与关闭方法、迟到 /approve 实际行为、`tools.mcp.deferred_tool_threshold` 配置节、drain-first 术语更正（retire-first-then-drain）、显示窗口的 per-model cap 例外。
 
-### Added
-- web 控制台五套主题切换（参考 metacubexd 调色板模型）：浅色/深色（默认）/海洋/森林/樱花，`data-theme` + 完整 shadcn 变量组驱动，深色主题保留 `.dark` 类兼容 `dark:` 变体与代码高亮联动；调色板下拉（色板圆点预览）替换原日/月切换按钮；localStorage `theme` 键不变，旧值 `light`/`dark` 仍合法；`index.html` 防闪烁引导脚本首帧前恢复主题
 
-### Fixed
 - 首次安装按示例模板填写配置即报 "config.json contains unknown field(s)"：① 未知字段诊断白名单 `_comment` 键（注释约定， decoder 本就忽略、下次保存自然消失，真实拼写错误仍拒收）；② brave/tavily/kagi/perplexity 四个搜索 provider 兼容弃用的单数 `api_key`（仅加载期折叠进 `api_keys`，`api_keys` 优先，序列化永不回写）；③ `config/config.example.json` 模板清洗（删除冗余单数 `api_key` 行，tavily 改用 `api_keys`），新增 `TestExampleTemplateLoadsStrict` 钉死模板必须通过严格加载
 
 ## [0.4.0] - 2026-09-11
