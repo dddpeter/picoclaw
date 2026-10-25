@@ -239,8 +239,8 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 				})
 			turnStatus = TurnEndStatusError
 			return turnResult{}, fmt.Errorf(
-				"fallback degraded streak: primary model skipped for %d consecutive iterations, aborting turn early",
-				streak,
+				"%s: primary model skipped for %d consecutive iterations, aborting turn early",
+				errFallbackDegradedStreak, streak,
 			)
 		}
 		messages = exec.messages

@@ -280,6 +280,9 @@ func (p *Pipeline) CallLLM(
 			if streamErr == nil {
 				// The streaming first hop always targets the primary model —
 				// a successful stream means the primary served this iteration.
+				// Premise: tryConfiguredStreamingLLM bails out (handled=false)
+				// when the primary is in cooldown/unavailable, so a handled
+				// stream can never be a fallback candidate's success.
 				ts.recordLLMFallbackOutcome(false)
 			}
 			return response, streamErr

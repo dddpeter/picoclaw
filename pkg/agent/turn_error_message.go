@@ -10,6 +10,13 @@ import (
 	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
+// errFallbackDegradedStreak is the marker phrase embedded in the error the
+// iteration loop returns when the degraded-streak circuit breaker trips
+// (turn_coord.go). Generator and classifier MUST share this constant: a
+// wording drift on either side would silently demote the abort to the
+// generic failure message.
+const errFallbackDegradedStreak = "fallback degraded streak"
+
 // mapTurnErrorToUserMessage translates a failed turn's error into a
 // user-facing Chinese message with actionable guidance. Raw provider error
 // strings are unreadable for chat users; errors.As on the fallback aggregate
@@ -29,12 +36,15 @@ func mapTurnErrorToUserMessage(err error) string {
 		if remaining := maxCooldownRemaining(exhausted.Attempts); remaining > 0 {
 			text += fmt.Sprintf("，最早约 %d 分钟后可恢复", ceilMinutes(remaining))
 		}
-	case strings.Contains(lower, "fallback degraded streak"):
+	case strings.Contains(lower, errFallbackDegradedStreak):
 		// Circuit breaker (fork): turn aborted after N consecutive fallback-served
 		// iterations. Must run before generic string matching — the underlying
 		// streak error would otherwise fall into the plain-failure default.
 		text = "⚠ 模型持续限流，本轮已提前中止以保护配额，稍后自动重试"
 	case strings.Contains(lower, "context window"):
+		// Matches upstream/compression-side wording (e.g. "context window
+		// exceeds limit") — not a single internal constant, so kept as a
+		// literal here. Ordered after the errors.As branch above.
 		text = "⚠ 上下文超限且自动压缩失败，建议发送 /new 开启新会话"
 	case containsAny(lower, "401", "unauthorized", "invalid api key"):
 		text = "⚠ 模型鉴权失败，请检查 API Key 配置"
