@@ -861,7 +861,7 @@ func (al *AgentLoop) publishTurnError(ctx context.Context, ts *turnState, err er
 		defer cancel()
 		ctx = detached
 	}
-	text := fmt.Sprintf("⚠ 模型调用失败，本轮已中止：%s", utils.Truncate(err.Error(), 200))
+	text := mapTurnErrorToUserMessage(err)
 	if pubErr := al.bus.PublishOutbound(ctx, outboundMessageForTurn(ts, text)); pubErr != nil {
 		logger.WarnCF("agent", "Failed to publish turn error to user",
 			map[string]any{

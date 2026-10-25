@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/sipeed/picoclaw/pkg/providers/common"
 )
@@ -159,7 +160,55 @@ var (
 		521: true, 522: true, 523: true, 524: true,
 		529: true,
 	}
+
+	// Chinese upstream 429 bodies carry the recovery time in prose (e.g.
+	// 「请在 2026-10-25 19:00 之后重试」) with no Retry-After header.
+	chineseRetryDateTimeRe = regexp.MustCompile(`(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})`)
+	chineseRetryClockRe    = regexp.MustCompile(`(\d{1,2}):(\d{2})\s*之后`)
 )
+
+// retryHintCeiling caps body-derived hints: a far-future or garbage time
+// must not put a candidate out of circulation for hours.
+const retryHintCeiling = 24 * time.Hour
+
+// parseChineseRetryHint extracts a cooldown hint from Chinese retry-time
+// prose in a 429 body (「请在 2026-10-25 19:00 之后重试」, 「请在 19:00 之后重试」).
+// Full date-time wins over a bare clock; a target already in the past is
+// treated as the same time next day. Any parse failure returns 0 so the
+// caller keeps its default cooldown path.
+func parseChineseRetryHint(body string, now time.Time) time.Duration {
+	if m := chineseRetryDateTimeRe.FindStringSubmatch(body); m != nil {
+		target := time.Date(
+			parseDigits(m[1]), time.Month(parseDigits(m[2])), parseDigits(m[3]),
+			parseDigits(m[4]), parseDigits(m[5]), 0, 0, now.Location(),
+		)
+		return clampRetryHint(target.Sub(now))
+	}
+	if m := chineseRetryClockRe.FindStringSubmatch(body); m != nil {
+		target := time.Date(
+			now.Year(), now.Month(), now.Day(),
+			parseDigits(m[1]), parseDigits(m[2]), 0, 0, now.Location(),
+		)
+		return clampRetryHint(target.Sub(now))
+	}
+	return 0
+}
+
+// clampRetryHint maps a target offset into [0, 24h]: a past target becomes
+// the same time next day; a still-non-positive result (target more than a
+// day stale) means garbage data, so no hint at all.
+func clampRetryHint(d time.Duration) time.Duration {
+	if d <= 0 {
+		d += retryHintCeiling
+	}
+	switch {
+	case d <= 0:
+		return 0
+	case d > retryHintCeiling:
+		return retryHintCeiling
+	}
+	return d
+}
 
 // ClassifyError classifies an error into a FailoverError with reason.
 // Returns nil if the error is not classifiable (unknown errors should not trigger fallback).
@@ -240,12 +289,18 @@ func ClassifyError(err error, provider, model string) *FailoverError {
 			reason = FailoverBilling
 		}
 		if reason != "" {
+			// No Retry-After header: Chinese upstreams put the recovery
+			// time in the body prose instead.
+			retryAfter := httpErr.RetryAfter
+			if retryAfter == 0 && reason == FailoverRateLimit {
+				retryAfter = parseChineseRetryHint(httpErr.BodyPreview, time.Now())
+			}
 			return &FailoverError{
 				Reason:     reason,
 				Provider:   provider,
 				Model:      model,
 				Status:     httpErr.StatusCode,
-				RetryAfter: httpErr.RetryAfter,
+				RetryAfter: retryAfter,
 				Wrapped:    err,
 			}
 		}

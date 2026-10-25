@@ -325,7 +325,7 @@ func (fc *FallbackChain) executeCandidates(
 		// therefore never chosen over a real (in-window) cooldown skip.
 		best := -1
 		for i, a := range result.Attempts {
-			if !a.Skipped || a.Reason != FailoverRateLimit || a.CooldownRemaining <= 0 {
+			if !isRateLimitCooldownSkip(a) {
 				continue
 			}
 			if best == -1 || a.CooldownRemaining < result.Attempts[best].CooldownRemaining {
@@ -352,13 +352,19 @@ func (fc *FallbackChain) executeCandidates(
 	return nil, &FallbackExhaustedError{Attempts: result.Attempts}
 }
 
+// isRateLimitCooldownSkip reports whether an attempt was skipped because
+// the candidate was in cooldown with a positive remaining window.
+func isRateLimitCooldownSkip(a FallbackAttempt) bool {
+	return a.Skipped && a.Reason == FailoverRateLimit && a.CooldownRemaining > 0
+}
+
 // hasCooldownSkipped reports whether at least one attempt was skipped because
 // the candidate was in cooldown (with a positive remaining window). Used by
 // the exhaustion bypass to force one attempt at the soonest-recovering
 // candidate even when siblings failed for unrelated reasons.
 func hasCooldownSkipped(attempts []FallbackAttempt) bool {
 	for _, a := range attempts {
-		if a.Skipped && a.Reason == FailoverRateLimit && a.CooldownRemaining > 0 {
+		if isRateLimitCooldownSkip(a) {
 			return true
 		}
 	}

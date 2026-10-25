@@ -107,3 +107,82 @@ func TestCooldownHintDoesNotAffectBilling(t *testing.T) {
 		t.Fatalf("billing: CooldownRemaining = %v, want ~5h", remaining)
 	}
 }
+
+// TestParseChineseRetryHint covers the Chinese prose recovery times that
+// domestic upstreams put in 429 bodies when no Retry-After header exists.
+func TestParseChineseRetryHint(t *testing.T) {
+	now := time.Date(2026, 10, 25, 18, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		name string
+		body string
+		want time.Duration
+	}{
+		{"full datetime future", "请在 2026-10-25 19:00 之后重试", time.Hour},
+		{"full datetime with T separator", "rate limited, retry after 2026-10-26T09:30", 15*time.Hour + 30*time.Minute},
+		{"bare clock future", "限流，请在 19:30 之后重试", 90 * time.Minute},
+		{"bare clock past rolls to next day", "请在 03:00 之后重试", 9 * time.Hour},
+		{"datetime past rolls to next day", "请在 2026-10-25 16:00 之后重试", 22 * time.Hour},
+		{"far future clamped to 24h", "请在 2030-01-01 08:00 之后重试", 24 * time.Hour},
+		{"clock without zhihou does not match", "rate limit at 19:00, retry soon", 0},
+		{"no time at all", "{\"error\":\"too many requests\"}", 0},
+		{"empty", "", 0},
+	}
+
+	for _, tc := range cases {
+		got := parseChineseRetryHint(tc.body, now)
+		if got != tc.want {
+			t.Errorf("%s: parseChineseRetryHint(%q) = %v, want %v", tc.name, tc.body, got, tc.want)
+		}
+	}
+}
+
+// TestClassifyErrorChineseRetryBody: with no Retry-After header, the hint
+// comes from the body prose; the header always wins when present; billing
+// classification is untouched.
+func TestClassifyErrorChineseRetryBody(t *testing.T) {
+	t.Run("header takes priority over body", func(t *testing.T) {
+		httpErr := &common.HTTPError{
+			StatusCode:  429,
+			RetryAfter:  45 * time.Second,
+			BodyPreview: "请在 2099-01-01 08:00 之后重试",
+		}
+		result := ClassifyError(httpErr, "openai", "gpt-4")
+		if result == nil || result.RetryAfter != 45*time.Second {
+			t.Fatalf("RetryAfter = %v, want 45s (header wins)", result)
+		}
+	})
+
+	t.Run("body parsed when header absent", func(t *testing.T) {
+		httpErr := &common.HTTPError{
+			StatusCode:  429,
+			BodyPreview: "请在 2099-01-01 08:00 之后重试", // far future: clamps deterministically
+		}
+		result := ClassifyError(httpErr, "openai", "gpt-4")
+		if result == nil || result.RetryAfter != 24*time.Hour {
+			t.Fatalf("RetryAfter = %v, want 24h (clamped body hint)", result)
+		}
+	})
+
+	t.Run("unparseable body keeps zero hint", func(t *testing.T) {
+		httpErr := &common.HTTPError{StatusCode: 429, BodyPreview: "too many requests"}
+		result := ClassifyError(httpErr, "openai", "gpt-4")
+		if result == nil || result.RetryAfter != 0 {
+			t.Fatalf("RetryAfter = %v, want 0", result)
+		}
+	})
+
+	t.Run("billing override skips body hint", func(t *testing.T) {
+		httpErr := &common.HTTPError{
+			StatusCode:  429,
+			BodyPreview: "insufficient_quota, 请在 2099-01-01 08:00 之后重试",
+		}
+		result := ClassifyError(httpErr, "openai", "gpt-4")
+		if result == nil || result.Reason != FailoverBilling {
+			t.Fatalf("Reason = %v, want FailoverBilling", result)
+		}
+		if result.RetryAfter != 0 {
+			t.Fatalf("RetryAfter = %v, want 0 for billing", result.RetryAfter)
+		}
+	})
+}
