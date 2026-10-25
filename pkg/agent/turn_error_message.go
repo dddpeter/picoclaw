@@ -29,6 +29,11 @@ func mapTurnErrorToUserMessage(err error) string {
 		if remaining := maxCooldownRemaining(exhausted.Attempts); remaining > 0 {
 			text += fmt.Sprintf("，最早约 %d 分钟后可恢复", ceilMinutes(remaining))
 		}
+	case strings.Contains(lower, "fallback degraded streak"):
+		// Circuit breaker (fork): turn aborted after N consecutive fallback-served
+		// iterations. Must run before generic string matching — the underlying
+		// streak error would otherwise fall into the plain-failure default.
+		text = "⚠ 模型持续限流，本轮已提前中止以保护配额，稍后自动重试"
 	case strings.Contains(lower, "context window"):
 		text = "⚠ 上下文超限且自动压缩失败，建议发送 /new 开启新会话"
 	case containsAny(lower, "401", "unauthorized", "invalid api key"):

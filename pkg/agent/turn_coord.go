@@ -223,6 +223,26 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 			turnStatus = TurnEndStatusError
 			return turnResult{}, callErr
 		}
+		// Rate-limit circuit breaker (fork): a heartbeat turn grinding through
+		// a 429 storm serves every iteration from fallback candidates. Abort
+		// after degradedStreakAbortLimit consecutive degraded iterations —
+		// before running the response's tool calls, which would only trigger
+		// another LLM call — so the next heartbeat retries with a fresh budget
+		// (observed: 79 degraded iterations over 13 minutes).
+		if ts.fallbackDegradedStreak() >= degradedStreakAbortLimit {
+			streak := ts.fallbackDegradedStreak()
+			logger.WarnCF("agent", "Fallback degraded streak reached, aborting turn early",
+				map[string]any{
+					"agent_id":  ts.agent.ID,
+					"iteration": iteration,
+					"streak":    streak,
+				})
+			turnStatus = TurnEndStatusError
+			return turnResult{}, fmt.Errorf(
+				"fallback degraded streak: primary model skipped for %d consecutive iterations, aborting turn early",
+				streak,
+			)
+		}
 		messages = exec.messages
 		pendingMessages = exec.pendingMessages
 		// Take ownership: nil out exec's reference so the next iteration's

@@ -270,6 +270,14 @@ type turnState struct {
 	// iterationLimit records that this turn ended by exhausting
 	// max_tool_iterations (set in turn_coord before Finalize).
 	iterationLimit bool
+	// degradedStreak counts consecutive LLM iterations served by a fallback
+	// candidate while the primary was skipped/failed (typically a 429
+	// rate-limit storm). Reset to 0 whenever the primary serves an iteration.
+	// Once it reaches degradedStreakAbortLimit the turn aborts early
+	// (heartbeat circuit breaker) so the next heartbeat retries with a fresh
+	// budget instead of grinding on fallback quota (observed: 79 degraded
+	// iterations over 13 minutes).
+	degradedStreak atomic.Int32
 	// Progress heartbeat bookkeeping (fork feature: long-task heartbeat).
 	lastActivityNano atomic.Int64
 	lastBeatNano     atomic.Int64
@@ -487,6 +495,30 @@ func (ts *turnState) iterationLimitHit() bool {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 	return ts.iterationLimit
+}
+
+// degradedStreakAbortLimit is the circuit-breaker threshold: once this many
+// consecutive LLM iterations were served by fallback candidates (primary
+// skipped/failed, typically a 429 storm), the turn aborts early and the
+// next heartbeat retries with a fresh budget.
+const degradedStreakAbortLimit = 6
+
+// recordLLMFallbackOutcome updates the degraded-iteration streak after a
+// successful LLM call: +1 when a fallback candidate served the iteration,
+// reset to 0 when the primary did. Failed calls leave the streak untouched —
+// only iterations the chain actually served count toward the breaker.
+func (ts *turnState) recordLLMFallbackOutcome(degraded bool) {
+	if degraded {
+		ts.degradedStreak.Add(1)
+		return
+	}
+	ts.degradedStreak.Store(0)
+}
+
+// fallbackDegradedStreak returns the current count of consecutive LLM
+// iterations served by fallback candidates.
+func (ts *turnState) fallbackDegradedStreak() int {
+	return int(ts.degradedStreak.Load())
 }
 
 // touchActivity records observable progress (LLM chunk, tool completion,

@@ -163,3 +163,27 @@ func TestLLMCallCountIncrementsPerUsageRecord(t *testing.T) {
 		t.Fatalf("GetLastUsage should still return the latest usage, got %+v", u)
 	}
 }
+
+func TestTurnState_FallbackDegradedStreak(t *testing.T) {
+	ts := &turnState{}
+	if got := ts.fallbackDegradedStreak(); got != 0 {
+		t.Fatalf("fresh streak = %d, want 0", got)
+	}
+	// Degraded iterations accumulate.
+	for i := 1; i <= 3; i++ {
+		ts.recordLLMFallbackOutcome(true)
+		if got := ts.fallbackDegradedStreak(); got != i {
+			t.Fatalf("streak after %d degraded outcomes = %d, want %d", i, got, i)
+		}
+	}
+	// A primary-served iteration resets the streak.
+	ts.recordLLMFallbackOutcome(false)
+	if got := ts.fallbackDegradedStreak(); got != 0 {
+		t.Fatalf("streak after primary-served iteration = %d, want 0", got)
+	}
+	// The reset sticks across further degraded outcomes.
+	ts.recordLLMFallbackOutcome(true)
+	if got := ts.fallbackDegradedStreak(); got != 1 {
+		t.Fatalf("streak after reset + 1 degraded = %d, want 1", got)
+	}
+}

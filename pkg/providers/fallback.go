@@ -49,6 +49,18 @@ type FallbackResult struct {
 	Attempts    []FallbackAttempt
 }
 
+// DegradedFromPrimary reports whether the successful response was served by
+// a fallback candidate rather than the primary (first) one — the primary was
+// skipped (cooldown / local rate limit) or failed and a sibling bailed the
+// call out. Callers use this to count degraded iterations and circuit-break
+// turns grinding through rate-limit storms on fallback models.
+func (r *FallbackResult) DegradedFromPrimary(candidates []FallbackCandidate) bool {
+	if r == nil || len(candidates) == 0 {
+		return false
+	}
+	return r.IdentityKey != "" && r.IdentityKey != candidates[0].StableKey()
+}
+
 // FallbackAttempt records one attempt in the fallback chain.
 type FallbackAttempt struct {
 	Provider string

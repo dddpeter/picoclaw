@@ -277,6 +277,11 @@ func (p *Pipeline) CallLLM(
 			messagesForCall,
 			toolDefsForCall,
 		); handled {
+			if streamErr == nil {
+				// The streaming first hop always targets the primary model —
+				// a successful stream means the primary served this iteration.
+				ts.recordLLMFallbackOutcome(false)
+			}
 			return response, streamErr
 		}
 
@@ -370,9 +375,16 @@ func (p *Pipeline) CallLLM(
 				)
 				break
 			}
+			ts.recordLLMFallbackOutcome(fbResult.DegradedFromPrimary(exec.activeCandidates))
 			return fbResult.Response, nil
 		}
-		return exec.activeProvider.Chat(providerCtx, messagesForCall, toolDefsForCall, exec.llmModel, exec.llmOpts)
+		resp, chatErr := exec.activeProvider.Chat(providerCtx, messagesForCall, toolDefsForCall, exec.llmModel, exec.llmOpts)
+		if chatErr == nil {
+			// No fallback chain (single candidate): the primary served this
+			// iteration directly.
+			ts.recordLLMFallbackOutcome(false)
+		}
+		return resp, chatErr
 	}
 
 	// Retry loop

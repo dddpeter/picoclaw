@@ -32,6 +32,8 @@ func TestMapTurnErrorToUserMessage(t *testing.T) {
 			"⚠ 模型暂时不可用：所有候选模型均失败或限流，最早约 2 分钟后可恢复"},
 		{"context window", errors.New("API Error: maximum Context Window exceeded"),
 			"⚠ 上下文超限且自动压缩失败，建议发送 /new 开启新会话"},
+		{"fallback degraded streak", fmt.Errorf("fallback degraded streak: primary model skipped for 6 consecutive iterations, aborting turn early"),
+			"⚠ 模型持续限流，本轮已提前中止以保护配额，稍后自动重试"},
 		{"auth 401", errors.New("API request failed: Status: 401 Body: invalid token"),
 			"⚠ 模型鉴权失败，请检查 API Key 配置"},
 		{"auth unauthorized", errors.New("403 Forbidden: unauthorized"),
