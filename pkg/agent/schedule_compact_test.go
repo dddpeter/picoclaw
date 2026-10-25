@@ -30,9 +30,8 @@ func TestScheduleCompactGating(t *testing.T) {
 			pipeline := newCompactTestPipeline(t, tc.fcm)
 			ts := newCompactTurnState(t, pipeline.al, "session-gating",
 				processOptions{EnableSummary: tc.enableSum, NoHistory: tc.noHistory})
-			budget := pipeline.al.registry.GetDefaultAgent().ContextWindow
 
-			pipeline.al.scheduleCompact(ts.sessionKey, budget, ts.opts)
+			pipeline.al.scheduleCompact(ts.agent, ts.sessionKey, ts.opts)
 
 			var fcm *fakeContextManagerForCompact
 			if tc.fcm != nil {
@@ -63,11 +62,10 @@ func TestScheduleCompactDedup(t *testing.T) {
 	pipeline := newCompactTestPipeline(t, fcm)
 	ts := newCompactTurnState(t, pipeline.al, "session-dedup",
 		processOptions{EnableSummary: true})
-	budget := pipeline.al.registry.GetDefaultAgent().ContextWindow
 
 	// Two schedules while the first is blocked: only one may run.
-	pipeline.al.scheduleCompact(ts.sessionKey, budget, ts.opts)
-	pipeline.al.scheduleCompact(ts.sessionKey, budget, ts.opts)
+	pipeline.al.scheduleCompact(ts.agent, ts.sessionKey, ts.opts)
+	pipeline.al.scheduleCompact(ts.agent, ts.sessionKey, ts.opts)
 
 	select {
 	case <-fcm.start:
@@ -82,7 +80,7 @@ func TestScheduleCompactDedup(t *testing.T) {
 	// After release, the next schedule must run again.
 	fcm.release()
 	waitForCondition(t, time.Second, func() bool {
-		pipeline.al.scheduleCompact(ts.sessionKey, budget, ts.opts)
+		pipeline.al.scheduleCompact(ts.agent, ts.sessionKey, ts.opts)
 		return fcm.callCount() >= 2
 	})
 }
@@ -137,9 +135,8 @@ func TestScheduleCompactUsageGateBlocksLowUsage(t *testing.T) {
 	}
 	ts := newCompactTurnState(t, pipeline.al, "session-lowusage",
 		processOptions{EnableSummary: true})
-	budget := pipeline.al.registry.GetDefaultAgent().ContextWindow
 
-	pipeline.al.scheduleCompact(ts.sessionKey, budget, ts.opts)
+	pipeline.al.scheduleCompact(ts.agent, ts.sessionKey, ts.opts)
 	time.Sleep(100 * time.Millisecond)
 	if got := fcm.callCount(); got != 0 {
 		t.Fatalf("low-usage session must not compact, got %d calls", got)

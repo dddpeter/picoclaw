@@ -130,6 +130,7 @@
     "approvalTimeoutNote": "Times out and auto-denies (fail-closed)",
     "approvalSealApproved": "Approved",
     "approvalSealAlways": "Approved · auto-allowed this session",
+    "approvalSealAllowAll": "Approved · all approvals auto-pass this session",
     "approvalSealDenied": "Denied",
     "approvalSealTimeout": "Timed out · auto-denied",
     "approvalSealDone": "Handled",

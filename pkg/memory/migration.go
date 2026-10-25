@@ -60,6 +60,16 @@ func MigrateFromJSON(
 		if strings.HasSuffix(name, TurnMarkerSuffix) {
 			continue
 		}
+		// Same for the ask/approval pending markers (review P1): they are
+		// web-card restore records, not sessions — a crash-residue marker
+		// used to be imported as a ghost "<key>.ask" session (AskMarker
+		// carries no key field, so the key fell back to the filename) and
+		// renamed to ".migrated", permanently breaking pending_ask
+		// restore. The suffixes are exported for exactly this scan.
+		if strings.HasSuffix(name, AskMarkerSuffix) ||
+			strings.HasSuffix(name, ApprovalMarkerSuffix) {
+			continue
+		}
 		// Skip already-migrated files.
 		if strings.HasSuffix(name, ".migrated") {
 			continue

@@ -370,6 +370,13 @@ export function sendChatMessage({
       },
     ],
     isTyping: true,
+    // Clear the previous turn's terminal stats at turn START (review
+    // P2): otherwise the status bar keeps showing the last turn's
+    // usage/model while the new turn runs - and forever, if the new turn
+    // finishes without a usage payload.
+    turnStats: undefined,
+    turnStatus: undefined,
+    turnElapsedMs: undefined,
     ...(wasTyping
       ? {}
       : { turnStartedAt: Date.now(), lastTurnActivityAt: Date.now() }),

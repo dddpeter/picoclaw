@@ -26,7 +26,13 @@ import (
 // AgentInstance represents a fully configured agent with its own workspace,
 // session manager, context builder, and tool registry.
 type AgentInstance struct {
-	modelMu                 *sync.RWMutex
+	modelMu *sync.RWMutex
+	// outboundSegs caches the token split of the last outbound tool-
+	// definition set per session (review P1: usage snapshots must mirror
+	// the deferred/filtered view the model actually sees, not the full
+	// registry). Pointer on purpose: subturn's ephemeral agents shallow-
+	// copy the instance, and an embedded mutex would be copied by value.
+	outboundSegs            *outboundToolSegCache
 	ID                      string
 	Name                    string
 	Model                   string
@@ -376,7 +382,17 @@ func NewAgentInstance(
 	baseGatingWindow := contextWindow
 	baseDeclaredWindow := declaredContextWindow
 	if len(candidates) > 0 {
-		if capCfg, capErr := resolvedCandidateModelConfig(cfg, candidates[0], workspace); capErr == nil && capCfg != nil {
+		capCfg, capErr := resolvedCandidateModelConfig(cfg, candidates[0], workspace)
+		if capErr != nil {
+			// Loud, not silent (review P2): a broken model_list entry used to
+			// skip the per-model cap without a trace, leaving the window at
+			// the un-capped (possibly wildly oversized) value.
+			logger.WarnCF("agent", "per-model context_window cap skipped: model entry failed to resolve", map[string]any{
+				"model": model,
+				"error": capErr.Error(),
+			})
+		}
+		if capErr == nil && capCfg != nil {
 			capped, cappedDeclared := applyModelContextWindowCap(capCfg.ContextWindow, contextWindow, declaredContextWindow)
 			if capped != contextWindow {
 				logger.InfoCF("agent", "per-model context_window caps agent window", map[string]any{
@@ -481,6 +497,7 @@ func NewAgentInstance(
 	}
 
 	instance := &AgentInstance{
+		outboundSegs:              &outboundToolSegCache{segs: make(map[string]outboundToolSegments, 8)},
 		modelMu:                   &sync.RWMutex{},
 		ID:                        agentID,
 		Name:                      agentName,

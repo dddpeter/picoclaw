@@ -25,6 +25,8 @@ function sealLabel(
 			return { text: t("chat.approvalSealApproved"), icon: "✅", tone: "text-emerald-700 dark:text-emerald-400" }
 		case "always":
 			return { text: t("chat.approvalSealAlways"), icon: "✅", tone: "text-emerald-700 dark:text-emerald-400" }
+		case "allow_all":
+			return { text: t("chat.approvalSealAllowAll"), icon: "✅", tone: "text-emerald-700 dark:text-emerald-400" }
 		case "denied":
 			return { text: t("chat.approvalSealDenied"), icon: "⛔", tone: "text-red-600 dark:text-red-400" }
 		case "timeout":

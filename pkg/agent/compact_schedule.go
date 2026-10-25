@@ -90,8 +90,23 @@ func newCompactScheduler(al *AgentLoop) *compactScheduler {
 // re-read files whose contents had been summarized away).
 // The context is detached because turn contexts are canceled by the time
 // finalize returns, yet compaction must still run.
-func (al *AgentLoop) scheduleCompact(sessionKey string, budget int, opts processOptions) {
-	al.scheduleCompactWithUsage(al.registry.GetDefaultAgent(), sessionKey, budget, opts, nil)
+func (al *AgentLoop) scheduleCompact(agent *AgentInstance, sessionKey string, opts processOptions) {
+	// Gate on the OWNING agent, not the registry default (review P1): in
+	// multi-agent setups the default belongs to a different instance whose
+	// mutable window fields are protected by ITS modelMu — reading them from
+	// this turn's goroutine is a data race and applies the wrong threshold.
+	// Callers run inside the owning agent's turn read lock, so direct field
+	// reads here are safe; the budget base is CompactionBudget() to match
+	// the finalize path (window − max_tokens), not the raw ContextWindow the
+	// old tool-delivery call site passed.
+	if agent == nil {
+		agent = al.registry.GetDefaultAgent()
+	}
+	budget := 0
+	if agent != nil {
+		budget = agent.CompactionBudget()
+	}
+	al.scheduleCompactWithUsage(agent, sessionKey, budget, opts, nil)
 }
 
 // scheduleCompactWithUsage is scheduleCompact with the owning agent (whose
@@ -133,6 +148,14 @@ func (al *AgentLoop) scheduleCompactWithUsage(agent *AgentInstance, sessionKey s
 	scheduler.wg.Add(1)
 	go func() {
 		defer scheduler.wg.Done()
+		// Re-snapshot the budget at execution time (review P1): the enqueue
+		// value can go stale when a /switch lands between finalize and this
+		// goroutine actually running. Read-locked snapshot from a separate
+		// goroutine is safe (shared RLock — no self-deadlock with Close's
+		// write lock, unlike a nested RLock on the turn goroutine).
+		if agent != nil {
+			req.Budget = agent.snapshotCompactionBudget()
+		}
 		defer scheduler.inFlight.Delete(sessionKey)
 		// Detached context: must outlive the turn that enqueued it.
 		ctx, cancel := context.WithTimeout(context.Background(), compactCallTimeout)

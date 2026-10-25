@@ -28,6 +28,12 @@ func FormatCompactReply(outcome *CompactOutcome, err error) string {
 		return "♻️ A turn is active on this session; compaction is scheduled to run when it ends."
 	case CompactStateBusy:
 		return "A compaction is already running for this session; try again shortly."
+	case CompactStateUnavailable:
+		// §五 three-way contract: engine FAILURE is distinct from busy (a
+		// concurrent compaction owns the session) and from nothing (below
+		// floor). The engine error itself travels on the error return; this
+		// tier keeps the state machine honest for non-command callers.
+		return "Compaction engine failed; the session is untouched. Re-run /compact or check the logs."
 	case CompactStateDone:
 		pct := 0
 		if outcome.TotalTokens > 0 {

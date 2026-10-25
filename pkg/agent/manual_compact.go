@@ -34,6 +34,14 @@ const (
 
 	// manualCompactIdlePoll is the poll interval of the turn-end wait.
 	manualCompactIdlePoll = 200 * time.Millisecond
+
+	// manualCompactSyncWait bounds how long the idle branch WAITS on its
+	// scheduler goroutine before degrading the reply to scheduled (review
+	// P1: the old synchronous branch held the worker slot + session
+	// placeholder for up to compactCallTimeout = 3 minutes). Generous for a
+	// legacy-engine truncation or one summarize LLM call; the goroutine
+	// itself keeps running to its own compactCallTimeout bound.
+	manualCompactSyncWait = 60 * time.Second
 )
 
 // manualCompactMode distinguishes the two /compact entry points (review
@@ -136,6 +144,10 @@ func (al *AgentLoop) runManualCompact(
 				})
 				return
 			}
+			// Re-snapshot the budget now that the turn has ended (review P1):
+			// a /switch landing in the enqueue→turn-end window would otherwise
+			// pack against the old, stale window budget.
+			req.Budget = agent.snapshotCompactionBudget()
 			runCtx, cancel := context.WithTimeout(context.Background(), compactCallTimeout)
 			defer cancel()
 			if err := scheduler.compact(runCtx, req); err != nil {
@@ -148,13 +160,49 @@ func (al *AgentLoop) runManualCompact(
 		return base(commands.CompactStateScheduled), nil
 	}
 
-	// Idle: run synchronously so the reply can carry real after-stats.
-	defer scheduler.inFlight.Delete(sessionKey)
-	runCtx, cancel := context.WithTimeout(context.Background(), compactCallTimeout)
-	defer cancel()
-	stats, err := al.compactWithEngineStats(runCtx, req)
-	if err != nil {
-		return base(commands.CompactStateBusy), fmt.Errorf("compaction failed: %w", err)
+	// Idle: run in a scheduler goroutine but WAIT BOUNDED for the result so
+	// the reply can carry real after-stats when compaction is quick (the
+	// legacy engine is deterministic truncation; seahorse's summary LLM call
+	// usually fits too). Past the wait bound the reply degrades to scheduled
+	// and the goroutine finishes on its own — the worker slot and the
+	// session placeholder are freed within manualCompactSyncWait instead of
+	// the old 3-minute compaction bound (review P1: the synchronous branch
+	// held one of max_parallel_turns worker slots and kept the session's
+	// placeholder registered, so this session's new messages queued into
+	// steering with no receipt for the whole compaction, and with 3 workers
+	// three idle /compacts starved every other session).
+	type compactRun struct {
+		stats *compactEngineStats
+		err   error
+	}
+	done := make(chan compactRun, 1)
+	scheduler.wg.Add(1)
+	go func() {
+		defer scheduler.wg.Done()
+		defer scheduler.inFlight.Delete(sessionKey)
+		// Re-snapshot the budget at execution time (review P1): the enqueue
+		// snapshot can go stale when a /switch lands in between — packing
+		// against the old, larger window recreates the very overflow this
+		// feature exists to prevent.
+		req.Budget = agent.snapshotCompactionBudget()
+		runCtx, cancel := context.WithTimeout(context.Background(), compactCallTimeout)
+		defer cancel()
+		stats, err := al.compactWithEngineStats(runCtx, req)
+		done <- compactRun{stats: stats, err: err}
+	}()
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), manualCompactSyncWait)
+	defer waitCancel()
+	var stats *compactEngineStats
+	select {
+	case run := <-done:
+		if run.err != nil {
+			// Engine failure is its own tier (§五 contract), not busy: busy
+			// means "another compaction owns the session".
+			return base(commands.CompactStateUnavailable), fmt.Errorf("compaction failed: %w", run.err)
+		}
+		stats = run.stats
+	case <-waitCtx.Done():
+		return base(commands.CompactStateScheduled), nil
 	}
 
 	out := base(commands.CompactStateDone)

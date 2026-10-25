@@ -120,6 +120,11 @@ func (p *Pipeline) CallLLM(
 	// compute it once and reuse across the boundary check, clamp and retries
 	// (review P3-2: re-marshaling every tool schema per estimate).
 	exec.toolDefTokens = EstimateToolDefsTokens(exec.providerToolDefs)
+	// Usage mirrors (review P1, §六-4): cache this session's outbound
+	// tool-def split so computeContextUsage reports what the model
+	// actually sees (deferred refs, profile filter) instead of the
+	// full registry.
+	ts.agent.recordOutboundToolSegments(ts.sessionKey, exec.providerToolDefs)
 
 	// Iteration-boundary compaction (fork, 2026-10-05, pi's prepareNextTurn
 	// pattern): long heavy turns grow context 60%→over-window between turn
@@ -217,6 +222,8 @@ func (p *Pipeline) CallLLM(
 	// single exit so the clamp and iteration-boundary checks never see a
 	// stale count (review P0-1/P2-1).
 	exec.toolDefTokens = EstimateToolDefsTokens(exec.providerToolDefs)
+	// Keep the usage-mirror cache in step with the rewritten set.
+	ts.agent.recordOutboundToolSegments(ts.sessionKey, exec.providerToolDefs)
 
 	al.emitEvent(
 		runtimeevents.KindAgentLLMRequest,

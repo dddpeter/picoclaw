@@ -307,6 +307,13 @@ func (sm *SessionManager) loadSessions() error {
 		if strings.HasSuffix(file.Name(), memory.TurnMarkerSuffix) {
 			continue
 		}
+		// Ask/approval pending markers are web-card restore records, not
+		// sessions either (review P1: same ghost-session class as the
+		// turn marker above).
+		if strings.HasSuffix(file.Name(), memory.AskMarkerSuffix) ||
+			strings.HasSuffix(file.Name(), memory.ApprovalMarkerSuffix) {
+			continue
+		}
 
 		sessionPath := filepath.Join(sm.storage, file.Name())
 		data, err := os.ReadFile(sessionPath)

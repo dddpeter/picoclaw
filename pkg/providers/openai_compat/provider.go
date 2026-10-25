@@ -775,15 +775,28 @@ func parseStreamResponse(
 				} `json:"delta"`
 				FinishReason *string `json:"finish_reason"`
 			} `json:"choices"`
-			Usage *UsageInfo `json:"usage"`
+			Usage json.RawMessage `json:"usage"`
 		}
 
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			return fmt.Errorf("failed to decode stream event: %w", err)
 		}
 
-		if chunk.Usage != nil {
-			usage = chunk.Usage
+		// Usage is display-only telemetry — decode it leniently (review P1):
+		// the strict typed decode above used to fail the WHOLE turn when a
+		// gateway typed a display field unconventionally (usage as [],
+		// prompt_cache_hit_tokens as a string), discarding an already-complete
+		// answer while the same function only warns on malformed tool args.
+		// Keep the last successfully-decoded usage on a malformed event.
+		if len(chunk.Usage) > 0 {
+			var u UsageInfo
+			if err := json.Unmarshal(chunk.Usage, &u); err == nil {
+				usage = &u
+			} else {
+				logger.WarnCF("openai_compat", "stream: skipping malformed usage payload", map[string]any{
+					"error": err.Error(),
+				})
+			}
 		}
 
 		if len(chunk.Choices) == 0 {

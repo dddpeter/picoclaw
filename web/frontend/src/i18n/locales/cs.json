@@ -141,6 +141,7 @@
     "approvalTimeoutNote": "Po vypršení času automaticky zamítnuto (fail-closed)",
     "approvalSealApproved": "Schváleno",
     "approvalSealAlways": "Schváleno · v relaci vždy povoleno",
+    "approvalSealAllowAll": "Schváleno · v této relaci se všechna schválení povolují automaticky",
     "approvalSealDenied": "Zamítnuto",
     "approvalSealTimeout": "Vypršel čas · automaticky zamítnuto",
     "approvalSealDone": "Vyřízeno",

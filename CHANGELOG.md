@@ -7,6 +7,44 @@
 
 ## [Unreleased]
 
+### 2026-10-23 评审修复轮（五组并行评审 + 全量核实）
+
+**安全**
+- API key 掩码无条件执行：`--json`/`| tee`/`# nofilter` bypass 不再豁免掩码（此前 `cat .env # nofilter` 可把明文 key 送进模型上下文）；`sk-` 模式补 `\b` 边界（`--task-…`/`desk-…` 误掩消除）；格式库新增 `ghp_` 与 `xoxb-`
+- 后台 shell 会话 read 出口（executeRead）纳入输出清理管线（此前既无 ANSI 清洗也无掩码）
+- kill deny 第三规则改为目标任意位置匹配：`kill 5 -1 123`、`kill -s segv -1 789`、`bash -c 'kill 123 -1'`、`( kill 123 -1 )`、目标后换行等旁路全部闭合；deny 命中文案接入 declined-勿重试语义
+- `guardCommand` 热路径的正则提为包级变量
+
+**并发（-race 必红修复）**
+- `runAgentLoop` 终答出口与 `PublishResponseIfNeeded`（steering/错误/心跳）改走 `snapshotContextUsage` 读锁快照——runTurn 的 RLock 返回即释放，裸读 `ContextWindow/MaxTokens` 与 `/switch` 写侧竞争
+- legacy 摘要 goroutine（retryLLMCall）、`/status` 的 Candidates 读、`scheduleCompact` 的默认 agent 门控（改按归属 agent + CompactionBudget 统一预算基准）、压缩 goroutine 的预算执行期重取
+
+**审批/问询**
+- 审批超时竞态闭环（照抄 ask_user 的 mu+resolved 先退役后打捞）：超时回执发布窗口内迟到 `/approve` 不再能注册 allow_all/always 档位或伪造已批准回执
+- 空 ask_patterns（无 ask/hard-deny/inherit）时泵侧行为与未启用完全一致：`同意/批准/拒绝` 不再被孤儿吞并
+- ask_user 群聊答案钉住提问用户（octop §三-4）：其他成员闲聊不再被当作 The user answered
+- 单题多行答案保留全文、多题余行折叠进末题（不再静默丢弃）
+- 飞书审批卡过期后点击不再合成 /approve、封卡改为「⏰ 审批已结束」——此前卡片谎报已批准
+- 热重载 hook 初始化失败回滚到上一份可用配置（此前仅 warn，审批层静默消失 fail-open）
+- web 审批卡 allow_all 与 always 封存态区分（新 verdict + 五语言文案）
+- 新增 `/approve off`（撤销放行）：随时清空本会话 allow_all 档与 always 规则，不再只能等 6h TTL
+- 审批群聊答案钉住触发用户（与 ask_user 同策）：其他群成员不能再批准别人的危险操作
+
+**上下文计量**
+- 分段计量口径对齐实际出站请求（缓存每会话最后一次组装的工具集分段）：渐进加载未启用进 LLM 的 MCP 目录不再全额计入 used，水位门不再提前误判
+- skills 段计入 agents.*.skills 持久注入（此前恒为 0）
+- `/compact` 空闲分支移入 scheduler goroutine + 60s 有界等待：worker 槽与会话占位符不再被 3 分钟同步压缩占住；引擎失败独立 unavailable 档（不再折叠成 busy）
+- tokenizer JSON 估算改 rune 口径（CJK/西里尔不再被 2-3 倍高估）；isCJK 补全角标点与全角形式区间
+
+**其它**
+- openai_compat 流式 usage 字段宽松二次解码：网关把展示型 usage 字段打成 `[]`/字符串不再丢弃整回合答案
+- 会话迁移器跳过 ask/approval pending 标记（此前崩溃残留被当遗留会话迁出幽灵 `<key>.ask` 会话且永久破坏 pending 恢复）
+- 渐进工具加载：`/new` 清空会话 loaded 集、每会话 64 上限、tool_search 限定未加载 MCP 工具（不再污染 builtins）、query 截断、拦截结果过输出预算、目录按 turn 缓存
+- 前端：回合开始清上一回合用量残留；无 usage 收尾的回合不再显示旧数据；ask 单题多选支持草稿多选提交
+- per-model context_window 条目解析失败改为显式告警（此前静默跳过 cap）
+
+**文档**：审批默认启用的升级冲击与关闭方法、迟到 /approve 实际行为、`tools.mcp.deferred_tool_threshold` 配置节、drain-first 术语更正（retire-first-then-drain）、显示窗口的 per-model cap 例外。
+
 ### Added
 - web 控制台五套主题切换（参考 metacubexd 调色板模型）：浅色/深色（默认）/海洋/森林/樱花，`data-theme` + 完整 shadcn 变量组驱动，深色主题保留 `.dark` 类兼容 `dark:` 变体与代码高亮联动；调色板下拉（色板圆点预览）替换原日/月切换按钮；localStorage `theme` 键不变，旧值 `light`/`dark` 仍合法；`index.html` 防闪烁引导脚本首帧前恢复主题
 

@@ -661,3 +661,177 @@ func TestApproval_SessionAllowAll(t *testing.T) {
 		t.Fatal("expired allow_all must re-arm asking")
 	}
 }
+
+// TestApprovalReply_EmptySurfaceNotConsumed pins the pump-side half of the
+// "empty ask_patterns = identical to disabled" contract (review P1-11): with
+// no ask/hard-deny surface the hook can never have a pending question, so an
+// orphan protocol word ("同意" typed in ordinary chat) must keep flowing
+// instead of being swallowed with a receipt.
+func TestApprovalReply_EmptySurfaceNotConsumed(t *testing.T) {
+	al, _, cleanup := newTurnCoordTestLoop(t, &summarizeStubProvider{})
+	defer cleanup()
+
+	al.approvalHook = approvalTestHook(t, `{}`)
+	for _, content := range []string{"/approve", "同意", "批准", "拒绝"} {
+		if al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: content}, "sess-empty") {
+			t.Fatalf("empty ask surface must not consume %q (identical to disabled)", content)
+		}
+	}
+
+	// Contrast: a real ask surface still consumes orphans.
+	al.approvalHook = approvalTestHook(t, `{"ask_patterns":["git push"]}`)
+	if !al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "/approve"}, "sess-empty") {
+		t.Fatal("hook with ask patterns keeps the orphan consumption")
+	}
+}
+
+// TestApprovalReply_LateReplyAfterRetirement closes the timeout-race window
+// (review P1-1): once the waiter's owner has retired it (resolved set —
+// timeout/abort decided), a racing reply must NOT be delivered, must NOT
+// register allow_all/session rules, and must NOT draw a "已批准" receipt.
+func TestApprovalReply_LateReplyAfterRetirement(t *testing.T) {
+	al, _, cleanup := newTurnCoordTestLoop(t, &summarizeStubProvider{})
+	defer cleanup()
+
+	h := approvalTestHook(t, `{"ask_patterns":["git push"]}`)
+	al.approvalHook = h
+
+	ch := make(chan approvalReply, 1)
+	waiter := &pendingApproval{resolve: ch, channel: "feishu", chatID: "c", pattern: "git push"}
+	waiter.mu.Lock()
+	waiter.resolved = true // finish() ran: the timer already decided
+	waiter.mu.Unlock()
+	h.pending.Store("sess-late", waiter)
+
+	if !al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "/approve all"}, "sess-late") {
+		t.Fatal("retired waiter still consumes the late reply as an orphan (with receipt)")
+	}
+	select {
+	case reply := <-ch:
+		t.Fatalf("late reply must not be delivered after retirement, got %+v", reply)
+	default:
+	}
+	if hook := al.approvalHook; hook != nil {
+		if set, ok := hook.sessionRules.Load("sess-late"); ok {
+			if rs, ok := set.(*sessionRuleSet); ok {
+				rs.mu.Lock()
+				active := !rs.allowAllUntil.IsZero()
+				rs.mu.Unlock()
+				if active {
+					t.Fatal("allow_all must NOT be registered for a retired waiter")
+				}
+			}
+		}
+	}
+}
+
+// TestApproveOff_RevokesSessionTiers pins "/approve off" (撤销放行): the
+// session's auto-pass tiers (allow_all + always rules) must be revocable on
+// demand, and the revoke form never answers a pending question.
+func TestApproveOff_RevokesSessionTiers(t *testing.T) {
+	al, _, cleanup := newTurnCoordTestLoop(t, &summarizeStubProvider{})
+	defer cleanup()
+
+	h := approvalTestHook(t, `{"ask_patterns":["git push"]}`)
+	al.approvalHook = h
+
+	// Arm both tiers.
+	h.setAllowAll("sess-rev")
+	h.addSessionRule("sess-rev", "git push")
+
+	if !al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{
+		Channel: "feishu", ChatID: "c", Content: "/approve off",
+	}, "sess-rev") {
+		t.Fatal("/approve off must be consumed")
+	}
+	if h.ruleActive("sess-rev", "git push") {
+		t.Fatal("always rule must be cleared by /approve off")
+	}
+	if h.ruleActive("sess-rev", "anything-else") {
+		t.Fatal("allow_all tier must be cleared by /approve off")
+	}
+
+	// Chinese alias works too; with no active tiers it still consumes and
+	// reports honestly instead of leaking the protocol word into steering.
+	if !al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{
+		Channel: "feishu", ChatID: "c", Content: "撤销放行",
+	}, "sess-rev") {
+		t.Fatal("撤销放行 must be consumed even with nothing to revoke")
+	}
+
+	// The revoke form must NOT answer a pending waiter.
+	ch := make(chan approvalReply, 1)
+	h.pending.Store("sess-rev2", &pendingApproval{resolve: ch, channel: "feishu", chatID: "c", pattern: "git push"})
+	if !al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{
+		Channel: "feishu", ChatID: "c", Content: "/approve off",
+	}, "sess-rev2") {
+		t.Fatal("revoke on a session with a pending question is still consumed")
+	}
+	select {
+	case reply := <-ch:
+		t.Fatalf("/approve off must not resolve the pending waiter, got %+v", reply)
+	default:
+	}
+}
+
+// TestApprovalReply_GroupSenderPinning (review P2, ask_user's §三-4 policy):
+// in a group chat the approval must be answered by the user whose gated call
+// triggered it — another member cannot approve it. Direct chats and
+// identity-less replies stay permissive; the feishu card-click path carries
+// operatorOpenID as SenderID, so buttons are covered by the same check.
+func TestApprovalReply_GroupSenderPinning(t *testing.T) {
+	al, _, cleanup := newTurnCoordTestLoop(t, &summarizeStubProvider{})
+	defer cleanup()
+
+	h := approvalTestHook(t, `{"ask_patterns":["git push"]}`)
+	al.approvalHook = h
+
+	register := func(key, sender string) chan approvalReply {
+		ch := make(chan approvalReply, 1)
+		h.pending.Store(key, &pendingApproval{resolve: ch, channel: "feishu", chatID: "c", senderID: sender, pattern: "git push"})
+		return ch
+	}
+
+	ch := register("sess-apin", "ou_asked")
+	other := bus.InboundMessage{Channel: "feishu", ChatID: "c", SenderID: "ou_other",
+		Content: "/approve", Context: bus.InboundContext{ChatType: "group"}}
+	if al.tryHandleApprovalReply(context.Background(), other, "sess-apin") {
+		t.Fatal("another group member must not answer the approval")
+	}
+	select {
+	case reply := <-ch:
+		t.Fatalf("no reply may be delivered for another member's approval, got %+v", reply)
+	default:
+	}
+
+	asked := bus.InboundMessage{Channel: "feishu", ChatID: "c", SenderID: "ou_asked",
+		Content: "/approve", Context: bus.InboundContext{ChatType: "group"}}
+	if !al.tryHandleApprovalReply(context.Background(), asked, "sess-apin") {
+		t.Fatal("the asked user's approval must be consumed")
+	}
+	if reply := <-ch; !reply.approved {
+		t.Fatal("asked user's reply must resolve as approved")
+	}
+
+	// Direct chats stay permissive on sender mismatch (the peer is
+	// unambiguous); replies without sender identity stay permissive.
+	ch2 := register("sess-apin-d", "ou_asked")
+	direct := bus.InboundMessage{Channel: "feishu", ChatID: "c", SenderID: "ou_elsewhere",
+		Content: "/approve", Context: bus.InboundContext{ChatType: "direct"}}
+	if !al.tryHandleApprovalReply(context.Background(), direct, "sess-apin-d") {
+		t.Fatal("direct chat reply must be consumed regardless of sender pin")
+	}
+	if reply := <-ch2; !reply.approved {
+		t.Fatal("direct reply must resolve")
+	}
+
+	ch3 := register("sess-apin-anon", "ou_asked")
+	anon := bus.InboundMessage{Channel: "feishu", ChatID: "c",
+		Content: "/approve", Context: bus.InboundContext{ChatType: "group"}}
+	if !al.tryHandleApprovalReply(context.Background(), anon, "sess-apin-anon") {
+		t.Fatal("identity-less reply stays permissive")
+	}
+	if reply := <-ch3; !reply.approved {
+		t.Fatal("identity-less reply must resolve")
+	}
+}

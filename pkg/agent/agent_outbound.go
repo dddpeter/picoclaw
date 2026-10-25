@@ -96,7 +96,14 @@ func (al *AgentLoop) PublishResponseIfNeeded(ctx context.Context, channel, chatI
 		Content:    response,
 	}
 	if sessionKey != "" {
-		msg.ContextUsage = computeContextUsage(al.agentForSession(sessionKey), sessionKey)
+		// snapshotContextUsage takes the model-state read lock: this publish
+		// path (steering / error / stop / heartbeat outlets) runs outside any
+		// live turn, and /switch rewrites ContextWindow/MaxTokens under the
+		// write lock — a bare computeContextUsage read here is a data race
+		// (review P0-2).
+		if agent := al.agentForSession(sessionKey); agent != nil {
+			msg.ContextUsage = agent.snapshotContextUsage(sessionKey)
+		}
 	}
 	markFinalOutbound(&msg)
 	al.bus.PublishOutbound(ctx, msg)

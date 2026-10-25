@@ -2121,6 +2121,20 @@ func TestForkDenyDefaults(t *testing.T) {
 		"kill 5 -1 &",           // backgrounded
 		"kill 5 -1 > /dev/null", // redirect after the target
 		"cd /tmp && kill 5 -1",  // compound command, target at the end
+		// TARGET-anywhere (review round 3): the old terminator anchored
+		// the target to end-of-command — a later benign operand, a
+		// trailing quote/paren/comment, or a trailing newline all
+		// slipped through the same anchor.
+		"kill 5 -1 123",         // -1 as a LATER operand (PID list)
+		"kill 5 1 123",          // PID 1 mid-list
+		"kill 5 0 123",          // own process group mid-list
+		"kill -s segv -1 789",   // unenumerated signal + trailing pid
+		"kill 5 -1'",            // trailing single-quote terminator
+		"( kill 123 -1 )",       // subshell close-paren terminator
+		"bash -c 'kill 123 -1'", // single-quoted wrapper
+		"eval \"kill 123 -1\"",  // double-quoted eval
+		"kill 5 -1 # c",         // trailing comment
+		"kill 123 -1\necho hi",  // trailing newline (was a documented gap)
 	}
 	allowed := []string{
 		"rm -r builddir",
@@ -2153,15 +2167,15 @@ func TestForkDenyDefaults(t *testing.T) {
 		// Fallback-rule false-positive guards (review round 2): -0/-l are
 		// excluded from the fallback's argument enumeration, so probes and
 		// listing stay allowed even with a trailing 1/0 or a redirect.
-		"kill -0 -1",                    // probe the every-process spec (signal 0)
-		"kill -0 0",                     // probe the own process group
-		"kill -l 1 > /dev/null",         // list signal 1, harmless redirect
-		"kill -l 1; kill -0 123",        // introspection segments only
-		"kill -l -0",                    // list signal 0
-		"kill %1",                       // shell job spec, not machine-killing
-		"taskkill /f /pid 5",            // not the kill builtin (no \bkill)
-		"pkill -f foo",                  // ditto
-		"echo kill 5 123",               // kill as text, benign pids
+		"kill -0 -1",             // probe the every-process spec (signal 0)
+		"kill -0 0",              // probe the own process group
+		"kill -l 1 > /dev/null",  // list signal 1, harmless redirect
+		"kill -l 1; kill -0 123", // introspection segments only
+		"kill -l -0",             // list signal 0
+		"kill %1",                // shell job spec, not machine-killing
+		"taskkill /f /pid 5",     // not the kill builtin (no \bkill)
+		"pkill -f foo",           // ditto
+		"echo kill 5 123",        // kill as text, benign pids
 		"git push origin main",
 		"chmod 1777 /tmp",
 		"tar -czf rm.tar dir",

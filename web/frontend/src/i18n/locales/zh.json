@@ -130,6 +130,7 @@
     "approvalTimeoutNote": "超时将自动拒绝（fail-closed）",
     "approvalSealApproved": "已批准",
     "approvalSealAlways": "已批准 · 本会话内自动放行",
+    "approvalSealAllowAll": "已批准 · 本会话内所有审批自动放行",
     "approvalSealDenied": "已拒绝",
     "approvalSealTimeout": "超时自动拒绝",
     "approvalSealDone": "已处理",

@@ -48,6 +48,10 @@ func isCJK(r rune) bool {
 	switch {
 	case r >= 0x3040 && r <= 0x30FF: // hiragana + katakana
 		return true
+	case r >= 0x3000 && r <= 0x303F: // CJK symbols & punctuation (、。「」etc.)
+		return true
+	case r >= 0xFF01 && r <= 0xFF5E: // fullwidth forms （，！？（）等）
+		return true
 	case r >= 0x3400 && r <= 0x4DBF: // CJK extension A
 		return true
 	case r >= 0x4E00 && r <= 0x9FFF: // CJK unified ideographs
@@ -89,12 +93,25 @@ func EstimateTextTokens(s string) int {
 
 // estimateJSONTokens estimates serialized JSON, which packs denser than
 // prose: braces, quotes, colons, and snake_case keys each split off (~3
-// chars/token).
+// chars/token). Script-aware like estimateTextTokens (review P2): the old
+// byte-length conversion charged CJK inside tool arguments ~1 token/char
+// and Cyrillic/Greek/Thai 2-3x their real cost, tripping the compression
+// gate early — the same text is cheaper when it rides as message content
+// than as tool-call JSON, which is incoherent. CJK classifies through
+// isCJK (1/1.6 chars/token), everything else keeps the dense /3.
 func estimateJSONTokens(s string) int {
 	if s == "" {
 		return 0
 	}
-	return max(1, int(math.Round(float64(len(s))/jsonCharsPerToken)))
+	cjk, total := 0, 0
+	for _, r := range s {
+		total++
+		if isCJK(r) {
+			cjk++
+		}
+	}
+	est := float64(cjk)/cjkCharsPerToken + float64(total-cjk)/jsonCharsPerToken
+	return max(1, int(math.Round(est)))
 }
 
 // mediaRefTokens bills one media reference by type: image references get

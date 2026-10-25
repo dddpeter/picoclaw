@@ -32,6 +32,12 @@ import (
 )
 
 type AgentLoop struct {
+	// lastGoodHooks snapshots the hooks config of the last SUCCESSFUL
+	// hook initialization: a reload whose new hook config fails to
+	// initialize (e.g. a bad ask_patterns regex) rolls back to this
+	// instead of silently running with the approval layer gone
+	// (review P2: reload used to fail open).
+	lastGoodHooks *config.HooksConfig
 	// Core dependencies
 	bus      interfaces.MessageBus
 	cfg      *config.Config
@@ -521,11 +527,31 @@ func (al *AgentLoop) ReloadProviderAndConfig(
 	al.refreshRuntimeEventLogger(cfg)
 
 	oldMCPManager := al.mcp.reset()
+	prevHooks := al.lastGoodHooks
 	al.hookRuntime.reset(al)
 	configureHookManagerFromConfig(al.hooks, cfg)
-	if err := al.ensureHooksInitialized(ctx); err != nil {
-		logger.WarnCF("agent", "Configured hooks failed to reinitialize after reload",
-			map[string]any{"error": err.Error()})
+	initErr := al.ensureHooksInitialized(ctx)
+	if initErr == nil {
+		snapshot := cfg.Hooks
+		al.lastGoodHooks = &snapshot
+	} else if prevHooks != nil {
+		// Rollback to the last known-good hooks config (review P2): the
+		// old path only warned and the whole approval layer vanished —
+		// every gated command fell open until the next successful reload.
+		logger.ErrorCF("agent", "Configured hooks failed to reinitialize after reload; rolling back to the last known-good hook config",
+			map[string]any{"error": initErr.Error()})
+		al.mu.Lock()
+		al.cfg.Hooks = *prevHooks
+		al.mu.Unlock()
+		al.hookRuntime.reset(al)
+		configureHookManagerFromConfig(al.hooks, al.cfg)
+		if retryErr := al.ensureHooksInitialized(ctx); retryErr != nil {
+			logger.ErrorCF("agent", "Hook-config rollback ALSO failed; approval hooks are INACTIVE (fail-open) until fixed",
+				map[string]any{"error": retryErr.Error()})
+		}
+	} else {
+		logger.ErrorCF("agent", "Configured hooks failed to initialize on reload and no previous good hook config exists; approval hooks are INACTIVE (fail-open)",
+			map[string]any{"error": initErr.Error()})
 	}
 	if oldMCPManager != nil {
 		if err := oldMCPManager.Close(); err != nil {
@@ -774,7 +800,7 @@ func (al *AgentLoop) runAgentLoop(
 				SessionKey:   sessionKey,
 				Scope:        scope,
 				Content:      outboundContent,
-				ContextUsage: computeContextUsage(agent, opts.Dispatch.SessionKey),
+				ContextUsage: agent.snapshotContextUsage(opts.Dispatch.SessionKey),
 			}
 			if modelName := strings.TrimSpace(result.modelName); modelName != "" {
 				if msg.Context.Raw == nil {

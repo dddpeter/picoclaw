@@ -495,8 +495,10 @@ func (al *AgentLoop) buildCommandsRuntime(
 				modelMu := agent.modelStateMutex()
 				modelMu.RLock()
 				overview.Model = agent.Model
-				modelMu.RUnlock()
+				// Candidates is swap-written under the same write lock — read it
+				// inside the lock too (review: bare read after RUnlock).
 				overview.Provider = resolvedCandidateProvider(agent.Candidates, cfg.Agents.Defaults.Provider)
+				modelMu.RUnlock()
 			}
 			if al.channelManager != nil {
 				overview.Channels = al.channelManager.GetEnabledChannels()

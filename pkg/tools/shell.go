@@ -111,23 +111,31 @@ var (
 		// -s9/-n 9).
 		regexp.MustCompile(`\bkill\s+(?:(?:--\s+|-[1-9]\d*\s+|-s\s+(?:kill|term|hup|int|quit|usr1|usr2|[1-9]\d*)\s+|-(?:term|hup|int|quit|usr1|usr2|kill|tstp|cont|pipe|alrm)\s+|-sig(?:term|hup|int|quit|usr1|usr2|kill)\s+)+(-1\b|-0\b|1\b|0\b)|(?:1|0)\b)`),
 		regexp.MustCompile(`\bkill\s+(-\w+\s+)*(--\s+)?(-kill\b|-s\s*kill\b|-s\s*9\b|-n\s+9\b)\s+(-\w+\s+)*(--\s+)?(-1\b|1\b|0\b)`),
-		// The third rule is the TARGET-AT-END fallback (review round 2):
-		// closes the shapes the flagged enumeration above structurally
+		// The third rule is the TARGET-ANYWHERE fallback (review round 2
+		// + 3): closes the shapes the flagged enumeration above structurally
 		// misses — a benign pid ahead of the dangerous target (`kill 123
 		// -1`, `kill -9 123 -1`), unenumerated signal names (`kill -s segv
 		// -1`, `kill -s stop -1`), POSIX -n with a non-9 signum (`kill -n 15
 		// -1`), and attached -s/-sig forms (`kill -sterm -1`). Instead of
 		// enumerating signal spellings it enumerates ARGUMENTS as "any
 		// token except exactly -l/-0" (RE2 has no lookahead), so the
-		// introspection spellings can never match, and the dangerous target
-		// must not be the first token (bare `kill -1` stays a usage-error
-		// allow; `kill -0 -1`/`kill -0 0` probes stay allowed too).
-		// Termination is end-of-command or a shell metachar, covering
-		// `kill 5 -1; echo done`, `kill 5 -1 &` and `kill 5 -1 > log`.
-		// Known residual gaps: a newline right after the target (`kill 5
-		// -1\necho hi`) and variable indirection stay uncatchable — same
-		// documented-gap class as `rm -rf $DIR`.
-		regexp.MustCompile(`\bkill\s+(?:(?:[^\s;|&\r\n-][^\s;|&\r\n]*|-l[^\s;|&\r\n][^\s;|&\r\n]*|-0[^\s;|&\r\n][^\s;|&\r\n]*|-[^\s;|&\r\nl0][^\s;|&\r\n]*)\s+)+(?:-1\b|-0\b|1\b|0\b)(?:\s*[;|&<>]|[\s&]*$)`),
+		// introspection spellings can never match. Round 3 (2026-10-23
+		// review): the old rule anchored the dangerous target to
+		// END-OF-COMMAND — `kill 5 -1 123` (PID 1 / process group as a
+		// later operand), `kill -s segv -1 789` and every quote/paren-wrapped
+		// spelling (`bash -c 'kill 123 -1'`, `( kill 123 -1 )`, `kill 5 -1 #
+		// comment`, trailing quote) slipped through, and a lone trailing
+		// newline was a documented residual. The terminator class now
+		// accepts ANY whitespace or shell delimiter (quotes, parens, comma,
+		// backtick, bracket) so the target merely has to be a standalone
+		// token, not the final one; plain \s in the class also covers the
+		// newline case. Benign first-position bare-pid targets keep their
+		// documented escape (`kill -1 123` signal-spelling vs `kill 1 123`
+		// is not statically distinguishable — same residual class as
+		// `rm -rf $DIR` variable indirection). NOTE: the backtick in the
+		// terminator class is spliced via concatenation — a raw string
+		// literal cannot contain one.
+		regexp.MustCompile(`\bkill\s+(?:(?:[^\s;|&\r\n-][^\s;|&\r\n]*|-l[^\s;|&\r\n][^\s;|&\r\n]*|-0[^\s;|&\r\n][^\s;|&\r\n]*|-[^\s;|&\r\nl0][^\s;|&\r\n]*)\s+)+(?:-1\b|-0\b|1\b|0\b)(?:[\s;|&<>)'"` + "`" + `,\\\]]|$)`),
 		// Block writes to block devices (all common naming schemes).
 		regexp.MustCompile(
 			`>\s*/dev/(sd[a-z]|hd[a-z]|vd[a-z]|xvd[a-z]|nvme\d|mmcblk\d|loop\d|dm-\d|md\d|sr\d|nbd\d)`,
@@ -246,6 +254,11 @@ var (
 
 	// absolutePathPattern matches absolute file paths in commands (Unix and Windows).
 	absolutePathPattern = regexp.MustCompile(`[A-Za-z]:\\[^\\\"']+|/[^\s\"']+`)
+
+	// pathTraversalPattern blocks ../ chains in commands when the workspace
+	// restriction is on. Package-level: guardCommand compiled it on every
+	// call otherwise (review P2 - per-command hot path).
+	pathTraversalPattern = regexp.MustCompile(`\.\.(?:[\\/]\.\.)*[\\/]`)
 
 	// safePaths are kernel pseudo-devices that are always safe to reference in
 	// commands, regardless of workspace restriction. They contain no user data
@@ -575,6 +588,12 @@ func resolveRunTimeout(toolDefault time.Duration, args map[string]any) time.Dura
 // within its timeout window — enough to OOM the gateway. Full-fidelity
 // capture of huge outputs remains available via shell redirection.
 const syncOutputRetainLimit = 4 * 1024 * 1024
+
+// execDeniedDeclinedSuffix mirrors the agent-side "Denied means declined"
+// kernel rule (hookDeniedDeclinedSuffix): an exec deny hit is a policy
+// decision, not a transient error - the model must not retry the same
+// command verbatim or with cosmetic changes.
+const execDeniedDeclinedSuffix = "The user's safety policy declined this action: do not retry it verbatim or with cosmetic changes; adjust your approach."
 
 // cappedOutputBuffer is an io.Writer that retains at most limit bytes: the
 // first limit/2 bytes and a rolling tail of the last limit/2 bytes, with a
@@ -1178,6 +1197,13 @@ func (t *ExecTool) executeRead(args map[string]any) *ToolResult {
 	}
 
 	output := session.Read()
+	// Same cleaning pipeline as the synchronous exec path (review P1): the
+	// background read outlet previously returned session.Read() verbatim -
+	// no ANSI stripping, no progress collapse, and critically no credential
+	// masking, so a background "cat .env" leaked keys straight into the
+	// model context. The session remembers its spawn command, so the bypass
+	// semantics (structured/teed output) stay coherent with the main path.
+	output = CleanCommandOutput(session.Command, output)
 
 	resp := ExecResponse{
 		SessionID: sessionID,
@@ -1550,7 +1576,13 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 	// deny rules such as jq env access checks (#3079).
 	for _, pattern := range t.denyPatterns {
 		if pattern.MatchString(lower) {
-			return "Command blocked by safety guard (dangerous pattern detected)"
+			// Declined-means-declined (agent-side kernel rule, mirrored here):
+			// a deny hit is a policy decision, not a transient error - the
+			// model must not retry the same command verbatim or with cosmetic
+			// changes (review P1: the bare "dangerous pattern" text invited
+			// retry-until-bypass).
+			return "Command blocked by safety guard (dangerous pattern detected). " +
+				execDeniedDeclinedSuffix
 		}
 	}
 
@@ -1562,7 +1594,8 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 
 	if t.restrictToWorkspace {
 		// Block path traversal patterns including .../.../ variants
-		if regexp.MustCompile(`\.\.(?:[\\/]\.\.)*[\\/]`).MatchString(cmd) {
+		// (compiled once at package level - per-command hot path)
+		if pathTraversalPattern.MatchString(cmd) {
 			return "Command blocked by safety guard (path traversal detected)"
 		}
 

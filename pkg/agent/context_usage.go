@@ -2,6 +2,7 @@ package agent
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/providers"
@@ -46,26 +47,37 @@ func computeContextUsage(agent *AgentInstance, sessionKey string) *bus.ContextUs
 		historyTokens += EstimateMessageTokens(m)
 	}
 
-	// System message tokens: uses EstimateSystemTokens which mirrors
-	// the full system message composition in BuildMessages (static prompt,
-	// dynamic context, active skills, summary with wrapping prefix).
-	// The segment split (octop borrowing §五) separates the base prompt
-	// from the active-skills block; pass nil for active skills — skills are
-	// only injected when the user explicitly activates them via /use, which
-	// is rare. Using nil matches the common case and avoids over-counting.
+	// System message tokens: estimateSystemTokenSegments mirrors the full
+	// system message composition in BuildMessages (static prompt, dynamic
+	// context, active skills, summary with wrapping prefix).
+	// Skills segment (review P1): agents with a persistent skills filter
+	// (agents.*.skills / frontmatter) get the "# Active Skills" block
+	// injected EVERY turn (turn_state.activeSkills), so passing nil kept the
+	// segment at a permanent zero and under-counted used. ForcedSkills (/use)
+	// are rare and turn-scoped — the persistent filter is the honest
+	// steady-state view.
 	systemTokens := 0
 	skillsTokens := 0
 	if agent.ContextBuilder != nil {
 		summary := agent.Sessions.GetSummary(sessionKey)
-		systemTokens, skillsTokens = agent.ContextBuilder.estimateSystemTokenSegments(summary, nil)
+		systemTokens, skillsTokens = agent.ContextBuilder.estimateSystemTokenSegments(summary, agent.SkillsFilter)
 	}
 
 	// Tool definition tokens, split by origin (octop borrowing §五):
 	// mcp_* tools → mcp; the subagent spawn set → subagents; everything
 	// else → tool_definitions. MCP bloat becomes visible at a glance.
+	// Segment base (review P1, §六-4): the split mirrors the LAST ASSEMBLED
+	// OUTBOUND request for this session (recorded by the LLM pipeline after
+	// profile filtering + deferred-tool loading) — the full registry the old
+	// code walked counts every unloaded MCP schema (often 10k-30k tokens)
+	// even when §六 progressive loading serves deferred references, so the
+	// watermarks fired at a third of the real window. Falls back to the
+	// full-registry estimate before a session's first outbound call.
 	toolTokens := 0
 	toolSeg, mcpSeg, subagentSeg := 0, 0, 0
-	if agent.Tools != nil {
+	if cached, ok := agent.cachedOutboundToolSegments(sessionKey); ok {
+		toolTokens, toolSeg, mcpSeg, subagentSeg = cached.total, cached.tool, cached.mcp, cached.subagents
+	} else if agent.Tools != nil {
 		for _, def := range agent.Tools.ToProviderDefs() {
 			tokens := EstimateToolDefsTokens([]providers.ToolDefinition{def})
 			toolTokens += tokens
@@ -140,6 +152,88 @@ func computeContextUsage(agent *AgentInstance, sessionKey string) *bus.ContextUs
 			{Key: "conversation", Tokens: historyTokens},
 		},
 	}
+}
+
+// outboundToolSegments is the per-origin token split of one session's last
+// assembled outbound tool-definition set (review P1, octop §六-4): mirrors
+// what the model actually sees after profile filtering, deferred-tool
+// references and meta-tool injection — not the full registry.
+type outboundToolSegments struct {
+	tool      int // builtin + meta tools (tool_definitions segment)
+	mcp       int // mcp_* tools, deferred references included at their served size
+	subagents int // the subagent spawn set
+	total     int // sum of the above
+}
+
+// outboundToolSegCache is the lazily-shared per-agent cache of outbound
+// tool-def token splits (see AgentInstance.outboundSegs).
+type outboundToolSegCache struct {
+	mu   sync.Mutex
+	segs map[string]outboundToolSegments
+}
+
+// outboundSegCacheBound bounds the per-session segment cache (FIFO by
+// insertion order, same discipline as toolDeferState's session LRU).
+const outboundSegCacheBound = 256
+
+// recordOutboundToolSegments caches the tool-def token split of the request
+// being assembled. Called from the LLM pipeline right after the defs are
+// settled (exec.toolDefTokens), so every later computeContextUsage snapshot
+// for the session reflects the REAL outbound cost of deferred loading.
+func (a *AgentInstance) recordOutboundToolSegments(sessionKey string, defs []providers.ToolDefinition) {
+	if a == nil || sessionKey == "" || len(defs) == 0 {
+		return
+	}
+	seg := outboundToolSegments{}
+	for _, def := range defs {
+		tokens := EstimateToolDefsTokens([]providers.ToolDefinition{def})
+		seg.total += tokens
+		switch {
+		case strings.HasPrefix(def.Function.Name, "mcp_"):
+			seg.mcp += tokens
+		case isSubagentToolName(def.Function.Name):
+			seg.subagents += tokens
+		default:
+			seg.tool += tokens
+		}
+	}
+	if a.outboundSegs == nil {
+		// Hand-built agent (tests): no cache — snapshots fall back to the
+		// full-registry estimate.
+		return
+	}
+	c := a.outboundSegs
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.segs == nil {
+		c.segs = make(map[string]outboundToolSegments, 8)
+	} else if len(c.segs) >= outboundSegCacheBound {
+		if _, exists := c.segs[sessionKey]; !exists {
+			for key := range c.segs {
+				delete(c.segs, key)
+				break // drop one arbitrary victim; bounded by map iteration cost
+			}
+		}
+	}
+	c.segs[sessionKey] = seg
+}
+
+// cachedOutboundToolSegments returns the recorded split for a session, if
+// any. A false return means the session has not assembled an outbound
+// request yet (or the cache was evicted) — callers fall back to the
+// conservative full-registry estimate.
+func (a *AgentInstance) cachedOutboundToolSegments(sessionKey string) (outboundToolSegments, bool) {
+	if a == nil || sessionKey == "" {
+		return outboundToolSegments{}, false
+	}
+	if a.outboundSegs == nil {
+		return outboundToolSegments{}, false
+	}
+	c := a.outboundSegs
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	seg, ok := c.segs[sessionKey]
+	return seg, ok
 }
 
 // snapshotContextUsage is computeContextUsage under the model-state read

@@ -143,6 +143,7 @@
     "approvalTimeoutNote": "Expira e é negado automaticamente (fail-closed)",
     "approvalSealApproved": "Aprovado",
     "approvalSealAlways": "Aprovado · sempre permitido nesta sessão",
+    "approvalSealAllowAll": "Aprovado · todas as aprovações passam automaticamente nesta sessão",
     "approvalSealDenied": "Negado",
     "approvalSealTimeout": "Expirou · negado automaticamente",
     "approvalSealDone": "Tratado",

@@ -208,7 +208,10 @@ export function handlePicoMessage(
                 turnElapsedMs: prev.turnStartedAt
                   ? Date.now() - prev.turnStartedAt
                   : prev.turnElapsedMs,
-                ...(turnStats ? { turnStats } : {}),
+                // Unconditional assignment (review P2): spreading only when
+                // defined kept the PREVIOUS turn's usage/model on turns that
+                // finish without a usage payload (direct answer / media).
+                turnStats,
               }
             : { lastTurnActivityAt: Date.now() }
         const common = {

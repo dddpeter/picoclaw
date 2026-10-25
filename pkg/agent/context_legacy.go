@@ -299,10 +299,18 @@ func (m *legacyContextManager) retryLLMCall(
 
 	// Summarization/compaction is background work: prefer the cheaper light
 	// model when routing is configured, falling back to the primary model.
+	// Model-state read lock (review P1: swapAgentModelLocked rewrites these
+	// fields under the write lock; this goroutine runs outside any turn):
+	// take one consistent snapshot instead of bare field reads.
+	modelMu := agent.modelStateMutex()
+	modelMu.RLock()
 	provider := agent.Provider
 	model := agent.Model
-	if agent.LightProvider != nil {
-		provider = agent.LightProvider
+	lightProvider := agent.LightProvider
+	maxTokens := agent.MaxTokens
+	modelMu.RUnlock()
+	if lightProvider != nil {
+		provider = lightProvider
 		model = sideQuestionModelName(agent, true)
 	}
 
@@ -319,7 +327,7 @@ func (m *legacyContextManager) retryLLMCall(
 				nil,
 				model,
 				map[string]any{
-					"max_tokens":       agent.MaxTokens,
+					"max_tokens":       maxTokens,
 					"temperature":      llmTemperature,
 					"prompt_cache_key": agent.ID,
 				},

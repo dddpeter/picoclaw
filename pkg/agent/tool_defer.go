@@ -41,6 +41,17 @@ const (
 	// toolDeferMaxSessions bounds the session-sticky loaded sets (octop's
 	// per-thread catalog LRU, 2048). Sessions are evicted FIFO.
 	toolDeferMaxSessions = 2048
+
+	// toolDeferMaxLoadedPerSession bounds one session's loaded set: without
+	// a cap a long conversation that tool_searches the whole catalog
+	// degenerates into full injection (review P2). Overflow resets the set;
+	// the next search re-loads on demand.
+	toolDeferMaxLoadedPerSession = 64
+
+	// toolSearchQueryMaxRunes bounds the search query before token-AND
+	// matching (a pasted blob as query would otherwise rank against every
+	// tool — review P2).
+	toolSearchQueryMaxRunes = 200
 )
 
 // toolDeferState holds per-session sets of loaded tool names.
@@ -76,6 +87,32 @@ func (d *toolDeferState) markLoaded(sessionKey, toolName string) {
 		d.eviction = append(d.eviction, sessionKey)
 	}
 	set[toolName] = true
+	if len(set) > toolDeferMaxLoadedPerSession {
+		// Reset, not trim: map iteration order is random, and the next
+		// tool_search re-loads what the model actually uses next — bounded
+		// beats arbitrary (review P2).
+		delete(d.loaded, sessionKey)
+		d.loaded[sessionKey] = map[string]bool{toolName: true}
+	}
+}
+
+// clearSession drops a session's loaded set (/new rotates the transcript
+// but keeps the key — review P2: without this the loaded set survived the
+// rotation and kept injecting tools the fresh conversation never asked
+// for).
+func (d *toolDeferState) clearSession(sessionKey string) {
+	if d == nil || sessionKey == "" {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.loaded, sessionKey)
+	for i, key := range d.eviction {
+		if key == sessionKey {
+			d.eviction = append(d.eviction[:i], d.eviction[i+1:]...)
+			break
+		}
+	}
 }
 
 // isLoaded reports whether toolName is fully visible for sessionKey.
@@ -225,11 +262,41 @@ func (al *AgentLoop) interceptDeferredTool(
 	reg *tools.ToolRegistry,
 	profile config.EffectiveTurnProfile,
 ) (*tools.ToolResult, bool) {
-	threshold := al.deferralThreshold()
-	if threshold <= 0 || reg == nil {
+	// Uncached entry (kept for tests): computes the catalog inline.
+	if reg == nil {
 		return nil, false
 	}
-	defs := filterToolsByTurnProfile(reg.ToProviderDefs(), profile)
+	return al.interceptDeferredToolWithCatalog(sessionKey, toolName, args,
+		filterToolsByTurnProfile(reg.ToProviderDefs(), profile))
+}
+
+// interceptDeferredToolCached is the turn-loop entry: the profile-
+// filtered catalog is memoized on the turnState (review P2: re-cloning
+// and re-filtering the whole registry on EVERY tool call was hot-path
+// waste; the catalog is static for the turn's lifetime).
+func (al *AgentLoop) interceptDeferredToolCached(ts *turnState, toolName string, args map[string]any) (*tools.ToolResult, bool) {
+	if ts == nil || ts.agent == nil || ts.agent.Tools == nil {
+		return nil, false
+	}
+	ts.mu.Lock()
+	if !ts.deferredCatalogReady {
+		ts.deferredCatalog = filterToolsByTurnProfile(ts.agent.Tools.ToProviderDefs(), ts.profile)
+		ts.deferredCatalogReady = true
+	}
+	defs := ts.deferredCatalog
+	ts.mu.Unlock()
+	return al.interceptDeferredToolWithCatalog(ts.sessionKey, toolName, args, defs)
+}
+
+func (al *AgentLoop) interceptDeferredToolWithCatalog(
+	sessionKey, toolName string,
+	args map[string]any,
+	defs []providers.ToolDefinition,
+) (*tools.ToolResult, bool) {
+	threshold := al.deferralThreshold()
+	if threshold <= 0 {
+		return nil, false
+	}
 	mcpCount := 0
 	for _, d := range defs {
 		if isMCPToolName(d.Function.Name) {
@@ -270,6 +337,10 @@ func (al *AgentLoop) runToolSearch(
 	if query == "" || query == "<nil>" {
 		return tools.ErrorResult("tool_search requires a query")
 	}
+	// Bound the query before tokenizing (review P2): the model controls this
+	// argument; a pasted blob would otherwise rank against every catalog
+	// entry.
+	query = firstNRunes(query, toolSearchQueryMaxRunes)
 	maxResults := toolSearchDefaultResults
 	switch v := args["max_results"].(type) {
 	case float64:
@@ -293,6 +364,16 @@ func (al *AgentLoop) runToolSearch(
 	for _, d := range defs {
 		if d.Function.Name == toolSearchToolName {
 			continue
+		}
+		// Scope (review P2): tool_search exists to surface UNLOADED MCP
+		// catalog entries. Builtins are already fully visible to the
+		// model — matching them used to answer "Loaded N tool(s)" and
+		// pollute the loaded set with non-MCP names.
+		if !isMCPToolName(d.Function.Name) {
+			continue
+		}
+		if al.toolDefer.isLoaded(sessionKey, d.Function.Name) {
+			continue // already fully visible
 		}
 		name := strings.ToLower(d.Function.Name)
 		desc := strings.ToLower(d.Function.Description)

@@ -142,6 +142,7 @@
     "approvalTimeoutNote": "সময় শেষে স্বয়ংক্রিয়ভাবে প্রত্যাখ্যাত (fail-closed)",
     "approvalSealApproved": "অনুমোদিত",
     "approvalSealAlways": "অনুমোদিত · এই সেশনে স্বয়ংক্রিয়",
+    "approvalSealAllowAll": "অনুমোদিত · এই সেশনে সব অনুমোদন স্বয়ংক্রিয়ভাবে পাস হবে",
     "approvalSealDenied": "প্রত্যাখ্যাত",
     "approvalSealTimeout": "সময় শেষ · স্বয়ংক্রিয় প্রত্যাখ্যান",
     "approvalSealDone": "নিষ্পন্ন",

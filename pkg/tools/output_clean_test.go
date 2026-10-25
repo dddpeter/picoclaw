@@ -163,3 +163,61 @@ func TestMaskAPIKeys_NeverWorse(t *testing.T) {
 		}
 	}
 }
+
+// TestCleanCommandOutput_BypassStillMasksKeys (review P1): the bypass
+// markers are substrings of the model-controlled command — "cat .env #
+// nofilter" must never ship a plaintext third-party key into the model
+// context. Bypass exempts the RESHAPING pipeline only.
+func TestCleanCommandOutput_BypassStillMasksKeys(t *testing.T) {
+	key := "sk-4b829b7ba0aa40648d5318b0025f2abcdeadbeef"
+	in := "OPENAI_API_KEY=" + key + "\n"
+	for _, cmd := range []string{
+		"cat .env # nofilter",
+		"kubectl get secret x -o json",
+		"deploy.sh | tee deploy.log",
+	} {
+		got := CleanCommandOutput(cmd, in)
+		if strings.Contains(got, key) {
+			t.Fatalf("bypass command %q must still mask keys, got %q", cmd, got)
+		}
+		if !strings.Contains(got, "sk-4") {
+			t.Fatalf("masked prefix missing for %q: %q", cmd, got)
+		}
+	}
+}
+
+// TestMaskAPIKeys_NoFalsePositiveOnEmbeddedPrefix (review P2): the old sk-
+// pattern lacked a word boundary, so "task-abcdef..." / "desk-1a2b..."
+// (whose "sk-" is a suffix of the previous word) were masked.
+func TestMaskAPIKeys_NoFalsePositiveOnEmbeddedPrefix(t *testing.T) {
+	plain := "task-abcdef0123456789abcdef0123456789abcdef01 and desk-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d flags"
+	if got := MaskAPIKeys(plain); got != plain {
+		t.Fatalf("embedded sk- prefixes must not be masked, got %q", got)
+	}
+	// Real keys in common placements still match.
+	for _, s := range []string{
+		"sk-4b829b7ba0aa40648d5318b0025f2abcdeadbeef",
+		"key=sk-4b829b7ba0aa40648d5318b0025f2abcdeadbeef",
+		`"sk-4b829b7ba0aa40648d5318b0025f2abcdeadbeef"`,
+	} {
+		if got := MaskAPIKeys(s); got == s {
+			t.Fatalf("real key must be masked: %q", s)
+		}
+	}
+}
+
+// TestMaskAPIKeys_GithubAndSlackFormats (review P2): ghp_ / xoxb- formats
+// were previously uncovered.
+func TestMaskAPIKeys_GithubAndSlackFormats(t *testing.T) {
+	// Synthetic samples, assembled at runtime: a literal token-shaped
+	// string in the file trips GitHub push protection (secret scanning).
+	ghp := "ghp_" + "0123456789" + "abcdefghijklmnopqrstuvwxyzAB"
+	xoxb := "xoxb-" + "1234567890-" + "123456789012-" + "abcdef0123456789abcdef01"
+	got := MaskAPIKeys("pat: " + ghp + " bot: " + xoxb)
+	if strings.Contains(got, ghp) {
+		t.Fatalf("ghp_ token must be masked, got %q", got)
+	}
+	if strings.Contains(got, xoxb) {
+		t.Fatalf("xoxb- token must be masked, got %q", got)
+	}
+}

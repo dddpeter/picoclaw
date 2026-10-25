@@ -523,16 +523,6 @@ func xmlEscapeForPrompt(s string) string {
 	return replacer.Replace(s)
 }
 
-// EstimateSystemTokens estimates the token count of the full system message
-// that would be sent to the LLM, mirroring the composition logic in BuildMessages.
-// It includes: static prompt, dynamic context, active skills, and summary with
-// wrapping prefixes and separators. This avoids needing all per-request parameters
-// that BuildMessages requires (media, channel, chatID, sender, etc.).
-func (cb *ContextBuilder) EstimateSystemTokens(summary string, activeSkills []string) int {
-	base, skills := cb.estimateSystemTokenSegments(summary, activeSkills)
-	return base + skills
-}
-
 // estimateSystemTokenSegments splits the system-message estimate into the
 // base prompt (static + dynamic + contributed parts + summary) and the
 // active-skills block (octop borrowing §五 segments). Both use the
@@ -544,9 +534,13 @@ func (cb *ContextBuilder) estimateSystemTokenSegments(summary string, activeSkil
 	// Dynamic context is small and varies per request; use a representative estimate.
 	// Actual buildDynamicContext produces ~200-400 chars of time/runtime/session info.
 	const dynamicContextChars = 300
+	// dynamicContextEstimateTokens = ceil(dynamicContextChars / 4)
+	const dynamicContextEstimateTokens = 75
 
 	base = tokenizer.EstimateTextTokens(staticPrompt)
-	base += tokenizer.EstimateTextTokens(strings.Repeat("x", dynamicContextChars))
+	// 300 ASCII chars ≈ 75 tokens at latin 4 chars/token — computed
+	// arithmetically; strings.Repeat allocated on every call (review P2).
+	base += dynamicContextEstimateTokens
 
 	if skillsText := cb.buildActiveSkillsContext(activeSkills); skillsText != "" {
 		skills = tokenizer.EstimateTextTokens(skillsText) + 7 // separator \n\n---\n\n

@@ -259,8 +259,14 @@ type turnState struct {
 	// compactContextToolUses throttles the tool to at most two requests per
 	// turn so a confused model cannot loop request→compact→request.
 	compactContextToolUses atomic.Int32
-	startedAt              time.Time
-	finalContent           string
+	// deferredCatalog memoizes the profile-filtered tool catalog for the
+	// progressive-loading interceptor (review P2): clone+filter of the full
+	// registry on EVERY tool call was pure hot-path waste — the catalog is
+	// static for the turn's lifetime. Guarded by ts.mu.
+	deferredCatalog      []providers.ToolDefinition
+	deferredCatalogReady bool
+	startedAt            time.Time
+	finalContent         string
 	// iterationLimit records that this turn ended by exhausting
 	// max_tool_iterations (set in turn_coord before Finalize).
 	iterationLimit bool

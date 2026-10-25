@@ -43,7 +43,14 @@ var (
 // need provider-specific evidence).
 var apiKeyPatterns = []*regexp.Regexp{
 	// OpenAI / OpenAI-compatible / Anthropic (sk-, sk-proj-, sk-ant-...).
-	regexp.MustCompile(`sk-(?:ant-|proj-)?[A-Za-z0-9_-]{32,}`),
+	// \b prefix: "task-abcdef..."/"desk-1a2b..." must not match — the
+	// boundary only exists at a real token start (verified: all real-key
+	// placements — line start, after =/quote/space — still match).
+	regexp.MustCompile(`\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{32,}`),
+	// GitHub personal access tokens (classic ghp_, 36+ body chars).
+	regexp.MustCompile(`\bghp_[A-Za-z0-9]{36,}`),
+	// Slack bot tokens (xoxb-<id>-<id>-<secret>).
+	regexp.MustCompile(`\bxoxb-[0-9]{8,}-[0-9]{8,}-[0-9A-Za-z]{16,}`),
 	// AWS access key ids.
 	regexp.MustCompile(`\b(?:AKIA|ASIA)[0-9A-Z]{16}\b`),
 	// Google API keys.
@@ -71,19 +78,26 @@ func MaskAPIKeys(s string) string {
 // CleanCommandOutput applies the inline cleaning pipeline to a command's
 // output. The command participates in the decision: invocations that produce
 // structured or teed output are passed through untouched so nothing the user
-// (or a downstream parser) relies on gets reshaped.
+// (or a downstream parser) relies on gets reshaped. Credential masking is
+// the one exception (review P1): it runs BEFORE the bypass check and
+// unconditionally — the bypass markers are substrings of the model-
+// controlled command ("cat .env # nofilter"), so gating masking on them
+// would let a comment token ship plaintext third-party keys into the model
+// context. Bypass exempts the RESHAPING pipeline only.
 func CleanCommandOutput(command, output string) string {
+	masked := MaskAPIKeys(output)
 	if outputCleaningBypassed(command) {
-		return output
+		return masked
 	}
-	cleaned := collapseProgressLines(output)
+	cleaned := collapseProgressLines(masked)
 	cleaned = stripANSI(cleaned)
 	cleaned = compressLongLines(cleaned)
-	// Credential masking rides last (octop borrowing §十一): masking only
-	// shortens, so the never-worse comparison below stays sound.
+	// Re-mask after reshaping: compressLongLines could have split a key
+	// across a boundary; masking again also keeps the never-worse guard
+	// below anchored on the masked floor.
 	cleaned = MaskAPIKeys(cleaned)
-	if len(cleaned) >= len(output) {
-		return output
+	if len(cleaned) >= len(masked) {
+		return masked
 	}
 	return cleaned
 }

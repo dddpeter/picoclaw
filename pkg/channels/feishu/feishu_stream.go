@@ -496,6 +496,24 @@ func (c *FeishuChannel) handleCardAction(_ context.Context, event *callback.Card
 		if !ok {
 			return toast("error", "无法识别的审批操作"), nil
 		}
+		// Expired card (review P1): the agent-side wait is over — the engine
+		// already denied fail-closed. Synthesizing /approve would only draw
+		// an orphan receipt while the card sealed itself as "已批准",
+		// lying about a verdict that never reached the engine. Seal as
+		// ended instead; no inbound reply is sent.
+		if peek := c.approvalCardRef(qid); peek != nil && peek.expired() {
+			ref := c.takeApprovalCardRef(qid)
+			go func(ref *feishuApprovalCardRef) {
+				time.Sleep(500 * time.Millisecond)
+				sealCtx, sealCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer sealCancel()
+				c.sealApprovalCardVerdict(sealCtx, ref, feishuSealExpired)
+			}(ref)
+			logger.InfoCF("feishu", "approval card click after expiry; sealed as ended", map[string]any{
+				"chat_id": chatID, "qid": qid,
+			})
+			return toast("info", "审批已结束（超时按拒绝处理）"), nil
+		}
 		if chatID == "" {
 			logger.WarnCF("feishu", "approval card action refused: missing chat_id in callback value", nil)
 			return toast("error", "卡片缺少会话信息"), nil

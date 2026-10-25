@@ -434,3 +434,57 @@ func TestMigrateFromJSON_SkipsMetaJSONFiles(t *testing.T) {
 		t.Fatalf("meta file should not be renamed, stat err = %v", statErr)
 	}
 }
+
+// TestMigrateFromJSON_SkipsPendingMarkers (review P1): ask/approval marker
+// files are web-card restore records, not legacy sessions. The old scan only
+// skipped the turn marker, so a crash residue got imported as a ghost
+// "<key>.ask" session (AskMarker carries no key field — the key fell back to
+// the filename) and renamed to .migrated, permanently breaking pending_ask
+// restore.
+func TestMigrateFromJSON_SkipsPendingMarkers(t *testing.T) {
+	sessionsDir := t.TempDir()
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	writeJSONSession(t, sessionsDir, "real.json", jsonSession{
+		Key:      "real",
+		Messages: []providers.Message{{Role: "user", Content: "hi"}},
+		Created:  time.Now(),
+		Updated:  time.Now(),
+	})
+
+	askFile := filepath.Join(sessionsDir, "sess1"+AskMarkerSuffix)
+	if err := os.WriteFile(askFile, []byte(`{"session_key":"sess1","started_at":1}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	approvalFile := filepath.Join(sessionsDir, "sess2"+ApprovalMarkerSuffix)
+	if err := os.WriteFile(approvalFile, []byte(`{"session_key":"sess2"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	count, err := MigrateFromJSON(ctx, sessionsDir, store)
+	if err != nil {
+		t.Fatalf("MigrateFromJSON: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("only the real session may migrate, got %d", count)
+	}
+	// No ghost sessions imported from the markers (GetHistory on a missing
+	// key returns an empty history, not an error — assert emptiness).
+	for _, ghost := range []string{"sess1.ask", "sess2.approval", "sess1.ask.json", "sess2"} {
+		history, err := store.GetHistory(ctx, ghost)
+		if err == nil && len(history) > 0 {
+			t.Fatalf("marker %q must not become a session, got %d messages", ghost, len(history))
+		}
+	}
+	// The marker files must NOT be renamed to .migrated — the web restore
+	// path reads them at their original names.
+	for _, f := range []string{askFile, approvalFile} {
+		if _, err := os.Stat(f); err != nil {
+			t.Fatalf("marker must stay in place, %v", err)
+		}
+		if _, err := os.Stat(f + ".migrated"); err == nil {
+			t.Fatalf("marker must not be renamed: %s", f+".migrated")
+		}
+	}
+}

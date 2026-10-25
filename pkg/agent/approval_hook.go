@@ -74,6 +74,10 @@ const (
 	ApprovalReceiptDeniedExact     = "⛔ 已拒绝本次工具执行。"
 	ApprovalReceiptTimeoutPrefix   = "⛔ 审批超时"
 	ApprovalReceiptNoPendingPrefix = "当前没有待批准的操作"
+	// ApprovalReceiptRevokedExact answers "/approve off": the session's
+	// auto-pass tiers (allow_all + always rules) are cleared; gated calls
+	// ask again from now on.
+	ApprovalReceiptRevokedExact = "🔓 已撤销本会话的自动放行（全部允许与规则放行均已清除），后续审批将重新询问。"
 )
 
 // approvalHookConfig is the hooks.builtins.approval.config payload.
@@ -119,6 +123,7 @@ type approvalAnswer struct {
 	approved bool
 	always   bool   // "/approve always" — promote the matched pattern (allow_tools)
 	allowAll bool   // "/approve all" — session-wide allow_all tier
+	revoke   bool   // "/approve off" — drop the session's auto-pass tiers (not an answer to a pending)
 	reason   string // "/deny <reason>"
 }
 
@@ -127,11 +132,18 @@ type approvalAnswer struct {
 // channel/chat are not accepted as answers (M1 hardening) — they keep
 // flowing to steering instead. pattern is the ask pattern that matched, so
 // an "always" answer can promote exactly that rule to session scope.
+// mu+resolved close the late-reply window (ask_user review-P3-2 pattern):
+// once the waiter's owner has decided (answer / timeout / abort), the pump
+// must neither deliver into the buffer nor register session tiers for the
+// retired waiter.
 type pendingApproval struct {
-	resolve chan approvalReply
-	channel string
-	chatID  string
-	pattern string
+	resolve  chan approvalReply
+	channel  string
+	chatID   string
+	senderID string // who triggered the gated call (octop §三-4: group chats pin answers to them)
+	pattern  string
+	mu       sync.Mutex
+	resolved bool
 }
 
 // approvalSessionRuleTTL bounds how long an "always" answer keeps
@@ -163,6 +175,17 @@ type approvalHook struct {
 	timeout         time.Duration
 	pending         sync.Map // sessionKey -> *pendingApproval
 	sessionRules    sync.Map // sessionKey -> *sessionRuleSet (always-allow, TTL-bounded)
+}
+
+// hasAnyAskSurface reports whether the hook can ever ask a question or
+// hard-deny (ask rules, hard-deny rules, or inherited exec deny). With an
+// empty surface the hook never creates a pending, so consuming orphan
+// protocol words would swallow ordinary chat ("同意"/"批准" as a standalone
+// reply) for zero benefit — behave exactly like a disabled hook instead
+// (configuration.zh.md contract: 空 ask_patterns = 行为与未启用完全一致).
+func (h *approvalHook) hasAnyAskSurface() bool {
+	return len(h.commandAsk) > 0 || len(h.toolAsk) > 0 ||
+		len(h.hardDenyCommand) > 0 || len(h.hardDenyTool) > 0 || h.inheritExecDeny
 }
 
 func init() {
@@ -404,6 +427,26 @@ func (h *approvalHook) setAllowAll(sessionKey string) {
 	set.allowAllUntil = time.Now().Add(approvalSessionRuleTTL)
 }
 
+// revokeSessionTiers clears the session's allow_all tier and always rules
+// at once ("/approve off"): blanket approval must be revocable on demand,
+// not just TTL-bounded. Reports whether anything was actually active.
+func (h *approvalHook) revokeSessionTiers(sessionKey string) bool {
+	loaded, ok := h.sessionRules.Load(sessionKey)
+	if !ok {
+		return false
+	}
+	set, ok := loaded.(*sessionRuleSet)
+	if !ok {
+		return false
+	}
+	set.mu.Lock()
+	defer set.mu.Unlock()
+	active := !set.allowAllUntil.IsZero() || len(set.rules) > 0
+	set.allowAllUntil = time.Time{}
+	set.rules = make(map[string]time.Time)
+	return active
+}
+
 // addSessionRule promotes an ask pattern to session-scope auto-approve.
 func (h *approvalHook) addSessionRule(sessionKey, pattern string) {
 	loaded, _ := h.sessionRules.LoadOrStore(sessionKey, &sessionRuleSet{rules: make(map[string]time.Time)})
@@ -440,6 +483,11 @@ func (h *approvalHook) ApproveTool(ctx context.Context, req *ToolApprovalRequest
 	// Fail-closed for sessions with no interactive channel (cron/heartbeat
 	// turns arrive on cli/system/subagent): never wait, never approve.
 	channel, chatID := approvalRequestTarget(req)
+	// Who triggered the gated call (review P2): group chats pin the
+	// answer to this user so another member cannot approve their
+	// destructive operation — same policy as ask_user (§三-4): direct
+	// chats and identity-less channels stay permissive.
+	_, _, askedSender := approvalRequestTargetFull(req)
 	if channel == "" || constants.IsInternalChannel(channel) {
 		return ApprovalDecision{
 			Approved: false,
@@ -468,24 +516,30 @@ func (h *approvalHook) ApproveTool(ctx context.Context, req *ToolApprovalRequest
 	}
 
 	resolve := make(chan approvalReply, 1)
-	waiter := &pendingApproval{resolve: resolve, channel: channel, chatID: chatID, pattern: pattern}
+	waiter := &pendingApproval{resolve: resolve, channel: channel, chatID: chatID, senderID: askedSender, pattern: pattern}
 	if prev, loaded := h.pending.Swap(sessionKey, waiter); loaded {
 		// The tool loop is serial per session, so this only happens with a
 		// misbehaving parallel path: deny the stale waiter instead of
 		// leaving it dangling.
 		if p, ok := prev.(*pendingApproval); ok {
+			// Retire the stale waiter FIRST (mu+resolved, ask_user pattern):
+			// a racing reply must neither be delivered into its buffer nor
+			// ack a waiter that is being retired.
+			p.mu.Lock()
+			p.resolved = true
+			p.mu.Unlock()
 			select {
 			case p.resolve <- approvalReply{approved: false}:
 			default:
 			}
 		}
 	}
-	defer h.pending.CompareAndDelete(sessionKey, waiter)
 
 	// Pending-approval marker (web approval card): the ask itself is
 	// outbound-only and never enters the transcript, so a web page reload
 	// mid-approval would lose the card. The marker restores it from the
 	// session API; cleared on every exit path below (reply / abort / timeout).
+	clearMarker := func() {}
 	if al := AgentLoopFromContext(ctx); al != nil {
 		if ms := approvalMarkerStoreFor(al, req.Meta.AgentID); ms != nil {
 			ms.MarkApprovalPending(memory.ApprovalMarker{
@@ -495,33 +549,77 @@ func (h *approvalHook) ApproveTool(ctx context.Context, req *ToolApprovalRequest
 				Preview:    approvalCallPreview(req),
 				TimeoutMs:  h.timeout.Milliseconds(),
 			})
-			defer ms.ClearApprovalPending(sessionKey)
+			clearMarker = func() { ms.ClearApprovalPending(sessionKey) }
 		}
 	}
 
+	// finish retires the waiter BEFORE any exit side effect (timeout-receipt
+	// publish, marker clear, return) — ask_user's review-P3-2 pattern. The
+	// old deferred-only cleanup left the timeout-receipt window (up to 5s of
+	// blocking publish) wide open: tryHandleApprovalReply could still Load
+	// the pending, deliver a reply, publish "已批准" and register
+	// allow_all/session rules for a decision that had already timed out
+	// fail-closed. With resolved set the pump side can neither deliver nor
+	// register tiers; the deferred finish below is a safety net — every
+	// branch calls finish first.
+	finish := func() {
+		waiter.mu.Lock()
+		waiter.resolved = true
+		waiter.mu.Unlock()
+		h.pending.CompareAndDelete(sessionKey, waiter)
+		clearMarker()
+	}
+	defer finish()
+
 	h.publishAsk(ctx, req, channel, chatID)
 
-	timer := time.NewTimer(h.timeout)
-	defer timer.Stop()
-	select {
-	case reply := <-resolve:
+	// decisionFor renders the engine verdict from a consumed reply (shared
+	// by the direct pickup and the post-retire drains below).
+	decisionFor := func(reply approvalReply) ApprovalDecision {
 		if !reply.approved {
 			reason := fmt.Sprintf("user denied %q via approval reply", req.Tool)
 			if reply.reason != "" {
 				reason = fmt.Sprintf("user denied %q via approval reply: %s", req.Tool, reply.reason)
 			}
-			return ApprovalDecision{
-				Approved: false,
-				Reason:   reason,
-			}, nil
+			return ApprovalDecision{Approved: false, Reason: reason}
 		}
-		return ApprovalDecision{Approved: true}, nil
+		return ApprovalDecision{Approved: true}
+	}
+
+	timer := time.NewTimer(h.timeout)
+	defer timer.Stop()
+	select {
+	case reply := <-resolve:
+		finish()
+		return decisionFor(reply), nil
 	case <-ctx.Done():
+		// Retire FIRST, then drain (ask_user review P3-A pattern): with
+		// resolved set no racing reply can be delivered or acked anymore, so
+		// the drain is the LAST legal pickup — a reply that raced into the
+		// buffer before the flag still wins over the abort.
+		finish()
+		select {
+		case reply := <-resolve:
+			return decisionFor(reply), nil
+		default:
+		}
 		return ApprovalDecision{
 			Approved: false,
 			Reason:   fmt.Sprintf("approval wait for %q was cancelled (turn aborted); denied fail-closed", req.Tool),
 		}, nil
 	case <-timer.C:
+		// Same retire-then-drain order: an on-time answer that raced into
+		// the buffer before the flag still beats the timer; only a genuinely
+		// empty buffer takes the timeout path. pending is already removed by
+		// finish(), so during the timeout-receipt publish below a late reply
+		// can only hit the orphan branch — it can no longer register any
+		// session tier.
+		finish()
+		select {
+		case reply := <-resolve:
+			return decisionFor(reply), nil
+		default:
+		}
 		// fail-closed 超时对用户可见：向提问的渠道发拒绝回执（此前超时只
 		// 写进 deny reason，用户端的审批提示永远悬着）。web 审批卡靠这条
 		// 回执封存；飞书交互卡不识别该文本、仍需点按钮才会封卡（超时封卡
@@ -532,6 +630,15 @@ func (h *approvalHook) ApproveTool(ctx context.Context, req *ToolApprovalRequest
 			Reason:   fmt.Sprintf("approval for %q timed out after %s without a user reply; denied fail-closed", req.Tool, h.timeout),
 		}, nil
 	}
+}
+
+// approvalRequestTargetFull additionally extracts the sender who
+// triggered the gated call (for group-chat answer pinning).
+func approvalRequestTargetFull(req *ToolApprovalRequest) (channel, chatID, senderID string) {
+	if req.Context == nil || req.Context.Inbound == nil {
+		return "", "", ""
+	}
+	return req.Context.Inbound.Channel, req.Context.Inbound.ChatID, strings.TrimSpace(req.Context.Inbound.SenderID)
 }
 
 // approvalRequestTarget extracts the interactive channel/chat from the
@@ -695,6 +802,12 @@ func parseApprovalReply(content string) approvalAnswer {
 					return approvalAnswer{ok: true}
 				}
 				return approvalAnswer{}
+			case strings.EqualFold(fields[1], "off"), strings.EqualFold(fields[1], "revoke"):
+				// "/approve off" — revoke the session's auto-pass tiers.
+				if lower == "approve" {
+					return approvalAnswer{ok: true, revoke: true}
+				}
+				return approvalAnswer{}
 			case strings.EqualFold(fields[1], "all"):
 				if lower == "approve" {
 					return approvalAnswer{ok: true, approved: true, allowAll: true}
@@ -728,6 +841,8 @@ func parseApprovalReply(content string) approvalAnswer {
 			return approvalAnswer{ok: true, approved: true, always: true}
 		case "全部允许":
 			return approvalAnswer{ok: true, approved: true, allowAll: true}
+		case "撤销放行":
+			return approvalAnswer{ok: true, revoke: true}
 		}
 	}
 	return approvalAnswer{}
@@ -747,9 +862,30 @@ func (al *AgentLoop) tryHandleApprovalReply(ctx context.Context, msg bus.Inbound
 	if hook == nil {
 		return false
 	}
+	// No ask surface configured (empty ask/hard-deny/inherit): the hook can
+	// never have a pending question, so protocol words are ordinary chat —
+	// consuming them here (orphan branch) would violate the documented
+	// "empty = identical to disabled" contract.
+	if !hook.hasAnyAskSurface() {
+		return false
+	}
 	ans := parseApprovalReply(msg.Content)
 	if !ans.ok {
 		return false
+	}
+	// "/approve off" (or 撤销放行) manages the session tiers: consumed with
+	// a receipt whether or not tiers were active, and it never answers a
+	// pending question (the waiter keeps waiting for approve/deny).
+	if ans.revoke {
+		if hook.revokeSessionTiers(sessionKey) {
+			al.publishApprovalReceipt(ctx, msg, ApprovalReceiptRevokedExact)
+		} else {
+			al.publishApprovalReceipt(ctx, msg, ApprovalReceiptNoPendingPrefix+"，也没有生效中的自动放行规则。")
+		}
+		logger.InfoCF("agent", "Approval session tiers revoked by user", map[string]any{
+			"session_key": sessionKey,
+		})
+		return true
 	}
 	loaded, exists := hook.pending.Load(sessionKey)
 	if !exists {
@@ -775,9 +911,39 @@ func (al *AgentLoop) tryHandleApprovalReply(ctx context.Context, msg bus.Inbound
 		})
 		return false
 	}
+	// Group-chat user pinning (review P2, ask_user's §三-4 policy): the
+	// approval was asked because of THIS user's gated call — another
+	// group member must not answer it. Direct chats and channels
+	// without sender identity stay permissive (the feishu card
+	// click path carries operatorOpenID, so buttons are covered too).
+	if p.senderID != "" && msg.SenderID != "" && msg.SenderID != p.senderID {
+		if msg.Context.ChatType != "direct" {
+			logger.DebugCF("agent", "Approval reply from a different group member ignored", map[string]any{
+				"session_key":  sessionKey,
+				"asked_user":   p.senderID,
+				"replied_from": msg.SenderID,
+			})
+			return false
+		}
+	}
+	p.mu.Lock()
+	if p.resolved {
+		p.mu.Unlock()
+		// The waiter's owner already decided (timeout / abort just retired
+		// it): consume as a late orphan with a receipt — never register
+		// session tiers for a decision that already happened.
+		al.publishApprovalReceipt(ctx, msg, ApprovalReceiptNoPendingPrefix+"，本次回复已忽略。")
+		logger.InfoCF("agent", "Late approval reply after waiter retired; dropped", map[string]any{
+			"session_key": sessionKey,
+			"content":     msg.Content,
+		})
+		return true
+	}
 	select {
 	case p.resolve <- approvalReply{approved: ans.approved, always: ans.always, allowAll: ans.allowAll, reason: ans.reason}:
+		p.mu.Unlock()
 	default:
+		p.mu.Unlock()
 		return false // already resolved by another reply
 	}
 

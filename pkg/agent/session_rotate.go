@@ -49,11 +49,18 @@ func (al *AgentLoop) rotateSession(ctx context.Context, agent *AgentInstance, op
 	history := sessions.GetHistory(sessionKey)
 	summary := strings.TrimSpace(sessions.GetSummary(sessionKey))
 
+	// /new keeps the session KEY (archive + fresh history): drop the
+	// session-sticky deferred-tool loaded set so the fresh conversation
+	// starts from the deferred baseline, not the tools the previous
+	// conversation happened to load (review P2).
+	al.toolDefer.clearSession(sessionKey)
 	if len(history) == 0 && summary == "" {
 		// Nothing to preserve; the session is already fresh.
 		clearSessionTitleMetadata(sessions, sessionKey)
 		return false, al.contextManager.Clear(ctx, sessionKey)
 	}
+
+	al.toolDefer.clearSession(sessionKey)
 
 	archiveKey := session.BuildOpaqueSessionKey(
 		"archive:" + sessionKey + ":" + strconv.FormatInt(time.Now().UnixNano(), 36),

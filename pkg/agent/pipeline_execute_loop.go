@@ -561,7 +561,16 @@ func (p *Pipeline) runToolInvocation(
 	// Progressive tool loading (octop borrowing §六): tool_search and direct
 	// calls to unloaded deferred tools are answered here — never executed
 	// blindly.
-	if res, handled := al.interceptDeferredTool(execCtx, ts.sessionKey, toolName, toolArgs, ts.agent.Tools, ts.profile); handled {
+	if res, handled := al.interceptDeferredToolCached(ts, toolName, toolArgs); handled {
+		// Same output budget as registry execution (review P2): the
+		// interceptor path used to bypass normalizeToolResult +
+		// ApplyOutputBudgetWithOffload entirely, so a tool_search hit
+		// could return five full schemas (or an auto-load receipt with
+		// the whole schema) into history with no cap and no offload.
+		if res != nil {
+			res.ForLLM = tools.ApplyOutputBudgetWithOffload(toolName, res.ForLLM,
+				ts.agent.Tools.OutputBudget(), ts.workspace)
+		}
 		return res, time.Since(toolStart)
 	}
 	toolResult := ts.agent.Tools.ExecuteWithContext(
@@ -819,7 +828,7 @@ func (p *Pipeline) finishToolExecution(ls *toolLoopState) ToolControl {
 		}
 		// Async post-turn compaction (option A), same rationale as Finalize.
 		if !ts.opts.NoHistory && ts.opts.EnableSummary {
-			al.scheduleCompact(ts.sessionKey, ts.agent.ContextWindow, ts.opts)
+			al.scheduleCompact(ts.agent, ts.sessionKey, ts.opts)
 		}
 		ts.setPhase(TurnPhaseCompleted)
 		ts.setFinalContent("")

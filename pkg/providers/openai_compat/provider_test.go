@@ -2285,3 +2285,30 @@ func TestProviderChatStream_HeaderTimeoutAllowsSlowBody(t *testing.T) {
 		t.Fatalf("Content = %q, want %q", out.Content, "slow")
 	}
 }
+
+// TestChatStream_MalformedUsageSkipped (review P1): usage is display-only
+// telemetry — a gateway typing a display field unconventionally (usage as
+// [], prompt_cache_hit_tokens as a string) must not fail the whole stream
+// and discard an already-complete answer.
+func TestChatStream_MalformedUsageSkipped(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n"))
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":[],\"prompt_cache_hit_tokens\":\"42\"}\n\n"))
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15,\"prompt_tokens_details\":{}}}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	p := NewProvider("key", server.URL, "")
+	resp, err := p.ChatStream(t.Context(), []Message{{Role: "user", Content: "hi"}}, nil, "m", nil, nil)
+	if err != nil {
+		t.Fatalf("malformed usage payloads must not fail the stream: %v", err)
+	}
+	if resp.Content != "hello" {
+		t.Fatalf("content must survive, got %q", resp.Content)
+	}
+	if resp.Usage == nil || resp.Usage.PromptTokens != 10 {
+		t.Fatalf("last well-formed usage must be kept, got %+v", resp.Usage)
+	}
+}

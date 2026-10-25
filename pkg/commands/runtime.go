@@ -51,10 +51,11 @@ type ContextSegment struct {
 
 // Compact outcome states for the /compact command (octop borrowing §五).
 const (
-	CompactStateDone      = "done"
-	CompactStateScheduled = "scheduled"
-	CompactStateNothing   = "nothing_to_compact"
-	CompactStateBusy      = "busy"
+	CompactStateDone        = "done"
+	CompactStateScheduled   = "scheduled"
+	CompactStateNothing     = "nothing_to_compact"
+	CompactStateBusy        = "busy"
+	CompactStateUnavailable = "unavailable"
 )
 
 // CompactOutcome reports a forced context compaction: message and token

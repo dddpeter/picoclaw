@@ -64,10 +64,14 @@ type askReply struct {
 
 // pendingAsk is one session's in-flight ask wait. channel/chatID pin WHERE
 // the question was asked: replies from a different chat are not accepted.
+// senderID pins WHO was asked (octop §三-4): in group chats another member's
+// chit-chat must not be consumed as the answer — only the asked user (or a
+// message whose channel provides no sender identity) may answer.
 type pendingAsk struct {
 	resolve   chan askReply
 	channel   string
 	chatID    string
+	senderID  string
 	questions []bus.AskQuestion
 	// mu+resolved close the late-reply window (review P3-2): once the
 	// waiter's owner has decided (answer consumed / timeout / abort),
@@ -205,6 +209,7 @@ func (al *AgentLoop) runAskUser(ctx context.Context, ts *turnState, args map[str
 		resolve:   resolve,
 		channel:   ts.channel,
 		chatID:    ts.chatID,
+		senderID:  strings.TrimSpace(ts.opts.SenderID),
 		questions: questions,
 	}
 	if prev, loaded := al.pendingAsks.Swap(ts.sessionKey, waiter); loaded {
@@ -425,6 +430,24 @@ func (al *AgentLoop) tryHandleAskReply(ctx context.Context, msg bus.InboundMessa
 	if p.channel != msg.Channel || p.chatID != msg.ChatID {
 		return false // asked elsewhere; keep flowing (steering/commands)
 	}
+	// Group-chat user pinning (octop §三-4, review P1): a question asked in a
+	// group must be answered by the user it was asked of. Another member's
+	// ordinary message (including protocol-ish words like /skip) keeps
+	// flowing — previously ANY non-command text in the group was consumed as
+	// "The user answered", silently discarding the real answer into steering.
+	// Empty msg.SenderID (channel provides no identity) stays permissive, and
+	// direct chats are exempt (the peer is unambiguous).
+	if p.senderID != "" && msg.SenderID != "" && msg.SenderID != p.senderID {
+		chatType := msg.Context.ChatType
+		if chatType != "direct" {
+			logger.DebugCF("agent", "Ask reply from a different group member ignored", map[string]any{
+				"session_key":  sessionKey,
+				"asked_user":   p.senderID,
+				"replied_from": msg.SenderID,
+			})
+			return false
+		}
+	}
 	if commands.HasCommandPrefix(msg.Content) {
 		if name, isCmd := commands.CommandName(msg.Content); !isCmd || name != "skip" {
 			return false // other commands still route normally
@@ -473,6 +496,11 @@ func (al *AgentLoop) consumeOrphanSkip(ctx context.Context, msg bus.InboundMessa
 // leave the rest empty) with option-token normalization. Lines are capped
 // (review P2-2: a pasted log would otherwise ride into the model context
 // verbatim; the /deny reason cap is the precedent).
+// Extra lines beyond the question count are not silently dropped (review
+// P2): a single free-text question keeps its full multi-line answer, and a
+// multi-question form folds the tail into the last question — the old
+// line-count mapping lost everything after line N while still telling the
+// user "已收到回答".
 func collectAskReply(questions []bus.AskQuestion, text string) askReply {
 	trimmed := strings.TrimSpace(text)
 	if name, isCmd := commands.CommandName(trimmed); isCmd && name == "skip" {
@@ -480,11 +508,34 @@ func collectAskReply(questions []bus.AskQuestion, text string) askReply {
 	}
 	lines := strings.Split(trimmed, "\n")
 	answers := make([]string, len(questions))
+	if len(questions) == 0 {
+		return askReply{answers: answers}
+	}
+	if len(questions) <= 1 {
+		// Single question (or none): the WHOLE message is the answer —
+		// newlines are content, not question separators.
+		for i := range lines {
+			lines[i] = strings.TrimSpace(lines[i])
+		}
+		answers[0] = normalizeAskAnswer(questions[0], firstNRunes(strings.Join(lines, "\n"), askMaxAnswerRunes))
+		return askReply{answers: answers}
+	}
 	for i := range questions {
 		if i >= len(lines) {
 			break
 		}
 		answers[i] = normalizeAskAnswer(questions[i], firstNRunes(strings.TrimSpace(lines[i]), askMaxAnswerRunes))
+	}
+	// More lines than questions: fold the tail into the last answer so a
+	// multi-line final answer survives (an IM user answering 3 questions may
+	// well continue the third answer on the next line).
+	if len(lines) > len(questions) {
+		last := len(questions) - 1
+		tail := strings.Join(lines[len(questions):], "\n")
+		if strings.TrimSpace(tail) != "" {
+			capped := firstNRunes(strings.TrimSpace(answers[last])+"\n"+strings.TrimSpace(tail), askMaxAnswerRunes)
+			answers[last] = normalizeAskAnswer(questions[last], capped)
+		}
 	}
 	return askReply{answers: answers}
 }

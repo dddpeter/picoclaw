@@ -124,20 +124,36 @@ func buildFeishuApprovalCard(chatID, qid string, prompt channels.ApprovalPrompt)
 	}
 }
 
+// feishuApprovalSealVerdict is what a sealed approval card claims happened.
+type feishuApprovalSealVerdict uint8
+
+const (
+	feishuSealDenied feishuApprovalSealVerdict = iota
+	feishuSealApproved
+	// feishuSealExpired: the approval wait had already timed out when the
+	// button was clicked — the card must say so, not claim a verdict that
+	// never reached the engine (review P1: expired cards used to seal as
+	// "已批准" while the engine had denied fail-closed).
+	feishuSealExpired
+)
+
 // buildFeishuApprovalSealedCard renders the verdict-only replacement card
 // (no buttons) patched over the prompt after a click.
-func buildFeishuApprovalSealedCard(approved bool, detail string) map[string]any {
+func buildFeishuApprovalSealedCard(verdict feishuApprovalSealVerdict, detail string) map[string]any {
 	template := "default"
-	verdict := "⏰ 审批已结束"
-	switch {
-	case approved:
+	text := "⏰ 审批已结束"
+	switch verdict {
+	case feishuSealApproved:
 		template = "success"
-		verdict = "✅ 已批准，继续执行。"
-	default:
+		text = "✅ 已批准，继续执行。"
+	case feishuSealDenied:
 		template = "danger"
-		verdict = "⛔ 已拒绝。"
+		text = "⛔ 已拒绝。"
+	case feishuSealExpired:
+		template = "default"
+		text = "⏰ 审批已结束（超时按拒绝处理）。"
 	}
-	content := verdict
+	content := text
 	if detail != "" {
 		content += "\n" + detail
 	}
@@ -199,7 +215,7 @@ func (c *FeishuChannel) ShowApprovalPrompt(ctx context.Context, chatID string, p
 	if err != nil {
 		return err
 	}
-	c.recordApprovalCard(qid, chatID, messageID, cardID)
+	c.recordApprovalCard(qid, chatID, messageID, cardID, prompt.Timeout)
 	logger.InfoCF("feishu", "Approval prompt card sent", map[string]any{
 		"chat_id":    chatID,
 		"session":    prompt.SessionKey,
@@ -241,6 +257,11 @@ func (c *FeishuChannel) createCardkitCard(ctx context.Context, cardJSON []byte) 
 // its qid: far beyond any approval timeout, but not forever.
 const feishuApprovalCardTTL = 24 * time.Hour
 
+// feishuApprovalClickGrace pads the agent-side approval timeout when
+// deriving a card's click deadline: the engine timer, its timeout-receipt
+// publish and clock skew may lag the nominal timeout by a few seconds.
+const feishuApprovalClickGrace = 30 * time.Second
+
 // feishuApprovalCardRef is one recorded prompt card (see FeishuChannel.
 // approvalCards).
 type feishuApprovalCardRef struct {
@@ -250,6 +271,12 @@ type feishuApprovalCardRef struct {
 	// prompt fell back to an inline send (unsealable).
 	cardID string
 	at     time.Time
+	// deadline is when the AGENT-side approval wait expires (prompt
+	// timeout + grace for clock skew and the engine's timeout receipt
+	// publish). A click after it must not synthesize /approve (the pump
+	// would only answer with an orphan receipt) nor seal the card as
+	// "已批准" (review P1: the expired card used to lie).
+	deadline time.Time
 }
 
 // newFeishuApprovalQID mints an opaque per-card id embedded in every button
@@ -266,15 +293,21 @@ func newFeishuApprovalQID() string {
 
 // recordApprovalCard remembers qid -> card and sweeps entries past their TTL.
 // Approvals are rare, so a full scan per record is cheap.
-func (c *FeishuChannel) recordApprovalCard(qid, chatID, messageID, cardID string) {
+func (c *FeishuChannel) recordApprovalCard(qid, chatID, messageID, cardID string, timeout time.Duration) {
 	if qid == "" || messageID == "" {
 		return
+	}
+	now := time.Now()
+	deadline := now.Add(timeout + feishuApprovalClickGrace)
+	if timeout <= 0 {
+		deadline = now.Add(feishuApprovalCardTTL)
 	}
 	c.approvalCards.Store(qid, &feishuApprovalCardRef{
 		chatID:    chatID,
 		messageID: messageID,
 		cardID:    cardID,
-		at:        time.Now(),
+		at:        now,
+		deadline:  deadline,
 	})
 	c.approvalCards.Range(func(k, v any) bool {
 		if ref, ok := v.(*feishuApprovalCardRef); ok && time.Since(ref.at) > feishuApprovalCardTTL {
@@ -282,6 +315,32 @@ func (c *FeishuChannel) recordApprovalCard(qid, chatID, messageID, cardID string
 		}
 		return true
 	})
+}
+
+// approvalCardRef peeks at the recorded card WITHOUT consuming it (the
+// expiry pre-check must not eat the ref the real click path consumes).
+func (c *FeishuChannel) approvalCardRef(qid string) *feishuApprovalCardRef {
+	if qid == "" {
+		return nil
+	}
+	v, ok := c.approvalCards.Load(qid)
+	if !ok {
+		return nil
+	}
+	ref, ok := v.(*feishuApprovalCardRef)
+	if !ok || time.Since(ref.at) > feishuApprovalCardTTL {
+		return nil
+	}
+	return ref
+}
+
+// expired reports whether the card's approval wait is over: clicks past
+// this point seal as ended without synthesizing a protocol reply.
+func (r *feishuApprovalCardRef) expired() bool {
+	if r == nil || r.deadline.IsZero() {
+		return false
+	}
+	return time.Now().After(r.deadline)
 }
 
 // takeApprovalCardRef consumes the card recorded for a qid. Consumption makes
@@ -307,6 +366,15 @@ func (c *FeishuChannel) takeApprovalCardRef(qid string) *feishuApprovalCardRef {
 // The CardKit full-card update is the only path with whole-card replace
 // semantics here; sequence is 1 (the first update issued for this card).
 func (c *FeishuChannel) sealApprovalCard(ctx context.Context, ref *feishuApprovalCardRef, approved bool) {
+	verdict := feishuSealDenied
+	if approved {
+		verdict = feishuSealApproved
+	}
+	c.sealApprovalCardVerdict(ctx, ref, verdict)
+}
+
+// sealApprovalCardVerdict replaces the prompt card with the given verdict.
+func (c *FeishuChannel) sealApprovalCardVerdict(ctx context.Context, ref *feishuApprovalCardRef, verdict feishuApprovalSealVerdict) {
 	if ref == nil {
 		return
 	}
@@ -316,7 +384,7 @@ func (c *FeishuChannel) sealApprovalCard(ctx context.Context, ref *feishuApprova
 		})
 		return
 	}
-	sealed, err := json.Marshal(buildFeishuApprovalSealedCard(approved, ""))
+	sealed, err := json.Marshal(buildFeishuApprovalSealedCard(verdict, ""))
 	if err != nil {
 		logger.WarnCF("feishu", "Failed to build sealed approval card", map[string]any{
 			"error": err.Error(),

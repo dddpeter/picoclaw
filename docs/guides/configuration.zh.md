@@ -494,10 +494,12 @@ HITL 工具审批（fork 新增，借鉴 agentscope-go，详见 `docs/design/age
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
-| `ask_patterns` | `[]`（= 放行一切，行为与未启用完全一致） | 正则列表，语义对齐 `tools.exec.custom_deny_patterns`：`tool:` 前缀匹配**工具名**（如 `tool:write_file`），其余匹配 **exec 的命令串**（如 `git push`） |
+| `ask_patterns` | **内置默认启用**，含 `git push`、`git reset --hard`、`git clean`、`\bbrew\s+(uninstall\|rm)\b`、`\bpip\s+uninstall\b`、`\bnpm\s+uninstall\b` 六条 | 正则列表，语义对齐 `tools.exec.custom_deny_patterns`：`tool:` 前缀匹配**工具名**（如 `tool:write_file`），其余匹配 **exec 的命令串**（如 `git push`）。显式配置 `[]` 时行为与未启用**完全一致**（协议词不再被拦截，普通聊天不受影响） |
 | `inherit_exec_deny_patterns` | `false` | **单清单配方（推荐）**：把 `tools.exec.custom_deny_patterns` 整表纳入审批范围，命中走批准流程——一份模式清单、两处维护都没有。此时 exec 侧应保持 `enable_custom_deny_patterns: false`（否则批准后命令仍会被 exec 硬拒，挂载时会打告警）；显式 `ask_patterns` 也无需再配 |
 | `hard_deny_patterns` | `[]` | **命中即拒地板**（可选）：匹配的直接拒绝且**不可批准**（不询问、会话规则不能豁免），语法同 ask。默认空 = 所有命中都可问。适合"连问都不该问"的极少数命令 |
 | `timeout_ms` | `300000`（5 分钟，贴合 IM 回复节奏） | 等待上限，超时按拒绝。挂载时 `hooks.defaults.approval_timeout_ms` 会自动抬高到不低于该值 |
+
+**升级冲击（2026-10 起默认启用）**：旧版本审批 builtin 默认关闭，升级后**开箱即启用**上述六条 ask_patterns——存量配置若从未写 `hooks.builtins.approval`，升级后 `git push` 等命令会弹出审批卡（fail-closed，cron/心跳回合同样生效）。不想启用：显式写 `"enabled": false`（配置合并是 map 级整体覆盖，显式条目永远赢过内置默认）——
 
 **单清单配方示例**（模式清单只写在 exec 段，命中走审批而非硬拒）：
 
@@ -526,8 +528,8 @@ HITL 工具审批（fork 新增，借鉴 agentscope-go，详见 `docs/design/age
 - **飞书原生审批卡**：feishu 渠道下审批提问自动渲染为**交互卡片**（✅ 批准 / 🔁 批准（本会话免问）/ ⛔ 拒绝 三按钮），点击即生效，无需打字；按钮点击与手打的 `/approve` 走同一条路由（steering 之前，不进模型上下文），点击后卡片立即变为结果态（按钮移除）。其他渠道或卡片发送失败时自动回退为文本提问。
 - **只加 Ask 层**：exec 的 deny patterns（`defaultDenyPatterns` / `custom_deny_patterns`）仍是最终裁决——审批通过后命令若命中 deny 规则照样被拒。
 - 审批回答（`/approve`、`/deny`，别名 `/yes` `/no`，及中文 `同意`/`批准`/`拒绝`）在 steering 之前路由，**不进入模型上下文**；回答必须**整条消息只有命令本身**（`/approve 请继续` 这类带尾随内容的不算回答，照常进 steering）；且只接受**提问发出的同一渠道/会话**里的回答——别的 chat 发来的 `/approve` 不会生效。
-- **会话内免重复（`/approve always`）**：回答 `/approve always`（或 `总是允许`）在批准本次之外，把命中的那条 ask 规则提升为**本会话自动放行**——同一会话内再命中同一条规则的调用直接执行、不再询问。规则只存在内存中，**约 6 小时后或网关重启即失效**（到期后同规则会重新询问一次）。`/deny` 没有 always 形式，拒绝始终逐次生效。
-- 超时或回合中止后 pending 即清除，**迟到的 `/approve` 不会补生效**（会当普通消息进 steering）——需要模型重新触发该工具调用。
+- **会话内免重复（`/approve always`）与全局放行（`/approve all`）**：回答 `/approve always`（或 `总是允许`）在批准本次之外，把命中的那条 ask 规则提升为**本会话自动放行**——同一会话内再命中同一条规则的调用直接执行、不再询问。规则只存在内存中，**约 6 小时后或网关重启即失效**（到期后同规则会重新询问一次）。`/deny` 没有 always 形式，拒绝始终逐次生效。**随时可撤销**：`/approve off`（或 `撤销放行`）立即清空本会话的 allow_all 档与全部 always 规则——自动放行不是只能等 TTL 到期，回执会如实说明是否有生效中的规则被清除；该命令不会顺带回答当前待批准的问题。
+- 超时或回合中止后 pending 即清除，**迟到的 `/approve` 不会补生效**——它会命中"孤儿"分支：被消费并收到`⚠️ 当前没有待批准的操作，本次回复已忽略`回执（**不再进 steering、也不进模型上下文**），飞书侧点击过期卡片会封存为`⏰ 审批已结束`；需要模型重新触发该工具调用。
 - 回答示例：`⚠️ 需要批准：即将执行工具 exec\n git push origin main\n\n回复 /approve 允许、/approve always 本会话内不再询问、/deny 拒绝（超过 5m0s 未回复将按拒绝处理）`。
 - 回合被中止（`/stop` 等）时等待立即以拒绝结束，不留悬挂。
 - 环境变量无（走 `hooks.builtins` 结构配置）。
@@ -647,6 +649,28 @@ Agent 将每隔 30 分钟（可配置）读取此文件，并使用可用工具�
 
 迟到回复不丢：超时判定后到达的作答不再被消费或回执（流入 steering）；与 deadline 同刻到达的回复优先于超时。
 
+### MCP 渐进式工具加载 (tools.mcp.deferred_tool_threshold)
+
+大型 MCP 目录（几十上百个工具）的工具定义常占 10k–30k token，挤占有效上下文（fork 新增，借鉴 octop §六）：
+
+```json
+{
+  "tools": {
+    "mcp": {
+      "deferred_tool_threshold": 20
+    }
+  }
+}
+```
+
+| 值 | 行为 |
+|---|---|
+| `0` / 缺省 | 用默认阈值 **20**：MCP 工具数（按 turn profile 过滤后计）超过 20 时启用延迟化 |
+| 正数 | 自定义启用阈值 |
+| 负数 | **显式关闭**渐进加载（全量注入） |
+
+启用后：未加载的 MCP 工具以一行"延迟引用"进 LLM；`tool_search` 元工具按需装载（会话粘性，`/new` 清空）；直调未加载工具会自动装载并回执 schema 让模型重试（弱模型兜底）。上下文分段条（system_prompt/skills/tool_definitions/mcp/subagents/conversation）按**实际出站**的工具集计量。
+
 ### 上下文窗口可信开关 (trust_configured_context_window)
 
 `agents.defaults.context_window` 常被填成营销数字（如 1M），而模型真实窗口小得多——所有压缩门信任虚高值后永不触发，长会话最终以「上游返回 200 + 空响应」形式溢出（2026-10-04 排查结论）。
@@ -654,7 +678,7 @@ Agent 将每隔 30 分钟（可配置）读取此文件，并使用可用工具�
 - **默认（false）**：配置的窗口超过 256k 时在构造期**钳到 256k** 并打告警日志，所有压缩门按钳后值工作。
 - **`trust_configured_context_window: true`**：完全信任配置值（真支持 >256k 窗口的模型用）。
 
-**显示与门控分离（2026-10-04 晚补充）**：钳制只作用于压缩门控；用量上报（飞书流式卡片的 📦 上下文、pico/web 用量、`/context`、`/status`）展示的**总窗口始终是钳制前的配置值**——卡片按模型声明的窗口显示 `已用/总量`，而压缩门在后台按钳后的保守值工作。因此配置 1M 时卡片显示 1M，但历史 token 达到约 `0.75 × (256k − max_tokens)` 就会开始后台压缩。若确认所用模型真实窗口大于 256k，设 `trust_configured_context_window: true` 可让门控也按配置值工作。
+**显示与门控分离（2026-10-04 晚补充）**：钳制只作用于压缩门控；用量上报（飞书流式卡片的 📦 上下文、pico/web 用量、`/context`、`/status`）展示的**总窗口是钳制前的配置值**——例外：配置了 `model_list[].context_window` 条目上限时，显示值随 per-model min 一起收紧（显示 = min(declared, 条目值)）——卡片按模型声明的窗口显示 `已用/总量`，而压缩门在后台按钳后的保守值工作。因此配置 1M 时卡片显示 1M，但历史 token 达到约 `0.75 × (256k − max_tokens)` 就会开始后台压缩。若确认所用模型真实窗口大于 256k，设 `trust_configured_context_window: true` 可让门控也按配置值工作。
 
 注意：未配置 `context_window` 时不走钳制，仍按 `max(max_tokens×4, 256k)` 推导。若确认所用模型真实窗口大于 256k，才设 true。
 

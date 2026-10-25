@@ -536,6 +536,49 @@ The `restrict_to_workspace` setting applies consistently across all execution pa
 
 All paths share the same workspace restriction — there's no way to bypass the security boundary through subagents or scheduled tasks.
 
+### Tool Approval Gate (hooks.builtins.approval)
+
+The approval builtin asks the user before a tool call matching an ask pattern runs
+(fail-closed on timeout), rendered as an interactive card on channels that support
+it. **Enabled by default since 2026-10** with six built-in ask patterns (`git push`,
+`git reset --hard`, `git clean`, brew/pip/npm uninstall). To disable, set an explicit
+`"enabled": false` entry — explicit entries always win over the built-in default.
+
+```json
+{
+  "hooks": {
+    "enabled": true,
+    "builtins": {
+      "approval": {
+        "enabled": true,
+        "config": { "ask_patterns": ["git push", "tool:write_file"], "timeout_ms": 300000 }
+      }
+    }
+  }
+}
+```
+
+| Field | Default | Notes |
+|---|---|---|
+| `ask_patterns` | built-in six (see above); explicit `[]` = behaves exactly like disabled | `tool:` prefix matches the tool name, everything else matches the exec command string |
+| `hard_deny_patterns` | `[]` | matched calls are rejected outright (never askable) |
+| `inherit_exec_deny_patterns` | `false` | single-list recipe: reuse `tools.exec.custom_deny_patterns` as the ask set |
+| `timeout_ms` | `300000` | timeout is denied fail-closed |
+
+Answers (`/approve`, `/deny`, aliases and Chinese 同意/批准/拒绝; `/approve always`
+promotes the matched rule for the session, `/approve all` switches the session to
+auto-approve everything) are routed before steering and never enter the model
+context. Late answers after the wait ended are consumed with an "nothing pending"
+receipt. See docs/guides/configuration.zh.md for the full reference.
+
+### MCP Progressive Tool Loading (tools.mcp.deferred_tool_threshold)
+
+Large MCP catalogs (dozens of tools) can cost 10k-30k tokens of context. When the
+MCP tool count exceeds the threshold (default 20; `0` = default, negative = off),
+unloaded tools enter the LLM as one-line deferred references plus a `tool_search`
+meta-tool that loads them on demand (session-sticky, cleared by `/new`). Direct
+calls to an unloaded tool auto-load it and answer with its schema for a retry.
+
 ### Heartbeat (Periodic Tasks)
 
 PicoClaw can perform periodic tasks automatically. Create a `HEARTBEAT.md` file in your workspace:

@@ -466,3 +466,82 @@ func TestTryHandleAskReply_RetiredWaiterFlowsOn(t *testing.T) {
 	default:
 	}
 }
+
+// TestCollectAskReply_SingleQuestionKeepsMultiline (review P2): a single
+// free-text question keeps its full multi-line answer — the old line-count
+// mapping kept only the first line while still acknowledging "已收到回答".
+func TestCollectAskReply_SingleQuestionKeepsMultiline(t *testing.T) {
+	questions := []bus.AskQuestion{{Question: "Describe the failure"}}
+	reply := collectAskReply(questions, "first line\nsecond line\nthird line")
+	if len(reply.answers) != 1 {
+		t.Fatalf("expected 1 answer, got %d", len(reply.answers))
+	}
+	if !strings.Contains(reply.answers[0], "first line") ||
+		!strings.Contains(reply.answers[0], "second line") ||
+		!strings.Contains(reply.answers[0], "third line") {
+		t.Fatalf("multi-line answer must be kept whole, got %q", reply.answers[0])
+	}
+}
+
+// TestCollectAskReply_ExtraLinesFoldIntoLastQuestion (review P2): with more
+// lines than questions, the tail used to be dropped silently — it now folds
+// into the last answer.
+func TestCollectAskReply_ExtraLinesFoldIntoLastQuestion(t *testing.T) {
+	questions := []bus.AskQuestion{
+		{Question: "Language?"},
+		{Question: "Reason?"},
+	}
+	reply := collectAskReply(questions, "Go\nbecause fast\nand simple")
+	if reply.answers[0] != "Go" {
+		t.Fatalf("first answer = %q", reply.answers[0])
+	}
+	if !strings.Contains(reply.answers[1], "because fast") || !strings.Contains(reply.answers[1], "and simple") {
+		t.Fatalf("tail must fold into the last answer, got %q", reply.answers[1])
+	}
+}
+
+// TestAskReply_GroupSenderPinning (review P1, octop §三-4): in a group chat
+// another member's message must not be consumed as the answer — the asked
+// user's answer (arriving later) then keeps flowing normally instead of
+// being silently discarded into steering.
+func TestAskReply_GroupSenderPinning(t *testing.T) {
+	al, _, cleanup := newTurnCoordTestLoop(t, &summarizeStubProvider{})
+	defer cleanup()
+
+	waiter := &pendingAsk{
+		resolve:   make(chan askReply, 1),
+		channel:   "feishu",
+		chatID:    "c",
+		senderID:  "ou_asked",
+		questions: []bus.AskQuestion{{Question: "Proceed?"}},
+	}
+	al.pendingAsks.Store("sess-pin", waiter)
+
+	other := bus.InboundMessage{Channel: "feishu", ChatID: "c", SenderID: "ou_other", Content: "我觉得都行吧",
+		Context: bus.InboundContext{ChatType: "group"}}
+	if al.tryHandleAskReply(context.Background(), other, "sess-pin") {
+		t.Fatal("another group member's chat must not be consumed as the answer")
+	}
+	select {
+	case <-waiter.resolve:
+		t.Fatal("no reply may be delivered for another member's message")
+	default:
+	}
+
+	asked := bus.InboundMessage{Channel: "feishu", ChatID: "c", SenderID: "ou_asked", Content: "yes please",
+		Context: bus.InboundContext{ChatType: "group"}}
+	if !al.tryHandleAskReply(context.Background(), asked, "sess-pin") {
+		t.Fatal("the asked user's answer must be consumed")
+	}
+
+	// Direct chats stay permissive on sender mismatch (the peer is
+	// unambiguous), and channels without sender identity stay permissive.
+	waiter2 := &pendingAsk{resolve: make(chan askReply, 1), channel: "feishu", chatID: "c2",
+		senderID: "ou_asked", questions: []bus.AskQuestion{{Question: "Proceed?"}}}
+	al.pendingAsks.Store("sess-direct", waiter2)
+	direct := bus.InboundMessage{Channel: "feishu", ChatID: "c2", SenderID: "ou_elsewhere", Content: "yes",
+		Context: bus.InboundContext{ChatType: "direct"}}
+	if !al.tryHandleAskReply(context.Background(), direct, "sess-direct") {
+		t.Fatal("direct chat reply must be consumed regardless of sender pin")
+	}
+}

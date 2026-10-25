@@ -133,7 +133,7 @@ func TestBuildApprovalCardButtons(t *testing.T) {
 	}
 
 	// The sealed card closes the streaming window and has no buttons at all.
-	sealed := buildFeishuApprovalSealedCard(true, "")
+	sealed := buildFeishuApprovalSealedCard(feishuSealApproved, "")
 	if cfg := sealed["config"].(map[string]any); cfg["streaming_mode"] != false {
 		t.Fatalf("sealed card config must carry streaming_mode false, got %v", cfg)
 	}
@@ -274,7 +274,7 @@ func TestHandleCardActionApprovalSealsViaQID(t *testing.T) {
 		ch, mb := newCardActionTestChannel()
 		rec := &sealRecorder{}
 		ch.sealCardFn = rec.fn
-		ch.recordApprovalCard("qid-live", "chat-1", "om_recorded", "card_rec_1")
+		ch.recordApprovalCard("qid-live", "chat-1", "om_recorded", "card_rec_1", 5*time.Minute)
 
 		resp, err := ch.handleCardAction(context.Background(),
 			approvalClickEventNoQIDContext("chat-1", "qid-live", tc.cmd))
@@ -315,7 +315,7 @@ func TestHandleCardActionApprovalSealConsumesQID(t *testing.T) {
 	ch, _ := newCardActionTestChannel()
 	rec := &sealRecorder{}
 	ch.sealCardFn = rec.fn
-	ch.recordApprovalCard("qid-race", "chat-1", "om_recorded", "card_rec_1")
+	ch.recordApprovalCard("qid-race", "chat-1", "om_recorded", "card_rec_1", 5*time.Minute)
 
 	if _, err := ch.handleCardAction(context.Background(),
 		approvalClickEventNoQIDContext("chat-1", "qid-race", feishuApprovalApproveCmd)); err != nil {
@@ -334,7 +334,7 @@ func TestHandleCardActionApprovalSealSkipsInlineCard(t *testing.T) {
 	ch, mb := newCardActionTestChannel()
 	rec := &sealRecorder{}
 	ch.sealCardFn = rec.fn
-	ch.recordApprovalCard("qid-inline", "chat-1", "om_inline", "") // inline fallback: no card_id
+	ch.recordApprovalCard("qid-inline", "chat-1", "om_inline", "", 5*time.Minute) // inline fallback: no card_id
 
 	resp, err := ch.handleCardAction(context.Background(),
 		approvalClickEventNoQIDContext("chat-1", "qid-inline", feishuApprovalApproveCmd))
@@ -351,5 +351,80 @@ func TestHandleCardActionApprovalSealSkipsInlineCard(t *testing.T) {
 	case <-mb.InboundChan():
 	case <-time.After(2 * time.Second):
 		t.Fatal("no inbound message published")
+	}
+}
+
+// TestHandleCardActionApprovalExpiredClick (review P1): a click after the
+// agent-side approval wait expired must NOT synthesize /approve (the pump
+// would only answer with an orphan receipt) and must seal the card as
+// ended — never as approved.
+func TestHandleCardActionApprovalExpiredClick(t *testing.T) {
+	ch, mb := newCardActionTestChannel()
+	rec := &sealRecorder{}
+	ch.sealCardFn = rec.fn
+	// Deadline in the past: approval timed out long ago.
+	ch.recordApprovalCard("qid-exp", "chat-1", "om_expired", "card_exp", time.Millisecond)
+	if ref := ch.approvalCardRef("qid-exp"); ref != nil {
+		ref.deadline = time.Now().Add(-time.Minute)
+	} else {
+		t.Fatal("ref must be recorded")
+	}
+
+	resp, err := ch.handleCardAction(context.Background(),
+		approvalClickEventNoQIDContext("chat-1", "qid-exp", feishuApprovalApproveCmd))
+	if err != nil {
+		t.Fatalf("handleCardAction: %v", err)
+	}
+	if resp == nil || resp.Toast == nil || resp.Toast.Type == "success" {
+		t.Fatalf("expired click must not claim success, got %+v", resp)
+	}
+	// No inbound protocol word may be synthesized.
+	select {
+	case msg := <-mb.InboundChan():
+		t.Fatalf("expired click must not synthesize an approval reply, got %+v", msg)
+	case <-time.After(300 * time.Millisecond):
+	}
+	// The card seals as ENDED, not approved.
+	waitForSeal(t, rec, 1)
+	if rec.count() != 1 {
+		t.Fatalf("expected exactly one seal call, got %d", rec.count())
+	}
+	call := rec.calls[0]
+	if strings.Contains(call.card, "已批准") {
+		t.Fatalf("expired card must not seal as approved, got: %.200s", call.card)
+	}
+	if !strings.Contains(call.card, "审批已结束") {
+		t.Fatalf("expired card must seal as ended, got: %.200s", call.card)
+	}
+}
+
+// TestHandleCardActionApprovalFreshClickStillSynthesizes pins the complement:
+// within the deadline the click behaves exactly as before (synth + approved
+// seal).
+func TestHandleCardActionApprovalFreshClickStillSynthesizes(t *testing.T) {
+	ch, mb := newCardActionTestChannel()
+	rec := &sealRecorder{}
+	ch.sealCardFn = rec.fn
+	ch.recordApprovalCard("qid-fresh", "chat-1", "om_fresh", "card_fresh", 5*time.Minute)
+
+	resp, err := ch.handleCardAction(context.Background(),
+		approvalClickEventNoQIDContext("chat-1", "qid-fresh", feishuApprovalApproveCmd))
+	if err != nil {
+		t.Fatalf("handleCardAction: %v", err)
+	}
+	if resp == nil || resp.Toast == nil || resp.Toast.Type != "success" {
+		t.Fatalf("fresh click must succeed, got %+v", resp)
+	}
+	select {
+	case msg := <-mb.InboundChan():
+		if msg.Content != "/approve" {
+			t.Fatalf("fresh click must synthesize /approve, got %q", msg.Content)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no inbound message published")
+	}
+	waitForSeal(t, rec, 1)
+	if !strings.Contains(rec.calls[0].card, "已批准") {
+		t.Fatalf("fresh click must seal as approved, got: %.200s", rec.calls[0].card)
 	}
 }

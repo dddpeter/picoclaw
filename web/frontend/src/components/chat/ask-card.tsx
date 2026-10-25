@@ -37,6 +37,11 @@ export function AskCard({
 	const pending = seal === undefined
 	const actionable = pending && latest
 	const multiQ = info.questions.length > 1
+	// 单题多选也走草稿（review P2）："单题点击即发"让 multi_select 永远
+	// 只能选得一项——每次点击都立刻提交。草稿流下选项先入草稿，统一
+	// 提交。单题单选保持点击即发的轻交互。
+	const useDraftFlow =
+		multiQ || Boolean(info.questions[0]?.multiSelect && info.questions[0]?.options?.length)
 
 	// 一题已答 = 选项题有选中，或自由文本题有非空内联输入。
 	const questionAnswered = (qi: number, hasOptions: boolean): boolean => {
@@ -46,7 +51,7 @@ export function AskCard({
 	const answeredCount = info.questions.filter((q, qi) =>
 		questionAnswered(qi, Boolean(q.options && q.options.length > 0)),
 	).length
-	const allAnswered = multiQ && answeredCount === info.questions.length
+	const allAnswered = useDraftFlow && answeredCount === info.questions.length
 
 	// 提交恢复路径：回执丢失（断线窗口）时 30s 后恢复可点，用户重试会得到
 	// 孤儿回执封存（与审批卡同语义）。
@@ -78,9 +83,10 @@ export function AskCard({
 		})
 	}
 
-	// 多题：选项只入草稿（修复 v1.5"点一题即发、后题封死"）；单题：即发。
+	// 多题/单题多选：选项只入草稿（修复 v1.5"点一题即发、后题封死"与
+	// v1.6 的单题多选同病）；单题单选：即发。
 	const onOptionClick = (qi: number, label: string, multi: boolean | undefined) => {
-		if (multiQ) {
+		if (useDraftFlow) {
 			toggle(qi, label, multi)
 			return
 		}
@@ -122,7 +128,7 @@ export function AskCard({
 				<span className={cn("text-[13px] font-semibold", pending ? "text-foreground" : "text-muted-foreground")}>
 					{t("chat.askTitle")}
 				</span>
-				{multiQ && (
+				{useDraftFlow && (
 					<span className="bg-secondary text-secondary-foreground ml-auto rounded px-1.5 py-px font-mono text-[10px]">
 						{info.questions.length} Q
 					</span>
@@ -169,7 +175,7 @@ export function AskCard({
 										)
 									})}
 								</div>
-								) : multiQ ? (
+								) : useDraftFlow ? (
 									<div className="mt-1.5">
 										<input
 											type="text"
@@ -222,7 +228,7 @@ export function AskCard({
 					>
 						{t("chat.askSkip")}
 					</button>
-					{multiQ ? (
+					{useDraftFlow ? (
 						<span className="text-muted-foreground/70 text-[11px]">
 							{t("chat.askDraftHint", { answered: answeredCount, total: info.questions.length })}
 						</span>

@@ -74,8 +74,11 @@ export type ApprovalReceiptVerdict = ApprovalSeal["verdict"]
  * pending 卡封存为 done（双端在线另一端已答复、或迟到点击）。 */
 export function matchApprovalReceipt(content: string): ApprovalReceiptVerdict | undefined {
   const trimmed = content.trim()
+  // allow_all（/approve all）与 always（规则提升）语义不同：前者让本会话
+  // 所有审批自动放行。合并成 "always" 会把全局放行伪装成单规则放行，
+  // 用户看不出已开全局（review P2）。
   if (trimmed.startsWith("✅ 已批准；本会话内所有审批将自动放行")) {
-    return "always"
+    return "allow_all"
   }
   if (trimmed.startsWith("✅ 已批准；本会话内命中规则")) {
     return "always"

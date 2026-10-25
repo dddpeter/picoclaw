@@ -53,7 +53,7 @@ export interface ApprovalInfo {
 
 /** 审批卡的封存结论：回执配对 / 超时 / 历史遗留（无法回溯）。 */
 export interface ApprovalSeal {
-  verdict: "approved" | "always" | "denied" | "timeout" | "done"
+  verdict: "approved" | "always" | "allow_all" | "denied" | "timeout" | "done"
   /** 结论时刻（ms epoch）；历史遗留配对无时间时为 0。 */
   at: number
 }
