@@ -23,6 +23,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/constants"
 	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
 	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/sipeed/picoclaw/pkg/mcp"
 	"github.com/sipeed/picoclaw/pkg/media"
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/routing"
@@ -505,6 +506,7 @@ func (al *AgentLoop) ReloadProviderAndConfig(
 	al.mu.Lock()
 	oldRegistry := al.registry
 	oldEvolution := al.evolution
+	oldMCPCfg := al.cfg.Tools.MCP
 
 	// Store new values
 	al.cfg = cfg
@@ -526,7 +528,17 @@ func (al *AgentLoop) ReloadProviderAndConfig(
 	al.mu.Unlock()
 	al.refreshRuntimeEventLogger(cfg)
 
-	oldMCPManager := al.mcp.reset()
+	// Hot-reload fast path (fork): when the MCP section is unchanged, keep
+	// the existing manager instead of tearing every server connection down —
+	// a model-only config touch used to pay a full MCP re-spawn (minutes of
+	// stdio handshake) before the new model actually took effect.
+	mcpChanged := mcpConfigChanged(oldMCPCfg, cfg.Tools.MCP)
+	var oldMCPManager *mcp.Manager
+	if mcpChanged {
+		oldMCPManager = al.mcp.reset()
+	} else {
+		logger.InfoCF("agent", "MCP config unchanged; keeping existing MCP connections across reload", nil)
+	}
 	prevHooks := al.lastGoodHooks
 	al.hookRuntime.reset(al)
 	configureHookManagerFromConfig(al.hooks, cfg)
@@ -553,10 +565,12 @@ func (al *AgentLoop) ReloadProviderAndConfig(
 		logger.ErrorCF("agent", "Configured hooks failed to initialize on reload and no previous good hook config exists; approval hooks are INACTIVE (fail-open)",
 			map[string]any{"error": initErr.Error()})
 	}
-	if oldMCPManager != nil {
-		if err := oldMCPManager.Close(); err != nil {
-			logger.WarnCF("agent", "Failed to close previous MCP manager during reload",
-				map[string]any{"error": err.Error()})
+	if mcpChanged {
+		if oldMCPManager != nil {
+			if err := oldMCPManager.Close(); err != nil {
+				logger.WarnCF("agent", "Failed to close previous MCP manager during reload",
+					map[string]any{"error": err.Error()})
+			}
 		}
 	}
 	if oldEvolution != nil {
@@ -565,9 +579,11 @@ func (al *AgentLoop) ReloadProviderAndConfig(
 				map[string]any{"error": err.Error()})
 		}
 	}
-	if err := al.ensureMCPInitialized(ctx); err != nil {
-		logger.WarnCF("agent", "MCP failed to reinitialize after reload",
-			map[string]any{"error": err.Error()})
+	if mcpChanged {
+		if err := al.ensureMCPInitialized(ctx); err != nil {
+			logger.WarnCF("agent", "MCP failed to reinitialize after reload",
+				map[string]any{"error": err.Error()})
+		}
 	}
 
 	// Close old provider after releasing the lock

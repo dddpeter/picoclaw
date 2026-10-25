@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 
 	"github.com/sipeed/picoclaw/pkg/agentplugins"
@@ -42,6 +43,17 @@ func (r *mcpRuntime) reset() *mcp.Manager {
 	r.mu.Unlock()
 	r.doMu.Unlock()
 	return manager
+}
+
+// mcpConfigChanged reports whether the MCP section differs enough to require
+// a manager teardown + rebuild on hot reload. nil and empty Servers are
+// treated as equal (both mean "no servers"); any other field or entry change
+// (spawn command, env, thresholds) forces a rebuild.
+func mcpConfigChanged(oldCfg, newCfg config.MCPConfig) bool {
+	if len(oldCfg.Servers) == 0 && len(newCfg.Servers) == 0 {
+		return false
+	}
+	return !reflect.DeepEqual(oldCfg, newCfg)
 }
 
 func (r *mcpRuntime) setManager(manager *mcp.Manager) {

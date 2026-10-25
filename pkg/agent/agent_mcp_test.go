@@ -49,6 +49,22 @@ func TestReloadProviderAndConfig_ResetsMCPRuntime(t *testing.T) {
 	defer cleanup()
 	defer al.Close()
 
+	// fork: reload only tears the MCP runtime down when the MCP section
+	// actually changed — give the reloaded config a server while the running
+	// config starts MCP-less, so the changed path is exercised. cfg IS
+	// al.cfg (same pointer), so the running side gets a detached MCP-less
+	// copy first.
+	cfg.Tools.MCP = config.MCPConfig{
+		Servers: map[string]config.MCPServerConfig{
+			"probe": {Enabled: true, Command: "echo", Args: []string{"ok"}},
+		},
+	}
+	runningOld := *cfg
+	runningOld.Tools.MCP = config.MCPConfig{}
+	al.mu.Lock()
+	al.cfg = &runningOld
+	al.mu.Unlock()
+
 	manager := mcp.NewManager()
 	al.mcp.setManager(manager)
 	al.mcp.setInitErr(errors.New("stale init error"))
@@ -73,6 +89,35 @@ func TestReloadProviderAndConfig_ResetsMCPRuntime(t *testing.T) {
 	al.mcp.initOnce.Do(func() { reran = true })
 	if !reran {
 		t.Fatal("expected MCP initOnce to be reset after reload")
+	}
+}
+
+// TestReloadProviderAndConfig_KeepsMCPRuntimeWhenUnchanged pins the fork
+// hot-reload fast path: a reload whose MCP section is byte-identical must NOT
+// tear the existing manager down (a model-only touch keeps MCP connections).
+func TestReloadProviderAndConfig_KeepsMCPRuntimeWhenUnchanged(t *testing.T) {
+	al, cfg, _, _, cleanup := newTestAgentLoop(t)
+	defer cleanup()
+	defer al.Close()
+
+	// cfg is also what al was built with — reload with it verbatim so the
+	// MCP section is unchanged.
+	manager := mcp.NewManager()
+	al.mcp.setManager(manager)
+
+	if !al.mcp.hasManager() {
+		t.Fatal("expected MCP manager to exist before reload")
+	}
+
+	if err := al.ReloadProviderAndConfig(context.Background(), &mockProvider{}, cfg); err != nil {
+		t.Fatalf("ReloadProviderAndConfig() error = %v", err)
+	}
+
+	if !al.mcp.hasManager() {
+		t.Fatal("expected MCP manager to survive an MCP-unchanged reload")
+	}
+	if got := al.mcp.takeManager(); got != manager {
+		t.Fatal("expected the SAME manager instance to be kept across reload")
 	}
 }
 
