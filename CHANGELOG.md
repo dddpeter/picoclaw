@@ -5,6 +5,23 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.5.2] - 2026-10-31
+
+### Added
+
+- **ask_user 问询卡步进化（对齐 Octop 交互，设计文档 `docs/design/2026-10-31-ask-user-octop-redesign.zh.md` 评审修订版）**：堆叠式改步进式——一次一题 + `n / total` 进度徽标，单选选完自动前进（点"其他…"与多选等手动确认），末题进回顾模式逐题确认、可点回任一题修改；全宽选项行（字母 chip + 选项描述次行直接可见）+ 有选项题自动追加"其他…"展开自由文本（`TextareaAutosize` 1–4 行自动增高）；"你决定"改发语义化委托消息（不再发字面 `/skip`，IM 通道 `/skip` 不受影响）；完成态改 `<details>` 摘要条（可展开各题答案，刷新/IM 端作答后无本地数据时降级只显示问题）；保留 `latest` 防错位、提交 30s 恢复、seal 三态机制
+- **安装向导多语言**：Inno Setup `ShowLanguageDialog=no` 随 Windows UI 语言自动选择（简中/英语），三处硬编码中文迁移至 `[CustomMessages]` 双语，未匹配语言兜底英语，`/LANG=` 仍可强制指定
+
+### Fixed
+
+- 多题卡提交协议防错位（评审 P1）：后端 `collectAskReply` 按行切分（行 i = 题 i、超出行折叠末题），前端提交前把每题答案内嵌换行压平为"；"，中间题多行"其他"文本不再导致后续答案错位；单题卡保留多行原文
+- 选项行选中态 hover 边框变淡（Tailwind `enabled:hover:` 变体特异度高于选中态类）；补 `aria-pressed` 选中态语义
+
+### Changed
+
+- 状态机纯逻辑抽离 `web/frontend/src/features/chat/ask-flow.ts`（`answerText` 单一真相源——只点"其他"未填文本视为未答；`autoAdvance` 自动跳题规则）+ 22 例 vitest 单测
+- i18n：zh/en 新增 11 个 ask key（你决定/下一步/回顾/完成态摘要等），5 个 locale 同步删除 7 个死键（IM 回执为 Go 硬编码不引用前端 i18n）
+
 ## [0.5.1] - 2026-10-31
 
 全仓模块梳理与加固：8 个并行评审代理逐模块分析 + 20 项 P0/P1 断言亲自复核（实施报告 `docs/design/2026-10-31-module-review.zh.md`），二轮独立评审交叉核实并当场修复（报告 v2 `docs/design/2026-10-31-code-review-report.zh.md` 含全部机理与测试映射）。四批次 + 修复轮共 16 提交，净删约 4000 行，新增 14 个回归测试。功能地图详见 fork-overview §26。
