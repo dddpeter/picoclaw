@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { type SessionSummary, deleteSession, getSessions } from "@/api/sessions"
@@ -15,7 +15,6 @@ export function useSessionHistory({
   onDeletedActiveSession,
 }: UseSessionHistoryOptions) {
   const { t } = useTranslation()
-  const observerRef = useRef<HTMLDivElement>(null)
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [offset, setOffset] = useState(0)
   const [hasMore, setHasMore] = useState(true)
@@ -83,28 +82,6 @@ export function useSessionHistory({
     }
   }, [])
 
-  useEffect(() => {
-    if (!observerRef.current || !hasMore || isLoadingMore || loadError) return
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (
-          entries[0].isIntersecting &&
-          hasMore &&
-          !isLoadingMore &&
-          !loadError
-        ) {
-          setIsLoadingMore(true)
-          void loadSessions(false)
-        }
-      },
-      { threshold: 0.1 },
-    )
-
-    observer.observe(observerRef.current)
-    return () => observer.disconnect()
-  }, [hasMore, isLoadingMore, loadError, loadSessions])
-
   const handleDeleteSession = useCallback(
     async (id: string, channel?: string) => {
       try {
@@ -126,14 +103,23 @@ export function useSessionHistory({
     [activeSessionId, onDeletedActiveSession, sessions],
   )
 
+  // M-3: the IntersectionObserver moved into SessionHistorySidebar — the
+  // shared external ref broke when the sidebar rendered twice (desktop inline
+  // + mobile drawer): the effect bound whichever sentinel was mounted first
+  // and never rebound for the other instance.
+  const loadMore = useCallback(() => {
+    void loadSessions(false)
+  }, [loadSessions])
+
   return {
     sessions,
     hasMore,
     isLoading,
+    isLoadingMore,
     loadError,
     loadErrorMessage: t("chat.historyLoadFailed"),
-    observerRef,
     loadSessions,
+    loadMore,
     refreshSessions,
     handleDeleteSession,
   }

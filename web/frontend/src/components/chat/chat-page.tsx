@@ -175,10 +175,11 @@ export function ChatPage() {
     sessions,
     hasMore,
     isLoading,
+    isLoadingMore,
     loadError,
     loadErrorMessage,
-    observerRef,
     loadSessions,
+    loadMore,
     refreshSessions,
     handleDeleteSession,
   } = useSessionHistory({
@@ -336,31 +337,32 @@ export function ChatPage() {
     }
   }
 
-const sessionSidebar = (
-  <SessionHistorySidebar
-          sessions={sessions}
-          activeSessionId={activeSessionId}
-          activeSessionBusy={isTyping}
-          hasMore={hasMore}
-          isLoading={isLoading}
-          loadError={loadError}
-          loadErrorMessage={loadErrorMessage}
-          observerRef={observerRef}
-          onSwitchSession={switchSession}
-          onDeleteSession={handleDeleteSession}
-          onRenameSession={async (sessionId, title) => {
-            try {
-              await renameSession(sessionId, title)
-              void loadSessions(true)
-            } catch (err) {
-              console.error("rename session failed", err)
-            }
-          }}
-          onRefresh={() => void loadSessions(true)}
-          onAutoRefresh={() => void refreshSessions()}
-        />
+  const sessionSidebar = (
+    <SessionHistorySidebar
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            activeSessionBusy={isTyping}
+            hasMore={hasMore}
+            isLoading={isLoading}
+            isLoadingMore={isLoadingMore}
+            loadError={loadError}
+            loadErrorMessage={loadErrorMessage}
+            onLoadMore={loadMore}
+            onSwitchSession={switchSession}
+            onDeleteSession={handleDeleteSession}
+            onRenameSession={async (sessionId, title) => {
+              try {
+                await renameSession(sessionId, title)
+                void loadSessions(true)
+              } catch (err) {
+                console.error("rename session failed", err)
+              }
+            }}
+            onRefresh={() => void loadSessions(true)}
+            onAutoRefresh={() => void refreshSessions()}
+          />
   )
-
+  
   return (
     <PromptTemplatesProvider
       onFill={handleTemplateFill}
@@ -368,7 +370,10 @@ const sessionSidebar = (
       canSend={canInput}
     >
     <div className="bg-background/95 flex h-full">
-{sessionSidebar}
+      {/* M-3: desktop keeps the inline sidebar; on mobile only the drawer is
+          available (the trigger button below is md:hidden). Previously the
+          inline sidebar rendered at every viewport and crowded out the chat. */}
+      <div className="hidden h-full md:flex">{sessionSidebar}</div>
 
       <Sheet open={sessionsSheetOpen} onOpenChange={setSessionsSheetOpen}>
         <SheetContent side="left" className="w-80 p-0">

@@ -1,6 +1,6 @@
 import { IconHistory, IconLoader2, IconPencil, IconTrash } from "@tabler/icons-react"
 import dayjs from "dayjs"
-import { useEffect, useRef, useState, type RefObject } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import type { SessionSummary } from "@/api/sessions"
@@ -14,9 +14,10 @@ interface SessionHistorySidebarProps {
   activeSessionBusy: boolean
   hasMore: boolean
   isLoading: boolean
+  isLoadingMore: boolean
   loadError: boolean
   loadErrorMessage: string
-  observerRef: RefObject<HTMLDivElement | null>
+  onLoadMore: () => void
   onSwitchSession: (sessionId: string, channel?: string) => void
   onDeleteSession: (sessionId: string, channel?: string) => void
   onRenameSession: (sessionId: string, title: string) => Promise<void>
@@ -30,9 +31,10 @@ export function SessionHistorySidebar({
   activeSessionBusy,
   hasMore,
   isLoading,
+  isLoadingMore,
   loadError,
   loadErrorMessage,
-  observerRef,
+  onLoadMore,
   onSwitchSession,
   onDeleteSession,
   onRenameSession,
@@ -45,6 +47,7 @@ export function SessionHistorySidebar({
   const loadedRef = useRef(false)
   const onRefreshRef = useRef(onRefresh)
   const onAutoRefreshRef = useRef(onAutoRefresh)
+  const sentinelRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
     onRefreshRef.current = onRefresh
     onAutoRefreshRef.current = onAutoRefresh
@@ -78,6 +81,25 @@ export function SessionHistorySidebar({
       document.removeEventListener("visibilitychange", refreshIfVisible)
     }
   }, [anyBusy])
+
+  // Infinite-scroll trigger. Owned per-instance (M-3): when this sidebar is
+  // rendered twice (desktop inline + mobile drawer), each copy observes its
+  // own sentinel instead of sharing one ref whose binding went stale.
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el || !hasMore || isLoadingMore || loadError) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !isLoadingMore && !loadError) {
+          onLoadMore()
+        }
+      },
+      { threshold: 0.1 },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [hasMore, isLoadingMore, loadError, onLoadMore])
 
   return (
     <aside className="border-border/60 bg-gradient-to-b from-amber-500/[0.09] via-transparent to-teal-500/[0.05] flex w-80 shrink-0 flex-col border-r dark:from-amber-400/[0.10] dark:via-transparent dark:to-teal-400/[0.05]">
@@ -246,7 +268,7 @@ export function SessionHistorySidebar({
 
           {hasMore && sessions.length > 0 && (
             <div
-              ref={observerRef}
+              ref={sentinelRef}
               className="text-muted-foreground flex items-center justify-center gap-2 py-2 text-xs"
             >
               <IconLoader2 className="size-3.5 animate-spin" />
