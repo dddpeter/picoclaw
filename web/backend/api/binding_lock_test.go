@@ -1,8 +1,8 @@
 package api
 
 import (
-	_exec "os/exec"
 	"os"
+	_exec "os/exec"
 	"path/filepath"
 	"testing"
 	"time"

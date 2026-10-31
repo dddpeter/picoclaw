@@ -93,7 +93,6 @@ func execAllowRemoteOmitted(body []byte) bool {
 	return raw.Tools == nil || raw.Tools.Exec == nil || raw.Tools.Exec.AllowRemote == nil
 }
 
-
 // handleUpdateConfig updates the complete system configuration.
 //
 //	PUT /api/config

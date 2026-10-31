@@ -1,7 +1,6 @@
 package telegram
 
 import (
-	"unicode/utf8"
 	"context"
 	"crypto/rand"
 	"encoding/binary"
@@ -17,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mymmrac/telego"
 	th "github.com/mymmrac/telego/telegohandler"
@@ -52,13 +52,13 @@ const (
 
 type TelegramChannel struct {
 	*channels.BaseChannel
-	bot       *telego.Bot
-	bh        *th.BotHandler
-	bc        *config.Channel
-	ctx       context.Context
-	cancel    context.CancelFunc
-	tgCfg     *config.TelegramSettings
-	progress  *channels.ToolFeedbackAnimator
+	bot      *telego.Bot
+	bh       *th.BotHandler
+	bc       *config.Channel
+	ctx      context.Context
+	cancel   context.CancelFunc
+	tgCfg    *config.TelegramSettings
+	progress *channels.ToolFeedbackAnimator
 
 	registerFunc      func(context.Context, []commands.Definition) error
 	commandRegDelayFn func(int) time.Duration

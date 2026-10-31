@@ -52,10 +52,10 @@ type SubagentTask struct {
 //     SubTurn mechanism and does not register tasks here yet — see
 //     spawn_status.go for the resulting capability gap.
 type SubagentManager struct {
-	tasks          map[string]*SubagentTask
-	nextID         int
-	mu             sync.RWMutex
-	defaultModel   string
+	tasks        map[string]*SubagentTask
+	nextID       int
+	mu           sync.RWMutex
+	defaultModel string
 	maxTokens    int
 	hasMaxTokens bool
 }

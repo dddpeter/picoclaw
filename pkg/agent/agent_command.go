@@ -4,10 +4,8 @@ package agent
 
 import (
 	"context"
-
 	"encoding/json"
 	"fmt"
-	"github.com/sipeed/picoclaw/pkg/evolution"
 	"os"
 	"sort"
 	"strings"
@@ -17,6 +15,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/commands"
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/cron"
+	"github.com/sipeed/picoclaw/pkg/evolution"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/tools"

@@ -9,7 +9,7 @@ const (
 	RecordKindPattern    RecordKind = "pattern"
 	legacyRecordKindCase RecordKind = "case"
 	legacyRecordKindRule RecordKind = "rule"
-		)
+)
 
 type RecordStatus string
 
