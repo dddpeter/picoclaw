@@ -703,8 +703,8 @@ func (h *Handler) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		mc.ModelConfig.SetAPIKey(mc.APIKey)
 	}
 
-	h.configMu.Lock()
-	defer h.configMu.Unlock()
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
 
 	cfg, err := config.LoadConfig(h.configPath)
 	if err != nil {
@@ -770,8 +770,8 @@ func (h *Handler) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.configMu.Lock()
-	defer h.configMu.Unlock()
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
 
 	cfg, err := config.LoadConfig(h.configPath)
 	if err != nil {
@@ -914,8 +914,8 @@ func (h *Handler) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.configMu.Lock()
-	defer h.configMu.Unlock()
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
 
 	cfg, err := config.LoadConfig(h.configPath)
 	if err != nil {
@@ -1025,8 +1025,8 @@ func (h *Handler) handleSetDefaultModel(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	h.configMu.Lock()
-	defer h.configMu.Unlock()
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
 
 	cfg, err := config.LoadConfig(h.configPath)
 	if err != nil {
@@ -1084,8 +1084,8 @@ func (h *Handler) handleUpdateDefaultChain(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	h.configMu.Lock()
-	defer h.configMu.Unlock()
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
 
 	cfg, err := config.LoadConfig(h.configPath)
 	if err != nil {

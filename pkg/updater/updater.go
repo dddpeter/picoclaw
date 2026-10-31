@@ -219,8 +219,16 @@ func findAssetInfo(releaseURL, platform, arch string) (string, string, error) {
 
 	apiURL := buildReleaseAPIURL(releaseURL)
 	if apiURL == "" {
-		// If caller provided an empty releaseURL, default to the
-		// production latest release API URL (stable release).
+		// Only an EMPTY releaseURL defaults to the production latest release.
+		// A non-empty URL we cannot translate into a GitHub API URL must fail
+		// loudly: silently falling back would fetch the UPSTREAM project's
+		// latest release and flash a foreign binary (2026-10-31 review B4).
+		if strings.TrimSpace(releaseURL) != "" {
+			return "", "", fmt.Errorf(
+				"unsupported release URL %q: only github.com release URLs and api.github.com API URLs are supported",
+				releaseURL,
+			)
+		}
 		apiURL = GetProdReleaseAPIURL()
 	}
 

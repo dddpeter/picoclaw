@@ -22,7 +22,6 @@ type Handler struct {
 	debug                      bool
 	// Serializes model-related config writes. Other config endpoints still
 	// coordinate their own load-modify-save cycles.
-	configMu    sync.Mutex
 	oauthMu     sync.Mutex
 	oauthFlows  map[string]*oauthFlow
 	oauthState  map[string]string

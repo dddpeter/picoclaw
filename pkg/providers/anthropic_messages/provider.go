@@ -126,30 +126,19 @@ func (p *Provider) Chat(
 	}
 	defer resp.Body.Close()
 
+	// Route every non-200 through the shared error channel: it caps the body
+	// read at 256 bytes, detects HTML error pages, and carries Retry-After +
+	// the body preview so ClassifyError can apply quota→Billing promotion and
+	// Chinese retry-hint parsing (2026-10-31 review B3 — the hand-rolled
+	// string errors dropped all of that).
+	if resp.StatusCode != http.StatusOK {
+		return nil, common.HandleErrorResponse(resp, p.apiBase)
+	}
+
 	// Read response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("reading response body: %w", err)
-	}
-
-	// Check for HTTP errors with detailed messages
-	switch resp.StatusCode {
-	case http.StatusUnauthorized:
-		return nil, fmt.Errorf("authentication failed (401): check your API key")
-	case http.StatusTooManyRequests:
-		return nil, fmt.Errorf("rate limited (429): %s", string(body))
-	case http.StatusBadRequest:
-		return nil, fmt.Errorf("bad request (400): %s", string(body))
-	case http.StatusNotFound:
-		return nil, fmt.Errorf("endpoint not found (404): %s", string(body))
-	case http.StatusInternalServerError:
-		return nil, fmt.Errorf("internal server error (500): %s", string(body))
-	case http.StatusServiceUnavailable:
-		return nil, fmt.Errorf("service unavailable (503): %s", string(body))
-	default:
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-		}
 	}
 
 	// Parse response

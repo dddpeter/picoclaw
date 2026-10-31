@@ -211,6 +211,11 @@ func (h *Handler) handlePollWecomFlow(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) saveWecomBinding(botID, secret string) error {
+	// Serialize the whole load-modify-save against other config writers
+	// (2026-10-31 review B5: this writer previously bypassed configWriteMu).
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
+
 	cfg, err := config.LoadConfig(h.configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)

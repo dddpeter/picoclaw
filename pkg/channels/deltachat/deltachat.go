@@ -240,6 +240,7 @@ func (c *DeltaChatChannel) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	rpc.onRestart = c.ensureAccount
 	c.rpc = rpc
 
 	if err := c.waitReady(c.ctx); err != nil {

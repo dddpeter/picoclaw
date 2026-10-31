@@ -1102,6 +1102,10 @@ type MQTTSettings struct {
 	ClientID    string       `json:"client_id,omitempty"    yaml:"-"                  env:"PICOCLAW_CHANNELS_MQTT_CLIENT_ID"`
 	KeepAlive   int          `json:"keep_alive,omitempty"   yaml:"-"                  env:"PICOCLAW_CHANNELS_MQTT_KEEP_ALIVE"`
 	QoS         int          `json:"qos,omitempty"          yaml:"-"                  env:"PICOCLAW_CHANNELS_MQTT_QOS"`
+	// TLSSkipVerify keeps the historical insecure default (nil = skip cert
+	// verification) so existing self-signed deployments keep working; set it
+	// to false to enable certificate verification (2026-10-31 review B7).
+	TLSSkipVerify *bool `json:"tls_skip_verify,omitempty" yaml:"-" env:"PICOCLAW_CHANNELS_MQTT_TLS_SKIP_VERIFY"`
 }
 
 // SlackWebhookSettings configures the output-only Slack webhook channel.

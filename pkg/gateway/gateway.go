@@ -247,6 +247,25 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 	runningServices.HealthServer.SetReloadFunc(reloadTrigger)
 	agentLoop.SetReloadFunc(reloadTrigger)
 	runningServices.HealthServer.SetMCPStatusFunc(agentLoop.MCPStatusSnapshot)
+	// Wire the previously dead RegisterCheck mechanism so /ready reflects a
+	// real liveness signal instead of an always-empty checks map (2026-10-31
+	// review: health 去虚存实).
+	runningServices.HealthServer.RegisterCheck("channels", func() (bool, string) {
+		status := runningServices.ChannelManager.GetStatus()
+		total, running := 0, 0
+		for _, st := range status {
+			total++
+			if info, ok := st.(map[string]any); ok {
+				if isRunning, _ := info["running"].(bool); isRunning {
+					running++
+				}
+			}
+		}
+		if total > 0 && running == 0 {
+			return false, fmt.Sprintf("0/%d channels running", total)
+		}
+		return true, fmt.Sprintf("%d/%d channels running", running, total)
+	})
 
 	for _, bindHost := range listenResult.BindHosts {
 		fmt.Printf("✓ Gateway started on %s\n", net.JoinHostPort(bindHost, strconv.Itoa(cfg.Gateway.Port)))

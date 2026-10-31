@@ -206,6 +206,11 @@ func (h *Handler) handlePollWeixinFlow(w http.ResponseWriter, r *http.Request) {
 // saveWeixinBinding writes the token/account ID, enables the Weixin channel,
 // and best-effort restarts the gateway when it is currently running.
 func (h *Handler) saveWeixinBinding(token, accountID string) error {
+	// Serialize the whole load-modify-save against other config writers
+	// (2026-10-31 review B5: this writer previously bypassed configWriteMu).
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
+
 	cfg, err := config.LoadConfig(h.configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)

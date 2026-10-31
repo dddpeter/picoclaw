@@ -80,7 +80,11 @@ func (c *MQTTChannel) Start(ctx context.Context) error {
 	opts.SetAutoReconnect(true)
 	opts.SetConnectRetry(true)
 	opts.SetConnectRetryInterval(5 * time.Second)
-	opts.SetTLSConfig(&tls.Config{InsecureSkipVerify: true}) //nolint:gosec
+	skipVerify := true // historical default: self-signed brokers stay usable
+	if c.cfg.TLSSkipVerify != nil {
+		skipVerify = *c.cfg.TLSSkipVerify
+	}
+	opts.SetTLSConfig(&tls.Config{InsecureSkipVerify: skipVerify}) //nolint:gosec
 
 	if c.cfg.Username.String() != "" {
 		opts.SetUsername(c.cfg.Username.String())

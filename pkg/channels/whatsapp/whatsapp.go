@@ -57,6 +57,23 @@ func (c *WhatsAppChannel) Start(ctx context.Context) error {
 
 	c.ctx, c.cancel = context.WithCancel(ctx)
 
+	logger.WarnCF("whatsapp", "The external-bridge whatsapp channel is deprecated: it depends on an out-of-tree bridge process, cannot deliver media, and whatsapp_native is the recommended replacement", nil)
+
+	if err := c.dial(); err != nil {
+		c.cancel()
+		return fmt.Errorf("failed to connect to WhatsApp bridge: %w", err)
+	}
+
+	c.SetRunning(true)
+	logger.InfoC("whatsapp", "WhatsApp channel connected")
+
+	go c.listen()
+
+	return nil
+}
+
+// dial establishes the bridge WebSocket connection.
+func (c *WhatsAppChannel) dial() error {
 	dialer := websocket.DefaultDialer
 	dialer.HandshakeTimeout = 10 * time.Second
 
@@ -65,20 +82,13 @@ func (c *WhatsAppChannel) Start(ctx context.Context) error {
 		_ = resp.Body.Close()
 	}
 	if err != nil {
-		c.cancel()
-		return fmt.Errorf("failed to connect to WhatsApp bridge: %w", err)
+		return err
 	}
 
 	c.mu.Lock()
 	c.conn = conn
 	c.connected = true
 	c.mu.Unlock()
-
-	c.SetRunning(true)
-	logger.InfoC("whatsapp", "WhatsApp channel connected")
-
-	go c.listen()
-
 	return nil
 }
 
@@ -148,6 +158,47 @@ func (c *WhatsAppChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]
 	return nil, nil
 }
 
+// reconnect tears down the dead connection and re-dials with exponential
+// backoff. Returns false when the channel is shutting down.
+func (c *WhatsAppChannel) reconnect() bool {
+	backoff := whatsappReconnectBackoffMin
+	for {
+		select {
+		case <-c.ctx.Done():
+			return false
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+		if backoff > whatsappReconnectBackoffMax {
+			backoff = whatsappReconnectBackoffMax
+		}
+
+		// Drop the dead connection first so Send reports a clean state.
+		c.mu.Lock()
+		if c.conn != nil {
+			_ = c.conn.Close()
+			c.conn = nil
+		}
+		c.connected = false
+		c.mu.Unlock()
+
+		if err := c.dial(); err != nil {
+			logger.WarnCF("whatsapp", "WhatsApp reconnect failed", map[string]any{
+				"error":   err.Error(),
+				"backoff": backoff.String(),
+			})
+			continue
+		}
+		logger.InfoC("whatsapp", "WhatsApp bridge reconnected")
+		return true
+	}
+}
+
+const (
+	whatsappReconnectBackoffMin = 2 * time.Second
+	whatsappReconnectBackoffMax = 5 * time.Minute
+)
+
 func (c *WhatsAppChannel) listen() {
 	for {
 		select {
@@ -165,10 +216,15 @@ func (c *WhatsAppChannel) listen() {
 
 			_, message, err := conn.ReadMessage()
 			if err != nil {
-				logger.ErrorCF("whatsapp", "WhatsApp read error", map[string]any{
+				// A dead connection previously stayed dead: the loop kept
+				// reading the same broken conn forever (2026-10-31 review C8).
+				// Re-dial with backoff until the bridge comes back.
+				logger.ErrorCF("whatsapp", "WhatsApp read error, reconnecting", map[string]any{
 					"error": err.Error(),
 				})
-				time.Sleep(2 * time.Second)
+				if !c.reconnect() {
+					return
+				}
 				continue
 			}
 

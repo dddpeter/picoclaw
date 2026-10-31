@@ -739,6 +739,11 @@ func (h *Handler) persistCredentialAndConfig(provider, authMethod string, cred *
 }
 
 func (h *Handler) syncProviderAuthMethod(provider, authMethod string) error {
+	// Serialize the whole load-modify-save against other config writers
+	// (2026-10-31 review B5: this writer previously bypassed configWriteMu).
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
+
 	cfg, err := oauthLoadConfig(h.configPath)
 	if err != nil {
 		return err

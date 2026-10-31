@@ -8,6 +8,7 @@ import (
 	"io"
 	"os/exec"
 	"sync"
+	"time"
 
 	"github.com/sipeed/picoclaw/pkg/logger"
 )
@@ -45,11 +46,24 @@ type rpcClient struct {
 	stdin  io.WriteCloser
 	stdout io.ReadCloser
 
-	mu      sync.Mutex
-	nextID  uint64
-	pending map[uint64]chan rpcResponse
-	closed  bool
+	serverPath string
+	dataDir    string
+	// onRestart re-runs channel-level bootstrap (account selection + IO
+	// start) against the respawned server; nil skips it.
+	onRestart func(ctx context.Context) error
+
+	mu           sync.Mutex
+	nextID       uint64
+	pending      map[uint64]chan rpcResponse
+	closed       bool
+	restarting   bool
+	shuttingDown bool
 }
+
+const (
+	rpcRestartBackoffMin = 2 * time.Second
+	rpcRestartBackoffMax = 5 * time.Minute
+)
 
 // startRPC spawns the RPC server with DC_ACCOUNTS_PATH pointing at dataDir and
 // begins the background read loop.
@@ -73,10 +87,12 @@ func startRPC(serverPath, dataDir string) (*rpcClient, error) {
 	}
 
 	c := &rpcClient{
-		cmd:     cmd,
-		stdin:   stdin,
-		stdout:  stdout,
-		pending: make(map[uint64]chan rpcResponse),
+		cmd:        cmd,
+		stdin:      stdin,
+		stdout:     stdout,
+		serverPath: serverPath,
+		dataDir:    dataDir,
+		pending:    make(map[uint64]chan rpcResponse),
 	}
 	go c.readLoop()
 	return c, nil
@@ -101,9 +117,109 @@ func (c *rpcClient) readLoop() {
 		}
 		if err != nil {
 			c.failAll(err)
+			// The server process is gone: without respawning it the channel
+			// kept "running" while every call failed forever (2026-10-31
+			// review C8). close() disables supervision during shutdown.
+			c.supervise()
 			return
 		}
 	}
+}
+
+// supervise respawns a dead deltachat-rpc-server with exponential backoff,
+// rewires the same client in place (callers keep their *rpcClient pointer),
+// waits for readiness, and re-runs onRestart so account IO resumes.
+func (c *rpcClient) supervise() {
+	c.mu.Lock()
+	if c.shuttingDown || c.restarting {
+		c.mu.Unlock()
+		return
+	}
+	c.restarting = true
+	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		c.restarting = false
+		c.mu.Unlock()
+	}()
+
+	backoff := rpcRestartBackoffMin
+	for {
+		time.Sleep(backoff)
+		backoff *= 2
+		if backoff > rpcRestartBackoffMax {
+			backoff = rpcRestartBackoffMax
+		}
+
+		c.mu.Lock()
+		if c.shuttingDown {
+			c.mu.Unlock()
+			return
+		}
+		c.mu.Unlock()
+
+		newCmd := exec.Command(c.serverPath)
+		newCmd.Env = append(newCmd.Environ(), "DC_ACCOUNTS_PATH="+c.dataDir)
+		stdin, err := newCmd.StdinPipe()
+		if err != nil {
+			logger.ErrorCF("deltachat", "rpc restart: stdin pipe failed", map[string]any{"error": err.Error()})
+			continue
+		}
+		stdout, err := newCmd.StdoutPipe()
+		if err != nil {
+			logger.ErrorCF("deltachat", "rpc restart: stdout pipe failed", map[string]any{"error": err.Error()})
+			continue
+		}
+		newCmd.Stderr = logWriter{}
+		if err := newCmd.Start(); err != nil {
+			logger.ErrorCF("deltachat", "rpc restart: spawn failed", map[string]any{
+				"error": err.Error(), "backoff": backoff.String(),
+			})
+			continue
+		}
+
+		c.mu.Lock()
+		c.cmd = newCmd
+		c.stdin = stdin
+		c.stdout = stdout
+		c.closed = false
+		c.nextID = 0 // pending map already drained by failAll
+		c.restarting = false
+		c.mu.Unlock()
+		go c.readLoop()
+
+		if err := c.waitReadyInternal(); err != nil {
+			logger.ErrorCF("deltachat", "rpc restart: server never became ready", map[string]any{"error": err.Error()})
+			c.failAll(err)
+			continue
+		}
+		if c.onRestart != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			err := c.onRestart(ctx)
+			cancel()
+			if err != nil {
+				logger.ErrorCF("deltachat", "rpc restart: bootstrap failed", map[string]any{"error": err.Error()})
+				c.failAll(err)
+				continue
+			}
+		}
+		logger.InfoC("deltachat", "deltachat-rpc-server restarted successfully")
+		return
+	}
+}
+
+// waitReadyInternal polls get_system_info until the respawned server answers.
+func (c *rpcClient) waitReadyInternal() error {
+	for attempt := 0; attempt < 40; attempt++ {
+		callCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_, err := c.call(callCtx, "get_system_info")
+		cancel()
+		if err == nil {
+			return nil
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return fmt.Errorf("deltachat: restarted rpc server did not become ready")
 }
 
 // failAll wakes every pending caller with an error (used on EOF / shutdown).
@@ -165,9 +281,10 @@ func (c *rpcClient) clearPending(id uint64) {
 	c.mu.Unlock()
 }
 
-// close terminates the RPC server process.
+// close terminates the RPC server process and disables supervision.
 func (c *rpcClient) close() {
 	c.mu.Lock()
+	c.shuttingDown = true
 	c.closed = true
 	c.mu.Unlock()
 	if c.stdin != nil {

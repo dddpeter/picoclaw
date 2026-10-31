@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"unicode/utf8"
 	"context"
 	"crypto/rand"
 	"encoding/binary"
@@ -1698,7 +1699,10 @@ func (s *telegramStreamer) Update(ctx context.Context, content string) error {
 
 	// Throttle: skip if not enough time or content has passed
 	now := time.Now()
-	growth := len(content) - s.lastLen
+	// minGrowth is configured in chars: count runes, not bytes — byte counting
+	// made CJK drafts trip the growth threshold ~3x sooner than intended
+	// (same class as feishu B4).
+	growth := utf8.RuneCountInString(content) - s.lastLen
 	if s.lastLen > 0 && now.Sub(s.lastAt) < s.throttleInterval && growth < s.minGrowth {
 		return nil
 	}
@@ -1721,7 +1725,7 @@ func (s *telegramStreamer) Update(ctx context.Context, content string) error {
 		return fmt.Errorf("telegram draft update: %w", err)
 	}
 
-	s.lastLen = len(content)
+	s.lastLen = utf8.RuneCountInString(content)
 	s.lastAt = now
 	return nil
 }

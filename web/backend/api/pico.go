@@ -212,6 +212,11 @@ func (h *Handler) handleGetPicoInfo(w http.ResponseWriter, r *http.Request) {
 //
 //	POST /api/pico/token
 func (h *Handler) handleRegenPicoToken(w http.ResponseWriter, r *http.Request) {
+	// Serialize the whole load-modify-save against other config writers
+	// (2026-10-31 review B5: this writer previously bypassed configWriteMu).
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
+
 	cfg, err := config.LoadConfig(h.configPath)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to load config: %v", err), http.StatusInternalServerError)
@@ -243,6 +248,11 @@ func (h *Handler) handleRegenPicoToken(w http.ResponseWriter, r *http.Request) {
 // EnsurePicoChannel enables the Pico channel with sane defaults if it isn't
 // already configured. Returns true when the config was modified.
 func (h *Handler) EnsurePicoChannel() (bool, error) {
+	// Serialize the whole load-modify-save against other config writers
+	// (2026-10-31 review B5: this writer previously bypassed configWriteMu).
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
+
 	cfg, err := config.LoadConfig(h.configPath)
 	if err != nil {
 		return false, fmt.Errorf("failed to load config: %w", err)

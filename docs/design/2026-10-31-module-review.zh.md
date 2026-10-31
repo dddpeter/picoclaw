@@ -158,3 +158,9 @@
 - C1 spawn_status 接线：SubagentManager 已收窄，需要 SubTurn spawn/deliver 路径向 manager.tasks 注册/注销任务（中成本，动 pkg/agent/subturn.go）
 - 批次三韧性：anthropic_messages 错误通道、updater 非 GitHub 显式报错、config 写锁收敛、telegram rune 节流、matrix/deltachat/whatsapp 断线重连、MQTT TLS 开关、health 包去虚存实
 - 批次四增强：/skills drafts 草稿审阅命令、doctor 接 mcp.ProbeServer、subagent 参数收口（Temperature/MaxContextRunes/maxTurns）、pico/telegram surface 复用、glob/grep 工具、移动端侧栏抽屉、i18n 死键清理与 cs/bn-in/pt-br 补齐
+
+## 附四：批次三实施记录（2026-10-31 当日落地）
+
+全部 8 项完成：B8（telegram 节流改 rune 计数，minGrowth 本就是 chars 语义）、B4（非空非 GitHub release URL 显式报错，不再静默刷入上游二进制）、B7（MQTT `tls_skip_verify` *bool，nil=维持存量 skip 语义、显式 false 开启校验）、B3（anthropic_messages 错误通道改走 `common.HandleErrorResponse`：256B 有界读、Retry-After、中文 hint、配额提升全部生效）、B5（config 写锁收敛：models.go 五处 + tools/pico/wecom/weixin/oauth 七个叶子写路径全部归 `configWriteMu`，删除 router.configMu；各调用链无嵌套持锁已逐一核对）、C8×3（matrix sync 退避重启循环 / deltachat rpc 进程内嵌监护——原指针复用无 swap 竞态，重启后经 `onRestart=ensureAccount` 恢复账户 IO / whatsapp bridge 重连循环 + 弃用告警）、health 去虚存实（gateway 注册真实 channels 检查——≥1 渠道配置而全停时 /ready 转 503；死方法 Start/StartContext/Stop 保留待后续收缩）。
+
+验证：gateway/health/channels/updater/providers/deltachat 测试绿（deltachat 的 TestResolveServerPathUsesPATH 为预存环境失败）；`go vet` 全绿。

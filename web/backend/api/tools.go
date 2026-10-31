@@ -213,6 +213,11 @@ func (h *Handler) handleListTools(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleUpdateToolState(w http.ResponseWriter, r *http.Request) {
+	// Serialize the whole load-modify-save against other config writers
+	// (2026-10-31 review B5: this writer previously bypassed configWriteMu).
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
+
 	cfg, err := config.LoadConfig(h.configPath)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to load config: %v", err), http.StatusInternalServerError)
@@ -417,6 +422,11 @@ func (h *Handler) handleGetWebSearchConfig(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handler) handleUpdateWebSearchConfig(w http.ResponseWriter, r *http.Request) {
+	// Serialize the whole load-modify-save against other config writers
+	// (2026-10-31 review B5: this writer previously bypassed configWriteMu).
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
+
 	cfg, err := config.LoadConfig(h.configPath)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to load config: %v", err), http.StatusInternalServerError)

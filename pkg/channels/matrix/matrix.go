@@ -261,6 +261,19 @@ func NewMatrixChannel(
 	return ch, nil
 }
 
+const (
+	matrixSyncBackoffMin = 2 * time.Second
+	matrixSyncBackoffMax = 5 * time.Minute
+)
+
+// errString renders a nil error as "<nil>" for structured log fields.
+func errString(err error) string {
+	if err == nil {
+		return "<nil>"
+	}
+	return err.Error()
+}
+
 func (c *MatrixChannel) Start(ctx context.Context) error {
 	logger.InfoC("matrix", "Starting Matrix channel")
 
@@ -288,10 +301,28 @@ func (c *MatrixChannel) Start(ctx context.Context) error {
 	go c.runRoomKindCacheJanitor(c.ctx)
 
 	go func() {
-		if err := c.client.SyncWithContext(c.ctx); err != nil && c.ctx.Err() == nil {
-			logger.ErrorCF("matrix", "Matrix sync stopped unexpectedly", map[string]any{
-				"error": err.Error(),
+		// mautrix does not retry sync on its own: without this loop a single
+		// transport hiccup left the channel reporting running while never
+		// receiving another event (2026-10-31 review C8).
+		backoff := matrixSyncBackoffMin
+		for {
+			err := c.client.SyncWithContext(c.ctx)
+			if c.ctx.Err() != nil {
+				return
+			}
+			logger.ErrorCF("matrix", "Matrix sync stopped unexpectedly, restarting", map[string]any{
+				"error":   errString(err),
+				"backoff": backoff.String(),
 			})
+			select {
+			case <-c.ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+			backoff *= 2
+			if backoff > matrixSyncBackoffMax {
+				backoff = matrixSyncBackoffMax
+			}
 		}
 	}()
 
