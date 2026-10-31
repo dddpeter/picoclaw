@@ -310,7 +310,8 @@ function QuestionRow({
 
   const optionClasses = (selected: boolean) =>
     cn(
-      "enabled:hover:border-sky-500/60 enabled:hover:bg-accent enabled:hover:-translate-y-px enabled:hover:shadow-sm enabled:active:scale-[0.99]",
+      // hover 边框用品牌色全值（对齐 Octop：选中项 hover 不变淡，特异度高于选中态）
+      "enabled:hover:border-sky-500 enabled:hover:bg-accent enabled:hover:-translate-y-px enabled:hover:shadow-sm enabled:active:scale-[0.99]",
       "focus-visible:ring-sky-500/30 min-h-[42px] max-md:min-h-11 flex w-full items-start gap-2.5 rounded-lg border px-[11px] py-[9px] text-left transition-all outline-none focus-visible:ring-2",
       "disabled:cursor-not-allowed disabled:opacity-50",
       selected
@@ -347,6 +348,7 @@ function QuestionRow({
               key={opt.label}
               type="button"
               disabled={disabled}
+              aria-pressed={selected}
               onClick={() => toggle(opt.label)}
               className={optionClasses(selected)}
             >
@@ -371,6 +373,7 @@ function QuestionRow({
           <button
             type="button"
             disabled={disabled}
+            aria-pressed={answer.picked.includes(OTHER)}
             onClick={() => toggle(OTHER)}
             className={optionClasses(answer.picked.includes(OTHER))}
           >
