@@ -5,6 +5,40 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.5.1] - 2026-10-31
+
+全仓模块梳理与加固：8 个并行评审代理逐模块分析 + 20 项 P0/P1 断言亲自复核（实施报告 `docs/design/2026-10-31-module-review.zh.md`），二轮独立评审交叉核实并当场修复（报告 v2 `docs/design/2026-10-31-code-review-report.zh.md` 含全部机理与测试映射）。四批次 + 修复轮共 16 提交，净删约 4000 行，新增 14 个回归测试。功能地图详见 fork-overview §26。
+
+### Added
+
+- **glob / grep 文件工具**：进程内文件名模式与内容搜索（`**` 递归、include 过滤、大小写开关；三层上限：深度 24/匹配 200/文件 4000，单文件 8MiB 跳过并计数），走既有 fileSystem 抽象，沙箱与系统目录守卫语义不变；`tools.glob.enabled` / `tools.grep.enabled` 独立开关（默认开）
+- **`/drafts` 草稿审阅命令**：闭环 evolution 技能草稿回路（此前持续产出草稿但无任何用户入口）——list/preview/accept/reject，consent-first；accept 复用冷路径全套校验+扫描+原子写回滚；WorkspaceID 过滤（共享 state_dir 不跨工作区泄露），已 accepted 拒绝 reject
+- **doctor MCP 探测**：逐 server 报可达性与工具数（复用运行时同 transport/env 路径），此前 launcher 专用的 ProbeServer 63 行零调用
+- **spawn_status 真实接线**：此前永远空（v0.2.3 宣传的功能已随 SubTurn 重构静默失效）——spawn/subagent 同步注册任务生命周期，ack 回带 `task_id`；**按发起会话隔离**（OriginChannel/ChatID 过滤，跨会话任务不互见）
+- **会话重命名 API**：`PUT /api/sessions/{id}/title`（user 源永不覆盖、幽灵 ID 404）+ web 侧栏行内编辑
+- **web 停止回合按钮**：生成中 composer 显示停止键，发 `/stop` 走既有 busy 拦截序
+- MQTT `tls_skip_verify`（`*bool`，nil=维持存量 skip）可开启证书校验；`/ready` 接入 channels 真实检查（配置渠道全停 503）；AGENT.md frontmatter `maxTurns` 未强制执行时加载告警
+
+### Changed
+
+- **subagent 参数收口**：删 Temperature/MaxContextRunes 死管线（schema 未暴露/转换层丢弃），`SetLLMOptions` 收窄单参；`custom_allow_patterns` 语义钉死为仅扩展程序化 allowlist（测试+文档标注）
+- **`agent.llm.delta` 诚实下线**：payload/日志 case/hook kinds 映射/Kind 常量全删（逐 token 事件会淹没有限事件日志）
+- 移动端会话侧栏抽屉化：内联实例 `hidden md:flex`，无限滚动 observer 下沉单实例（修复共享 ref 跨实例失效）
+- web 后端 config 写锁三分收敛到 `configWriteMu`：models.go 五处切换 + tools/pico/wecom/weixin/oauth 七个无锁 load-modify-save 路径加锁
+
+### Fixed
+
+- **死锁**：运行中网关确认微信/企微扫码绑定时 `save*Binding` 持 `configWriteMu` 调 `RestartGateway → startGatewayLocked → EnsurePicoChannel` 二次加锁同把非重入 Mutex——HTTP handler 永久挂起并堵死全部 config 写路径（必现，批次三 B5 回归）；重启移出锁外，watchdog+TryLock canary 回归测试钉死
+- **spawn_status 跨会话泄露**：接线时 RegisterTask 不填来源标识，会话过滤恒不生效——补 ctx 来源后隔离生效
+- **deltachat rpc 监护**：bootstrap 失败分支泄漏进程+goroutine（killCurrent 收尸）+ 代次标记防双监护；matrix sync 退避随稳定运行重置；whatsapp bridge 断线重连（弃用告警指向 whatsapp_native）
+- **SubagentManager 任务表无界增长**（完整 LLM 结果文本只进不出）：50 条封顶按创建序淘汰，running 永不淘汰
+- **聊天页渲染即炸**：移动端抽屉触发按钮在 Radix Sheet 树外（`DialogTrigger must be used within Dialog`）——tsc 查不出上下文错误，受控模式直接 onClick
+- error_classifier 504 入 transient（不再中止 fallback 链）+ 429+配额消息提升 Billing（对齐 HTTPError 分支）；anthropic_messages 错误通道走 common.HandleErrorResponse（恢复 Retry-After/中文提示/256B 上限）；updater 非 github release URL 显式报错（不再静默回落上游——供应链）；EvolutionConfig.MarshalJSON 补三个生命周期字段（此前配置回写静默抹除）；telegram 流式节流改 rune 计数（CJK 提前 ~3 倍修正）；glob POSIX 绝对路径不再被重定位进 workspace；grep 单文件 8MiB 上限 + rune 截断不出替换符；重命名幽灵 ID 404
+
+### Removed
+
+- 净删约 4000 行：死文件（agent/adapters、evolution organizer+preview、utils/context、legacy 事件层、tools/toolloop 传递性死链、web/backend/model、前端 api/pico.ts）、死导出群（steering 死 API、LLMPhase、registry 三方法等）、**6 个假旋钮**（discord mention_only、line webhook_host/port、onebot group_trigger_prefix、pico write_timeout、voice elevenlabs_api_key）+ `toleratedLegacyNoopKeys` 容错（存量配置继续加载）、i18n 死键 18 组 ×5 locale（评审曾断言 PUT /api/config 无测试应删，复核推翻——端点保留）
+
 ## [0.5.0] - 2026-10-25
 
 ### Added

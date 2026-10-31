@@ -20,7 +20,7 @@
 
 **中文** | [日本語](README.ja.md) | [한국어](README.ko.md) | [Português](README.pt-br.md) | [Tiếng Việt](README.vi.md) | [Français](README.fr.md) | [Italiano](README.it.md) | [Bahasa Indonesia](README.id.md) | [Malay](README.ms.md) | [English](../../README.md)
 
-> **关于本 fork（v0.5.0）** — 本仓库是 [sipeed/picoclaw](https://github.com/sipeed/picoclaw) 的个人分支，在上游基础上大幅增强：
+> **关于本 fork（v0.5.1）** — 本仓库是 [sipeed/picoclaw](https://github.com/sipeed/picoclaw) 的个人分支，在上游基础上大幅增强：
 >
 > - **HITL 审批门禁**——高危命令/工具先问后执行（超时 fail-closed、默认启用），web/飞书消息流内嵌审批卡，会话策略三档 `/approve always`/`/approve all`/`/approve off`（随时撤销），`/deny` 带理由，群聊答案钉住触发用户
 > - **ask_user 结构化问询**——agent 被用户决策卡住时发起 1-5 题选择题并阻塞等待（web 问询卡、刷新恢复；作答永不进模型上下文）
@@ -28,6 +28,7 @@
 > - **可靠性**——重启恢复（中断会话封口并可继续）、stall 看门狗 + 进度心跳、turn_status 重连信号（刷新页面不丢回合状态）
 > - **工具与体验**——LSP 诊断/修复工具、exec 超时引导与 per-call timeout、工具输出第三方 API key 掩码、`picoclaw tui` 终端客户端、web `/mcp` 管理页、回合状态栏、飞书流式卡（过程面板/用量条/缓存命中 footer）
 > - 此前 fork 能力：飞书 CardKit 流式卡片、OpenViking 共享记忆、`/new` 归档轮换 + 模型重置、非阻塞 `/switch`、流式响应头超时、命令输出 inline 清理、低收益循环检测
+> - **v0.5.1 模块梳理加固**——全仓评审与加固：净删 ~4000 行死代码、`glob`/`grep` 文件工具、`/drafts` 草稿审阅、doctor MCP 探测、spawn_status 真实接线（按会话隔离）、会话重命名 API + web 停止按钮、三渠道断线重连（matrix/deltachat/whatsapp）、config 写锁收敛（修复绑定确认死锁）、updater 供应链守卫；详见 CHANGELOG 0.5.1
 >
 > 完整功能地图与上游同步注意事项见 [docs/design/fork-overview.zh.md](../design/fork-overview.zh.md)。本 fork 的功能需**从源码构建**；下文安装指引指向的是上游官方发布渠道。
 
