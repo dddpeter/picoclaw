@@ -213,9 +213,22 @@ func (h *Handler) handlePollWecomFlow(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) saveWecomBinding(botID, secret string) error {
 	// Serialize the whole load-modify-save against other config writers
 	// (2026-10-31 review B5: this writer previously bypassed configWriteMu).
+	// C-1 fix: the restart must happen strictly AFTER the lock is released —
+	// RestartGateway re-enters this mutex via startGatewayLocked →
+	// EnsurePicoChannel and sync.Mutex is not reentrant.
 	configWriteMu.Lock()
-	defer configWriteMu.Unlock()
+	err := h.saveWecomBindingLocked(botID, secret)
+	configWriteMu.Unlock()
+	if err != nil {
+		return err
+	}
+	h.restartGatewayAfterBinding("wecom")
+	return nil
+}
 
+// saveWecomBindingLocked performs the config mutation. Caller must hold
+// configWriteMu.
+func (h *Handler) saveWecomBindingLocked(botID, secret string) error {
 	cfg, err := config.LoadConfig(h.configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -235,22 +248,7 @@ func (h *Handler) saveWecomBinding(botID, secret string) error {
 	if strings.TrimSpace(wecomCfg.WebSocketURL) == "" {
 		wecomCfg.WebSocketURL = wecomDefaultWebSocketURL
 	}
-	if err := config.SaveConfig(h.configPath, cfg); err != nil {
-		return err
-	}
-
-	status := h.gatewayStatusData()
-	gatewayStatus, _ := status["gateway_status"].(string)
-	if gatewayStatus != "running" {
-		return nil
-	}
-
-	if _, err := h.RestartGateway(); err != nil {
-		logger.ErrorCF("wecom", "failed to restart gateway after saving binding", map[string]any{
-			"error": err.Error(),
-		})
-	}
-	return nil
+	return config.SaveConfig(h.configPath, cfg)
 }
 
 func fetchWecomQRCode(ctx context.Context) (wecomQRGenerateResponse, error) {

@@ -208,9 +208,22 @@ func (h *Handler) handlePollWeixinFlow(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) saveWeixinBinding(token, accountID string) error {
 	// Serialize the whole load-modify-save against other config writers
 	// (2026-10-31 review B5: this writer previously bypassed configWriteMu).
+	// C-1 fix: RestartGateway transitively re-enters configWriteMu via
+	// startGatewayLocked → EnsurePicoChannel; sync.Mutex is not reentrant,
+	// so the restart must happen strictly AFTER the lock is released.
 	configWriteMu.Lock()
-	defer configWriteMu.Unlock()
+	err := h.saveWeixinBindingLocked(token, accountID)
+	configWriteMu.Unlock()
+	if err != nil {
+		return err
+	}
+	h.restartGatewayAfterBinding("weixin")
+	return nil
+}
 
+// saveWeixinBindingLocked performs the config mutation. Caller must hold
+// configWriteMu.
+func (h *Handler) saveWeixinBindingLocked(token, accountID string) error {
 	cfg, err := config.LoadConfig(h.configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -235,22 +248,25 @@ func (h *Handler) saveWeixinBinding(token, accountID string) error {
 		weixinCfg.AccountID = accountID
 	}
 
-	if err := config.SaveConfig(h.configPath, cfg); err != nil {
-		return err
-	}
+	return config.SaveConfig(h.configPath, cfg)
+}
 
+// restartGatewayAfterBinding best-effort restarts the gateway when it is
+// currently running. MUST be called WITHOUT configWriteMu held: the restart
+// path re-enters this mutex via startGatewayLocked → EnsurePicoChannel
+// (review C-1).
+func (h *Handler) restartGatewayAfterBinding(component string) {
 	status := h.gatewayStatusData()
 	gatewayStatus, _ := status["gateway_status"].(string)
 	if gatewayStatus != "running" {
-		return nil
+		return
 	}
 
 	if _, err := h.RestartGateway(); err != nil {
-		logger.ErrorCF("weixin", "failed to restart gateway after saving binding", map[string]any{
+		logger.ErrorCF(component, "failed to restart gateway after saving binding", map[string]any{
 			"error": err.Error(),
 		})
 	}
-	return nil
 }
 
 // generateQRDataURI encodes content as a QR code PNG and returns a data URI.
