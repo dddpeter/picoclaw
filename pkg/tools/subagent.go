@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -68,25 +69,32 @@ func NewSubagentManager(defaultModel string) *SubagentManager {
 }
 
 // RegisterTask records a spawned sub-turn so the spawn_status tool can report
-// it. Returns the generated task ID ("subagent-N").
-func (sm *SubagentManager) RegisterTask(task, label, agentID string) string {
+// it. Returns the generated task ID ("subagent-N"). originChannel/originChatID
+// scope the task to the spawning conversation (C-2: without them spawn_status
+// leaks tasks across conversations; both come from the tool context).
+func (sm *SubagentManager) RegisterTask(task, label, agentID, originChannel, originChatID string) string {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	id := fmt.Sprintf("subagent-%d", sm.nextID)
 	sm.nextID++
 	sm.tasks[id] = &SubagentTask{
-		ID:      id,
-		Task:    task,
-		Label:   label,
-		AgentID: agentID,
-		Status:  "running",
-		Created: time.Now().UnixMilli(),
+		ID:            id,
+		Task:          task,
+		Label:         label,
+		AgentID:       agentID,
+		OriginChannel: originChannel,
+		OriginChatID:  originChatID,
+		Status:        "running",
+		Created:       time.Now().UnixMilli(),
 	}
 	return id
 }
 
 // CompleteTask marks a registered task finished and stores its result text.
 // Unknown IDs are ignored (the task may have been cleared).
+// M-2: finished tasks hold the full LLM result text, so the table is capped —
+// oldest finished tasks are evoked beyond maxFinishedTasks (running tasks are
+// never evoked; the gateway is long-lived and nothing else removes entries).
 func (sm *SubagentManager) CompleteTask(taskID, status, result string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -94,7 +102,29 @@ func (sm *SubagentManager) CompleteTask(taskID, status, result string) {
 		t.Status = status
 		t.Result = result
 	}
+	if len(sm.tasks) <= maxFinishedSubagentTasks {
+		return
+	}
+	type idAt struct {
+		id string
+		at int64
+	}
+	done := make([]idAt, 0, len(sm.tasks))
+	for id, t := range sm.tasks {
+		if t.Status != "running" {
+			done = append(done, idAt{id, t.Created})
+		}
+	}
+	sort.Slice(done, func(i, j int) bool { return done[i].at < done[j].at })
+	evict := len(sm.tasks) - maxFinishedSubagentTasks
+	for i := 0; i < len(done) && evict > 0; i++ {
+		delete(sm.tasks, done[i].id)
+		evict--
+	}
 }
+
+// maxFinishedSubagentTasks caps the spawn_status task table (M-2).
+const maxFinishedSubagentTasks = 50
 
 // SetLLMOptions sets the max tokens seeded into spawn/subagent tools.
 func (sm *SubagentManager) SetLLMOptions(maxTokens int) {
@@ -210,9 +240,11 @@ Task: %s`,
 
 	// Use spawner if available (direct SpawnSubTurn call)
 	if t.spawner != nil {
+		// Register synchronously with conversation origin (C-2), like the
+		// async spawn path.
 		var taskID string
 		if t.manager != nil {
-			taskID = t.manager.RegisterTask(task, label, "")
+			taskID = t.manager.RegisterTask(task, label, "", ToolChannel(ctx), ToolChatID(ctx))
 		}
 		result, err := t.spawner.SpawnSubTurn(ctx, SubTurnConfig{
 			Model:        t.defaultModel,

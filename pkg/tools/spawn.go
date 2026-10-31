@@ -127,12 +127,17 @@ Task: %s`,
 
 	// Use spawner if available (direct SpawnSubTurn call)
 	if t.spawner != nil {
+		// Register synchronously (m-6): the ack below echoes the task ID, so
+		// an immediate spawn_status query must already see the task. Origin
+		// comes from the tool context (C-2): spawn_status scopes results to
+		// the calling conversation via these fields.
+		taskID := ""
+		if t.manager != nil {
+			taskID = t.manager.RegisterTask(task, label, targetAgentID, ToolChannel(ctx), ToolChatID(ctx))
+		}
+
 		// Launch async sub-turn in goroutine
 		go func() {
-			var taskID string
-			if t.manager != nil {
-				taskID = t.manager.RegisterTask(task, label, targetAgentID)
-			}
 			result, err := t.spawner.SpawnSubTurn(ctx, SubTurnConfig{
 				Model:         t.defaultModel,
 				Tools:         nil, // Will inherit from parent via context
@@ -160,11 +165,12 @@ Task: %s`,
 			}
 		}()
 
-		// Return immediate acknowledgment
+		// Return immediate acknowledgment; echo the task ID so the model can
+		// pass it to spawn_status task_id (m-6).
 		if label != "" {
-			return AsyncResult(fmt.Sprintf("Spawned subagent '%s' for task: %s", label, task))
+			return AsyncResult(fmt.Sprintf("Spawned subagent '%s' for task: %s (task_id: %s)", label, task, taskID))
 		}
-		return AsyncResult(fmt.Sprintf("Spawned subagent for task: %s", task))
+		return AsyncResult(fmt.Sprintf("Spawned subagent for task: %s (task_id: %s)", task, taskID))
 	}
 
 	// Fallback: spawner not configured
