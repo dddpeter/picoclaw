@@ -190,6 +190,15 @@ func parseAgentFrontmatter(path, frontmatter string) (AgentFrontmatter, error) {
 		return AgentFrontmatter{}, err
 	}
 
+	if typed.MaxTurns != nil {
+		// Parsed for forward compatibility but not enforced anywhere yet —
+		// tell the user instead of silently ignoring their knob
+		// (2026-10-31 review C6).
+		logger.WarnCF("agent", "AGENT.md frontmatter maxTurns is not enforced by this build", map[string]any{
+			"max_turns": *typed.MaxTurns,
+		})
+	}
+
 	return AgentFrontmatter{
 		Name:        strings.TrimSpace(typed.Name),
 		Description: strings.TrimSpace(typed.Description),

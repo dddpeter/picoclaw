@@ -158,7 +158,6 @@ type SubTurnConfig struct {
 	// The soft limit acts as a first line of defense before hitting the provider's
 	// hard context window limit. When exceeded, older messages are intelligently
 	// truncated while preserving system messages and recent context.
-	MaxContextRunes int
 
 	// ActualSystemPrompt is injected as the true 'system' role message for the childAgent.
 	// The legacy SystemPrompt field is actually used as the first 'user' message (task description).
@@ -234,7 +233,6 @@ func (s *AgentLoopSpawner) SpawnSubTurn(
 		Async:              cfg.Async,
 		Critical:           cfg.Critical,
 		Timeout:            cfg.Timeout,
-		MaxContextRunes:    cfg.MaxContextRunes,
 		TargetAgentID:      cfg.TargetAgentID,
 	}
 

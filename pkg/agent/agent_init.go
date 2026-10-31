@@ -310,7 +310,7 @@ func registerSharedTools(
 		spawnStatusEnabled := cfg.Tools.IsToolEnabled("spawn_status")
 		if (spawnEnabled || spawnStatusEnabled) && cfg.Tools.IsToolEnabled("subagent") {
 			subagentManager := tools.NewSubagentManager(agent.Model)
-			subagentManager.SetLLMOptions(agent.MaxTokens, agent.Temperature)
+			subagentManager.SetLLMOptions(agent.MaxTokens)
 
 			// Clone the parent's tool registry so subagents can use all
 			// tools registered so far (file, web, etc.) but NOT spawn/

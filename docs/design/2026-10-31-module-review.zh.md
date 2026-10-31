@@ -164,3 +164,11 @@
 全部 8 项完成：B8（telegram 节流改 rune 计数，minGrowth 本就是 chars 语义）、B4（非空非 GitHub release URL 显式报错，不再静默刷入上游二进制）、B7（MQTT `tls_skip_verify` *bool，nil=维持存量 skip 语义、显式 false 开启校验）、B3（anthropic_messages 错误通道改走 `common.HandleErrorResponse`：256B 有界读、Retry-After、中文 hint、配额提升全部生效）、B5（config 写锁收敛：models.go 五处 + tools/pico/wecom/weixin/oauth 七个叶子写路径全部归 `configWriteMu`，删除 router.configMu；各调用链无嵌套持锁已逐一核对）、C8×3（matrix sync 退避重启循环 / deltachat rpc 进程内嵌监护——原指针复用无 swap 竞态，重启后经 `onRestart=ensureAccount` 恢复账户 IO / whatsapp bridge 重连循环 + 弃用告警）、health 去虚存实（gateway 注册真实 channels 检查——≥1 渠道配置而全停时 /ready 转 503；死方法 Start/StartContext/Stop 保留待后续收缩）。
 
 验证：gateway/health/channels/updater/providers/deltachat 测试绿（deltachat 的 TestResolveServerPathUsesPATH 为预存环境失败）；`go vet` 全绿。
+
+## 附五：批次四部分实施记录（2026-10-31 当日落地）
+
+- **C1 spawn_status 接线**：spawn/subagent 工具保留 manager 引用，spawn 前后经 `RegisterTask`/`CompleteTask` 记录生命周期（running→completed/failed），spawn_status 不再永远返回空；端到端回归测试 `TestSpawnStatus_LifecycleClosedViaSpawnTool` 钉住。
+- **C6 参数收口**：`MaxContextRunes` 删除（子回合跑同一 runTurn 管线，seahorse 压缩/窗口门已覆盖，字段与文档属冗余承诺——subturn.md 已改写）；`Temperature` 死管线删除（schema 未暴露、agent 侧转换丢弃，纯 write-only 内部管道），`SetLLMOptions` 收窄为 maxTokens 单参；AGENT.md `maxTurns` 解析处加「本构建未强制执行」WARN。
+- **C9 doctor 接 ProbeServer**：新增 Check 6——逐个探测启用的 MCP server（复用 mcp.ProbeServer，与运行时同一 transport/env 解析路径），报告可达性与工具数；本机 smoke 实测通过（agentmemory 超时正确报 warn、codebase-memory 报 17 tools）。
+
+**批次四剩余**（需逐项设计，见 §4 原表）：/skills drafts 草稿审阅命令、pico/telegram surface 复用、glob/grep 工具、前端移动端侧栏抽屉、i18n 死键清理与 cs/bn-in/pt-br 补齐。

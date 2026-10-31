@@ -8,9 +8,9 @@ import (
 
 type SpawnTool struct {
 	spawner        SubTurnSpawner
+	manager        *SubagentManager
 	defaultModel   string
 	maxTokens      int
-	temperature    float64
 	allowlistCheck func(targetAgentID string) bool
 }
 
@@ -22,9 +22,9 @@ func NewSpawnTool(manager *SubagentManager) *SpawnTool {
 		return &SpawnTool{}
 	}
 	return &SpawnTool{
+		manager:      manager,
 		defaultModel: manager.defaultModel,
 		maxTokens:    manager.maxTokens,
-		temperature:  manager.temperature,
 	}
 }
 
@@ -129,18 +129,29 @@ Task: %s`,
 	if t.spawner != nil {
 		// Launch async sub-turn in goroutine
 		go func() {
+			var taskID string
+			if t.manager != nil {
+				taskID = t.manager.RegisterTask(task, label, targetAgentID)
+			}
 			result, err := t.spawner.SpawnSubTurn(ctx, SubTurnConfig{
 				Model:         t.defaultModel,
 				Tools:         nil, // Will inherit from parent via context
 				SystemPrompt:  systemPrompt,
 				MaxTokens:     t.maxTokens,
-				Temperature:   t.temperature,
 				Async:         true, // Async execution
 				Critical:      true, // Background spawn should survive parent turn completion
 				TargetAgentID: targetAgentID,
 			})
 			if err != nil {
 				result = ErrorResult(fmt.Sprintf("Spawn failed: %v", err)).WithError(err)
+			}
+
+			if t.manager != nil && taskID != "" {
+				status := "completed"
+				if err != nil || result.IsError {
+					status = "failed"
+				}
+				t.manager.CompleteTask(taskID, status, result.ForLLM)
 			}
 
 			// Call callback if provided

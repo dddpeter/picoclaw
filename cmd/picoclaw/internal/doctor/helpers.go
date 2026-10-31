@@ -1,19 +1,23 @@
 package doctor
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal"
 	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/mcp"
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/tools"
 )
@@ -148,6 +152,9 @@ func doctorCmd(out io.Writer) error {
 
 	// --- Check 5: security profile summary ---------------------------------
 	results = append(results, securityProfileCheck(cfg))
+
+	// --- Check 6: MCP servers reachable ------------------------------------
+	results = append(results, checkMCPServers(cfg)...)
 
 	return printReport(out, results)
 }
@@ -331,3 +338,49 @@ func printReport(out io.Writer, results []checkResult) error {
 // errCriticalFailures signals a non-zero process exit via the standard
 // RunE error path.
 var errCriticalFailures = errors.New("critical checks failed")
+
+// checkMCPServers probes each configured MCP server with the shared
+// ProbeServer helper (same transport/env resolution as the runtime manager),
+// turning the previously launcher-only probe capability into a doctor check
+// (2026-10-31 review C9). Disabled servers are reported as skipped.
+func checkMCPServers(cfg *config.Config) []checkResult {
+	results := []checkResult{}
+	if cfg == nil {
+		return results
+	}
+	servers := cfg.Tools.MCP.Servers
+	if len(servers) == 0 {
+		return append(results, checkResult{
+			name:   "mcp servers",
+			state:  stateOK,
+			detail: "none configured",
+		})
+	}
+	for _, name := range slices.Sorted(maps.Keys(servers)) {
+		serverCfg := servers[name]
+		if !serverCfg.Enabled {
+			results = append(results, checkResult{
+				name:   "mcp server " + name,
+				state:  stateOK,
+				detail: "disabled",
+			})
+			continue
+		}
+		probe, err := mcp.ProbeServer(context.Background(), name, serverCfg, cfg.WorkspacePath(), 10*time.Second)
+		if err != nil {
+			results = append(results, checkResult{
+				name:    "mcp server " + name,
+				state:   stateWarn,
+				detail:  fmt.Sprintf("probe failed: %v", err),
+				fixHint: "check command/url, args, and env; tools from this server are unavailable",
+			})
+			continue
+		}
+		results = append(results, checkResult{
+			name:   "mcp server " + name,
+			state:  stateOK,
+			detail: fmt.Sprintf("reachable, %d tools", probe.ToolCount),
+		})
+	}
+	return results
+}

@@ -22,11 +22,9 @@ type SubTurnConfig struct {
 	Tools              []Tool
 	SystemPrompt       string
 	MaxTokens          int
-	Temperature        float64
 	Async              bool          // true for async (spawn), false for sync (subagent)
 	Critical           bool          // continue running after parent finishes gracefully
 	Timeout            time.Duration // 0 = use default (5 minutes)
-	MaxContextRunes    int           // 0 = auto, -1 = no limit, >0 = explicit limit
 	ActualSystemPrompt string
 	InitialMessages    []providers.Message
 	InitialTokenBudget *atomic.Int64 // Shared token budget for team members; nil if no budget
@@ -54,29 +52,56 @@ type SubagentTask struct {
 //     spawn_status.go for the resulting capability gap.
 type SubagentManager struct {
 	tasks          map[string]*SubagentTask
+	nextID         int
 	mu             sync.RWMutex
 	defaultModel   string
-	maxTokens      int
-	temperature    float64
-	hasMaxTokens   bool
-	hasTemperature bool
+	maxTokens    int
+	hasMaxTokens bool
 }
 
 func NewSubagentManager(defaultModel string) *SubagentManager {
 	return &SubagentManager{
 		tasks:        make(map[string]*SubagentTask),
+		nextID:       1,
 		defaultModel: defaultModel,
 	}
 }
 
-// SetLLMOptions sets max tokens and temperature seeded into spawn/subagent tools.
-func (sm *SubagentManager) SetLLMOptions(maxTokens int, temperature float64) {
+// RegisterTask records a spawned sub-turn so the spawn_status tool can report
+// it. Returns the generated task ID ("subagent-N").
+func (sm *SubagentManager) RegisterTask(task, label, agentID string) string {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	id := fmt.Sprintf("subagent-%d", sm.nextID)
+	sm.nextID++
+	sm.tasks[id] = &SubagentTask{
+		ID:      id,
+		Task:    task,
+		Label:   label,
+		AgentID: agentID,
+		Status:  "running",
+		Created: time.Now().UnixMilli(),
+	}
+	return id
+}
+
+// CompleteTask marks a registered task finished and stores its result text.
+// Unknown IDs are ignored (the task may have been cleared).
+func (sm *SubagentManager) CompleteTask(taskID, status, result string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	if t, ok := sm.tasks[taskID]; ok {
+		t.Status = status
+		t.Result = result
+	}
+}
+
+// SetLLMOptions sets the max tokens seeded into spawn/subagent tools.
+func (sm *SubagentManager) SetLLMOptions(maxTokens int) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.maxTokens = maxTokens
 	sm.hasMaxTokens = true
-	sm.temperature = temperature
-	sm.hasTemperature = true
 }
 
 // GetTaskCopy returns a copy of the task with the given ID, taken under the
@@ -108,9 +133,9 @@ func (sm *SubagentManager) ListTaskCopies() []SubagentTask {
 // It directly calls SubTurnSpawner with Async=false for synchronous execution.
 type SubagentTool struct {
 	spawner      SubTurnSpawner
+	manager      *SubagentManager
 	defaultModel string
 	maxTokens    int
-	temperature  float64
 }
 
 func NewSubagentTool(manager *SubagentManager) *SubagentTool {
@@ -118,9 +143,9 @@ func NewSubagentTool(manager *SubagentManager) *SubagentTool {
 		return &SubagentTool{}
 	}
 	return &SubagentTool{
+		manager:      manager,
 		defaultModel: manager.defaultModel,
 		maxTokens:    manager.maxTokens,
-		temperature:  manager.temperature,
 	}
 }
 
@@ -185,14 +210,24 @@ Task: %s`,
 
 	// Use spawner if available (direct SpawnSubTurn call)
 	if t.spawner != nil {
+		var taskID string
+		if t.manager != nil {
+			taskID = t.manager.RegisterTask(task, label, "")
+		}
 		result, err := t.spawner.SpawnSubTurn(ctx, SubTurnConfig{
 			Model:        t.defaultModel,
 			Tools:        nil, // Will inherit from parent via context
 			SystemPrompt: systemPrompt,
 			MaxTokens:    t.maxTokens,
-			Temperature:  t.temperature,
 			Async:        false, // Synchronous execution
 		})
+		if t.manager != nil && taskID != "" {
+			status := "completed"
+			if err != nil || result.IsError {
+				status = "failed"
+			}
+			t.manager.CompleteTask(taskID, status, result.ForLLM)
+		}
 		if err != nil {
 			return ErrorResult(fmt.Sprintf("Subagent execution failed: %v", err)).WithError(err)
 		}

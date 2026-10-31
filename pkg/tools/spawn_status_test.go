@@ -384,3 +384,46 @@ func TestSpawnStatusTool_ChannelFiltering_NoContext(t *testing.T) {
 		t.Errorf("Expected task visible from no-context caller, got:\n%s", result.ForLLM)
 	}
 }
+
+// TestSpawnStatus_LifecycleClosedViaSpawnTool pins the 2026-10-31 C1 fix: the
+// spawn/subagent tools now register their sub-turns with the manager so
+// spawn_status no longer reports "no subagents" forever.
+func TestSpawnStatus_LifecycleClosedViaSpawnTool(t *testing.T) {
+	manager := NewSubagentManager("test-model")
+	tool := NewSpawnTool(manager)
+	tool.SetSpawner(&mockSpawner{})
+
+	res := tool.Execute(context.Background(), map[string]any{"task": "do thing", "label": "L1"})
+	if res == nil || res.IsError {
+		t.Fatalf("spawn execute failed: %+v", res)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	var got SubagentTask
+	for {
+		tasks := manager.ListTaskCopies()
+		if len(tasks) == 1 {
+			got = tasks[0]
+			if got.Status != "running" {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("task never completed: %+v (resp=%+v)", got, res)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got.Label != "L1" || got.Task != "do thing" {
+		t.Fatalf("task metadata = %+v", got)
+	}
+	if got.Status != "completed" || !strings.Contains(got.Result, "do thing") {
+		t.Fatalf("final task = %+v", got)
+	}
+
+	// spawn_status surfaces it
+	statusTool := NewSpawnStatusTool(manager)
+	out := statusTool.Execute(context.Background(), map[string]any{})
+	if out == nil || strings.Contains(out.ForLLM, "No subagents have been spawned") {
+		t.Fatalf("spawn_status still reports empty registry: %+v", out)
+	}
+}

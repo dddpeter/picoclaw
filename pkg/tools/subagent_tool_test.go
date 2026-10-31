@@ -46,20 +46,14 @@ func (m *MockLLMProvider) GetContextWindow() int {
 
 func TestSubagentManager_SetLLMOptions_AppliesToRunToolLoop(t *testing.T) {
 	manager := NewSubagentManager("test-model")
-	manager.SetLLMOptions(2048, 0.6)
+	manager.SetLLMOptions(2048)
 
 	// Verify options are set on manager
 	if manager.maxTokens != 2048 {
 		t.Errorf("manager.maxTokens = %d, want 2048", manager.maxTokens)
 	}
-	if manager.temperature != 0.6 {
-		t.Errorf("manager.temperature = %f, want 0.6", manager.temperature)
-	}
 	if !manager.hasMaxTokens {
 		t.Error("manager.hasMaxTokens should be true")
-	}
-	if !manager.hasTemperature {
-		t.Error("manager.hasTemperature should be true")
 	}
 }
 
