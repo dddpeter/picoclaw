@@ -122,6 +122,7 @@ func (t *GlobTool) Execute(ctx context.Context, args map[string]any) *ToolResult
 
 	matches := make([]string, 0, 16)
 	truncated := false
+	depthCapped := false
 	var walkErr error
 	// relBase strips the search dir prefix so patterns anchor at the search
 	// root; display paths stay workspace-relative like the other file tools.
@@ -132,7 +133,11 @@ func (t *GlobTool) Execute(ctx context.Context, args map[string]any) *ToolResult
 	}
 	var walk func(dir string, depth int)
 	walk = func(dir string, depth int) {
-		if walkErr != nil || truncated || depth > globWalkDepth || len(matches) >= globMaxMatches {
+		if walkErr != nil || truncated || len(matches) >= globMaxMatches {
+			return
+		}
+		if depth > globWalkDepth {
+			depthCapped = true
 			return
 		}
 		select {
@@ -180,6 +185,9 @@ func (t *GlobTool) Execute(ctx context.Context, args map[string]any) *ToolResult
 	out := strings.Join(matches, "\n")
 	if truncated {
 		out += fmt.Sprintf("\n[%d+ matches truncated — refine the pattern]", globMaxMatches)
+	}
+	if depthCapped {
+		out += fmt.Sprintf("\n[directory tree deeper than %d levels was not searched]", globWalkDepth)
 	}
 	return NewToolResult(fmt.Sprintf("%d match(es):\n%s", len(matches), out))
 }
