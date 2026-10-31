@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"sync"
 	"time"
@@ -58,11 +60,23 @@ type rpcClient struct {
 	closed       bool
 	restarting   bool
 	shuttingDown bool
+	// generation bumps at every rewire; readLoops capture it at entry and a
+	// loop whose generation is stale exits silently instead of failing calls
+	// or re-entering supervision for a process that was already replaced
+	// (M-1: without this the superseded loop re-supervises concurrently).
+	generation uint64
 }
 
-const (
+// Backoff tuning; vars so tests can shorten the retry loop.
+var (
 	rpcRestartBackoffMin = 2 * time.Second
 	rpcRestartBackoffMax = 5 * time.Minute
+)
+
+// Wait-ready tuning; vars so tests can shorten the probe loop.
+var (
+	rpcWaitReadyAttempts = 40
+	rpcWaitReadyInterval = 250 * time.Millisecond
 )
 
 // startRPC spawns the RPC server with DC_ACCOUNTS_PATH pointing at dataDir and
@@ -100,6 +114,9 @@ func startRPC(serverPath, dataDir string) (*rpcClient, error) {
 
 // readLoop reads newline-delimited responses and dispatches them to waiters.
 func (c *rpcClient) readLoop() {
+	c.mu.Lock()
+	gen := c.generation
+	c.mu.Unlock()
 	reader := bufio.NewReader(c.stdout)
 	for {
 		line, err := reader.ReadBytes('\n')
@@ -116,6 +133,16 @@ func (c *rpcClient) readLoop() {
 			}
 		}
 		if err != nil {
+			c.mu.Lock()
+			stale := gen != c.generation
+			c.mu.Unlock()
+			if stale {
+				// A newer generation owns the client: this loop's process was
+				// already replaced/killed by its supervisor (M-1). Neither fail
+				// pending calls nor re-enter supervision — both belong to the
+				// current generation's loop.
+				return
+			}
 			c.failAll(err)
 			// The server process is gone: without respawning it the channel
 			// kept "running" while every call failed forever (2026-10-31
@@ -179,17 +206,22 @@ func (c *rpcClient) supervise() {
 		}
 
 		c.mu.Lock()
+		c.generation++
 		c.cmd = newCmd
 		c.stdin = stdin
 		c.stdout = stdout
 		c.closed = false
-		c.nextID = 0 // pending map already drained by failAll
-		c.restarting = false
+		nextID := c.nextID + 1000 // keep IDs unique across generations
+		c.nextID = nextID
 		c.mu.Unlock()
 		go c.readLoop()
 
 		if err := c.waitReadyInternal(); err != nil {
 			logger.ErrorCF("deltachat", "rpc restart: server never became ready", map[string]any{"error": err.Error()})
+			// M-1: the just-spawned generation failed bootstrap — kill it so
+			// the retry does not leak the process plus a readLoop blocked on
+			// its stdout.
+			c.killCurrent()
 			c.failAll(err)
 			continue
 		}
@@ -199,6 +231,7 @@ func (c *rpcClient) supervise() {
 			cancel()
 			if err != nil {
 				logger.ErrorCF("deltachat", "rpc restart: bootstrap failed", map[string]any{"error": err.Error()})
+				c.killCurrent()
 				c.failAll(err)
 				continue
 			}
@@ -208,16 +241,37 @@ func (c *rpcClient) supervise() {
 	}
 }
 
+// killCurrent terminates the currently wired server process and closes its
+// stdin so a failed restart generation cannot leak a process plus a readLoop
+// blocked on its stdout (M-1). Safe to call when the process is already gone.
+func (c *rpcClient) killCurrent() {
+	c.mu.Lock()
+	cmd, stdin := c.cmd, c.stdin
+	c.mu.Unlock()
+	if stdin != nil {
+		_ = stdin.Close()
+	}
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		logger.DebugCF("deltachat", "rpc restart: kill failed", map[string]any{"error": err.Error()})
+	}
+	// Reap so exec.Cmd reflects the exit (also unblocks the superseded
+	// readLoop: Wait closes the stdout pipe). Double-Wait errors are ignored.
+	_ = cmd.Wait()
+}
+
 // waitReadyInternal polls get_system_info until the respawned server answers.
 func (c *rpcClient) waitReadyInternal() error {
-	for attempt := 0; attempt < 40; attempt++ {
+	for attempt := 0; attempt < rpcWaitReadyAttempts; attempt++ {
 		callCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		_, err := c.call(callCtx, "get_system_info")
 		cancel()
 		if err == nil {
 			return nil
 		}
-		time.Sleep(250 * time.Millisecond)
+		time.Sleep(rpcWaitReadyInterval)
 	}
 	return fmt.Errorf("deltachat: restarted rpc server did not become ready")
 }
