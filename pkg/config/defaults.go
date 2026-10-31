@@ -506,6 +506,8 @@ func DefaultConfig() *Config {
 			ListDir: ToolConfig{
 				Enabled: true,
 			},
+			Glob: ToolConfig{Enabled: true},
+			Grep: ToolConfig{Enabled: true},
 			LoadImage: ToolConfig{
 				Enabled: true,
 			},

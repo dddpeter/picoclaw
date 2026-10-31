@@ -1603,6 +1603,8 @@ type ToolsConfig struct {
 	I2C          ToolConfig         `json:"i2c"               yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_I2C_"`
 	InstallSkill ToolConfig         `json:"install_skill"     yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_INSTALL_SKILL_"`
 	ListDir      ToolConfig         `json:"list_dir"          yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_LIST_DIR_"`
+	Glob         ToolConfig         `json:"glob"              yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_GLOB_"`
+	Grep         ToolConfig         `json:"grep"              yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_GREP_"`
 	LoadImage    ToolConfig         `json:"load_image"        yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_LOAD_IMAGE_"`
 	Message      MessageToolsConfig `json:"message"           yaml:"-"`
 	ReadFile     ReadFileToolConfig `json:"read_file"         yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_READ_FILE_"`
@@ -2415,6 +2417,10 @@ func (t *ToolsConfig) IsToolEnabled(name string) bool {
 		return t.InstallSkill.Enabled
 	case "list_dir":
 		return t.ListDir.Enabled
+	case "glob":
+		return t.Glob.Enabled
+	case "grep":
+		return t.Grep.Enabled
 	case "load_image":
 		return t.LoadImage.Enabled
 	case "message":

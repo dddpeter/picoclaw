@@ -161,7 +161,8 @@
     "askTextPlaceholder": "Zadejte odpověď…",
     "askTitle": "Potřebuji vaši odpověď",
     "stopGeneration": "Zastavit generování",
-    "renameSession": "Přejmenovat relaci"
+    "renameSession": "Přejmenovat relaci",
+    "sessionHistory": "Historie relací"
   },
   "header": {
     "logout": {
@@ -204,12 +205,6 @@
   },
   "labels": {
     "loading": "Načítám..."
-  },
-  "footer": {
-    "version": "Verze",
-    "commit": "Commit",
-    "build": "Build",
-    "version_unknown": "Neznámá"
   },
   "credentials": {
     "description": "Správa OAuth a token přihlašovacích údajů pro podporované providery.",
@@ -280,7 +275,6 @@
     "description": "Nastavení API klíčů pro AI providery. V chatu jsou dostupné pouze nakonfigurované modely.",
     "defaultChangeSuccess": "Výchozí model aktualizován.",
     "unsavedPrompt": "Tato změna ještě nebyla uložena. Uložte ji do konfigurace modelu.",
-    "restartHint": "Změny konfigurace modelu se projeví po restartu gateway.",
     "loadError": "Načtení modelů selhalo",
     "retry": "Zkusit znovu",
     "providerCatalogUnavailable": "Katalog poskytovatelů backendu není dostupný. Výběr nových poskytovatelů je zakázán, dokud se API modelů úspěšně nenačte.",
@@ -318,8 +312,6 @@
       "button": "Fallback řetězec",
       "title": "Výchozí model a fallback řetězec",
       "manage": "Spravovat řetězec",
-      "summary_one": "{{model}} s {{count}} fallbackem",
-      "summary_other": "{{model}} s {{count}} fallbacky",
       "noDefault": "Zatím není vybrán žádný výchozí model.",
       "dialogTitle": "Upravit fallback řetězec",
       "dialogDescription": "Zkontrolujte a změňte pořadí fallback modelů použitých po selhání výchozího modelu.",
@@ -417,12 +409,10 @@
       "retry": "Zkusit znovu",
       "filterPlaceholder": "Filtrovat modely...",
       "found": "Nalezen {{count}} model",
-      "found_plural": "Nalezeno {{count}} modelů",
       "shown": "(zobrazeno {{count}})",
       "selectAll": "Vybrat vše",
       "deselectAll": "Zrušit výběr všech",
       "fill": "Doplnit {{count}} vybraný model",
-      "fill_plural": "Doplnit {{count}} vybrané modely",
       "failed": "Načtení modelů selhalo"
     },
     "catalog": {
@@ -435,9 +425,7 @@
       "models": "modely",
       "fetchedAt": "Načteno",
       "delete": "Smazat katalog",
-      "refresh": "Aktualizovat ze zdroje",
       "found": "Nalezen {{count}} model",
-      "found_plural": "Nalezeno {{count}} modelů",
       "selectAll": "Vybrat vše",
       "deselectAll": "Zrušit výběr všech",
       "addSelected": "Přidat {{count}} vybrané",
@@ -463,7 +451,6 @@
       "whitespace": "Identifikátor modelu nesmí obsahovat mezery",
       "leadingSlash": "Nesmí začínat lomítkem /",
       "consecutiveSlash": "Nesmí obsahovat po sobě jdoucí lomítka /",
-      "useProvider": "Bude použit '{{provider}}' jako poskytovatel",
       "defaultToOpenAI": "Žádný poskytovatel nezadán, výchozí je OpenAI",
       "emptyModel": "Název modelu nesmí být prázdný",
       "shouldUse": "'{{provider}}' by měl používat '{{alias}}'",
@@ -550,7 +537,6 @@
       "streamingMinGrowthChars": "Minimální přírůstek znaků",
       "groupTriggerMentionOnly": "Pouze zmínka ve skupině",
       "groupTriggerPrefixes": "Prefixy pro spuštění ve skupině",
-      "groupTriggerPrefixesPlaceholder": "např. /, !, ?",
       "randomReactionEmoji": "Náhodná emoji reakce",
       "randomReactionEmojiPlaceholder": "např. THUMBSUP, HEART, SMILE",
       "isLark": "Lark (mezinárodní)",
@@ -568,9 +554,7 @@
       "saveError": "Uložení nastavení kanálu selhalo",
       "savePrompt": "Tato změna ještě nebyla uložena. Uložte ji do konfigurace kanálu.",
       "docLink": "Dokumentace",
-      "enableLabel": "Aktivovat kanál",
-      "restartRequiredTitle": "Vyžadován restart gateway",
-      "restartRequiredDesc": "Poslední nastavení {{name}} bylo uloženo. Pro aktivaci restartujte gateway."
+      "enableLabel": "Aktivovat kanál"
     },
     "form": {
       "desc": {
@@ -781,13 +765,11 @@
           "proxy_description": "Volitelná globální HTTP/S proxy pro podkladové webové požadavky.",
           "prefer_native": "Preferovat nativní vyhledávání",
           "prefer_native_hint": "Pokud je aktivní, model může použít vlastní vestavěnou schopnost vyhledávání místo nakonfigurovaného seznamu providerů.",
-          "provider_hint": "Aktivujte tohoto providera a vyplňte požadovaná nastavení připojení.",
           "max_results": "Max výsledků",
           "base_url": "Base URL",
           "base_url_placeholder": "Volitelné přepsání endpointu",
           "api_key": "API Key / Token",
           "api_key_placeholder": "Zadejte API klíč, ponechte prázdné pro zachování stávajícího",
-          "none": "Nedostupné",
           "model": "Model přepisu",
           "model_placeholder": "Použít výchozí kanálu"
         },
@@ -908,7 +890,6 @@
       "server_port": "Port služby",
       "server_port_hint": "HTTP port používaný Limulus Web.",
       "launcher_section_hint": "Změny v této sekci se projeví až po restartu launcheru.",
-      "gateway_restart_hint": "Změny v této části se projeví po restartu gateway.",
       "dashboard_password": "Přihlašovací heslo",
       "dashboard_password_hint": "Nastavit nové přihlašovací heslo.",
       "dashboard_password_placeholder": "Alespoň 8 znaků",
@@ -1004,8 +985,7 @@
         "settings": "Discovery & Advanced"
       },
       "global": {
-        "enabled": "Enable MCP",
-        "enabled_hint": "When off, the agent loads no MCP servers"
+        "enabled": "Enable MCP"
       },
       "banner": {
         "offline": "Gateway is not running; showing configured values",
@@ -1075,8 +1055,7 @@
       },
       "advanced": {
         "max_inline": "Inline output limit (chars)",
-        "max_inline_hint": "MCP text output beyond this length is saved as an artifact",
-        "min_one": "Must be at least 1"
+        "max_inline_hint": "MCP text output beyond this length is saved as an artifact"
       },
       "config_page": {
         "notice": "MCP settings moved to a dedicated page",

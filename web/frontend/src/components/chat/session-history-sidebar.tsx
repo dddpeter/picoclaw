@@ -131,6 +131,7 @@ export function SessionHistorySidebar({
                 role="button"
                 tabIndex={0}
                 aria-current={active ? "true" : undefined}
+                data-session-item
                 onClick={() => onSwitchSession(session.id, session.channel)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {

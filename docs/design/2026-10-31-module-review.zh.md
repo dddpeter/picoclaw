@@ -172,3 +172,12 @@
 - **C9 doctor 接 ProbeServer**：新增 Check 6——逐个探测启用的 MCP server（复用 mcp.ProbeServer，与运行时同一 transport/env 解析路径），报告可达性与工具数；本机 smoke 实测通过（agentmemory 超时正确报 warn、codebase-memory 报 17 tools）。
 
 **批次四剩余**（需逐项设计，见 §4 原表）：/skills drafts 草稿审阅命令、pico/telegram surface 复用、glob/grep 工具、前端移动端侧栏抽屉、i18n 死键清理与 cs/bn-in/pt-br 补齐。
+
+## 附六：批次四剩余项实施记录（2026-10-31 收尾）
+
+- **C3 /drafts 命令闭环**：evolution Runtime 新增 `CandidateDraftsForReview`/`DraftByID`/`DecideDraft`（consent-first：accept 走与冷路径同一 applyCandidateDraft 校验+扫描+原子写+回滚；reject 标记 `DraftStatusRejected` 停止浮现）；新 `/drafts` 命令（list/preview/accept/reject，preview 对超长 body 2000 字截断）；agent_command.go 经 evolution bridge 接线（runtime 未启用时回 unavailableMsg）；4 个 handler 测试。
+- **glob/grep 工具补缺**：`pkg/tools/fs/glob_tool.go`+`grep_tool.go`——走既有 fileSystem 抽象（hostFs/sandboxFs/whitelistFs 三态沙箱语义不变），`**` 递归/单段 `*`、正则元字符全转义（可预测字面量语义）、跳过 .git/node_modules、命中/文件数/深度三层上限、二进制探测（NUL）、include 文件名过滤与大小写开关；独立 `tools.glob.enabled`/`tools.grep.enabled` 开关（默认开）+ 配置文档两处登记；6 个测试（递归/单段/字面量/行命中/include/空结果）。
+- **i18n 死键清理**：18 组死键 ×5 locale 删除（footer 全组、restartHint、`_plural` 变体、useProvider、gateway_restart_hint 等——逐键 grep 复核，纠正了代理把 `common.restartRequiredTitle` 误列为死的路径混淆）；前端构建通过。
+- **移动端会话侧栏抽屉**：桌面 `hidden md:flex` 保留内联侧栏，小屏走 Sheet 抽屉（左侧 w-80）+ 页头历史按钮（md:hidden），条目点按经 `data-session-item` 自动收起抽屉；重命名/删除等行内操作自带 stopPropagation 不误关。
+
+**至此本次模块梳理四个批次全部落地**（/drafts 与 glob/grep 让「evolution 草稿无入口」「找文件/搜内容靠 exec」两个最大能力缺口闭环）。剩余未做项已无——§2.3 的跨渠道样板收敛（ToolFeedbackTracker 提取等）属持续重构项，不随本次收口。

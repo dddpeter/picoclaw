@@ -236,6 +236,15 @@ func NewAgentInstance(
 	if cfg.Tools.IsToolEnabled("list_dir") {
 		toolsRegistry.Register(tools.NewListDirTool(workspace, readRestrict, allowReadPaths))
 	}
+	// glob/grep (2026-10-31 review C3): workspace file lookup and content
+	// search previously required a platform shell via exec. Same path
+	// validation as the other file tools; go/grep semantics stay in-process.
+	if cfg.Tools.IsToolEnabled("glob") {
+		toolsRegistry.Register(tools.NewGlobTool(workspace, readRestrict, allowReadPaths))
+	}
+	if cfg.Tools.IsToolEnabled("grep") {
+		toolsRegistry.Register(tools.NewGrepTool(workspace, readRestrict, allowReadPaths))
+	}
 	// LSP diagnostics (fork feature, docs/design/lsp-support-design.zh.md).
 	// Default on: unavailable servers are skipped silently and failures
 	// are circuit-broken per (root, server), so an empty environment degrades

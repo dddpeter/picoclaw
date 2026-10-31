@@ -5,6 +5,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/cron"
+	"github.com/sipeed/picoclaw/pkg/evolution"
 )
 
 type MCPServerInfo struct {
@@ -116,6 +117,9 @@ type Runtime struct {
 	StopActiveTurn func() (StopResult, error)
 	// Cron automation surface (all optional; nil entries make /cron
 	// sub-commands reply with unavailableMsg).
+	SkillDrafts           func() []evolution.SkillDraft
+	DraftByID             func(id string) (evolution.SkillDraft, bool)
+	DecideDraft           func(ctx context.Context, id string, accept bool) (evolution.SkillDraft, error)
 	CronJobs              func() []cron.CronJob
 	CronSuggestions       func() []cron.Suggestion
 	AcceptCronSuggestion  func(channel, chatID, id string) (jobID string, err error)

@@ -145,7 +145,8 @@
     "askSealSkipped": "Skipped",
     "askSealDone": "Handled",
     "stopGeneration": "Stop generating",
-    "renameSession": "Rename session"
+    "renameSession": "Rename session",
+    "sessionHistory": "Session history"
   },
   "header": {
     "logout": {
@@ -189,12 +190,6 @@
   },
   "labels": {
     "loading": "Loading..."
-  },
-  "footer": {
-    "version": "Version",
-    "commit": "Commit",
-    "build": "Build",
-    "version_unknown": "Unknown"
   },
   "credentials": {
     "description": "Manage OAuth and token-based credentials for supported providers.",
@@ -265,7 +260,6 @@
     "description": "Configure API keys for AI providers. Only configured models are available for chat.",
     "defaultChangeSuccess": "Default model updated.",
     "unsavedPrompt": "This change has not been saved yet. Save to write it into the model configuration.",
-    "restartHint": "Model configuration changes take effect after the gateway restarts.",
     "loadError": "Failed to load models",
     "retry": "Retry",
     "providerCatalogUnavailable": "The backend provider catalog is unavailable. New provider selections are disabled until the Models API loads successfully.",
@@ -303,8 +297,6 @@
       "button": "Fallback Chain",
       "title": "Default Model and Fallback Chain",
       "manage": "Manage Chain",
-      "summary_one": "{{model}} with {{count}} fallback",
-      "summary_other": "{{model}} with {{count}} fallbacks",
       "noDefault": "No default model selected yet.",
       "dialogTitle": "Edit Fallback Chain",
       "dialogDescription": "Review and reorder the fallback models used after the default model fails.",
@@ -402,12 +394,10 @@
       "retry": "Retry",
       "filterPlaceholder": "Filter models...",
       "found": "Found {{count}} model",
-      "found_plural": "Found {{count}} models",
       "shown": "({{count}} shown)",
       "selectAll": "Select All",
       "deselectAll": "Deselect All",
       "fill": "Fill {{count}} Selected Model",
-      "fill_plural": "Fill {{count}} Selected Models",
       "failed": "Failed to fetch models"
     },
     "catalog": {
@@ -420,9 +410,7 @@
       "models": "models",
       "fetchedAt": "Fetched",
       "delete": "Delete catalog",
-      "refresh": "Refresh from upstream",
       "found": "Found {{count}} model",
-      "found_plural": "Found {{count}} models",
       "selectAll": "Select All",
       "deselectAll": "Deselect All",
       "addSelected": "Add {{count}} Selected",
@@ -448,7 +436,6 @@
       "whitespace": "Model identifier cannot contain whitespace",
       "leadingSlash": "Should not start with /",
       "consecutiveSlash": "Should not contain consecutive /",
-      "useProvider": "Will use \"{{provider}}\" as provider",
       "defaultToOpenAI": "No provider specified, defaults to OpenAI",
       "emptyModel": "Model name cannot be empty",
       "shouldUse": "\"{{provider}}\" should use \"{{alias}}\"",
@@ -539,7 +526,6 @@
       "streamingMinGrowthChars": "Minimum Growth Characters",
       "groupTriggerMentionOnly": "Group Mention Only",
       "groupTriggerPrefixes": "Group Trigger Prefixes",
-      "groupTriggerPrefixesPlaceholder": "e.g. /, !, ?",
       "randomReactionEmoji": "Random Reaction Emoji",
       "randomReactionEmojiPlaceholder": "e.g. THUMBSUP, HEART, SMILE",
       "isLark": "Lark (International)",
@@ -557,9 +543,7 @@
       "saveError": "Failed to save channel configuration",
       "savePrompt": "This change has not been saved yet. Save to write it into the channel configuration.",
       "docLink": "Documentation",
-      "enableLabel": "Enable channel",
-      "restartRequiredTitle": "Gateway restart required",
-      "restartRequiredDesc": "The latest {{name}} configuration has been saved. Restart the gateway for it to take effect."
+      "enableLabel": "Enable channel"
     },
     "form": {
       "desc": {
@@ -772,13 +756,11 @@
           "proxy_description": "Optional global HTTP/S proxy for underlying web requests.",
           "prefer_native": "Prefer Native Search",
           "prefer_native_hint": "When enabled, the model may use its built-in search capability instead of the configured provider list.",
-          "provider_hint": "Enable this provider and fill any required connection settings.",
           "max_results": "Max Results",
           "base_url": "Base URL",
           "base_url_placeholder": "Optional endpoint override",
           "api_key": "API Key / Token",
           "api_key_placeholder": "Enter API key, leave it blank to keep the original key",
-          "none": "Unavailable",
           "model": "Transcription model",
           "model_placeholder": "Use the provider default"
         },
@@ -899,7 +881,6 @@
       "server_port": "Service Port",
       "server_port_hint": "HTTP port used by Limulus Web.",
       "launcher_section_hint": "Changes in this section take effect after the launcher restarts.",
-      "gateway_restart_hint": "Changes in this section take effect after the gateway restarts.",
       "dashboard_password": "Login Password",
       "dashboard_password_hint": "Set a new login password.",
       "dashboard_password_placeholder": "At least 8 characters",
@@ -995,8 +976,7 @@
         "settings": "Discovery & Advanced"
       },
       "global": {
-        "enabled": "Enable MCP",
-        "enabled_hint": "When off, the agent loads no MCP servers"
+        "enabled": "Enable MCP"
       },
       "banner": {
         "offline": "Gateway is not running; showing configured values",
@@ -1066,8 +1046,7 @@
       },
       "advanced": {
         "max_inline": "Inline output limit (chars)",
-        "max_inline_hint": "MCP text output beyond this length is saved as an artifact",
-        "min_one": "Must be at least 1"
+        "max_inline_hint": "MCP text output beyond this length is saved as an artifact"
       },
       "config_page": {
         "notice": "MCP settings moved to a dedicated page",
@@ -1080,7 +1059,6 @@
     "plugins": {
       "install": "Install plugin",
       "install_hint": "A local plugin directory or a git URL (branch/tag ref only)",
-      "installing": "Installing…",
       "installed_toast": "Plugin installed",
       "installed_with_errors": "Installed with problems",
       "enabled_toast": "Plugin enabled",

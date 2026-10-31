@@ -1,4 +1,4 @@
-import { IconAlertTriangle, IconPlus } from "@tabler/icons-react"
+import { IconAlertTriangle, IconHistory, IconPlus } from "@tabler/icons-react"
 import { useAtom } from "jotai"
 
 import { renameSession } from "@/api/sessions"
@@ -23,6 +23,7 @@ import { ModelSelector } from "@/components/chat/model-selector"
 import { SessionHistorySidebar } from "@/components/chat/session-history-sidebar"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import {
   Select,
   SelectContent,
@@ -113,6 +114,7 @@ export function ChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dragDepthRef = useRef(0)
+  const [sessionsSheetOpen, setSessionsSheetOpen] = useState(false)
   const [isAtBottom, setIsAtBottom] = useState(true)
   const [hasScrolled, setHasScrolled] = useState(false)
   const [input, setInput] = useState("")
@@ -334,6 +336,31 @@ export function ChatPage() {
     }
   }
 
+const sessionSidebar = (
+  <SessionHistorySidebar
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          activeSessionBusy={isTyping}
+          hasMore={hasMore}
+          isLoading={isLoading}
+          loadError={loadError}
+          loadErrorMessage={loadErrorMessage}
+          observerRef={observerRef}
+          onSwitchSession={switchSession}
+          onDeleteSession={handleDeleteSession}
+          onRenameSession={async (sessionId, title) => {
+            try {
+              await renameSession(sessionId, title)
+              void loadSessions(true)
+            } catch (err) {
+              console.error("rename session failed", err)
+            }
+          }}
+          onRefresh={() => void loadSessions(true)}
+          onAutoRefresh={() => void refreshSessions()}
+        />
+  )
+
   return (
     <PromptTemplatesProvider
       onFill={handleTemplateFill}
@@ -341,28 +368,25 @@ export function ChatPage() {
       canSend={canInput}
     >
     <div className="bg-background/95 flex h-full">
-      <SessionHistorySidebar
-        sessions={sessions}
-        activeSessionId={activeSessionId}
-        activeSessionBusy={isTyping}
-        hasMore={hasMore}
-        isLoading={isLoading}
-        loadError={loadError}
-        loadErrorMessage={loadErrorMessage}
-        observerRef={observerRef}
-        onSwitchSession={switchSession}
-        onDeleteSession={handleDeleteSession}
-        onRenameSession={async (sessionId, title) => {
-          try {
-            await renameSession(sessionId, title)
-            void loadSessions(true)
-          } catch (err) {
-            console.error("rename session failed", err)
-          }
-        }}
-        onRefresh={() => void loadSessions(true)}
-        onAutoRefresh={() => void refreshSessions()}
-      />
+{sessionSidebar}
+
+      <Sheet open={sessionsSheetOpen} onOpenChange={setSessionsSheetOpen}>
+        <SheetContent side="left" className="w-80 p-0">
+          <div
+            className="h-full"
+            onClick={(event) => {
+              // Switching sessions from the drawer should close it; delete /
+              // rename clicks bubble too but their own stopPropagation wins.
+              const target = event.target as HTMLElement
+              if (target.closest("[data-session-item]")) {
+                setSessionsSheetOpen(false)
+              }
+            }}
+          >
+            {sessionSidebar}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <div className="flex min-w-0 flex-1 flex-col">
         <PageHeader
@@ -383,6 +407,16 @@ export function ChatPage() {
           )
         }
       >
+        <SheetTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="md:hidden"
+            aria-label={t("chat.sessionHistory")}
+          >
+            <IconHistory className="size-5" />
+          </Button>
+        </SheetTrigger>
         <div className="border-border/60 hidden items-center gap-2 rounded-lg border px-3 py-1.5 sm:flex">
           <span className="text-muted-foreground text-sm">
             {t("chat.showAssistantDetails")}
@@ -500,3 +534,4 @@ export function ChatPage() {
     </PromptTemplatesProvider>
   )
 }
+

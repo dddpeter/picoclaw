@@ -162,7 +162,8 @@
     "askTextPlaceholder": "উত্তর লিখুন…",
     "askTitle": "আপনার উত্তর প্রয়োজন",
     "stopGeneration": "তৈরি করা বন্ধ করুন",
-    "renameSession": "সেশনের নাম পরিবর্তন করুন"
+    "renameSession": "সেশনের নাম পরিবর্তন করুন",
+    "sessionHistory": "সেশন ইতিহাস"
   },
   "header": {
     "logout": {
@@ -205,12 +206,6 @@
   },
   "labels": {
     "loading": "লোড হচ্ছে..."
-  },
-  "footer": {
-    "version": "সংস্করণ",
-    "commit": "কমিট",
-    "build": "বিল্ড",
-    "version_unknown": "অজানা"
   },
   "credentials": {
     "description": "সমর্থিত প্রোভাইডারদের জন্য OAuth এবং টোকেন-ভিত্তিক ক্রেডেনশিয়াল পরিচালনা করুন।",
@@ -281,7 +276,6 @@
     "description": "AI প্রোভাইডারদের জন্য API কী কনফিগার করুন। শুধুমাত্র কনফিগার করা মডেলগুলি চ্যাটের জন্য উপলব্ধ।",
     "defaultChangeSuccess": "ডিফল্ট মডেল আপডেট করা হয়েছে।",
     "unsavedPrompt": "এই পরিবর্তন এখনও সংরক্ষিত হয়নি। মডেল কনফিগারেশনে লিখতে সংরক্ষণ করুন।",
-    "restartHint": "মডেল কনফিগারেশনের পরিবর্তন গেটওয়ে পুনরায় চালু হওয়ার পরে কার্যকর হয়।",
     "loadError": "মডেল লোড করতে ব্যর্থ",
     "retry": "পুনরায় চেষ্টা করুন",
     "providerCatalogUnavailable": "ব্যাকএন্ড প্রোভাইডার ক্যাটালগ অনুপলব্ধ। মডেল API সফলভাবে লোড না হওয়া পর্যন্ত নতুন প্রোভাইডার নির্বাচন নিষ্ক্রিয়।",
@@ -319,8 +313,6 @@
       "button": "ফলব্যাক চেইন",
       "title": "ডিফল্ট মডেল ও ফলব্যাক চেইন",
       "manage": "চেইন পরিচালনা করুন",
-      "summary_one": "{{model}} সহ {{count}}টি ফলব্যাক",
-      "summary_other": "{{model}} সহ {{count}}টি ফলব্যাক",
       "noDefault": "এখনও কোনো ডিফল্ট মডেল নির্বাচন করা হয়নি।",
       "dialogTitle": "ফলব্যাক চেইন সম্পাদনা করুন",
       "dialogDescription": "ডিফল্ট মডেল ব্যর্থ হলে ব্যবহৃত ফলব্যাক মডেলগুলি পর্যালোচনা ও পুনর্বিন্যাস করুন।",
@@ -418,12 +410,10 @@
       "retry": "পুনরায় চেষ্টা করুন",
       "filterPlaceholder": "মডেল ফিল্টার করুন...",
       "found": "{{count}}টি মডেল পাওয়া গেছে",
-      "found_plural": "{{count}}টি মডেল পাওয়া গেছে",
       "shown": "({{count}}টি দেখানো হয়েছে)",
       "selectAll": "সব নির্বাচন করুন",
       "deselectAll": "সব নির্বাচন বাতিল করুন",
       "fill": "{{count}}টি নির্বাচিত মডেল পূরণ করুন",
-      "fill_plural": "{{count}}টি নির্বাচিত মডেল পূরণ করুন",
       "failed": "মডেল আনতে ব্যর্থ"
     },
     "catalog": {
@@ -436,9 +426,7 @@
       "models": "মডেল",
       "fetchedAt": "আনা হয়েছে",
       "delete": "ক্যাটালগ মুছুন",
-      "refresh": "আপস্ট্রিম থেকে রিফ্রেশ করুন",
       "found": "{{count}}টি মডেল পাওয়া গেছে",
-      "found_plural": "{{count}}টি মডেল পাওয়া গেছে",
       "selectAll": "সব নির্বাচন করুন",
       "deselectAll": "সব নির্বাচন বাতিল করুন",
       "addSelected": "{{count}}টি নির্বাচিত যোগ করুন",
@@ -464,7 +452,6 @@
       "whitespace": "মডেল শনাক্তকারীতে স্পেস থাকতে পারবে না",
       "leadingSlash": "/ দিয়ে শুরু হওয়া উচিত নয়",
       "consecutiveSlash": "পরপর / থাকা উচিত নয়",
-      "useProvider": "প্রোভাইডার হিসেবে \"{{provider}}\" ব্যবহার করা হবে",
       "defaultToOpenAI": "কোনো প্রোভাইডার নির্দিষ্ট করা নেই, ডিফল্ট OpenAI",
       "emptyModel": "মডেলের নাম খালি হতে পারবে না",
       "shouldUse": "\"{{provider}}\" এর \"{{alias}}\" ব্যবহার করা উচিত",
@@ -551,7 +538,6 @@
       "streamingMinGrowthChars": "ন্যূনতম বৃদ্ধির অক্ষর",
       "groupTriggerMentionOnly": "গ্রুপে শুধুমাত্র উল্লেখ",
       "groupTriggerPrefixes": "গ্রুপ ট্রিগার প্রিফিক্স",
-      "groupTriggerPrefixesPlaceholder": "যেমন /, !, ?",
       "randomReactionEmoji": "র‍্যান্ডম প্রতিক্রিয়া ইমোজি",
       "randomReactionEmojiPlaceholder": "যেমন THUMBSUP, HEART, SMILE",
       "isLark": "Lark (আন্তর্জাতিক)",
@@ -569,9 +555,7 @@
       "saveError": "চ্যানেল কনফিগারেশন সংরক্ষণ করতে ব্যর্থ",
       "savePrompt": "এই পরিবর্তন এখনও সংরক্ষিত হয়নি। চ্যানেল কনফিগারেশনে লিখতে সংরক্ষণ করুন।",
       "docLink": "ডকুমেন্টেশন",
-      "enableLabel": "চ্যানেল সক্ষম করুন",
-      "restartRequiredTitle": "গেটওয়ে পুনরায় চালু করা প্রয়োজন",
-      "restartRequiredDesc": "সর্বশেষ {{name}} কনফিগারেশন সংরক্ষিত হয়েছে। কার্যকর হতে গেটওয়ে পুনরায় চালু করুন।"
+      "enableLabel": "চ্যানেল সক্ষম করুন"
     },
     "form": {
       "desc": {
@@ -782,13 +766,11 @@
           "proxy_description": "অন্তর্নিহিত ওয়েব অনুরোধের জন্য ঐচ্ছিক বৈশ্বিক HTTP/S প্রক্সি।",
           "prefer_native": "নেটিভ অনুসন্ধান পছন্দ করুন",
           "prefer_native_hint": "সক্ষম থাকলে, মডেলটি কনফিগার করা প্রোভাইডার তালিকার পরিবর্তে তার বিল্ট-ইন অনুসন্ধান ক্ষমতা ব্যবহার করতে পারে।",
-          "provider_hint": "এই প্রোভাইডারকে সক্ষম করুন এবং কোনো প্রয়োজনীয় সংযোগ সেটিংস পূরণ করুন।",
           "max_results": "সর্বাধিক ফলাফল",
           "base_url": "বেস URL",
           "base_url_placeholder": "ঐচ্ছিক এন্ডপয়েন্ট ওভাররাইড",
           "api_key": "API কী / টোকেন",
           "api_key_placeholder": "API কী লিখুন, আসল কী রাখতে এটি খালি রাখুন",
-          "none": "অনুপলব্ধ",
           "model": "ট্রান্সক্রিপশন মডেল",
           "model_placeholder": "প্রদানকারীর ডিফল্ট ব্যবহার করুন"
         },
@@ -909,7 +891,6 @@
       "server_port": "সার্ভিস পোর্ট",
       "server_port_hint": "Limulus Web দ্বারা ব্যবহৃত HTTP পোর্ট।",
       "launcher_section_hint": "এই বিভাগের পরিবর্তন লঞ্চার পুনরায় চালু হওয়ার পরে কার্যকর হয়।",
-      "gateway_restart_hint": "এই বিভাগের পরিবর্তন গেটওয়ে পুনরায় চালু হওয়ার পরে কার্যকর হয়।",
       "dashboard_password": "লগইন পাসওয়ার্ড",
       "dashboard_password_hint": "একটি নতুন লগইন পাসওয়ার্ড সেট করুন।",
       "dashboard_password_placeholder": "কমপক্ষে ৮ অক্ষর",
@@ -1005,8 +986,7 @@
         "settings": "Discovery & Advanced"
       },
       "global": {
-        "enabled": "Enable MCP",
-        "enabled_hint": "When off, the agent loads no MCP servers"
+        "enabled": "Enable MCP"
       },
       "banner": {
         "offline": "Gateway is not running; showing configured values",
@@ -1076,8 +1056,7 @@
       },
       "advanced": {
         "max_inline": "Inline output limit (chars)",
-        "max_inline_hint": "MCP text output beyond this length is saved as an artifact",
-        "min_one": "Must be at least 1"
+        "max_inline_hint": "MCP text output beyond this length is saved as an artifact"
       },
       "config_page": {
         "notice": "MCP settings moved to a dedicated page",

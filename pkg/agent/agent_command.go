@@ -4,8 +4,10 @@ package agent
 
 import (
 	"context"
+
 	"encoding/json"
 	"fmt"
+	"github.com/sipeed/picoclaw/pkg/evolution"
 	"os"
 	"sort"
 	"strings"
@@ -463,6 +465,23 @@ func (al *AgentLoop) buildCommandsRuntime(
 
 		rt.AskSideQuestion = func(ctx context.Context, question string) (string, error) {
 			return al.askSideQuestion(ctx, agent, opts, question)
+		}
+
+		// /drafts: evolution skill-draft review loop (consent-first). Only
+		// wired when the evolution runtime is enabled; /drafts replies with
+		// unavailableMsg otherwise.
+		if al.evolution != nil && al.evolution.runtime != nil && agent != nil {
+			bridge := al.evolution
+			workspace := agent.Workspace
+			rt.SkillDrafts = func() []evolution.SkillDraft {
+				return bridge.runtime.CandidateDraftsForReview(workspace)
+			}
+			rt.DraftByID = func(id string) (evolution.SkillDraft, bool) {
+				return bridge.runtime.DraftByID(workspace, id)
+			}
+			rt.DecideDraft = func(ctx context.Context, id string, accept bool) (evolution.SkillDraft, error) {
+				return bridge.runtime.DecideDraft(ctx, workspace, id, accept)
+			}
 		}
 
 		// /cron: scheduling surface (jobs, automation suggestions, blueprints).

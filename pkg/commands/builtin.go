@@ -25,5 +25,6 @@ func BuiltinDefinitions() []Definition {
 		subagentsCommand(),
 		reloadCommand(),
 		cronCommand(),
+		draftsCommand(),
 	}
 }

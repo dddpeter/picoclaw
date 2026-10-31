@@ -375,6 +375,8 @@ Routing 通过 `agents.dispatch.rules` 配置。
 | `read_file`   | 读取文件     | 仅限工作区内的文件             |
 | `write_file`  | 写入文件     | 仅限工作区内的文件             |
 | `list_dir`    | 列出目录     | 仅限工作区内的目录             |
+| `glob`        | 按模式找文件（支持 `**` 递归，跳过 .git/node_modules） | 同文件工具路径规则 |
+| `grep`        | 按正则搜内容（`include` 过滤文件名、`case_insensitive`） | 同文件工具路径规则 |
 | `edit_file`   | 编辑文件     | 仅限工作区内的文件             |
 | `append_file` | 追加文件     | 仅限工作区内的文件             |
 | `exec`        | 执行命令     | 命令路径必须在工作区内         |

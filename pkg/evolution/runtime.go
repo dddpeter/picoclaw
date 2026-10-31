@@ -1371,6 +1371,70 @@ func (rt *Runtime) saveAppliedProfile(store *Store, workspace string, draft Skil
 	return SaveAppliedProfile(store, workspace, draft, now)
 }
 
+// CandidateDraftsForReview returns candidate drafts awaiting a user decision
+// for the given workspace. Backs the /drafts command (2026-10-31 review C3:
+// draft mode produced candidates with no user-visible review entry point).
+func (rt *Runtime) CandidateDraftsForReview(workspace string) []SkillDraft {
+	store := rt.storeForWorkspace(workspace)
+	drafts, err := store.LoadDrafts()
+	if err != nil {
+		return nil
+	}
+	out := make([]SkillDraft, 0, len(drafts))
+	for _, draft := range drafts {
+		if draft.Status == DraftStatusCandidate {
+			out = append(out, draft)
+		}
+	}
+	return out
+}
+
+// DraftByID loads one draft by ID (any status) for preview rendering.
+func (rt *Runtime) DraftByID(workspace, draftID string) (SkillDraft, bool) {
+	store := rt.storeForWorkspace(workspace)
+	drafts, err := store.LoadDrafts()
+	if err != nil {
+		return SkillDraft{}, false
+	}
+	for _, draft := range drafts {
+		if draft.ID == draftID {
+			return draft, true
+		}
+	}
+	return SkillDraft{}, false
+}
+
+// DecideDraft records an explicit user decision on a candidate draft.
+// Consent-first: accept=true applies the draft via the same machinery the
+// cold path uses (validation, scan, atomic write with rollback); accept=false
+// marks it rejected so it stops surfacing for review.
+func (rt *Runtime) DecideDraft(ctx context.Context, workspace, draftID string, accept bool) (SkillDraft, error) {
+	store := rt.storeForWorkspace(workspace)
+	drafts, err := store.LoadDrafts()
+	if err != nil {
+		return SkillDraft{}, err
+	}
+	for _, draft := range drafts {
+		if draft.ID != draftID {
+			continue
+		}
+		if !accept {
+			draft.Status = DraftStatusRejected
+			draft.ReviewNotes = appendUniqueStrings(draft.ReviewNotes, "rejected via /drafts reject")
+			return draft, store.SaveDrafts([]SkillDraft{draft})
+		}
+		if draft.Status == DraftStatusAccepted {
+			return draft, nil
+		}
+		applier := rt.applierForWorkspace(workspace)
+		if applier == nil {
+			return draft, fmt.Errorf("no applier configured for workspace %s", workspace)
+		}
+		return rt.applyCandidateDraft(ctx, workspace, store, applier, draft, "user-review")
+	}
+	return SkillDraft{}, fmt.Errorf("draft %s not found", draftID)
+}
+
 func (rt *Runtime) applyCandidateDraft(
 	ctx context.Context,
 	workspace string,

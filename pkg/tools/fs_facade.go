@@ -8,6 +8,8 @@ import (
 )
 
 type (
+	GlobTool          = fstools.GlobTool
+	GrepTool          = fstools.GrepTool
 	ReadFileTool      = fstools.ReadFileTool
 	ReadFileLinesTool = fstools.ReadFileLinesTool
 	WriteFileTool     = fstools.WriteFileTool
@@ -88,4 +90,20 @@ func NewSendFileTool(
 	allowPaths ...[]*regexp.Regexp,
 ) *SendFileTool {
 	return fstools.NewSendFileTool(workspace, restrict, maxFileSize, store, allowPaths...)
+}
+
+func NewGlobTool(
+	workspace string,
+	restrict bool,
+	allowPaths ...[]*regexp.Regexp,
+) *GlobTool {
+	return fstools.NewGlobTool(workspace, restrict, allowPaths...)
+}
+
+func NewGrepTool(
+	workspace string,
+	restrict bool,
+	allowPaths ...[]*regexp.Regexp,
+) *GrepTool {
+	return fstools.NewGrepTool(workspace, restrict, allowPaths...)
 }

@@ -163,7 +163,8 @@
     "askTextPlaceholder": "Digite a resposta…",
     "askTitle": "Preciso da sua resposta",
     "stopGeneration": "Parar geração",
-    "renameSession": "Renomear sessão"
+    "renameSession": "Renomear sessão",
+    "sessionHistory": "Histórico de sessões"
   },
   "header": {
     "logout": {
@@ -206,12 +207,6 @@
   },
   "labels": {
     "loading": "Carregando..."
-  },
-  "footer": {
-    "version": "Versão",
-    "commit": "Commit",
-    "build": "Build",
-    "version_unknown": "Desconhecido"
   },
   "credentials": {
     "description": "Gerencie credenciais OAuth e baseadas em token para os provedores suportados.",
@@ -282,7 +277,6 @@
     "description": "Configure API Keys para provedores de IA. Apenas modelos configurados ficam disponíveis para o chat.",
     "defaultChangeSuccess": "Modelo padrão atualizado.",
     "unsavedPrompt": "Esta alteração ainda não foi salva. Salve para gravá-la na configuração do modelo.",
-    "restartHint": "Alterações na configuração de modelos só têm efeito após o gateway reiniciar.",
     "loadError": "Falha ao carregar modelos",
     "retry": "Tentar novamente",
     "providerCatalogUnavailable": "O catálogo de providers do backend está indisponível. A seleção de novos providers fica desabilitada até a API de Modelos carregar com sucesso.",
@@ -320,8 +314,6 @@
       "button": "Cadeia de Fallback",
       "title": "Modelo padrão e cadeia de fallback",
       "manage": "Gerenciar cadeia",
-      "summary_one": "{{model}} com {{count}} fallback",
-      "summary_other": "{{model}} com {{count}} fallbacks",
       "noDefault": "Nenhum modelo padrão selecionado ainda.",
       "dialogTitle": "Editar cadeia de fallback",
       "dialogDescription": "Revise e reordene os modelos de fallback usados após falha do modelo padrão.",
@@ -419,12 +411,10 @@
       "retry": "Tentar novamente",
       "filterPlaceholder": "Filtrar modelos...",
       "found": "Encontrado {{count}} modelo",
-      "found_plural": "Encontrados {{count}} modelos",
       "shown": "({{count}} exibidos)",
       "selectAll": "Selecionar todos",
       "deselectAll": "Desmarcar todos",
       "fill": "Preencher {{count}} Modelo Selecionado",
-      "fill_plural": "Preencher {{count}} Modelos Selecionados",
       "failed": "Falha ao buscar modelos"
     },
     "catalog": {
@@ -437,9 +427,7 @@
       "models": "modelos",
       "fetchedAt": "Obtido em",
       "delete": "Excluir catálogo",
-      "refresh": "Atualizar do upstream",
       "found": "Encontrado {{count}} modelo",
-      "found_plural": "Encontrados {{count}} modelos",
       "selectAll": "Selecionar todos",
       "deselectAll": "Desmarcar todos",
       "addSelected": "Adicionar {{count}} Selecionados",
@@ -465,7 +453,6 @@
       "whitespace": "O identificador do modelo não pode conter espaços",
       "leadingSlash": "Não deve começar com /",
       "consecutiveSlash": "Não deve conter // consecutivos",
-      "useProvider": "Usará \"{{provider}}\" como provider",
       "defaultToOpenAI": "Nenhum provider especificado, o padrão será OpenAI",
       "emptyModel": "O nome do modelo não pode estar vazio",
       "shouldUse": "\"{{provider}}\" deve usar \"{{alias}}\"",
@@ -552,7 +539,6 @@
       "streamingMinGrowthChars": "Caracteres Mínimos de Crescimento",
       "groupTriggerMentionOnly": "Apenas Menção em Grupo",
       "groupTriggerPrefixes": "Prefixos de Trigger em Grupo",
-      "groupTriggerPrefixesPlaceholder": "ex: /, !, ?",
       "randomReactionEmoji": "Emoji de Reação Aleatório",
       "randomReactionEmojiPlaceholder": "ex: THUMBSUP, HEART, SMILE",
       "isLark": "Lark (Internacional)",
@@ -570,9 +556,7 @@
       "saveError": "Falha ao salvar configuração do canal",
       "savePrompt": "Esta alteração ainda não foi salva. Salve para gravá-la na configuração do canal.",
       "docLink": "Documentação",
-      "enableLabel": "Habilitar canal",
-      "restartRequiredTitle": "Reinício do gateway necessário",
-      "restartRequiredDesc": "A configuração mais recente de {{name}} foi salva. Reinicie o gateway para que tenha efeito."
+      "enableLabel": "Habilitar canal"
     },
     "form": {
       "desc": {
@@ -783,13 +767,11 @@
           "proxy_description": "Proxy HTTP/S global opcional para requisições web subjacentes.",
           "prefer_native": "Preferir Pesquisa Nativa",
           "prefer_native_hint": "Quando habilitado, o modelo pode usar sua capacidade de pesquisa nativa em vez da lista de provedores configurados.",
-          "provider_hint": "Habilite este provedor e preencha as configurações de conexão necessárias.",
           "max_results": "Máx. de Resultados",
           "base_url": "URL Base",
           "base_url_placeholder": "Sobrescrita opcional do endpoint",
           "api_key": "API Key / Token",
           "api_key_placeholder": "Digite a API Key, deixe em branco para manter a chave original",
-          "none": "Indisponível",
           "model": "Modelo de transcrição",
           "model_placeholder": "Usar padrão do provedor"
         },
@@ -910,7 +892,6 @@
       "server_port": "Porta do Serviço",
       "server_port_hint": "Porta HTTP usada pelo Limulus Web.",
       "launcher_section_hint": "Alterações nesta seção entram em vigor após o launcher reiniciar.",
-      "gateway_restart_hint": "Alterações nesta seção entram em vigor após o gateway reiniciar.",
       "dashboard_password": "Senha de Login",
       "dashboard_password_hint": "Defina uma nova senha de login.",
       "dashboard_password_placeholder": "Pelo menos 8 caracteres",
@@ -1006,8 +987,7 @@
         "settings": "Discovery & Advanced"
       },
       "global": {
-        "enabled": "Enable MCP",
-        "enabled_hint": "When off, the agent loads no MCP servers"
+        "enabled": "Enable MCP"
       },
       "banner": {
         "offline": "Gateway is not running; showing configured values",
@@ -1077,8 +1057,7 @@
       },
       "advanced": {
         "max_inline": "Inline output limit (chars)",
-        "max_inline_hint": "MCP text output beyond this length is saved as an artifact",
-        "min_one": "Must be at least 1"
+        "max_inline_hint": "MCP text output beyond this length is saved as an artifact"
       },
       "config_page": {
         "notice": "MCP settings moved to a dedicated page",

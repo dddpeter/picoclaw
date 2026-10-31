@@ -35,6 +35,7 @@ const (
 	DraftStatusCandidate   DraftStatus = "candidate"
 	DraftStatusQuarantined DraftStatus = "quarantined"
 	DraftStatusAccepted    DraftStatus = "accepted"
+	DraftStatusRejected    DraftStatus = "rejected"
 )
 
 type SkillStatus string
