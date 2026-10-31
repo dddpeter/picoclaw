@@ -199,7 +199,8 @@
     "saveChangesTitle": "Você tem alterações de configuração não salvas",
     "restartRequiredTitle": "Reinício do gateway necessário",
     "restartRequiredDesc": "A configuração mais recente de {{name}} foi salva. Reinicie o gateway para que tenha efeito.",
-    "back": "Voltar"
+    "back": "Voltar",
+    "loading": "Carregando…"
   },
   "labels": {
     "loading": "Carregando..."
@@ -786,7 +787,9 @@
           "base_url_placeholder": "Sobrescrita opcional do endpoint",
           "api_key": "API Key / Token",
           "api_key_placeholder": "Digite a API Key, deixe em branco para manter a chave original",
-          "none": "Indisponível"
+          "none": "Indisponível",
+          "model": "Modelo de transcrição",
+          "model_placeholder": "Usar padrão do provedor"
         },
         "status": {
           "enabled": "Habilitada",
@@ -1078,6 +1081,9 @@
       "config_page": {
         "notice": "MCP settings moved to a dedicated page",
         "link": "Open MCP page"
+      },
+      "plugin_servers": {
+        "title": "Servidores MCP de plugins"
       }
     }
   },

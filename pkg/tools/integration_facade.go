@@ -82,10 +82,6 @@ func NewWebSearchTool(opts WebSearchToolOptions) (*WebSearchTool, error) {
 	return integrationtools.NewWebSearchTool(opts)
 }
 
-func NewWebFetchTool(maxChars int, format string, fetchLimitBytes int64) (*WebFetchTool, error) {
-	return integrationtools.NewWebFetchTool(maxChars, format, fetchLimitBytes)
-}
-
 func NewWebFetchToolWithProxy(
 	maxChars int,
 	proxy string,

@@ -20,15 +20,6 @@ type (
 
 const MaxReadFileSize = fstools.MaxReadFileSize
 
-func NewReadFileTool(
-	workspace string,
-	restrict bool,
-	maxReadFileSize int,
-	allowPaths ...[]*regexp.Regexp,
-) *ReadFileTool {
-	return fstools.NewReadFileTool(workspace, restrict, maxReadFileSize, allowPaths...)
-}
-
 func NewReadFileBytesTool(
 	workspace string,
 	restrict bool,

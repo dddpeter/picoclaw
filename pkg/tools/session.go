@@ -29,7 +29,6 @@ const PtyKeyModeNotFound PtyKeyMode = 255
 var (
 	ErrSessionNotFound = errors.New("session not found")
 	ErrSessionDone     = errors.New("session already completed")
-	ErrPTYNotSupported = errors.New("PTY is not supported on this platform")
 	ErrNoStdin         = errors.New("no stdin available")
 )
 
@@ -44,7 +43,6 @@ type ProcessSession struct {
 	ExitCode        int
 	Status          string
 	stdinWriter     io.Writer
-	stdoutPipe      io.Reader
 	outputBuffer    *bytes.Buffer
 	outputTruncated bool
 	ptyMaster       *os.File
@@ -85,22 +83,10 @@ func (s *ProcessSession) GetStatus() string {
 	return s.Status
 }
 
-func (s *ProcessSession) SetStatus(status string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.Status = status
-}
-
 func (s *ProcessSession) GetExitCode() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.ExitCode
-}
-
-func (s *ProcessSession) SetExitCode(code int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.ExitCode = code
 }
 
 func (s *ProcessSession) killProcess() error {

@@ -996,12 +996,12 @@ func TestSeahorseSteeringMessageIngested(t *testing.T) {
 	}
 
 	// Inject a steering message
-	steerErr := al.InjectSteering(providers.Message{
+	steerErr := al.Steer(providers.Message{
 		Role:    "user",
 		Content: "steering message content",
 	})
 	if steerErr != nil {
-		t.Fatalf("InjectSteering failed: %v", steerErr)
+		t.Fatalf("Steer failed: %v", steerErr)
 	}
 
 	// Second turn: should process steering message

@@ -367,6 +367,17 @@ func maxRuneCount(s string, count int) int {
 	return utf8.RuneCountInString(string(runes[:count]))
 }
 
+// toleratedLegacyNoopKeys lists dead config key names kept loadable after the
+// fields were removed (see collectUnknownJSONFields for rationale).
+var toleratedLegacyNoopKeys = map[string]bool{
+	"elevenlabs_api_key":   true, // voice: key actually comes from model_list entries
+	"write_timeout":        true, // pico: effective value is a manager-side constant
+	"group_trigger_prefix": true, // onebot: migrated to group_trigger.prefixes
+	"mention_only":         true, // discord: superseded by group_trigger.mention_only
+	"webhook_host":         true, // line: webhook mounts via shared server
+	"webhook_port":         true, // line: webhook mounts via shared server
+}
+
 func collectUnknownJSONFields(raw any, targetType reflect.Type, path string) []string {
 	targetType = derefType(targetType)
 	if targetType == nil {
@@ -387,6 +398,15 @@ func collectUnknownJSONFields(raw any, targetType reflect.Type, path string) []s
 			// It never maps to a struct field, is dropped by the decoder and
 			// vanishes on the next save, so it must not fail strict loads.
 			if key == "_comment" {
+				continue
+			}
+			// Legacy no-op knobs removed from the structs (2026-10-31 module
+			// review): they never had any runtime effect, so existing configs
+			// carrying them must keep loading; the keys are dropped by the
+			// decoder and vanish on the next save. Leaf-name match on purpose —
+			// the check only fires when the key does not map to a field at its
+			// exact path, so live same-named fields are unaffected.
+			if toleratedLegacyNoopKeys[key] {
 				continue
 			}
 			fieldType, exists := fieldMap[key]

@@ -462,24 +462,6 @@ func cloneToolDefs(defs []providers.ToolDefinition) []providers.ToolDefinition {
 	return out
 }
 
-func (r *ToolRegistry) GetDefinitions() []map[string]any {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	sorted := r.sortedToolNames()
-	definitions := make([]map[string]any, 0, len(sorted))
-	for _, name := range sorted {
-		entry := r.tools[name]
-
-		if !entry.IsCore && entry.TTL <= 0 {
-			continue
-		}
-
-		definitions = append(definitions, ToolToSchema(r.tools[name].Tool))
-	}
-	return definitions
-}
-
 // ToProviderDefs converts tool definitions to provider-compatible format.
 // This is the format expected by LLM provider APIs.
 //
@@ -611,35 +593,6 @@ func (r *ToolRegistry) Clone() *ToolRegistry {
 }
 
 // Count returns the number of registered tools.
-func (r *ToolRegistry) Count() int {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return len(r.tools)
-}
-
-// GetSummaries returns human-readable summaries of all registered tools.
-// Returns a slice of "name - description" strings.
-func (r *ToolRegistry) GetSummaries() []string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	sorted := r.sortedToolNames()
-	summaries := make([]string, 0, len(sorted))
-	for _, name := range sorted {
-		entry := r.tools[name]
-
-		if !entry.IsCore && entry.TTL <= 0 {
-			continue
-		}
-
-		summaries = append(
-			summaries,
-			fmt.Sprintf("- `%s` - %s", entry.Tool.Name(), entry.Tool.Description()),
-		)
-	}
-	return summaries
-}
-
 // GetAll returns all registered tools (both core and non-core with TTL > 0).
 // Used by SubTurn to inherit parent's tool set.
 func (r *ToolRegistry) GetAll() []Tool {

@@ -197,7 +197,8 @@
     "saveChangesTitle": "Máte neuložené změny konfigurace",
     "restartRequiredTitle": "Vyžadován restart gateway",
     "restartRequiredDesc": "Nejnovější konfigurace {{name}} byla uložena. Pro aktivaci restartujte gateway.",
-    "back": "Zpět"
+    "back": "Zpět",
+    "loading": "Načítání…"
   },
   "labels": {
     "loading": "Načítám..."
@@ -784,7 +785,9 @@
           "base_url_placeholder": "Volitelné přepsání endpointu",
           "api_key": "API Key / Token",
           "api_key_placeholder": "Zadejte API klíč, ponechte prázdné pro zachování stávajícího",
-          "none": "Nedostupné"
+          "none": "Nedostupné",
+          "model": "Model přepisu",
+          "model_placeholder": "Použít výchozí kanálu"
         },
         "status": {
           "enabled": "Aktivní",
@@ -1076,6 +1079,9 @@
       "config_page": {
         "notice": "MCP settings moved to a dedicated page",
         "link": "Open MCP page"
+      },
+      "plugin_servers": {
+        "title": "MCP servery z pluginů"
       }
     }
   },

@@ -924,7 +924,6 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 		if err != nil {
 			return ErrorResult(fmt.Sprintf("failed to create stdin pipe: %v", err))
 		}
-		session.stdoutPipe = io.MultiReader(stdoutReader, stderrReader)
 		session.stdinWriter = stdinWriter
 	}
 

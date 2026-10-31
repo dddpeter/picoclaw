@@ -198,7 +198,8 @@
     "saveChangesTitle": "আপনার অসংরক্ষিত কনফিগারেশন পরিবর্তন রয়েছে",
     "restartRequiredTitle": "গেটওয়ে পুনরায় চালু করা প্রয়োজন",
     "restartRequiredDesc": "সর্বশেষ {{name}} কনফিগারেশন সংরক্ষিত হয়েছে। কার্যকর হতে গেটওয়ে পুনরায় চালু করুন।",
-    "back": "ফিরে যান"
+    "back": "ফিরে যান",
+    "loading": "লোড হচ্ছে…"
   },
   "labels": {
     "loading": "লোড হচ্ছে..."
@@ -785,7 +786,9 @@
           "base_url_placeholder": "ঐচ্ছিক এন্ডপয়েন্ট ওভাররাইড",
           "api_key": "API কী / টোকেন",
           "api_key_placeholder": "API কী লিখুন, আসল কী রাখতে এটি খালি রাখুন",
-          "none": "অনুপলব্ধ"
+          "none": "অনুপলব্ধ",
+          "model": "ট্রান্সক্রিপশন মডেল",
+          "model_placeholder": "প্রদানকারীর ডিফল্ট ব্যবহার করুন"
         },
         "status": {
           "enabled": "সক্ষম",
@@ -1077,6 +1080,9 @@
       "config_page": {
         "notice": "MCP settings moved to a dedicated page",
         "link": "Open MCP page"
+      },
+      "plugin_servers": {
+        "title": "প্লাগইন সরবরাহকৃত MCP সার্ভার"
       }
     }
   },

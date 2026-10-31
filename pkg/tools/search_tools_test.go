@@ -165,7 +165,7 @@ func TestSearchRegex_ZeroMaxResults(t *testing.T) {
 func TestSearchBM25_ZeroMaxResults(t *testing.T) {
 	reg := setupPopulatedRegistry()
 
-	res := reg.SearchBM25("read file", 0)
+	res := reg.searchBM25Unregistered("read file", 0)
 	if len(res) != 0 {
 		t.Errorf("Expected 0 results with maxSearchResults=0, got %d", len(res))
 	}
@@ -238,7 +238,7 @@ func TestToolRegistry_SearchLimitsAndCoreFiltering(t *testing.T) {
 
 	t.Run("BM25 limits and core filtering", func(t *testing.T) {
 		// Search with BM25 and a limit of maxSearchResults = 3
-		res := reg.SearchBM25("match", 3)
+		res := reg.searchBM25Unregistered("match", 3)
 
 		if len(res) != 3 {
 			t.Errorf("Expected exactly 3 results due to limit, got %d", len(res))

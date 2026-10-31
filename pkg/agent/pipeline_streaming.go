@@ -290,10 +290,6 @@ func finalizeConfiguredStreamingLLM(
 	return nil
 }
 
-func cancelConfiguredStreamingLLM(ctx context.Context, exec *turnExecution) {
-	cancelConfiguredStreamingLLMWithReason(ctx, exec, "")
-}
-
 // Stable cancellation reason codes surfaced on streaming surfaces.
 const (
 	streamCancelReasonStreamError      = "stream_error"

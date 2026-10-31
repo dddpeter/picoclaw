@@ -322,9 +322,6 @@ func (al *AgentLoop) buildCommandsRuntime(
 		}
 		return al.stopActiveTurnForSession(opts.Dispatch.SessionKey)
 	}
-	if agent != nil && agent.ContextBuilder != nil {
-		rt.ListSkillNames = agent.ContextBuilder.ListSkillNames
-	}
 	rt.ReloadConfig = func() error {
 		if al.reloadFunc == nil {
 			return fmt.Errorf("reload not configured")

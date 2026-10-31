@@ -63,21 +63,6 @@ const (
 	ToolControlFinalize
 )
 
-// LLMPhase indicates which phase the turn is executing in.
-type LLMPhase int
-
-const (
-	LLMPhaseSetup LLMPhase = iota
-	LLMPhasePreLLM
-	LLMPhaseLLMCall
-	LLMPhaseProcessing
-	LLMPhaseToolLoop
-	LLMPhaseTools
-	LLMPhaseFinalizing
-	LLMPhaseCompleted
-	LLMPhaseAborted
-)
-
 // =============================================================================
 // turnResult - returned from runTurn
 // =============================================================================
@@ -179,9 +164,6 @@ type turnExecution struct {
 	// interception note.
 	parrotRetryUsed bool
 
-	// Phase tracking
-	phase LLMPhase
-
 	// Abort signaling for coordinator (set by Pipeline methods)
 	abortedByHardAbort bool // true when hard abort triggered during LLM/tools
 	abortedByHook      bool // true when HookActionAbortTurn triggered
@@ -210,7 +192,6 @@ func newTurnExecution(
 		pendingMessages:  append([]providers.Message(nil), opts.InitialSteeringMessages...),
 		currentTurnStart: len(messages),
 		iteration:        0,
-		phase:            LLMPhaseSetup,
 	}
 }
 

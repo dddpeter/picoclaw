@@ -46,7 +46,7 @@ func TestRecallSimilarSkills_ReturnsWorkspaceSkillFirst(t *testing.T) {
 
 	recaller := evolution.NewSkillsRecaller(workspace)
 	matches, err := recaller.RecallSimilarSkills(evolution.LearningRecord{
-		Kind:       evolution.RecordKindRule,
+		Kind:       evolution.RecordKindPattern,
 		Summary:    "weather native-name path",
 		EventCount: 4,
 	})

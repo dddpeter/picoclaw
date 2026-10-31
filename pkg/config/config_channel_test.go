@@ -734,7 +734,6 @@ channels:
 	var disc DiscordSettings
 	require.NoError(t, wrapper.Channels["discord1"].Decode(&disc))
 	assert.Equal(t, "DISCORD_TOKEN", disc.Token.String())
-	assert.True(t, disc.MentionOnly)
 }
 
 // ═══════════════════════════════════════════════════

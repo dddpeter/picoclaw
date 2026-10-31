@@ -16,8 +16,7 @@ type (
 	ActionType     = internal.ActionType
 	Action         = internal.Action
 	Result         = internal.Result
-	HandlerFactory = internal.HandlerFactory
-)
+	)
 
 const (
 	ActionCopy          = internal.ActionCopy

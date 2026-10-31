@@ -311,10 +311,10 @@ func isToolDiscoveryToolName(name string) bool {
 	}
 }
 
-// SearchBM25 ranks hidden tools against query using BM25 via utils.BM25Engine.
-// This non-cached variant rebuilds the engine on every call. Used by tests
-// and any code that doesn't hold a BM25SearchTool instance.
-func (r *ToolRegistry) SearchBM25(query string, maxSearchResults int) []ToolSearchResult {
+// searchBM25Unregistered ranks hidden tools against query using BM25 via utils.BM25Engine.
+// This non-cached variant rebuilds the engine on every call. Test-only helper
+// (the production path is the cached BM25SearchTool).
+func (r *ToolRegistry) searchBM25Unregistered(query string, maxSearchResults int) []ToolSearchResult {
 	snap := r.SnapshotHiddenTools()
 	docs := snapshotToSearchDocs(snap)
 	if len(docs) == 0 {

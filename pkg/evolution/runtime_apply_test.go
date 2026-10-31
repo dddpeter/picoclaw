@@ -20,7 +20,7 @@ func TestRuntime_RunColdPathOnce_ApplyModeWritesSkillAndProfile(t *testing.T) {
 
 	rule := evolution.LearningRecord{
 		ID:          "rule-1",
-		Kind:        evolution.RecordKindRule,
+		Kind:        evolution.RecordKindPattern,
 		WorkspaceID: root,
 		CreatedAt:   time.Unix(1700000000, 0).UTC(),
 		Summary:     "weather native-name path",
@@ -55,7 +55,6 @@ func TestRuntime_RunColdPathOnce_ApplyModeWritesSkillAndProfile(t *testing.T) {
 				BodyOrPatch:        "---\nname: weather\ndescription: weather helper\n---\n# Weather\n## Start Here\nUse native-name query first.\n",
 			},
 		},
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 3, MinSuccessRate: 0.7}),
 		SkillsRecaller: evolution.NewSkillsRecaller(root),
 	})
 	if err != nil {
@@ -113,7 +112,7 @@ func TestRuntime_RunColdPathOnce_DraftModeKeepsCandidateDraft(t *testing.T) {
 
 	rule := evolution.LearningRecord{
 		ID:          "rule-1",
-		Kind:        evolution.RecordKindRule,
+		Kind:        evolution.RecordKindPattern,
 		WorkspaceID: root,
 		CreatedAt:   time.Unix(1700000000, 0).UTC(),
 		Summary:     "weather native-name path",
@@ -143,7 +142,6 @@ func TestRuntime_RunColdPathOnce_DraftModeKeepsCandidateDraft(t *testing.T) {
 				BodyOrPatch:     "---\nname: weather\ndescription: weather helper\n---\n# Weather\n## Start Here\nUse native-name query first.\n",
 			},
 		},
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 3, MinSuccessRate: 0.7}),
 		SkillsRecaller: evolution.NewSkillsRecaller(root),
 	})
 	if err != nil {
@@ -277,7 +275,7 @@ func TestRuntime_RunColdPathOnce_ApplyModeAppliesExistingCandidateDraft(t *testi
 
 	rule := evolution.LearningRecord{
 		ID:          "rule-1",
-		Kind:        evolution.RecordKindRule,
+		Kind:        evolution.RecordKindPattern,
 		WorkspaceID: root,
 		CreatedAt:   time.Unix(1700000000, 0).UTC(),
 		Summary:     "weather native-name path",
@@ -322,7 +320,6 @@ func TestRuntime_RunColdPathOnce_ApplyModeAppliesExistingCandidateDraft(t *testi
 				BodyOrPatch:     "---\nname: unused-weather\ndescription: unused\n---\n# Unused\n",
 			},
 		},
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 3, MinSuccessRate: 0.7}),
 		SkillsRecaller: evolution.NewSkillsRecaller(root),
 	})
 	if err != nil {
@@ -365,7 +362,7 @@ func TestRuntime_RunColdPathOnce_ApplyModeSkipsOrphanCandidateDraft(t *testing.T
 
 	rule := evolution.LearningRecord{
 		ID:          "rule-1",
-		Kind:        evolution.RecordKindRule,
+		Kind:        evolution.RecordKindPattern,
 		WorkspaceID: root,
 		CreatedAt:   time.Unix(1700000000, 0).UTC(),
 		Summary:     "weather native-name path",
@@ -410,7 +407,6 @@ func TestRuntime_RunColdPathOnce_ApplyModeSkipsOrphanCandidateDraft(t *testing.T
 				BodyOrPatch:     "---\nname: valid-weather\ndescription: valid weather helper\n---\n# Valid Weather\n",
 			},
 		},
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 3, MinSuccessRate: 0.7}),
 		SkillsRecaller: evolution.NewSkillsRecaller(root),
 	})
 	if err != nil {
@@ -449,7 +445,7 @@ func TestRuntime_RunColdPathOnce_ApplyModeNormalizesExistingCombinedCandidateDra
 
 	rule := evolution.LearningRecord{
 		ID:          "rule-1",
-		Kind:        evolution.RecordKindRule,
+		Kind:        evolution.RecordKindPattern,
 		WorkspaceID: root,
 		CreatedAt:   time.Unix(1700000000, 0).UTC(),
 		Summary:     "calculate 100",
@@ -494,7 +490,6 @@ func TestRuntime_RunColdPathOnce_ApplyModeNormalizesExistingCombinedCandidateDra
 			func() time.Time { return time.Unix(1700001000, 0).UTC() },
 		),
 		DraftGenerator: stubDraftGenerator{},
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 3, MinSuccessRate: 0.7}),
 		SkillsRecaller: evolution.NewSkillsRecaller(root),
 	})
 	if err != nil {
@@ -545,7 +540,7 @@ func TestRuntime_RunColdPathOnce_ApplyModeRetargetsStableMultiSkillPathIntoCombi
 
 	rule := evolution.LearningRecord{
 		ID:          "rule-1",
-		Kind:        evolution.RecordKindRule,
+		Kind:        evolution.RecordKindPattern,
 		WorkspaceID: root,
 		CreatedAt:   time.Unix(1700000000, 0).UTC(),
 		Summary:     "calculate 100",
@@ -585,7 +580,6 @@ func TestRuntime_RunColdPathOnce_ApplyModeRetargetsStableMultiSkillPathIntoCombi
 				}, "\n"),
 			},
 		},
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 3, MinSuccessRate: 0.7}),
 		SkillsRecaller: evolution.NewSkillsRecaller(root),
 	})
 	if err != nil {
@@ -673,7 +667,7 @@ func TestRuntime_RunColdPathOnce_CombinedShortcutKeepsReadableLongGuidance(t *te
 
 	rule := evolution.LearningRecord{
 		ID:          "rule-1",
-		Kind:        evolution.RecordKindRule,
+		Kind:        evolution.RecordKindPattern,
 		WorkspaceID: root,
 		CreatedAt:   time.Unix(1700000000, 0).UTC(),
 		Summary:     "calculate with theorem chain",
@@ -708,7 +702,6 @@ func TestRuntime_RunColdPathOnce_CombinedShortcutKeepsReadableLongGuidance(t *te
 				"Finish with a short arithmetic explanation.",
 			}, " "),
 		}},
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 3, MinSuccessRate: 0.7}),
 		SkillsRecaller: evolution.NewSkillsRecaller(root),
 	})
 	if err != nil {
@@ -782,7 +775,7 @@ func TestRuntime_RunColdPathOnce_ApplyFailureQuarantinesDraftAndWritesRollbackAu
 
 	rule := evolution.LearningRecord{
 		ID:          "rule-1",
-		Kind:        evolution.RecordKindRule,
+		Kind:        evolution.RecordKindPattern,
 		WorkspaceID: root,
 		CreatedAt:   time.Unix(1700000000, 0).UTC(),
 		Summary:     "weather native-name path",
@@ -822,7 +815,6 @@ func TestRuntime_RunColdPathOnce_ApplyFailureQuarantinesDraftAndWritesRollbackAu
 				BodyOrPatch:     "invalid-frontmatter",
 			},
 		},
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 3, MinSuccessRate: 0.7}),
 		SkillsRecaller: evolution.NewSkillsRecaller(root),
 	})
 	if err != nil {
@@ -881,7 +873,7 @@ func TestRuntime_RunColdPathOnce_FirstApplyFailureDoesNotCreateGhostProfile(t *t
 
 	rule := evolution.LearningRecord{
 		ID:          "rule-1",
-		Kind:        evolution.RecordKindRule,
+		Kind:        evolution.RecordKindPattern,
 		WorkspaceID: root,
 		CreatedAt:   time.Unix(1700000000, 0).UTC(),
 		Summary:     "weather native-name path",
@@ -911,7 +903,6 @@ func TestRuntime_RunColdPathOnce_FirstApplyFailureDoesNotCreateGhostProfile(t *t
 				BodyOrPatch:     "invalid-frontmatter",
 			},
 		},
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 3, MinSuccessRate: 0.7}),
 		SkillsRecaller: evolution.NewSkillsRecaller(root),
 	})
 	if err != nil {
@@ -942,7 +933,7 @@ func TestRuntime_RunColdPathOnce_DraftSaveFailureRollsBackAppliedSkill(t *testin
 
 	rule := evolution.LearningRecord{
 		ID:          "rule-1",
-		Kind:        evolution.RecordKindRule,
+		Kind:        evolution.RecordKindPattern,
 		WorkspaceID: root,
 		CreatedAt:   time.Unix(1700000000, 0).UTC(),
 		Summary:     "weather native-name path",
@@ -979,7 +970,6 @@ func TestRuntime_RunColdPathOnce_DraftSaveFailureRollsBackAppliedSkill(t *testin
 				BodyOrPatch:     "---\nname: weather\ndescription: weather helper\n---\n# Weather\n## Start Here\nUse native-name query first.\n",
 			},
 		},
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 3, MinSuccessRate: 0.7}),
 		SkillsRecaller: evolution.NewSkillsRecaller(root),
 	})
 	if err != nil {
@@ -1052,7 +1042,6 @@ func TestRuntime_RunColdPathOnce_AutoRunsLifecycleMaintenance(t *testing.T) {
 		Applier: evolution.NewApplier(paths, func() time.Time {
 			return now
 		}),
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 3, MinSuccessRate: 0.7}),
 		SkillsRecaller: evolution.NewSkillsRecaller(root),
 	})
 	if err != nil {
@@ -1097,7 +1086,7 @@ func TestRuntime_RunColdPathOnce_ProfileSaveFailureRollsBackSkillAndQuarantinesD
 
 	rule := evolution.LearningRecord{
 		ID:          "rule-1",
-		Kind:        evolution.RecordKindRule,
+		Kind:        evolution.RecordKindPattern,
 		WorkspaceID: root,
 		CreatedAt:   time.Unix(1700000000, 0).UTC(),
 		Summary:     "weather native-name path",
@@ -1134,7 +1123,6 @@ func TestRuntime_RunColdPathOnce_ProfileSaveFailureRollsBackSkillAndQuarantinesD
 				BodyOrPatch:     "---\nname: weather\ndescription: weather helper\n---\n# Weather\n## Start Here\nUse native-name query first.\n",
 			},
 		},
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 3, MinSuccessRate: 0.7}),
 		SkillsRecaller: evolution.NewSkillsRecaller(root),
 	})
 	if err != nil {

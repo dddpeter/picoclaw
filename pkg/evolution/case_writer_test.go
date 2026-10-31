@@ -52,8 +52,8 @@ func TestCaseWriter_AppendsOneRecord(t *testing.T) {
 		if got.ID != want.ID {
 			t.Fatalf("record %d ID = %q, want %q", i, got.ID, want.ID)
 		}
-		if got.Kind != evolution.RecordKindCase {
-			t.Fatalf("record %d kind = %q, want %q", i, got.Kind, evolution.RecordKindCase)
+		if got.Kind != evolution.RecordKindTask {
+			t.Fatalf("record %d kind = %q, want %q", i, got.Kind, evolution.RecordKindTask)
 		}
 		if got.Summary != want.Summary {
 			t.Fatalf("record %d summary = %q, want %q", i, got.Summary, want.Summary)
@@ -67,7 +67,7 @@ func TestCaseWriter_AppendsOneRecord(t *testing.T) {
 func testRecord(id, workspaceID string, success bool) evolution.LearningRecord {
 	return evolution.LearningRecord{
 		ID:          id,
-		Kind:        evolution.RecordKindCase,
+		Kind:        evolution.RecordKindTask,
 		WorkspaceID: workspaceID,
 		CreatedAt:   time.Unix(1700000000, 0).UTC(),
 		Summary:     "cli turn completed",

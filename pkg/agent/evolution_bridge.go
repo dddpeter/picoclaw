@@ -152,24 +152,6 @@ func (b *evolutionBridge) Close() error {
 	return closeErr
 }
 
-func (b *evolutionBridge) OnEvent(_ context.Context, evt Event) error {
-	if b == nil || !b.cfg.Enabled || b.runtime == nil {
-		return nil
-	}
-
-	switch evt.Kind {
-	case EventKindTurnEnd:
-		payload, ok := evt.Payload.(TurnEndPayload)
-		if !ok {
-			return nil
-		}
-		b.handleTurnEndAsync(evt.Meta, payload)
-		return nil
-	}
-
-	return nil
-}
-
 func (b *evolutionBridge) OnRuntimeEvent(_ context.Context, evt runtimeevents.Event) error {
 	if b == nil || !b.cfg.Enabled || b.runtime == nil || evt.Kind != runtimeevents.KindAgentTurnEnd {
 		return nil
@@ -199,7 +181,7 @@ func (b *evolutionBridge) handleRuntimeTurnEnd(evt runtimeevents.Event) bool {
 	return b.handleTurnEndAsync(hookMetaFromRuntimeEvent(evt), payload)
 }
 
-func (b *evolutionBridge) handleTurnEndAsync(meta EventMeta, payload TurnEndPayload) bool {
+func (b *evolutionBridge) handleTurnEndAsync(meta HookMeta, payload TurnEndPayload) bool {
 	if b == nil || b.runtime == nil {
 		return false
 	}
@@ -466,4 +448,25 @@ func toEvolutionToolExecutions(input []ToolExecutionRecord) []evolution.ToolExec
 		})
 	}
 	return out
+}
+
+// hookMetaFromRuntimeEvent projects runtime event scope/correlation onto the
+// shared HookMeta used by hooks and the evolution bridge.
+func hookMetaFromRuntimeEvent(evt runtimeevents.Event) HookMeta {
+	meta := HookMeta{
+		AgentID:      evt.Scope.AgentID,
+		TurnID:       evt.Scope.TurnID,
+		ParentTurnID: evt.Correlation.ParentTurnID,
+		SessionKey:   evt.Scope.SessionKey,
+		TracePath:    evt.Correlation.TraceID,
+	}
+	if evt.Attrs != nil {
+		if source, ok := evt.Attrs["agent_source"].(string); ok {
+			meta.Source = source
+		}
+		if iteration, ok := evt.Attrs["iteration"].(int); ok {
+			meta.Iteration = iteration
+		}
+	}
+	return meta
 }

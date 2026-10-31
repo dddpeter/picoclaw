@@ -54,8 +54,6 @@ type TelegramChannel struct {
 	bot       *telego.Bot
 	bh        *th.BotHandler
 	bc        *config.Channel
-	chatIDsMu sync.Mutex
-	chatIDs   map[string]int64
 	ctx       context.Context
 	cancel    context.CancelFunc
 	tgCfg     *config.TelegramSettings
@@ -132,7 +130,6 @@ func NewTelegramChannel(
 		BaseChannel: base,
 		bot:         bot,
 		bc:          bc,
-		chatIDs:     make(map[string]int64),
 		tgCfg:       telegramCfg,
 
 		mediaGroups:     make(map[string]*telegramMediaGroup),
@@ -1083,9 +1080,6 @@ func (c *TelegramChannel) handleMessages(ctx context.Context, messages []*telego
 	}
 
 	chatID := message.Chat.ID
-	c.chatIDsMu.Lock()
-	c.chatIDs[platformID] = chatID
-	c.chatIDsMu.Unlock()
 
 	content := ""
 	mediaPaths := []string{}

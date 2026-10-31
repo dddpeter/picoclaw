@@ -382,11 +382,6 @@ func (c *BaseChannel) SetPlaceholderRecorder(r PlaceholderRecorder) {
 	c.placeholderRecorder = r
 }
 
-// GetPlaceholderRecorder returns the injected PlaceholderRecorder (may be nil).
-func (c *BaseChannel) GetPlaceholderRecorder() PlaceholderRecorder {
-	return c.placeholderRecorder
-}
-
 // SetOwner injects the concrete channel that embeds this BaseChannel.
 // This allows HandleMessage to auto-trigger TypingCapable / ReactionCapable / PlaceholderCapable.
 func (c *BaseChannel) SetOwner(ch Channel) {

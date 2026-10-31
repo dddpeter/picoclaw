@@ -100,22 +100,6 @@ func (al *AgentLoop) UnmountHook(name string) {
 	al.hooks.Unmount(name)
 }
 
-// RuntimeEvents returns the root runtime event channel.
-func (al *AgentLoop) RuntimeEvents() runtimeevents.EventChannel {
-	if al == nil || al.runtimeEvents == nil {
-		return nil
-	}
-	return al.runtimeEvents.Channel()
-}
-
-// RuntimeEventStats returns runtime event bus counters.
-func (al *AgentLoop) RuntimeEventStats() runtimeevents.Stats {
-	if al == nil || al.runtimeEvents == nil {
-		return runtimeevents.Stats{Closed: true}
-	}
-	return al.runtimeEvents.Stats()
-}
-
 // RuntimeEventBus returns the runtime event bus used by the agent loop.
 func (al *AgentLoop) RuntimeEventBus() runtimeevents.Bus {
 	if al == nil {

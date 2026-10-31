@@ -95,16 +95,8 @@ func TestSteeringQueue_EmptyDequeue(t *testing.T) {
 	}
 }
 
-func TestSteeringQueue_SetMode(t *testing.T) {
-	sq := newSteeringQueue(SteeringOneAtATime)
-	if sq.getMode() != SteeringOneAtATime {
-		t.Fatalf("expected one-at-a-time, got %v", sq.getMode())
-	}
-
-	sq.setMode(SteeringAll)
-	if sq.getMode() != SteeringAll {
-		t.Fatalf("expected all, got %v", sq.getMode())
-	}
+func TestSteeringQueue_AllModeDrainsAll(t *testing.T) {
+	sq := newSteeringQueue(SteeringAll)
 
 	// Push two messages and verify all-mode drains them
 	sq.push(providers.Message{Role: "user", Content: "a"})
@@ -229,33 +221,9 @@ func TestAgentLoop_Steer_Enqueues(t *testing.T) {
 		t.Fatalf("expected 1 steering message, got %d", al.steering.len())
 	}
 
-	msgs := al.dequeueSteeringMessages()
+	msgs := al.steering.dequeue()
 	if len(msgs) != 1 || msgs[0].Content != "interrupt me" {
 		t.Fatalf("unexpected dequeued message: %v", msgs)
-	}
-}
-
-func TestAgentLoop_SteeringMode_GetSet(t *testing.T) {
-	al, cfg, msgBus, provider, cleanup := newTestAgentLoop(t)
-	defer cleanup()
-
-	if cfg == nil {
-		t.Fatal("expected config to be initialized")
-	}
-	if msgBus == nil {
-		t.Fatal("expected message bus to be initialized")
-	}
-	if provider == nil {
-		t.Fatal("expected provider to be initialized")
-	}
-
-	if al.SteeringMode() != SteeringOneAtATime {
-		t.Fatalf("expected default mode one-at-a-time, got %v", al.SteeringMode())
-	}
-
-	al.SetSteeringMode(SteeringAll)
-	if al.SteeringMode() != SteeringAll {
-		t.Fatalf("expected all mode, got %v", al.SteeringMode())
 	}
 }
 
@@ -282,8 +250,8 @@ func TestAgentLoop_SteeringMode_ConfiguredFromConfig(t *testing.T) {
 	provider := &mockProvider{}
 	al := NewAgentLoop(cfg, msgBus, provider)
 
-	if al.SteeringMode() != SteeringAll {
-		t.Fatalf("expected 'all' mode from config, got %v", al.SteeringMode())
+	if al.steering == nil || al.steering.mode != SteeringAll {
+		t.Fatalf("expected 'all' mode from config, got %+v", al.steering)
 	}
 }
 
@@ -1497,9 +1465,18 @@ func TestAgentLoop_InterruptGraceful_UsesTerminalNoToolCall(t *testing.T) {
 		t.Fatalf("unexpected active turn target: %#v", active)
 	}
 
-	if err := al.InterruptGraceful("wrap it up"); err != nil {
-		t.Fatalf("InterruptGraceful failed: %v", err)
+	ts := al.getAnyActiveTurnState()
+	if ts == nil {
+		t.Fatal("expected active turn state")
 	}
+	if !ts.requestGracefulInterrupt("wrap it up") {
+		t.Fatal("graceful interrupt not accepted")
+	}
+	al.emitEvent(
+		runtimeevents.KindAgentInterruptReceived,
+		ts.eventMeta("InterruptGraceful", "turn.interrupt.received"),
+		InterruptReceivedPayload{Kind: InterruptKindGraceful, HintLen: len("wrap it up")},
+	)
 
 	select {
 	case r := <-resultCh:
@@ -1663,9 +1640,20 @@ func TestAgentLoop_InterruptHard_SealsAndPreservesSession(t *testing.T) {
 		t.Fatal("expected active turn before hard abort")
 	}
 
-	if err := al.InterruptHard(); err != nil {
-		t.Fatalf("InterruptHard failed: %v", err)
+	active := al.GetActiveTurn()
+	if active == nil {
+		t.Fatal("expected active turn")
 	}
+	if err := al.HardAbort(active.SessionKey); err != nil {
+		t.Fatalf("HardAbort failed: %v", err)
+	}
+	al.emitEvent(
+		runtimeevents.KindAgentInterruptReceived,
+		hookMetaFromRuntimeEvent(runtimeevents.Event{Scope: runtimeevents.Scope{
+			AgentID: active.AgentID, TurnID: active.TurnID, SessionKey: active.SessionKey,
+		}}),
+		InterruptReceivedPayload{Kind: InterruptKindHard},
+	)
 
 	select {
 	case r := <-resultCh:

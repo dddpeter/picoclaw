@@ -1399,8 +1399,8 @@ func TestAgentLoop_HookRespond_InterruptSkipsRemaining(t *testing.T) {
 		t.Fatal("timeout waiting for tool execution to start")
 	}
 
-	if err := al.InterruptGraceful("stop now"); err != nil {
-		t.Fatalf("InterruptGraceful failed: %v", err)
+	if ts := al.getAnyActiveTurnState(); ts == nil || !ts.requestGracefulInterrupt("stop now") {
+		t.Fatal("graceful interrupt not accepted")
 	}
 
 	select {

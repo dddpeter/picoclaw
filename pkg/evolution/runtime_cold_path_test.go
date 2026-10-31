@@ -103,7 +103,7 @@ func TestRuntime_RunColdPathOnce_GeneratesCandidateDraft(t *testing.T) {
 
 	rule := evolution.LearningRecord{
 		ID:          "rule-1",
-		Kind:        evolution.RecordKindRule,
+		Kind:        evolution.RecordKindPattern,
 		WorkspaceID: root,
 		CreatedAt:   time.Unix(1700000000, 0).UTC(),
 		Summary:     "weather native-name path",
@@ -227,7 +227,6 @@ func TestRuntime_RunColdPathOnce_AdmitsOnlyRecordsApprovedBySuccessJudge(t *test
 		Config:         config.EvolutionConfig{Enabled: true, Mode: "draft", MinTaskCount: 1},
 		Store:          store,
 		SuccessJudge:   judge,
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 1, MinSuccessRate: 1}),
 		SkillsRecaller: evolution.NewSkillsRecaller(root),
 		DraftGenerator: stubDraftGenerator{
 			draft: evolution.SkillDraft{
@@ -672,7 +671,6 @@ func TestRuntime_RunColdPathOnce_AdmitsSingleSkillTaskButWaitsForMinTaskCount(t 
 		Config:         config.EvolutionConfig{Enabled: true, Mode: "draft"},
 		Store:          store,
 		SuccessJudge:   judge,
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 1, MinSuccessRate: 1}),
 		SkillsRecaller: evolution.NewSkillsRecaller(root),
 		DraftGenerator: stubDraftGenerator{
 			draft: evolution.SkillDraft{
@@ -746,7 +744,6 @@ func TestRuntime_RunColdPathOnce_RejectsTaskWhenSuccessJudgeRejects(t *testing.T
 		Config:         config.EvolutionConfig{Enabled: true, Mode: "draft"},
 		Store:          store,
 		SuccessJudge:   judge,
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 1, MinSuccessRate: 1}),
 		SkillsRecaller: evolution.NewSkillsRecaller(root),
 		DraftGenerator: stubDraftGenerator{
 			draft: evolution.SkillDraft{
@@ -791,7 +788,7 @@ func TestRuntime_RunColdPathOnce_QuarantinesInvalidDraft(t *testing.T) {
 
 	rule := evolution.LearningRecord{
 		ID:          "rule-1",
-		Kind:        evolution.RecordKindRule,
+		Kind:        evolution.RecordKindPattern,
 		WorkspaceID: root,
 		CreatedAt:   time.Unix(1700000000, 0).UTC(),
 		Summary:     "release path",
@@ -859,7 +856,7 @@ func TestRuntime_RunColdPathOnce_DoesNotWriteSkillFile(t *testing.T) {
 	store := evolution.NewStore(evolution.NewPaths(root, ""))
 	rule := evolution.LearningRecord{
 		ID:          "rule-1",
-		Kind:        evolution.RecordKindRule,
+		Kind:        evolution.RecordKindPattern,
 		WorkspaceID: root,
 		CreatedAt:   time.Unix(1700000000, 0).UTC(),
 		Summary:     "weather native-name path",
@@ -915,7 +912,7 @@ func TestRuntime_RunColdPathOnce_UsesDefaultDraftGenerator(t *testing.T) {
 
 	rule := evolution.LearningRecord{
 		ID:          "rule-1",
-		Kind:        evolution.RecordKindRule,
+		Kind:        evolution.RecordKindPattern,
 		WorkspaceID: root,
 		CreatedAt:   time.Unix(1700000000, 0).UTC(),
 		Summary:     "weather native-name path",
@@ -964,7 +961,7 @@ func TestRuntime_RunColdPathOnce_UsesLLMDraftGeneratorWhenProviderAvailable(t *t
 
 	rule := evolution.LearningRecord{
 		ID:          "rule-1",
-		Kind:        evolution.RecordKindRule,
+		Kind:        evolution.RecordKindPattern,
 		WorkspaceID: root,
 		CreatedAt:   time.Unix(1700000000, 0).UTC(),
 		Summary:     "weather native-name path",
@@ -1016,7 +1013,7 @@ func TestRuntime_RunColdPathOnce_UsesDefaultDraftGeneratorWhenFactoryHasNoProvid
 
 	rule := evolution.LearningRecord{
 		ID:          "rule-1",
-		Kind:        evolution.RecordKindRule,
+		Kind:        evolution.RecordKindPattern,
 		WorkspaceID: root,
 		CreatedAt:   time.Unix(1700000000, 0).UTC(),
 		Summary:     "weather native-name path",
@@ -1071,7 +1068,7 @@ func TestRuntime_RunColdPathOnce_UsesGeneratorFactoryWorkspaceForFallback(t *tes
 
 	rule := evolution.LearningRecord{
 		ID:          "rule-1",
-		Kind:        evolution.RecordKindRule,
+		Kind:        evolution.RecordKindPattern,
 		WorkspaceID: root,
 		CreatedAt:   time.Unix(1700000000, 0).UTC(),
 		Summary:     "weather native-name path",
@@ -1126,7 +1123,7 @@ func TestRuntime_RunColdPathOnce_PersistsEarlierDraftWhenLaterRuleFails(t *testi
 	rules := []evolution.LearningRecord{
 		{
 			ID:          "rule-1",
-			Kind:        evolution.RecordKindRule,
+			Kind:        evolution.RecordKindPattern,
 			WorkspaceID: root,
 			CreatedAt:   time.Unix(1700000000, 0).UTC(),
 			Summary:     "weather native-name path",
@@ -1135,7 +1132,7 @@ func TestRuntime_RunColdPathOnce_PersistsEarlierDraftWhenLaterRuleFails(t *testi
 		},
 		{
 			ID:          "rule-2",
-			Kind:        evolution.RecordKindRule,
+			Kind:        evolution.RecordKindPattern,
 			WorkspaceID: root,
 			CreatedAt:   time.Unix(1700000100, 0).UTC(),
 			Summary:     "release path",
@@ -1198,7 +1195,7 @@ func TestRuntime_RunColdPathOnce_RegeneratesAfterQuarantinedDraft(t *testing.T) 
 
 	rule := evolution.LearningRecord{
 		ID:          "rule-1",
-		Kind:        evolution.RecordKindRule,
+		Kind:        evolution.RecordKindPattern,
 		WorkspaceID: root,
 		CreatedAt:   time.Unix(1700000000, 0).UTC(),
 		Summary:     "weather native-name path",

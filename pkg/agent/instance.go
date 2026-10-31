@@ -585,24 +585,6 @@ func (a *AgentInstance) snapshotCompactionBudget() int {
 	return a.liveCompactionBudget()
 }
 
-// populateCandidateProvidersFromNames resolves each model name (alias or
-// "provider/model") and creates a dedicated LLMProvider for it. Raw references
-// reuse endpoint and credential settings from another model of the same provider.
-func populateCandidateProvidersFromNames(
-	cfg *config.Config,
-	workspace string,
-	names []string,
-	out map[string]providers.LLMProvider,
-) {
-	if cfg == nil || len(names) == 0 {
-		return
-	}
-	for _, name := range names {
-		candidates := resolveModelCandidates(cfg, cfg.Agents.Defaults.Provider, name, nil)
-		populateCandidateProvidersFromCandidates(cfg, workspace, candidates, out)
-	}
-}
-
 func populateCandidateProvidersFromCandidates(
 	cfg *config.Config,
 	workspace string,

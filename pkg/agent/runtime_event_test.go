@@ -18,7 +18,7 @@ func subscribeRuntimeEventsForTest(
 	if al == nil {
 		t.Fatal("agent loop is nil")
 	}
-	channel := al.RuntimeEvents()
+	channel := al.RuntimeEventBus().Channel()
 	if channel == nil {
 		t.Fatal("runtime event channel is nil")
 	}

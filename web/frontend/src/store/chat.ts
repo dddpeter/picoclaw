@@ -6,7 +6,6 @@ import {
   type AssistantDetailVisibility,
   DEFAULT_ASSISTANT_DETAIL_VISIBILITY,
   assistantDetailVisibilityStorage,
-  shouldShowAssistantMessage,
 } from "@/features/chat/detail-visibility"
 import {
   getInitialActiveSessionId,
@@ -176,10 +175,6 @@ export const assistantDetailVisibilityAtom =
     assistantDetailVisibilityStorage,
     { getOnInit: true },
   )
-export const showAssistantDetailsAtom = atom(
-  (get) => get(assistantDetailVisibilityAtom) !== "none",
-)
-
 const store = getDefaultStore()
 
 export function getChatState() {
@@ -203,5 +198,4 @@ export function updateChatStore(
   })
 }
 
-export { shouldShowAssistantMessage, DEFAULT_ASSISTANT_DETAIL_VISIBILITY }
 export type { AssistantDetailVisibility }

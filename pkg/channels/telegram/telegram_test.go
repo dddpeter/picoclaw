@@ -157,7 +157,6 @@ func newTestChannelWithConstructor(
 	return &TelegramChannel{
 		BaseChannel: base,
 		bot:         bot,
-		chatIDs:     make(map[string]int64),
 		bc:          &config.Channel{Type: config.ChannelTelegram, Enabled: true},
 		tgCfg:       &config.TelegramSettings{},
 		progress:    channels.NewToolFeedbackAnimator(nil),
@@ -1216,7 +1215,6 @@ func TestHandleMessage_ForumTopic_SetsMetadata(t *testing.T) {
 	messageBus := bus.NewMessageBus()
 	ch := &TelegramChannel{
 		BaseChannel: channels.NewBaseChannel("telegram", nil, messageBus, nil),
-		chatIDs:     make(map[string]int64),
 		ctx:         context.Background(),
 	}
 
@@ -1252,7 +1250,6 @@ func TestHandleMessage_NoForum_NoThreadMetadata(t *testing.T) {
 	messageBus := bus.NewMessageBus()
 	ch := &TelegramChannel{
 		BaseChannel: channels.NewBaseChannel("telegram", nil, messageBus, nil),
-		chatIDs:     make(map[string]int64),
 		ctx:         context.Background(),
 	}
 
@@ -1286,7 +1283,6 @@ func TestHandleMessage_ReplyThread_NonForum_NoIsolation(t *testing.T) {
 	messageBus := bus.NewMessageBus()
 	ch := &TelegramChannel{
 		BaseChannel: channels.NewBaseChannel("telegram", nil, messageBus, nil),
-		chatIDs:     make(map[string]int64),
 		ctx:         context.Background(),
 	}
 
@@ -1339,7 +1335,6 @@ func assertHandleMessageQuotedUserReply(
 	messageBus := bus.NewMessageBus()
 	ch := &TelegramChannel{
 		BaseChannel: channels.NewBaseChannel("telegram", nil, messageBus, nil),
-		chatIDs:     make(map[string]int64),
 		ctx:         context.Background(),
 	}
 
@@ -1499,7 +1494,6 @@ func TestHandleMessage_EmptyContent_Ignored(t *testing.T) {
 	messageBus := bus.NewMessageBus()
 	ch := &TelegramChannel{
 		BaseChannel: channels.NewBaseChannel("telegram", nil, messageBus, nil),
-		chatIDs:     make(map[string]int64),
 		ctx:         context.Background(),
 	}
 
@@ -1531,7 +1525,6 @@ func TestHandleMessage_LocationForwardedAsText(t *testing.T) {
 	messageBus := bus.NewMessageBus()
 	ch := &TelegramChannel{
 		BaseChannel: channels.NewBaseChannel("telegram", nil, messageBus, nil),
-		chatIDs:     make(map[string]int64),
 		ctx:         context.Background(),
 	}
 
@@ -1728,7 +1721,6 @@ func newMediaGroupTestChannel(delay time.Duration) (*bus.MessageBus, *TelegramCh
 	messageBus := bus.NewMessageBus()
 	ch := &TelegramChannel{
 		BaseChannel:     channels.NewBaseChannel("telegram", nil, messageBus, nil),
-		chatIDs:         make(map[string]int64),
 		ctx:             context.Background(),
 		mediaGroups:     make(map[string]*telegramMediaGroup),
 		mediaGroupDelay: delay,

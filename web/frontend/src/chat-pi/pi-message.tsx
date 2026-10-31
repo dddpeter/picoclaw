@@ -9,6 +9,7 @@
 import { memo, useState } from "react";
 import { FiCheckCircle, FiCopy } from "react-icons/fi";
 import { useTranslation } from "react-i18next";
+import { copyText } from "@/lib/clipboard";
 
 import { Markdown } from "./markdown";
 import { StreamMarkdown } from "./stream-markdown";
@@ -133,9 +134,12 @@ const TextBlock = memo(function TextBlock({
 				title={copied ? t("piChat.copied") : t("piChat.copyMessage")}
 				aria-label={t("piChat.copyMessage")}
 				onClick={() => {
-					void navigator.clipboard.writeText(text);
-					setCopied(true);
-					window.setTimeout(() => setCopied(false), 1200);
+					void copyText(text).then((ok) => {
+						if (ok) {
+							setCopied(true);
+							window.setTimeout(() => setCopied(false), 1200);
+						}
+					});
 				}}
 			>
 				{copied ? <FiCheckCircle /> : <FiCopy />}

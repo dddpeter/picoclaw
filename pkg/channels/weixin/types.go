@@ -15,9 +15,7 @@ type APIStatus struct {
 const (
 	UploadMediaTypeImage = 1
 	UploadMediaTypeVideo = 2
-	UploadMediaTypeFile  = 3
-	UploadMediaTypeVoice = 4
-)
+	UploadMediaTypeFile  = 3)
 
 type GetUploadUrlReq struct {
 	Filekey         string   `json:"filekey,omitempty"`

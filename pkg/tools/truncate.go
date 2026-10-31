@@ -50,64 +50,6 @@ type TruncationResult struct {
 	MaxBytes              int
 }
 
-// TruncateHead keeps the first lines/bytes of content. Suitable for outputs
-// where the beginning matters (listings, file dumps). Never returns partial
-// lines; if the first line alone exceeds the byte limit the result is empty
-// with FirstLineExceedsLimit set.
-func TruncateHead(content string, opts TruncationOptions) TruncationResult {
-	maxLines, maxBytes := opts.resolve()
-	lines := splitLinesForCounting(content)
-	totalBytes := len(content)
-	totalLines := len(lines)
-
-	if totalLines <= maxLines && totalBytes <= maxBytes {
-		return TruncationResult{
-			Content:    content,
-			Truncated:  false,
-			TotalLines: totalLines, TotalBytes: totalBytes,
-			OutputLines: totalLines, OutputBytes: totalBytes,
-			MaxLines: maxLines, MaxBytes: maxBytes,
-		}
-	}
-
-	if len(lines[0]) > maxBytes {
-		return TruncationResult{
-			Content:               "",
-			Truncated:             true,
-			TruncatedBy:           TruncatedByBytes,
-			FirstLineExceedsLimit: true,
-			TotalLines:            totalLines, TotalBytes: totalBytes,
-			MaxLines: maxLines, MaxBytes: maxBytes,
-		}
-	}
-
-	kept := make([]string, 0, maxLines)
-	outputBytes := 0
-	truncatedBy := TruncatedByLines
-	for i := 0; i < len(lines) && i < maxLines; i++ {
-		lineBytes := len(lines[i])
-		if i > 0 {
-			lineBytes++ // newline
-		}
-		if outputBytes+lineBytes > maxBytes {
-			truncatedBy = TruncatedByBytes
-			break
-		}
-		kept = append(kept, lines[i])
-		outputBytes += lineBytes
-	}
-
-	output := strings.Join(kept, "\n")
-	return TruncationResult{
-		Content:     output,
-		Truncated:   true,
-		TruncatedBy: truncatedBy,
-		TotalLines:  totalLines, TotalBytes: totalBytes,
-		OutputLines: len(kept), OutputBytes: len(output),
-		MaxLines: maxLines, MaxBytes: maxBytes,
-	}
-}
-
 // TruncateTail keeps the last lines/bytes of content. Suitable for command
 // output where the end matters (errors, final results). When a single line
 // exceeds the byte limit on its own, its last maxBytes bytes are kept

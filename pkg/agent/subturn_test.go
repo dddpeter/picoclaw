@@ -1100,8 +1100,8 @@ func TestTurnStateInfo_ThreadSafety(t *testing.T) {
 	<-done
 }
 
-// TestInjectFollowUp verifies that InjectFollowUp enqueues messages
-func TestInjectFollowUp(t *testing.T) {
+// TestSteerEnqueuesFollowUp verifies that Steer enqueues follow-up messages
+func TestSteerEnqueuesFollowUp(t *testing.T) {
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
@@ -1118,9 +1118,9 @@ func TestInjectFollowUp(t *testing.T) {
 		Content: "Follow-up task",
 	}
 
-	err := al.InjectFollowUp(msg)
+	err := al.Steer(msg)
 	if err != nil {
-		t.Fatalf("InjectFollowUp failed: %v", err)
+		t.Fatalf("Steer failed: %v", err)
 	}
 
 	// Verify message was enqueued
@@ -1147,13 +1147,9 @@ func TestAPIAliases(t *testing.T) {
 		Content: "Test message",
 	}
 
-	// Test InterruptGraceful: requires active turn, so error is expected here
-	_ = al.InterruptGraceful(msg.Content)
-
-	// Test InjectSteering (enqueues a steering message)
-	err := al.InjectSteering(msg)
+	err := al.Steer(msg)
 	if err != nil {
-		t.Errorf("InjectSteering failed: %v", err)
+		t.Errorf("Steer failed: %v", err)
 	}
 
 	// Also enqueue via Steer to verify second message
@@ -1194,10 +1190,9 @@ func TestInterruptHard_Alias(t *testing.T) {
 	sessionKey := "test-session-interrupt"
 	al.activeTurnStates.Store(sessionKey, rootTS)
 
-	// Test InterruptHard (alias for HardAbort)
-	err := al.InterruptHard()
+	err := al.HardAbort(sessionKey)
 	if err != nil {
-		t.Errorf("InterruptHard failed: %v", err)
+		t.Errorf("HardAbort failed: %v", err)
 	}
 
 	// Verify turn was finished (removed from activeTurnStates)

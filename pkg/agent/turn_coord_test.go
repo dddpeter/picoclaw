@@ -9,6 +9,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/config"
+	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/providers/common"
 	"github.com/sipeed/picoclaw/pkg/routing"
@@ -535,8 +536,14 @@ func TestRunTurn_FinalizeSaveErrorEmitsErrorTurnEnd(t *testing.T) {
 		err:          saveErr,
 	}
 
-	sub := al.SubscribeEvents(8)
-	defer al.UnsubscribeEvents(sub.ID)
+	subCtx, cancelSub := context.WithCancel(context.Background())
+	defer cancelSub()
+	_, subC, err := al.RuntimeEventBus().Channel().Source("agent").
+		OfKind(runtimeevents.KindAgentTurnEnd).
+		SubscribeChan(subCtx, runtimeevents.SubscribeOptions{Name: "turn-coord-test", Buffer: 8})
+	if err != nil {
+		t.Fatalf("SubscribeChan failed: %v", err)
+	}
 
 	if _, err := al.ProcessDirect(context.Background(), "hello", "session-save-fail"); err == nil {
 		t.Fatal("expected ProcessDirect to fail")
@@ -545,8 +552,8 @@ func TestRunTurn_FinalizeSaveErrorEmitsErrorTurnEnd(t *testing.T) {
 	deadline := time.After(2 * time.Second)
 	for {
 		select {
-		case evt := <-sub.C:
-			if evt.Kind != EventKindTurnEnd {
+		case evt := <-subC:
+			if evt.Kind != runtimeevents.KindAgentTurnEnd {
 				continue
 			}
 			payload, ok := evt.Payload.(TurnEndPayload)

@@ -81,38 +81,6 @@ func MatchScope(scope ScopeFilter) Filter {
 	}
 }
 
-// And combines filters and short-circuits on the first non-match.
-func And(filters ...Filter) Filter {
-	if len(filters) == 0 {
-		return matchAll
-	}
-
-	return func(evt Event) bool {
-		for _, filter := range filters {
-			if filter != nil && !filter(evt) {
-				return false
-			}
-		}
-		return true
-	}
-}
-
-// Or combines filters and short-circuits on the first match.
-func Or(filters ...Filter) Filter {
-	if len(filters) == 0 {
-		return matchAll
-	}
-
-	return func(evt Event) bool {
-		for _, filter := range filters {
-			if filter == nil || filter(evt) {
-				return true
-			}
-		}
-		return false
-	}
-}
-
 func matchAll(Event) bool {
 	return true
 }

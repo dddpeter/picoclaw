@@ -4,6 +4,7 @@
 import { memo, useState } from "react";
 import { FiCheck, FiCopy } from "react-icons/fi";
 import { useTranslation } from "react-i18next";
+import { copyText } from "@/lib/clipboard";
 
 export const CopyButton = memo(function CopyButton({ text }: { text: string }) {
 	const { t } = useTranslation();
@@ -15,9 +16,11 @@ export const CopyButton = memo(function CopyButton({ text }: { text: string }) {
 			className="copy-btn"
 			title={t("piChat.copy")}
 			onClick={() => {
-				void navigator.clipboard.writeText(text).then(() => {
-					setCopied(true);
-					setTimeout(() => setCopied(false), 1200);
+				void copyText(text).then((ok) => {
+					if (ok) {
+						setCopied(true);
+						setTimeout(() => setCopied(false), 1200);
+					}
 				});
 			}}
 		>

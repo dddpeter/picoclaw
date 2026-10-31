@@ -19,7 +19,7 @@ func TestStore_AppendLearningRecordsPersistsCaseAndRule(t *testing.T) {
 	records := []evolution.LearningRecord{
 		{
 			ID:          "case-1",
-			Kind:        evolution.RecordKindCase,
+			Kind:        evolution.RecordKindTask,
 			WorkspaceID: "ws-1",
 			CreatedAt:   time.Unix(1700000000, 0).UTC(),
 			Summary:     "weather task completed",
@@ -27,7 +27,7 @@ func TestStore_AppendLearningRecordsPersistsCaseAndRule(t *testing.T) {
 		},
 		{
 			ID:          "rule-1",
-			Kind:        evolution.RecordKindRule,
+			Kind:        evolution.RecordKindPattern,
 			WorkspaceID: "ws-1",
 			CreatedAt:   time.Unix(1700000100, 0).UTC(),
 			Summary:     "prefer native-name weather path",
@@ -46,8 +46,8 @@ func TestStore_AppendLearningRecordsPersistsCaseAndRule(t *testing.T) {
 	if len(loaded) != 2 {
 		t.Fatalf("len(loaded) = %d, want 2", len(loaded))
 	}
-	if loaded[1].Kind != evolution.RecordKindRule {
-		t.Fatalf("loaded[1].Kind = %q, want %q", loaded[1].Kind, evolution.RecordKindRule)
+	if loaded[1].Kind != evolution.RecordKindPattern {
+		t.Fatalf("loaded[1].Kind = %q, want %q", loaded[1].Kind, evolution.RecordKindPattern)
 	}
 	if _, statErr := os.Stat(paths.LearningRecords); !os.IsNotExist(statErr) {
 		t.Fatalf("legacy learning records file should not be written, stat err = %v", statErr)
@@ -395,7 +395,7 @@ func TestStore_LoadLearningRecordsIgnoresTruncatedTrailingLine(t *testing.T) {
 
 	record := evolution.LearningRecord{
 		ID:          "case-1",
-		Kind:        evolution.RecordKindCase,
+		Kind:        evolution.RecordKindTask,
 		WorkspaceID: "ws-1",
 		CreatedAt:   time.Unix(1700000000, 0).UTC(),
 		Summary:     "weather task completed",

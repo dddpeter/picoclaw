@@ -309,82 +309,13 @@ func registerSharedTools(
 		spawnEnabled := cfg.Tools.IsToolEnabled("spawn")
 		spawnStatusEnabled := cfg.Tools.IsToolEnabled("spawn_status")
 		if (spawnEnabled || spawnStatusEnabled) && cfg.Tools.IsToolEnabled("subagent") {
-			subagentManager := tools.NewSubagentManager(provider, agent.Model, agent.Workspace)
+			subagentManager := tools.NewSubagentManager(agent.Model)
 			subagentManager.SetLLMOptions(agent.MaxTokens, agent.Temperature)
-
-			// Inject a media resolver so the legacy RunToolLoop fallback path can
-			// resolve media:// refs in the same way the main AgentLoop does.
-			// This keeps subagent vision support working even when the optimized
-			// sub-turn spawner path is unavailable.
-			subagentManager.SetMediaResolver(func(msgs []providers.Message) []providers.Message {
-				return resolveMediaRefs(msgs, al.mediaStore, cfg.Agents.Defaults.GetMaxMediaSize(), cfg.Agents.Defaults.GetMaxContextImages(), 0)
-			})
-
-			// Set the spawner that links into AgentLoop's turnState
-			subagentManager.SetSpawner(func(
-				ctx context.Context,
-				task, label, targetAgentID string,
-				tls *tools.ToolRegistry,
-				maxTokens int,
-				temperature float64,
-				hasMaxTokens, hasTemperature bool,
-			) (*tools.ToolResult, error) {
-				// 1. Recover parent Turn State from Context
-				parentTS := turnStateFromContext(ctx)
-				if parentTS == nil {
-					// Fallback: If no turnState exists in context, create an isolated ad-hoc root turn state
-					// so that the tool can still function outside of an agent loop (e.g. tests, raw invocations).
-					parentTS = &turnState{
-						ctx:            ctx,
-						turnID:         "adhoc-root",
-						depth:          0,
-						session:        nil, // Ephemeral session not needed for adhoc spawn
-						pendingResults: make(chan *tools.ToolResult, 16),
-						concurrencySem: make(chan struct{}, 5),
-					}
-				}
-
-				// 2. Build Tools slice from registry
-				var tlSlice []tools.Tool
-				for _, name := range tls.List() {
-					if t, ok := tls.Get(name); ok {
-						tlSlice = append(tlSlice, t)
-					}
-				}
-
-				// 3. System Prompt
-				systemPrompt := "You are a subagent. Complete the given task independently and report the result.\n" +
-					"You have access to tools - use them as needed to complete your task.\n" +
-					"After completing the task, provide a clear summary of what was done.\n\n" +
-					"Task: " + task
-
-				// 4. Resolve Model
-				modelToUse := agent.Model
-				if targetAgentID != "" {
-					if targetAgent, ok := al.GetRegistry().GetAgent(targetAgentID); ok {
-						modelToUse = targetAgent.Model
-					}
-				}
-
-				// 5. Build SubTurnConfig
-				cfg := SubTurnConfig{
-					Model:        modelToUse,
-					Tools:        tlSlice,
-					SystemPrompt: systemPrompt,
-				}
-				if hasMaxTokens {
-					cfg.MaxTokens = maxTokens
-				}
-
-				// 6. Spawn SubTurn
-				return spawnSubTurn(ctx, al, parentTS, cfg)
-			})
 
 			// Clone the parent's tool registry so subagents can use all
 			// tools registered so far (file, web, etc.) but NOT spawn/
 			// spawn_status which are added below — preventing recursive
 			// subagent spawning.
-			subagentManager.SetTools(agent.Tools.Clone())
 			if spawnEnabled {
 				spawnTool := tools.NewSpawnTool(subagentManager)
 				spawnTool.SetSpawner(NewSubTurnSpawner(al))

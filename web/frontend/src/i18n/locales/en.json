@@ -182,7 +182,8 @@
     "restartRequiredTitle": "Gateway restart required",
     "restartRequiredDesc": "The latest {{name}} configuration has been saved. Restart the gateway for it to take effect.",
     "retry": "Retry",
-    "back": "Back"
+    "back": "Back",
+    "loading": "Loading…"
   },
   "labels": {
     "loading": "Loading..."
@@ -775,7 +776,9 @@
           "base_url_placeholder": "Optional endpoint override",
           "api_key": "API Key / Token",
           "api_key_placeholder": "Enter API key, leave it blank to keep the original key",
-          "none": "Unavailable"
+          "none": "Unavailable",
+          "model": "Transcription model",
+          "model_placeholder": "Use the provider default"
         },
         "status": {
           "enabled": "Enabled",
@@ -1067,6 +1070,9 @@
       "config_page": {
         "notice": "MCP settings moved to a dedicated page",
         "link": "Open MCP page"
+      },
+      "plugin_servers": {
+        "title": "Plugin-provided MCP servers"
       }
     },
     "plugins": {

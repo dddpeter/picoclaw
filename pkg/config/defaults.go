@@ -554,7 +554,6 @@ func DefaultConfig() *Config {
 			ModelName:         "",
 			TTSModelName:      "",
 			EchoTranscription: false,
-			ElevenLabsAPIKey:  "",
 		},
 		BuildInfo: BuildInfo{
 			Version:   Version,

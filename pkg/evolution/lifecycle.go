@@ -78,11 +78,6 @@ func ApplyLifecycleState(paths Paths, profile SkillProfile, next SkillStatus) er
 	return err
 }
 
-func RunLifecycleOnce(store *Store, paths Paths, workspace string, now time.Time) (LifecycleRunSummary, error) {
-	return RunLifecycleOnceWithThresholds(store, paths, workspace, now,
-		DefaultLifecycleColdAfterDays, DefaultLifecycleArchiveAfterDays, DefaultLifecycleDeleteAfterDays)
-}
-
 func RunLifecycleOnceWithThresholds(store *Store, paths Paths, workspace string, now time.Time, coldDays, archiveDays, deleteDays int) (LifecycleRunSummary, error) {
 	if store == nil {
 		return LifecycleRunSummary{}, nil

@@ -68,8 +68,8 @@ func TestEvolutionBridge_ObserveWritesCaseRecord(t *testing.T) {
 
 	record := waitForEvolutionRecord(t, filepath.Join(tmpDir, "state", "evolution", "task-records.jsonl"))
 
-	if got := record["kind"]; got != string(evolution.RecordKindCase) {
-		t.Fatalf("kind = %v, want %q", got, evolution.RecordKindCase)
+	if got := record["kind"]; got != string(evolution.RecordKindTask) {
+		t.Fatalf("kind = %v, want %q", got, evolution.RecordKindTask)
 	}
 	if got := record["workspace_id"]; got != tmpDir {
 		t.Fatalf("workspace_id = %v, want %q", got, tmpDir)
@@ -120,7 +120,7 @@ func TestEvolutionBridge_TurnEndBypassesHookObserverBackpressure(t *testing.T) {
 		})
 	}
 
-	al.emitEvent(runtimeevents.KindAgentTurnEnd, EventMeta{
+	al.emitEvent(runtimeevents.KindAgentTurnEnd, HookMeta{
 		AgentID:    "main",
 		TurnID:     "turn-backpressure",
 		SessionKey: "session-backpressure",
@@ -263,7 +263,7 @@ func TestEvolutionBridge_DirectDeliveryFailureFallsBackToCurrentRuntimeBridge(t 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		al.emitEvent(runtimeevents.KindAgentTurnEnd, EventMeta{
+		al.emitEvent(runtimeevents.KindAgentTurnEnd, HookMeta{
 			AgentID:    "main",
 			TurnID:     "turn-direct-fallback",
 			SessionKey: "session-direct-fallback",
@@ -305,7 +305,7 @@ func TestEvolutionBridge_CloseCancelsPendingTurnEndRecord(t *testing.T) {
 		Mode:    "observe",
 	}, &simpleMockProvider{response: "ok"})
 
-	al.emitEvent(runtimeevents.KindAgentTurnEnd, EventMeta{
+	al.emitEvent(runtimeevents.KindAgentTurnEnd, HookMeta{
 		AgentID:    "main",
 		TurnID:     "turn-close-flush",
 		SessionKey: "session-close-flush",
@@ -355,8 +355,14 @@ func TestEvolutionBridge_ObserveTurnEndPayloadIncludesResolvedAttemptTrail(t *te
 	}
 	defaultAgent.SkillsFilter = []string{"missing-skill", "observe-skill", "observe-skill"}
 
-	sub := al.SubscribeEvents(16)
-	defer al.UnsubscribeEvents(sub.ID)
+	subCtx, cancelSub := context.WithCancel(context.Background())
+	defer cancelSub()
+	_, subC, err := al.RuntimeEventBus().Channel().Source("agent").
+		OfKind(runtimeevents.KindAgentTurnEnd).
+		SubscribeChan(subCtx, runtimeevents.SubscribeOptions{Name: "evolution-bridge-test", Buffer: 16})
+	if err != nil {
+		t.Fatalf("SubscribeChan failed: %v", err)
+	}
 
 	resp, err := al.ProcessDirectWithChannel(
 		context.Background(),
@@ -372,8 +378,8 @@ func TestEvolutionBridge_ObserveTurnEndPayloadIncludesResolvedAttemptTrail(t *te
 		t.Fatalf("response = %q, want %q", resp, "ok")
 	}
 
-	turnEndEvt := waitForEvent(t, sub.C, 2*time.Second, func(evt Event) bool {
-		return evt.Kind == EventKindTurnEnd
+	turnEndEvt := waitForEvent(t, subC, 2*time.Second, func(evt runtimeevents.Event) bool {
+		return evt.Kind == runtimeevents.KindAgentTurnEnd
 	})
 	turnEndPayload, ok := turnEndEvt.Payload.(TurnEndPayload)
 	if !ok {
@@ -418,8 +424,14 @@ func TestEvolutionBridge_ObserveTurnEndUsesLatestSkillSnapshotAfterRetry(t *test
 	}
 	defaultAgent.SkillsFilter = []string{"base-skill", "late-skill"}
 
-	sub := al.SubscribeEvents(16)
-	defer al.UnsubscribeEvents(sub.ID)
+	subCtx2, cancelSub2 := context.WithCancel(context.Background())
+	defer cancelSub2()
+	_, subC2, err := al.RuntimeEventBus().Channel().Source("agent").
+		OfKind(runtimeevents.KindAgentTurnEnd).
+		SubscribeChan(subCtx2, runtimeevents.SubscribeOptions{Name: "evolution-bridge-test-retry", Buffer: 16})
+	if err != nil {
+		t.Fatalf("SubscribeChan failed: %v", err)
+	}
 
 	resp, err := al.ProcessDirectWithChannel(
 		context.Background(),
@@ -435,8 +447,8 @@ func TestEvolutionBridge_ObserveTurnEndUsesLatestSkillSnapshotAfterRetry(t *test
 		t.Fatalf("response = %q, want %q", resp, "Recovered after retry")
 	}
 
-	turnEndEvt := waitForEvent(t, sub.C, 2*time.Second, func(evt Event) bool {
-		return evt.Kind == EventKindTurnEnd
+	turnEndEvt := waitForEvent(t, subC2, 2*time.Second, func(evt runtimeevents.Event) bool {
+		return evt.Kind == runtimeevents.KindAgentTurnEnd
 	})
 	turnEndPayload, ok := turnEndEvt.Payload.(TurnEndPayload)
 	if !ok {
@@ -822,9 +834,10 @@ func TestEvolutionBridge_TurnEndUsesPayloadWorkspace(t *testing.T) {
 		t.Fatalf("newEvolutionBridge: %v", err)
 	}
 
-	err = bridge.OnEvent(context.Background(), Event{
-		Kind: EventKindTurnEnd,
-		Meta: EventMeta{
+	err = bridge.OnRuntimeEvent(context.Background(), runtimeevents.Event{
+		Kind:   runtimeevents.KindAgentTurnEnd,
+		Source: runtimeevents.Source{Component: "agent"},
+		Scope: runtimeevents.Scope{
 			AgentID:    "main",
 			TurnID:     "turn-1",
 			SessionKey: "session-1",
@@ -837,7 +850,7 @@ func TestEvolutionBridge_TurnEndUsesPayloadWorkspace(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("OnEvent: %v", err)
+		t.Fatalf("OnRuntimeEvent: %v", err)
 	}
 
 	record := waitForEvolutionRecord(t, filepath.Join(workspace, "state", "evolution", "task-records.jsonl"))
@@ -860,9 +873,10 @@ func TestEvolutionBridge_TurnEndUsesExplicitAttemptTrail(t *testing.T) {
 		t.Fatalf("newEvolutionBridge: %v", err)
 	}
 
-	err = bridge.OnEvent(context.Background(), Event{
-		Kind: EventKindTurnEnd,
-		Meta: EventMeta{
+	err = bridge.OnRuntimeEvent(context.Background(), runtimeevents.Event{
+		Kind:   runtimeevents.KindAgentTurnEnd,
+		Source: runtimeevents.Source{Component: "agent"},
+		Scope: runtimeevents.Scope{
 			AgentID:    "main",
 			TurnID:     "turn-1",
 			SessionKey: "session-1",
@@ -945,9 +959,10 @@ func TestEvolutionBridge_CloseRejectsLateTurnEndEvents(t *testing.T) {
 		t.Fatalf("Close() error = %v", closeErr)
 	}
 
-	err = bridge.OnEvent(context.Background(), Event{
-		Kind: EventKindTurnEnd,
-		Meta: EventMeta{
+	err = bridge.OnRuntimeEvent(context.Background(), runtimeevents.Event{
+		Kind:   runtimeevents.KindAgentTurnEnd,
+		Source: runtimeevents.Source{Component: "agent"},
+		Scope: runtimeevents.Scope{
 			TurnID:     "turn-after-close",
 			SessionKey: "session-after-close",
 			AgentID:    "agent-after-close",
@@ -958,7 +973,7 @@ func TestEvolutionBridge_CloseRejectsLateTurnEndEvents(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("OnEvent() error = %v", err)
+		t.Fatalf("OnRuntimeEvent() error = %v", err)
 	}
 
 	assertNotExists(t, filepath.Join(workspace, "state", "evolution", "task-records.jsonl"))
@@ -1117,7 +1132,7 @@ func seedReadyRule(t *testing.T, workspace string) {
 	store := evolution.NewStore(evolution.NewPaths(workspace, ""))
 	rule := evolution.LearningRecord{
 		ID:            "rule-1",
-		Kind:          evolution.RecordKindRule,
+		Kind:          evolution.RecordKindPattern,
 		WorkspaceID:   workspace,
 		CreatedAt:     time.Unix(1700000000, 0).UTC(),
 		Label:         "weather-native-name-path",
@@ -1275,7 +1290,7 @@ func assertNotExists(t *testing.T, path string) {
 	}
 }
 
-func waitForEvent(t *testing.T, ch <-chan Event, timeout time.Duration, match func(Event) bool) Event {
+func waitForEvent(t *testing.T, ch <-chan runtimeevents.Event, timeout time.Duration, match func(runtimeevents.Event) bool) runtimeevents.Event {
 	t.Helper()
 
 	timer := time.NewTimer(timeout)

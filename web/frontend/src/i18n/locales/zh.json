@@ -182,7 +182,8 @@
     "restartRequiredDesc": "{{name}} 的最新配置已保存。重启服务后才能正式生效。",
     "fix": "修复",
     "retry": "重试",
-    "back": "返回"
+    "back": "返回",
+    "loading": "加载中…"
   },
   "labels": {
     "loading": "加载中..."
@@ -775,7 +776,9 @@
           "base_url_placeholder": "可选，如果需要代理请覆盖终端地址",
           "api_key": "API 密钥 (Token)",
           "api_key_placeholder": "请输入密钥，留空则保持原密钥不变",
-          "none": "未配置"
+          "none": "未配置",
+          "model": "转写模型",
+          "model_placeholder": "使用渠道默认"
         },
         "status": {
           "enabled": "已启用",
@@ -1067,6 +1070,9 @@
       "config_page": {
         "notice": "MCP 设置已独立为专门页面",
         "link": "前往 MCP 页面"
+      },
+      "plugin_servers": {
+        "title": "插件提供的 MCP 服务器"
       }
     },
     "plugins": {

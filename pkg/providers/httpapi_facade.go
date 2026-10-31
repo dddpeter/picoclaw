@@ -24,14 +24,6 @@ func NewGeminiProvider(
 	return httpapi.NewGeminiProvider(apiKey, apiBase, proxy, userAgent, requestTimeoutSeconds, extraBody, customHeaders)
 }
 
-func NewHTTPProvider(apiKey, apiBase, proxy string) *HTTPProvider {
-	return httpapi.NewHTTPProvider(apiKey, apiBase, proxy)
-}
-
-func NewHTTPProviderWithMaxTokensField(apiKey, apiBase, proxy, maxTokensField string) *HTTPProvider {
-	return httpapi.NewHTTPProviderWithMaxTokensField(apiKey, apiBase, proxy, maxTokensField)
-}
-
 func NewHTTPProviderWithMaxTokensFieldAndRequestTimeout(
 	apiKey, apiBase, proxy, maxTokensField, userAgent string,
 	requestTimeoutSeconds int,

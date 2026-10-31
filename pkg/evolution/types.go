@@ -9,11 +9,7 @@ const (
 	RecordKindPattern    RecordKind = "pattern"
 	legacyRecordKindCase RecordKind = "case"
 	legacyRecordKindRule RecordKind = "rule"
-	// Deprecated: use RecordKindTask.
-	RecordKindCase = RecordKindTask
-	// Deprecated: use RecordKindPattern.
-	RecordKindRule = RecordKindPattern
-)
+		)
 
 type RecordStatus string
 

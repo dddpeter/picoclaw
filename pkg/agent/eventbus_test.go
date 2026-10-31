@@ -27,7 +27,7 @@ func TestAgentLoop_PublishesRuntimeEvents(t *testing.T) {
 		}
 	}()
 
-	runtimeSub, runtimeCh, err := al.RuntimeEvents().OfKind(runtimeevents.KindAgentToolExecStart).SubscribeChan(
+	runtimeSub, runtimeCh, err := al.RuntimeEventBus().Channel().OfKind(runtimeevents.KindAgentToolExecStart).SubscribeChan(
 		context.Background(),
 		runtimeevents.SubscribeOptions{Name: "runtime", Buffer: 1},
 	)

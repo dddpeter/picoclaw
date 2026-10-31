@@ -18,3 +18,4 @@ func WithRuntimeEvents(bus runtimeevents.Bus) AgentLoopOption {
 		al.ownsRuntimeEvents = false
 	}
 }
+
