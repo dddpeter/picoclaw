@@ -87,3 +87,5 @@ docker/data
 node_modules/
 .vs/
 .codebuddy/
+# go generate / dev-run side effects (config snapshot with real paths)
+web/backend/version
