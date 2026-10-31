@@ -23,7 +23,7 @@ import { ModelSelector } from "@/components/chat/model-selector"
 import { SessionHistorySidebar } from "@/components/chat/session-history-sidebar"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import { Sheet, SheetContent } from "@/components/ui/sheet"
 import {
   Select,
   SelectContent,
@@ -412,16 +412,17 @@ export function ChatPage() {
           )
         }
       >
-        <SheetTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="md:hidden"
-            aria-label={t("chat.sessionHistory")}
-          >
-            <IconHistory className="size-5" />
-          </Button>
-        </SheetTrigger>
+        {/* Radix SheetTrigger 必须位于 <Sheet> 上下文内；此按钮在 PageHeader
+            下、Sheet 树外，且 Sheet 已是受控模式——直接 onClick 打开即可。 */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="md:hidden"
+          aria-label={t("chat.sessionHistory")}
+          onClick={() => setSessionsSheetOpen(true)}
+        >
+          <IconHistory className="size-5" />
+        </Button>
         <div className="border-border/60 hidden items-center gap-2 rounded-lg border px-3 py-1.5 sm:flex">
           <span className="text-muted-foreground text-sm">
             {t("chat.showAssistantDetails")}
