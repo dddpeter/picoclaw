@@ -55,9 +55,29 @@ Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 SetupIconFile=..\web\backend\icon.ico
+; Auto-pick the wizard language from the Windows UI language; when no
+; translation matches, Inno falls back to the FIRST [Languages] entry.
+; Keep English first. Set to yes to always show a language picker instead.
+ShowLanguageDialog=no
 
 [Languages]
-Name: "english"; MessagesFile: "compiler:Default.isl"
+; English MUST stay first: it is the fallback when the Windows UI language
+; matches no translation here (e.g. zh-TW systems fall back to English).
+Name: "en"; MessagesFile: "compiler:Default.isl"
+Name: "zhcn"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+
+[CustomMessages]
+; Strings referenced from [Code] via CustomMessage(); en.* doubles as the
+; fallback wording, zhcn.* is the Simplified Chinese override. %n = newline,
+; %1/%2 are FmtMessage() substitution slots.
+en.RunningProcessesPrompt=Limulus is currently running (picoclaw.exe / picoclaw-launcher.exe).%nThese processes must be stopped to complete the upgrade.%n%nStop them now?
+en.RunningProcessesStopFailed=Could not fully stop the Limulus processes. Please close them manually, then click "Retry".
+en.RunningProcessesAborted=Limulus processes are still running, so Setup cannot continue. Please stop picoclaw.exe and picoclaw-launcher.exe manually and run Setup again.
+en.UpgradeDetected=Detected installed version %1. This will upgrade to %2.
+zhcn.RunningProcessesPrompt=检测到 Limulus 正在运行（picoclaw.exe / picoclaw-launcher.exe），%n需要停止它们才能完成升级安装。%n%n是否现在停止这些进程？
+zhcn.RunningProcessesStopFailed=未能完全停止 Limulus 进程，请手动关闭后点击"重试"。
+zhcn.RunningProcessesAborted=Limulus 进程仍在运行，无法继续安装。请手动停止 picoclaw.exe 和 picoclaw-launcher.exe 后重新运行安装程序。
+zhcn.UpgradeDetected=检测到已安装版本 %1，本次将升级到 %2。
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
@@ -124,15 +144,12 @@ begin
 
   for Attempts := 1 to 3 do
   begin
-    if MsgBox(
-        '检测到 Limulus 正在运行（picoclaw.exe / picoclaw-launcher.exe），' + #13#10 +
-        '需要停止它们才能完成升级安装。' + #13#10#13#10 +
-        '是否现在停止这些进程？',
+    if MsgBox(CustomMessage('RunningProcessesPrompt'),
         mbConfirmation, MB_YESNO) = IDYES then
     begin
       if StopPicoclawProcesses() then
         exit;
-      MsgBox('未能完全停止 Limulus 进程，请手动关闭后点击"重试"。', mbError, MB_OK);
+      MsgBox(CustomMessage('RunningProcessesStopFailed'), mbError, MB_OK);
     end
     else
     begin
@@ -143,7 +160,7 @@ begin
     end;
   end;
 
-  Result := 'Limulus 进程仍在运行，无法继续安装。请手动停止 picoclaw.exe 和 picoclaw-launcher.exe 后重新运行安装程序。';
+  Result := CustomMessage('RunningProcessesAborted');
 end;
 
 function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo,
@@ -153,7 +170,7 @@ var
 begin
   if RegQueryStringValue(HKCU, PrevUninstallKey, 'DisplayVersion', PrevVersion) and
      (PrevVersion <> '{#MyAppVersion}') then
-    Result := '检测到已安装版本 ' + PrevVersion + '，本次将升级到 {#MyAppVersion}。' + NewLine + NewLine
+    Result := FmtMessage(CustomMessage('UpgradeDetected'), [PrevVersion, '{#MyAppVersion}']) + NewLine + NewLine
   else
     Result := '';
   Result := Result + MemoDirInfo + NewLine + MemoGroupInfo + NewLine + MemoTasksInfo;
