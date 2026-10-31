@@ -145,3 +145,16 @@
 **顺带修复**：chat-pi 两处剪贴板改走 `copyText`（HTTP 部署降级）、i18n 四个缺失键补齐 5 locale（zh 界面露英文问题）、`agent_command.go` ListSkillNames 重复赋值、agent_init 每次 spawn 白构建工具切片（随 SetSpawner 闭包删除）。
 
 **验证**：go vet 全绿；前端 pnpm build 通过；`go test ./pkg/...` 失败集 = 预存环境失败集（audio/asr、deltachat、isolation、migrate、8 个 shell 路径守卫用例——stash 对照确认预存），无新增失败。
+
+## 附三：批次二实施记录（2026-10-31 当日落地）
+
+**已修**：B1（504 入 transient + classifyByMessage 配额提升 Billing，各补回归测试）、B2（MarshalJSON 补三字段 + round-trip 测试）、C7（llm.delta 半接线整链下线：逐 token 事件会淹没有限事件日志）、C4（web composer 生成中显示停止按钮，/stop 走既有 busy 拦截——修正了「需扩协议」的原始评估）、C5（PUT /api/sessions/{id}/title + 侧栏铅笔行内重命名）。
+
+**C2 定案修正**：存在钉死测试 `TestShellTool_CustomAllowDoesNotBecomeStrictAllowlist`——custom_allow_patterns 的语义是**仅扩展程序化 allowlist**（`SetAllowPatterns` 库内 API 激活），不构成独立 allowlist 模式。实现批次的门禁改动已回滚，改为代码注释 + 配置文档澄清。「假旋钮」性质仅在网关二进制内成立（无 SetAllowPatterns 调用方），属库 API 设计而非缺陷。
+
+**复核再推翻一项**：「PUT /api/config 无测试覆盖」不实——4 个 TestHandleUpdateConfig_* 专属测试存在，端点恢复保留。
+
+**遗留待办（后续批次）**：
+- C1 spawn_status 接线：SubagentManager 已收窄，需要 SubTurn spawn/deliver 路径向 manager.tasks 注册/注销任务（中成本，动 pkg/agent/subturn.go）
+- 批次三韧性：anthropic_messages 错误通道、updater 非 GitHub 显式报错、config 写锁收敛、telegram rune 节流、matrix/deltachat/whatsapp 断线重连、MQTT TLS 开关、health 包去虚存实
+- 批次四增强：/skills drafts 草稿审阅命令、doctor 接 mcp.ProbeServer、subagent 参数收口（Temperature/MaxContextRunes/maxTurns）、pico/telegram surface 复用、glob/grep 工具、移动端侧栏抽屉、i18n 死键清理与 cs/bn-in/pt-br 补齐
