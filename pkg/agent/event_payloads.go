@@ -71,12 +71,6 @@ type LLMResponsePayload struct {
 	HasReasoning bool
 }
 
-// LLMDeltaPayload describes a streamed LLM delta.
-type LLMDeltaPayload struct {
-	ContentDeltaLen   int
-	ReasoningDeltaLen int
-}
-
 // LLMRetryPayload describes a retry of an LLM request.
 type LLMRetryPayload struct {
 	Attempt    int

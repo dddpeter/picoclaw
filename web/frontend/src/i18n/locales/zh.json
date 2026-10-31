@@ -143,7 +143,9 @@
     "askSkip": "跳过",
     "askSealAnswered": "已作答",
     "askSealSkipped": "已跳过",
-    "askSealDone": "已处理"
+    "askSealDone": "已处理",
+    "stopGeneration": "停止生成",
+    "renameSession": "重命名会话"
   },
   "header": {
     "logout": {

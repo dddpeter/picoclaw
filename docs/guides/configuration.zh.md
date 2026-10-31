@@ -405,7 +405,7 @@ Routing 通过 `agents.dispatch.rules` 配置。
 | `tools.exec.enable_deny_patterns` | bool | `true` | 启用危险命令拦截（内置默认规则 + 自定义规则） |
 | `tools.exec.enable_custom_deny_patterns` | bool | `false` | 仅加载 `custom_deny_patterns` 而不加载内置默认规则（fork 新增，见下方说明） |
 | `tools.exec.custom_deny_patterns` | string[] | `[]` | 自定义阻止的正则表达式模式 |
-| `tools.exec.custom_allow_patterns` | string[] | `[]` | 自定义允许的正则表达式模式 |
+| `tools.exec.custom_allow_patterns` | string[] | `[]` | 自定义允许的正则表达式模式（仅扩展程序化 allowlist，见 `ExecTool.SetAllowPatterns`；单独配置不构成 allowlist 模式，不会放行/拦截任何命令） |
 
 > **custom-only 模式（本 fork 新增）：** 上游行为是 `enable_deny_patterns=false` 时 `custom_deny_patterns` 一并失效。本 fork 增加独立开关 `enable_custom_deny_patterns`：当 `enable_deny_patterns=false` 且 `enable_custom_deny_patterns=true` 时，只加载自定义拦截规则、不加载内置默认规则——适合"内置规则误伤太多（`sudo`/`git push`/`kill` 等日常命令都在默认拦截列表），但仍有定向高危命令要拦"的场景。`enable_deny_patterns=true` 时行为与上游一致（默认 + 自定义都加载），该开关无额外作用。
 

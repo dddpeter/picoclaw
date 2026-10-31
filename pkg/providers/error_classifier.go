@@ -156,7 +156,7 @@ var (
 
 	// Transient HTTP status codes that map to timeout (server-side failures).
 	transientStatusCodes = map[int]bool{
-		500: true, 502: true, 503: true,
+		500: true, 502: true, 503: true, 504: true,
 		521: true, 522: true, 523: true, 524: true,
 		529: true,
 	}
@@ -391,6 +391,14 @@ func classifyByStatus(status int) FailoverReason {
 // classifyByMessage matches error messages against patterns.
 // Priority order matters (from OpenClaw classifyFailoverReason).
 func classifyByMessage(msg string) FailoverReason {
+	// Mirror the HTTPError/extractHTTPStatus branches: a 429-style message
+	// whose body says the account quota is exhausted is billing-class, not a
+	// per-minute throttle — without this promotion, non-HTTPError sources
+	// (hand-rolled provider errors, wrapped SDK errors) would re-hit a dead
+	// quota every minute on the short RateLimit cooldown.
+	if matchesAny(msg, rateLimitPatterns) && matchesAny(msg, billingPatterns) {
+		return FailoverBilling
+	}
 	if matchesAny(msg, rateLimitPatterns) {
 		return FailoverRateLimit
 	}

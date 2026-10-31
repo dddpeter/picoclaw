@@ -102,6 +102,23 @@ export async function getSessionHistory(
   return res.json()
 }
 
+export async function renameSession(
+  id: string,
+  title: string,
+): Promise<void> {
+  const res = await launcherFetch(
+    `/api/sessions/${encodeURIComponent(id)}/title`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    },
+  )
+  if (!res.ok) {
+    throw new Error(`Failed to rename session ${id}: ${res.status}`)
+  }
+}
+
 export async function deleteSession(
   id: string,
   channel?: string,

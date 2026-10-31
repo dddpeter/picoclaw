@@ -1,5 +1,7 @@
 import { IconAlertTriangle, IconPlus } from "@tabler/icons-react"
 import { useAtom } from "jotai"
+
+import { renameSession } from "@/api/sessions"
 import {
   type ChangeEvent,
   type ClipboardEvent,
@@ -350,6 +352,14 @@ export function ChatPage() {
         observerRef={observerRef}
         onSwitchSession={switchSession}
         onDeleteSession={handleDeleteSession}
+        onRenameSession={async (sessionId, title) => {
+          try {
+            await renameSession(sessionId, title)
+            void loadSessions(true)
+          } catch (err) {
+            console.error("rename session failed", err)
+          }
+        }}
         onRefresh={() => void loadSessions(true)}
         onAutoRefresh={() => void refreshSessions()}
       />
@@ -471,6 +481,10 @@ export function ChatPage() {
         onDrop={handleComposerDrop}
         onRemoveAttachment={handleRemoveAttachment}
         onSend={handleSend}
+        isTyping={isTyping}
+        onStop={() => {
+          sendMessage({ content: "/stop", attachments: [] })
+        }}
         onContextDetail={() => {
           if (sendMessage({ content: "/context", attachments: [] })) {
             setInput("")

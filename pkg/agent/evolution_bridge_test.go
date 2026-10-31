@@ -115,7 +115,7 @@ func TestEvolutionBridge_TurnEndBypassesHookObserverBackpressure(t *testing.T) {
 
 	for i := 0; i < hookObserverBufferSize+10; i++ {
 		al.publishRuntimeEvent(runtimeevents.Event{
-			Kind:   runtimeevents.KindAgentLLMDelta,
+			Kind:   runtimeevents.KindAgentLLMRequest,
 			Source: runtimeevents.Source{Component: "agent", Name: "main"},
 		})
 	}

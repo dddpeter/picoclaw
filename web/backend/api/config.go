@@ -25,6 +25,7 @@ var configWriteMu sync.Mutex
 // registerConfigRoutes binds configuration management endpoints to the ServeMux.
 func (h *Handler) registerConfigRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/config", h.handleGetConfig)
+	mux.HandleFunc("PUT /api/config", h.handleUpdateConfig)
 	mux.HandleFunc("PATCH /api/config", h.handlePatchConfig)
 	mux.HandleFunc("POST /api/config/reset", h.handleResetConfig)
 	mux.HandleFunc("POST /api/config/test-command-patterns", h.handleTestCommandPatterns)
@@ -90,6 +91,77 @@ func execAllowRemoteOmitted(body []byte) bool {
 		return false
 	}
 	return raw.Tools == nil || raw.Tools.Exec == nil || raw.Tools.Exec.AllowRemote == nil
+}
+
+
+// handleUpdateConfig updates the complete system configuration.
+//
+//	PUT /api/config
+func (h *Handler) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	var raw map[string]any
+	if err = json.Unmarshal(body, &raw); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+		return
+	}
+	if err = normalizeChannelArrayFields(raw); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid channel array field: %v", err), http.StatusBadRequest)
+		return
+	}
+	normalizedBody, err := json.Marshal(raw)
+	if err != nil {
+		http.Error(w, "Failed to normalize config payload", http.StatusBadRequest)
+		return
+	}
+	var cfg config.Config
+	if err = json.Unmarshal(normalizedBody, &cfg); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+		return
+	}
+	cfg.Session.ApplyDmScope()
+	cfg.Session.DeriveDmScope()
+	if execAllowRemoteOmitted(body) {
+		cfg.Tools.Exec.AllowRemote = config.DefaultConfig().Tools.Exec.AllowRemote
+	}
+
+	// Load existing config and copy security credentials before validation,
+	// so that security-managed fields (e.g. pico token) are available.
+	err = cfg.SecurityCopyFrom(h.configPath)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to apply security config: %v", err), http.StatusInternalServerError)
+		return
+	}
+	applyConfigSecretsFromMap(&cfg, raw)
+
+	if errs := validateConfig(&cfg); len(errs) > 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]any{
+			"status": "validation_error",
+			"errors": errs,
+		})
+		return
+	}
+
+	if err := config.SaveConfig(h.configPath, &cfg); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	h.applyRuntimeLogLevel()
+	logger.Infof("configuration updated successfully")
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 // handlePatchConfig partially updates the system configuration using JSON Merge Patch (RFC 7396).

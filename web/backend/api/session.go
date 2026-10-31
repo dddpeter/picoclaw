@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/memory"
@@ -25,6 +27,7 @@ func (h *Handler) registerSessionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sessions", h.handleListSessions)
 	mux.HandleFunc("GET /api/sessions/{id}", h.handleGetSession)
 	mux.HandleFunc("DELETE /api/sessions/{id}", h.handleDeleteSession)
+	mux.HandleFunc("PUT /api/sessions/{id}/title", h.handleRenameSession)
 }
 
 // sessionFile mirrors the on-disk session JSON structure from pkg/session.
@@ -1177,4 +1180,60 @@ func (h *Handler) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleRenameSession sets a user-source title (never overwritten by the
+// auto-naming pipeline). Backs the 2026-10-31 module review C5 gap: the
+// backend title machinery existed (/title, SessionTitleSourceUser) but the
+// web panel had no rename entry.
+func (h *Handler) handleRenameSession(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.PathValue("id")
+	if sessionID == "" {
+		http.Error(w, "missing session id", http.StatusBadRequest)
+		return
+	}
+
+	var body struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	title := strings.TrimSpace(body.Title)
+	if title == "" {
+		http.Error(w, "title must not be empty", http.StatusBadRequest)
+		return
+	}
+	if runes := utf8.RuneCountInString(title); runes > 200 {
+		title = string([]rune(title)[:200])
+	}
+
+	dir, _, err := h.sessionRuntimeSettings()
+	if err != nil {
+		http.Error(w, "failed to resolve sessions directory", http.StatusInternalServerError)
+		return
+	}
+	store, err := memory.NewJSONLStore(dir)
+	if err != nil {
+		http.Error(w, "failed to open session store", http.StatusInternalServerError)
+		return
+	}
+	defer store.Close()
+
+	ok, err := store.SetSessionTitle(r.Context(), sessionID, title, memory.SessionTitleSourceUser)
+	if err != nil {
+		http.Error(w, "failed to rename session", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if !ok {
+		// SetSessionTitle returns false for empty titles or when an existing
+		// title outranks "user" — the latter cannot happen for a valid user
+		// source, so treat !ok as "nothing to do" and still report success.
+		json.NewEncoder(w).Encode(map[string]any{"ok": false})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]any{"ok": true, "title": title})
 }

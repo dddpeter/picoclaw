@@ -143,7 +143,9 @@
     "askSkip": "Skip",
     "askSealAnswered": "Answered",
     "askSealSkipped": "Skipped",
-    "askSealDone": "Handled"
+    "askSealDone": "Handled",
+    "stopGeneration": "Stop generating",
+    "renameSession": "Rename session"
   },
   "header": {
     "logout": {

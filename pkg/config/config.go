@@ -132,6 +132,9 @@ func (c EvolutionConfig) MarshalJSON() ([]byte, error) {
 		MinSuccessRatio              float64  `json:"min_success_ratio,omitempty"`
 		ColdPathTrigger              string   `json:"cold_path_trigger,omitempty"`
 		ColdPathTimes                []string `json:"cold_path_times,omitempty"`
+		ColdAfterDays                int      `json:"cold_after_days,omitempty"`
+		ArchiveAfterDays             int      `json:"archive_after_days,omitempty"`
+		DeleteAfterDays              int      `json:"delete_after_days,omitempty"`
 		AutomationSuggestionsEnabled *bool    `json:"suggestions_enabled,omitempty"`
 	}{
 		Enabled:                      c.Enabled,
@@ -141,6 +144,9 @@ func (c EvolutionConfig) MarshalJSON() ([]byte, error) {
 		MinSuccessRatio:              c.EffectiveMinSuccessRatio(),
 		ColdPathTrigger:              strings.TrimSpace(c.ColdPathTrigger),
 		ColdPathTimes:                c.EffectiveColdPathTimes(),
+		ColdAfterDays:                c.ColdAfterDays,
+		ArchiveAfterDays:             c.ArchiveAfterDays,
+		DeleteAfterDays:              c.DeleteAfterDays,
 		AutomationSuggestionsEnabled: c.AutomationSuggestionsEnabled,
 	}
 	if !out.Enabled {

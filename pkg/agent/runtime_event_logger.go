@@ -264,9 +264,6 @@ func appendRuntimeEventPayloadSummary(fields map[string]any, payload any) {
 		fields["messages"] = payload.MessagesCount
 		fields["tools"] = payload.ToolsCount
 		fields["max_tokens"] = payload.MaxTokens
-	case LLMDeltaPayload:
-		fields["content_delta_len"] = payload.ContentDeltaLen
-		fields["reasoning_delta_len"] = payload.ReasoningDeltaLen
 	case LLMResponsePayload:
 		fields["content_len"] = payload.ContentLen
 		fields["tool_calls"] = payload.ToolCalls

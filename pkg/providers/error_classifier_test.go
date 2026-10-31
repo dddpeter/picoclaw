@@ -571,3 +571,31 @@ func TestIsImageSizeError(t *testing.T) {
 		t.Error("should not match normal error")
 	}
 }
+
+// TestClassifyError_504IsTransient: a gateway timeout used to fall through as
+// unclassified, which aborts the whole fallback chain without cooldown.
+func TestClassifyError_504IsTransient(t *testing.T) {
+	httpErr := &common.HTTPError{StatusCode: 504, BodyPreview: "gateway timeout"}
+	result := ClassifyError(httpErr, "prov", "model")
+	if result == nil {
+		t.Fatal("expected 504 to classify as transient timeout")
+	}
+	var fe *FailoverError
+	if !errors.As(result, &fe) || fe.Reason != FailoverTimeout {
+		t.Fatalf("reason = %v, want %v", fe, FailoverTimeout)
+	}
+}
+
+// TestClassifyError_429QuotaMessageWithoutHTTPError: message-source errors
+// (hand-rolled provider errors) carrying both 429 and quota semantics must
+// promote to Billing like the HTTPError branch does.
+func TestClassifyError_429QuotaMessageWithoutHTTPError(t *testing.T) {
+	result := ClassifyError(errors.New("rate limited (429): usage limit exceeded for organization"), "prov", "model")
+	if result == nil {
+		t.Fatal("expected classification")
+	}
+	var fe *FailoverError
+	if !errors.As(result, &fe) || fe.Reason != FailoverBilling {
+		t.Fatalf("reason = %v, want %v (billing promotion)", fe, FailoverBilling)
+	}
+}

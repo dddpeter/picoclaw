@@ -159,7 +159,9 @@
     "askSkip": "Přeskočit",
     "askSubmit": "Odeslat odpovědi",
     "askTextPlaceholder": "Zadejte odpověď…",
-    "askTitle": "Potřebuji vaši odpověď"
+    "askTitle": "Potřebuji vaši odpověď",
+    "stopGeneration": "Zastavit generování",
+    "renameSession": "Přejmenovat relaci"
   },
   "header": {
     "logout": {

@@ -1585,6 +1585,10 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 		}
 	}
 
+	// Allowlist mode activates only via SetAllowPatterns (library/embedder
+	// API). custom_allow_patterns EXTENDS that list — per pinned semantics
+	// (TestShellTool_CustomAllowDoesNotBecomeStrictAllowlist) it must never
+	// become a standalone allowlist on its own.
 	if len(t.allowPatterns) > 0 {
 		if !t.commandMatchesAllowPattern(lower) {
 			return "Command blocked by safety guard (not in allowlist)"

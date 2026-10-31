@@ -161,7 +161,9 @@
     "askSkip": "Ignorar",
     "askSubmit": "Enviar respostas",
     "askTextPlaceholder": "Digite a resposta…",
-    "askTitle": "Preciso da sua resposta"
+    "askTitle": "Preciso da sua resposta",
+    "stopGeneration": "Parar geração",
+    "renameSession": "Renomear sessão"
   },
   "header": {
     "logout": {

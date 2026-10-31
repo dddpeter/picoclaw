@@ -3350,3 +3350,30 @@ func TestAgentDefaults_GetAskTimeoutMS(t *testing.T) {
 		}
 	}
 }
+
+// TestEvolutionConfig_MarshalKeepsLifecycleDays pins the 2026-10-31 fix: the
+// custom MarshalJSON used to drop cold/archive/delete_after_days, so any
+// config rewrite (web UI save, migration backup) silently reset user values
+// to defaults on next start.
+func TestEvolutionConfig_MarshalKeepsLifecycleDays(t *testing.T) {
+	cfg := Config{
+		Evolution: EvolutionConfig{
+			Enabled:          true,
+			Mode:             "observe",
+			ColdAfterDays:    30,
+			ArchiveAfterDays: 60,
+			DeleteAfterDays:  90,
+		},
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var back Config
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if back.Evolution.ColdAfterDays != 30 || back.Evolution.ArchiveAfterDays != 60 || back.Evolution.DeleteAfterDays != 90 {
+		t.Fatalf("lifecycle days lost in round-trip: %+v", back.Evolution)
+	}
+}

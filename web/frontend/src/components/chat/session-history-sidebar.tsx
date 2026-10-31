@@ -1,6 +1,6 @@
-import { IconHistory, IconLoader2, IconTrash } from "@tabler/icons-react"
+import { IconHistory, IconLoader2, IconPencil, IconTrash } from "@tabler/icons-react"
 import dayjs from "dayjs"
-import { useEffect, useRef, type RefObject } from "react"
+import { useEffect, useRef, useState, type RefObject } from "react"
 import { useTranslation } from "react-i18next"
 
 import type { SessionSummary } from "@/api/sessions"
@@ -19,6 +19,7 @@ interface SessionHistorySidebarProps {
   observerRef: RefObject<HTMLDivElement | null>
   onSwitchSession: (sessionId: string, channel?: string) => void
   onDeleteSession: (sessionId: string, channel?: string) => void
+  onRenameSession: (sessionId: string, title: string) => Promise<void>
   onRefresh: () => void
   onAutoRefresh: () => void
 }
@@ -34,10 +35,13 @@ export function SessionHistorySidebar({
   observerRef,
   onSwitchSession,
   onDeleteSession,
+  onRenameSession,
   onRefresh,
   onAutoRefresh,
 }: SessionHistorySidebarProps) {
   const { t } = useTranslation()
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState("")
   const loadedRef = useRef(false)
   const onRefreshRef = useRef(onRefresh)
   const onAutoRefreshRef = useRef(onAutoRefresh)
@@ -188,6 +192,41 @@ export function SessionHistorySidebar({
                   <span className="text-muted-foreground">{dayjs(session.updated).fromNow()}</span>
                 </div>
 
+                {renamingId === session.id ? (
+                  <input
+                    autoFocus
+                    className="bg-background border-primary absolute top-1/2 right-1.5 z-10 h-6 w-40 -translate-y-1/2 rounded border px-1.5 text-xs outline-none"
+                    value={renameDraft}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) => setRenameDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        const title = renameDraft.trim()
+                        if (title) {
+                          void onRenameSession(session.id, title)
+                        }
+                        setRenamingId(null)
+                      } else if (event.key === "Escape") {
+                        setRenamingId(null)
+                      }
+                    }}
+                    onBlur={() => setRenamingId(null)}
+                  />
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={t("chat.renameSession")}
+                    className="text-muted-foreground hover:bg-secondary hover:text-secondary-foreground absolute top-1/2 right-8 h-6 w-6 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setRenameDraft(session.title || "")
+                      setRenamingId(session.id)
+                    }}
+                  >
+                    <IconPencil className="h-3.5 w-3.5" />
+                  </Button>
+                )}
                 <Button
                   variant="ghost"
                   size="icon"
