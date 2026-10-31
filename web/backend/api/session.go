@@ -1221,6 +1221,13 @@ func (h *Handler) handleRenameSession(w http.ResponseWriter, r *http.Request) {
 	}
 	defer store.Close()
 
+	// m-7: refuse ghost IDs — SetSessionTitle would otherwise create an
+	// orphan meta file for a nonexistent session and report success.
+	if !store.SessionExists(sessionID) {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+
 	ok, err := store.SetSessionTitle(r.Context(), sessionID, title, memory.SessionTitleSourceUser)
 	if err != nil {
 		http.Error(w, "failed to rename session", http.StatusInternalServerError)

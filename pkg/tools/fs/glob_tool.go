@@ -90,6 +90,20 @@ func globToRegexp(pattern string) (*regexp.Regexp, error) {
 	return regexp.Compile(b.String())
 }
 
+// normalizeSearchRoot canonicalizes the caller-supplied search directory into
+// the workspace-relative walk root. Absolute paths (leading "/" or a drive
+// letter) are preserved — the previous two-sided strings.Trim stripped the
+// leading slash and silently re-rooted "/tmp" into <workspace>/tmp (m-2).
+func normalizeSearchRoot(searchDir string) string {
+	root := strings.ReplaceAll(searchDir, "\\", "/")
+	root = strings.TrimPrefix(root, "./")
+	root = strings.TrimRight(root, "/")
+	if root == "." {
+		return ""
+	}
+	return root
+}
+
 func (t *GlobTool) Execute(ctx context.Context, args map[string]any) *ToolResult {
 	pattern, _ := args["pattern"].(string)
 	pattern = strings.TrimSpace(pattern)
@@ -111,12 +125,7 @@ func (t *GlobTool) Execute(ctx context.Context, args map[string]any) *ToolResult
 	var walkErr error
 	// relBase strips the search dir prefix so patterns anchor at the search
 	// root; display paths stay workspace-relative like the other file tools.
-	searchRoot := strings.ReplaceAll(searchDir, "\\", "/")
-	searchRoot = strings.TrimPrefix(searchRoot, "./")
-	searchRoot = strings.Trim(searchRoot, "/")
-	if searchRoot == "." {
-		searchRoot = ""
-	}
+	searchRoot := normalizeSearchRoot(searchDir)
 	walkRoot := searchRoot
 	if walkRoot == "" {
 		walkRoot = "."

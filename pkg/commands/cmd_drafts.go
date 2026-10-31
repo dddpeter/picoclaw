@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // draftsCommand closes the evolution draft-review loop (2026-10-31 review C3):
@@ -92,8 +93,8 @@ func draftsPreviewHandler(_ context.Context, req Request, rt *Runtime) error {
 	fmt.Fprintf(&b, "\n%s\n", draft.HumanSummary)
 	body := draft.BodyOrPatch
 	const maxBody = 2000
-	if len(body) > maxBody {
-		body = body[:maxBody] + "\n… (truncated — accept writes the full content)"
+	if runes := utf8.RuneCountInString(body); runes > maxBody {
+		body = string([]rune(body)[:maxBody]) + "\n… (truncated — accept writes the full content)"
 	}
 	fmt.Fprintf(&b, "\n---\n%s\n---\n", body)
 	b.WriteString("\n/drafts accept <id> applies it; /drafts reject <id> discards it.")
@@ -118,7 +119,7 @@ func draftsAcceptHandler(ctx context.Context, req Request, rt *Runtime) error {
 	))
 }
 
-func draftsRejectHandler(_ context.Context, req Request, rt *Runtime) error {
+func draftsRejectHandler(ctx context.Context, req Request, rt *Runtime) error {
 	if rt == nil || rt.DecideDraft == nil {
 		return req.Reply(unavailableMsg)
 	}
@@ -126,7 +127,7 @@ func draftsRejectHandler(_ context.Context, req Request, rt *Runtime) error {
 	if id == "" {
 		return req.Reply("Usage: /drafts reject <draft-id>")
 	}
-	draft, err := rt.DecideDraft(context.Background(), id, false)
+	draft, err := rt.DecideDraft(ctx, id, false)
 	if err != nil {
 		return req.Reply("Failed to reject draft: " + err.Error())
 	}

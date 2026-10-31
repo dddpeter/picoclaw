@@ -1374,6 +1374,8 @@ func (rt *Runtime) saveAppliedProfile(store *Store, workspace string, draft Skil
 // CandidateDraftsForReview returns candidate drafts awaiting a user decision
 // for the given workspace. Backs the /drafts command (2026-10-31 review C3:
 // draft mode produced candidates with no user-visible review entry point).
+// m-5: workspace-filtered — with a shared state_dir the drafts file spans
+// workspaces, and a workspace must only review its own drafts.
 func (rt *Runtime) CandidateDraftsForReview(workspace string) []SkillDraft {
 	store := rt.storeForWorkspace(workspace)
 	drafts, err := store.LoadDrafts()
@@ -1382,14 +1384,15 @@ func (rt *Runtime) CandidateDraftsForReview(workspace string) []SkillDraft {
 	}
 	out := make([]SkillDraft, 0, len(drafts))
 	for _, draft := range drafts {
-		if draft.Status == DraftStatusCandidate {
+		if draft.WorkspaceID == workspace && draft.Status == DraftStatusCandidate {
 			out = append(out, draft)
 		}
 	}
 	return out
 }
 
-// DraftByID loads one draft by ID (any status) for preview rendering.
+// DraftByID loads one draft by ID (any status) for preview rendering. Only
+// drafts belonging to the given workspace are visible (m-5).
 func (rt *Runtime) DraftByID(workspace, draftID string) (SkillDraft, bool) {
 	store := rt.storeForWorkspace(workspace)
 	drafts, err := store.LoadDrafts()
@@ -1397,7 +1400,7 @@ func (rt *Runtime) DraftByID(workspace, draftID string) (SkillDraft, bool) {
 		return SkillDraft{}, false
 	}
 	for _, draft := range drafts {
-		if draft.ID == draftID {
+		if draft.WorkspaceID == workspace && draft.ID == draftID {
 			return draft, true
 		}
 	}
@@ -1407,7 +1410,9 @@ func (rt *Runtime) DraftByID(workspace, draftID string) (SkillDraft, bool) {
 // DecideDraft records an explicit user decision on a candidate draft.
 // Consent-first: accept=true applies the draft via the same machinery the
 // cold path uses (validation, scan, atomic write with rollback); accept=false
-// marks it rejected so it stops surfacing for review.
+// marks it rejected so it stops surfacing for review. m-5: only the given
+// workspace's drafts are addressable, and an already-accepted draft cannot be
+// rejected — its skill is live in the library, so that would desync state.
 func (rt *Runtime) DecideDraft(ctx context.Context, workspace, draftID string, accept bool) (SkillDraft, error) {
 	store := rt.storeForWorkspace(workspace)
 	drafts, err := store.LoadDrafts()
@@ -1415,10 +1420,13 @@ func (rt *Runtime) DecideDraft(ctx context.Context, workspace, draftID string, a
 		return SkillDraft{}, err
 	}
 	for _, draft := range drafts {
-		if draft.ID != draftID {
+		if draft.WorkspaceID != workspace || draft.ID != draftID {
 			continue
 		}
 		if !accept {
+			if draft.Status == DraftStatusAccepted {
+				return draft, fmt.Errorf("draft %s is already accepted and live in the skill library; it cannot be rejected", draftID)
+			}
 			draft.Status = DraftStatusRejected
 			draft.ReviewNotes = appendUniqueStrings(draft.ReviewNotes, "rejected via /drafts reject")
 			return draft, store.SaveDrafts([]SkillDraft{draft})

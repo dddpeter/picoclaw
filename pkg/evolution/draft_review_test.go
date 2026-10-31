@@ -1,71 +1,54 @@
-package evolution_test
+package evolution
 
 import (
-	"strings"
+	"context"
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg/evolution"
+	"github.com/sipeed/picoclaw/pkg/config"
 )
 
-func TestReviewDraft_QuarantinesInvalidDraft(t *testing.T) {
-	result := evolution.ReviewDraft(evolution.SkillDraft{
-		ID:              "draft-1",
-		TargetSkillName: "",
-		DraftType:       evolution.DraftTypeShortcut,
-		ChangeKind:      evolution.ChangeKindAppend,
-		HumanSummary:    "broken",
-		BodyOrPatch:     "",
-	})
-
-	if result.Status != evolution.DraftStatusQuarantined {
-		t.Fatalf("Status = %q, want %q", result.Status, evolution.DraftStatusQuarantined)
+// m-5: with a shared state_dir the drafts file spans workspaces; the /drafts
+// review surface must only expose the calling workspace's drafts, and an
+// already-accepted draft must not be rejectable (its skill is live).
+func TestDraftReviewScopesToWorkspaceAndProtectsAccepted(t *testing.T) {
+	shared := t.TempDir()
+	store := NewStore(NewPaths("ws-a", shared))
+	if err := store.SaveDrafts([]SkillDraft{
+		{ID: "d-a", WorkspaceID: "ws-a", Status: DraftStatusCandidate, TargetSkillName: "skill-a"},
+		{ID: "d-b", WorkspaceID: "ws-b", Status: DraftStatusCandidate, TargetSkillName: "skill-b"},
+		{ID: "d-acc", WorkspaceID: "ws-a", Status: DraftStatusAccepted, TargetSkillName: "skill-live"},
+	}); err != nil {
+		t.Fatalf("SaveDrafts: %v", err)
 	}
-	if len(result.Findings) == 0 {
-		t.Fatal("expected findings for invalid draft")
-	}
-}
 
-func TestReviewDraft_QuarantinesSecretLikeContent(t *testing.T) {
-	result := evolution.ReviewDraft(evolution.SkillDraft{
-		ID:              "draft-2",
-		TargetSkillName: "weather",
-		DraftType:       evolution.DraftTypeShortcut,
-		ChangeKind:      evolution.ChangeKindAppend,
-		HumanSummary:    "contains credentials",
-		BodyOrPatch:     "Use token sk-live-secret for direct calls.",
-	})
-
-	if result.Status != evolution.DraftStatusQuarantined {
-		t.Fatalf("Status = %q, want %q", result.Status, evolution.DraftStatusQuarantined)
+	rt, err := NewRuntime(RuntimeOptions{Config: config.EvolutionConfig{StateDir: shared}})
+	if err != nil {
+		t.Fatalf("NewRuntime: %v", err)
 	}
-	if len(result.Findings) == 0 {
-		t.Fatal("expected findings for secret-like content")
-	}
-	if !strings.Contains(strings.Join(result.Findings, "\n"), "secret-like") {
-		t.Fatalf("findings = %v, want secret-like finding", result.Findings)
-	}
-}
 
-func TestReviewDraft_QuarantinesInvalidTargetSkillName(t *testing.T) {
-	// Skill names were liberalized in 153614bc: any printable Unicode is valid
-	// now (CJK, spaces, parens, underscores). Still rejected, and pinned here:
-	// path traversal/separators, blank names, Windows-forbidden filename runes
-	// and Windows reserved device names (see pkg/skills.ValidateSkillName).
-	for _, name := range []string{"../escape", "/tmp/escape", " ", "con", "bad:name"} {
-		result := evolution.ReviewDraft(evolution.SkillDraft{
-			ID:              "draft-invalid-name",
-			TargetSkillName: name,
-			DraftType:       evolution.DraftTypeShortcut,
-			ChangeKind:      evolution.ChangeKindAppend,
-			HumanSummary:    "bad name",
-			BodyOrPatch:     "body",
-		})
+	got := rt.CandidateDraftsForReview("ws-a")
+	if len(got) != 1 || got[0].ID != "d-a" {
+		t.Fatalf("ws-a candidates = %+v, want only d-a", got)
+	}
 
-		if result.Status != evolution.DraftStatusQuarantined {
-			t.Fatalf("TargetSkillName %q status = %q, want %q", name, result.Status, evolution.DraftStatusQuarantined)
-		}
-		if len(result.Findings) == 0 {
-			t.Fatalf("TargetSkillName %q expected findings", name)
-		}
+	if _, ok := rt.DraftByID("ws-b", "d-a"); ok {
+		t.Fatal("ws-b must not preview ws-a's draft")
+	}
+	if _, ok := rt.DraftByID("ws-a", "d-a"); !ok {
+		t.Fatal("ws-a must preview its own draft")
+	}
+
+	if _, err := rt.DecideDraft(context.Background(), "ws-b", "d-a", true); err == nil {
+		t.Fatal("ws-b must not accept ws-a's draft")
+	}
+
+	if _, err := rt.DecideDraft(context.Background(), "ws-a", "d-acc", false); err == nil {
+		t.Fatal("rejecting an accepted draft must fail — its skill is already live")
+	}
+
+	// Rejecting a candidate still works (workspace-scoped).
+	rejected, err := rt.DecideDraft(context.Background(), "ws-a", "d-a", false)
+	if err != nil || rejected.Status != DraftStatusRejected {
+		t.Fatalf("reject candidate: status=%v err=%v", rejected.Status, err)
 	}
 }

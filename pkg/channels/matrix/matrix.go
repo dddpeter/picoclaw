@@ -264,6 +264,9 @@ func NewMatrixChannel(
 const (
 	matrixSyncBackoffMin = 2 * time.Second
 	matrixSyncBackoffMax = 5 * time.Minute
+	// m-1: a sync that lived at least this long counts as a stable run and
+	// resets the restart backoff to the floor.
+	matrixSyncStableResetAfter = 10 * time.Minute
 )
 
 // errString renders a nil error as "<nil>" for structured log fields.
@@ -305,10 +308,18 @@ func (c *MatrixChannel) Start(ctx context.Context) error {
 		// transport hiccup left the channel reporting running while never
 		// receiving another event (2026-10-31 review C8).
 		backoff := matrixSyncBackoffMin
+		var syncStarted time.Time
 		for {
+			syncStarted = time.Now()
 			err := c.client.SyncWithContext(c.ctx)
 			if c.ctx.Err() != nil {
 				return
+			}
+			// m-1: a sync that ran stably for a while means the connection is
+			// healthy again — reset backoff so one transient hiccup after days
+			// of uptime does not wait out the full exponential ceiling.
+			if time.Since(syncStarted) > matrixSyncStableResetAfter {
+				backoff = matrixSyncBackoffMin
 			}
 			logger.ErrorCF("matrix", "Matrix sync stopped unexpectedly, restarting", map[string]any{
 				"error":   errString(err),

@@ -202,6 +202,13 @@ func (s *JSONLStore) sessionExists(key string) bool {
 	return false
 }
 
+// SessionExists reports whether any on-disk artifact (JSONL or meta file)
+// exists for sessionKey. Exported for the web panel rename endpoint, which
+// must refuse ghost IDs instead of creating an orphan meta file (m-7).
+func (s *JSONLStore) SessionExists(key string) bool {
+	return s.sessionExists(key)
+}
+
 // GetSessionMeta returns the current metadata snapshot for sessionKey.
 func (s *JSONLStore) GetSessionMeta(_ context.Context, sessionKey string) (SessionMeta, error) {
 	l := s.sessionLock(sessionKey)
