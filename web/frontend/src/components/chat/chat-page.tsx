@@ -1,7 +1,5 @@
 import { IconAlertTriangle, IconHistory, IconPlus } from "@tabler/icons-react"
 import { useAtom } from "jotai"
-
-import { renameSession } from "@/api/sessions"
 import {
   type ChangeEvent,
   type ClipboardEvent,
@@ -12,18 +10,18 @@ import {
 } from "react"
 import { useTranslation } from "react-i18next"
 
+import { renameSession } from "@/api/sessions"
 import { PiMessageList } from "@/chat-pi/pi-message-list"
 import {
   ChatComposer,
   type ChatInputDisabledReason,
 } from "@/components/chat/chat-composer"
 import { ChatEmptyState } from "@/components/chat/chat-empty-state"
-import { PromptTemplatesProvider } from "@/components/chat/prompt-templates"
 import { ModelSelector } from "@/components/chat/model-selector"
+import { PromptTemplatesProvider } from "@/components/chat/prompt-templates"
 import { SessionHistorySidebar } from "@/components/chat/session-history-sidebar"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
-import { Sheet, SheetContent } from "@/components/ui/sheet"
 import {
   Select,
   SelectContent,
@@ -31,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Sheet, SheetContent } from "@/components/ui/sheet"
 import {
   CHAT_IMAGE_ACCEPT,
   buildChatImageAttachments,
@@ -339,205 +338,207 @@ export function ChatPage() {
 
   const sessionSidebar = (
     <SessionHistorySidebar
-            sessions={sessions}
-            activeSessionId={activeSessionId}
-            activeSessionBusy={isTyping}
-            hasMore={hasMore}
-            isLoading={isLoading}
-            isLoadingMore={isLoadingMore}
-            loadError={loadError}
-            loadErrorMessage={loadErrorMessage}
-            onLoadMore={loadMore}
-            onSwitchSession={switchSession}
-            onDeleteSession={handleDeleteSession}
-            onRenameSession={async (sessionId, title) => {
-              try {
-                await renameSession(sessionId, title)
-                void loadSessions(true)
-              } catch (err) {
-                console.error("rename session failed", err)
-              }
-            }}
-            onRefresh={() => void loadSessions(true)}
-            onAutoRefresh={() => void refreshSessions()}
-          />
+      sessions={sessions}
+      activeSessionId={activeSessionId}
+      activeSessionBusy={isTyping}
+      hasMore={hasMore}
+      isLoading={isLoading}
+      isLoadingMore={isLoadingMore}
+      loadError={loadError}
+      loadErrorMessage={loadErrorMessage}
+      onLoadMore={loadMore}
+      onSwitchSession={switchSession}
+      onDeleteSession={handleDeleteSession}
+      onRenameSession={async (sessionId, title) => {
+        try {
+          const channel = sessions.find((s) => s.id === sessionId)?.channel
+          await renameSession(sessionId, title, channel)
+          void loadSessions(true)
+        } catch (err) {
+          console.error("rename session failed", err)
+        }
+      }}
+      onRefresh={() => void loadSessions(true)}
+      onAutoRefresh={() => void refreshSessions()}
+    />
   )
-  
+
   return (
     <PromptTemplatesProvider
       onFill={handleTemplateFill}
       onSend={handleTemplateSend}
       canSend={canInput}
     >
-    <div className="bg-background/95 flex h-full">
-      {/* M-3: desktop keeps the inline sidebar; on mobile only the drawer is
+      <div className="bg-background/95 flex h-full">
+        {/* M-3: desktop keeps the inline sidebar; on mobile only the drawer is
           available (the trigger button below is md:hidden). Previously the
           inline sidebar rendered at every viewport and crowded out the chat. */}
-      <div className="hidden h-full md:flex">{sessionSidebar}</div>
+        <div className="hidden h-full md:flex">{sessionSidebar}</div>
 
-      <Sheet open={sessionsSheetOpen} onOpenChange={setSessionsSheetOpen}>
-        <SheetContent side="left" className="w-80 p-0">
-          <div
-            className="h-full"
-            onClick={(event) => {
-              // Switching sessions from the drawer should close it; delete /
-              // rename clicks bubble too but their own stopPropagation wins.
-              const target = event.target as HTMLElement
-              if (target.closest("[data-session-item]")) {
-                setSessionsSheetOpen(false)
-              }
-            }}
-          >
-            {sessionSidebar}
-          </div>
-        </SheetContent>
-      </Sheet>
+        <Sheet open={sessionsSheetOpen} onOpenChange={setSessionsSheetOpen}>
+          <SheetContent side="left" className="w-80 p-0">
+            <div
+              className="h-full"
+              onClick={(event) => {
+                // Switching sessions from the drawer should close it; delete /
+                // rename clicks bubble too but their own stopPropagation wins.
+                const target = event.target as HTMLElement
+                if (target.closest("[data-session-item]")) {
+                  setSessionsSheetOpen(false)
+                }
+              }}
+            >
+              {sessionSidebar}
+            </div>
+          </SheetContent>
+        </Sheet>
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <PageHeader
-        title={t("navigation.chat")}
-        className={`transition-shadow ${
-          hasScrolled ? "shadow-xs" : "shadow-none"
-        }`}
-        titleExtra={
-          hasAvailableModels && (
-            <ModelSelector
-              defaultModelName={defaultModelName}
-              apiKeyModels={apiKeyModels}
-              oauthModels={oauthModels}
-              localModels={localModels}
-              disabled={settingDefault}
-              onValueChange={handleSetDefault}
-            />
-          )
-        }
-      >
-        {/* Radix SheetTrigger 必须位于 <Sheet> 上下文内；此按钮在 PageHeader
-            下、Sheet 树外，且 Sheet 已是受控模式——直接 onClick 打开即可。 */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="md:hidden"
-          aria-label={t("chat.sessionHistory")}
-          onClick={() => setSessionsSheetOpen(true)}
-        >
-          <IconHistory className="size-5" />
-        </Button>
-        <div className="border-border/60 hidden items-center gap-2 rounded-lg border px-3 py-1.5 sm:flex">
-          <span className="text-muted-foreground text-sm">
-            {t("chat.showAssistantDetails")}
-          </span>
-          <Select
-            value={assistantDetailVisibility}
-            onValueChange={(value) =>
-              setAssistantDetailVisibility(value as AssistantDetailVisibility)
+        <div className="flex min-w-0 flex-1 flex-col">
+          <PageHeader
+            title={t("navigation.chat")}
+            className={`transition-shadow ${
+              hasScrolled ? "shadow-xs" : "shadow-none"
+            }`}
+            titleExtra={
+              hasAvailableModels && (
+                <ModelSelector
+                  defaultModelName={defaultModelName}
+                  apiKeyModels={apiKeyModels}
+                  oauthModels={oauthModels}
+                  localModels={localModels}
+                  disabled={settingDefault}
+                  onValueChange={handleSetDefault}
+                />
+              )
             }
           >
-            <SelectTrigger
-              size="sm"
-              aria-label={t("chat.showAssistantDetails")}
-              className="text-muted-foreground hover:text-foreground focus-visible:border-input h-8 min-w-[104px] bg-transparent shadow-none focus-visible:ring-0"
+            {/* Radix SheetTrigger 必须位于 <Sheet> 上下文内；此按钮在 PageHeader
+            下、Sheet 树外，且 Sheet 已是受控模式——直接 onClick 打开即可。 */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="md:hidden"
+              aria-label={t("chat.sessionHistory")}
+              onClick={() => setSessionsSheetOpen(true)}
             >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent align="end">
-              {assistantDetailVisibilityOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+              <IconHistory className="size-5" />
+            </Button>
+            <div className="border-border/60 hidden items-center gap-2 rounded-lg border px-3 py-1.5 sm:flex">
+              <span className="text-muted-foreground text-sm">
+                {t("chat.showAssistantDetails")}
+              </span>
+              <Select
+                value={assistantDetailVisibility}
+                onValueChange={(value) =>
+                  setAssistantDetailVisibility(
+                    value as AssistantDetailVisibility,
+                  )
+                }
+              >
+                <SelectTrigger
+                  size="sm"
+                  aria-label={t("chat.showAssistantDetails")}
+                  className="text-muted-foreground hover:text-foreground focus-visible:border-input h-8 min-w-[104px] bg-transparent shadow-none focus-visible:ring-0"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  {assistantDetailVisibilityOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={newChat}
-          className="h-9 gap-2"
-        >
-          <IconPlus className="size-4" />
-          <span className="hidden sm:inline">{t("chat.newChat")}</span>
-        </Button>
-      </PageHeader>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={newChat}
+              className="h-9 gap-2"
+            >
+              <IconPlus className="size-4" />
+              <span className="hidden sm:inline">{t("chat.newChat")}</span>
+            </Button>
+          </PageHeader>
 
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="min-h-0 flex-1 [scrollbar-gutter:stable] overflow-y-auto px-4 py-6 md:px-8 lg:px-24 xl:px-48"
-      >
-        <div className="pi-chat mx-auto flex w-full max-w-250 flex-col pb-8">
-          {messages.length === 0 && !isTyping && (
-            <ChatEmptyState
-              hasAvailableModels={hasAvailableModels}
-              defaultModelName={defaultModelName}
-              isConnected={isGatewayRunning}
-            />
-          )}
+          <div
+            ref={scrollRef}
+            onScroll={handleScroll}
+            className="min-h-0 flex-1 [scrollbar-gutter:stable] overflow-y-auto px-4 py-6 md:px-8 lg:px-24 xl:px-48"
+          >
+            <div className="pi-chat mx-auto flex w-full max-w-250 flex-col pb-8">
+              {messages.length === 0 && !isTyping && (
+                <ChatEmptyState
+                  hasAvailableModels={hasAvailableModels}
+                  defaultModelName={defaultModelName}
+                  isConnected={isGatewayRunning}
+                />
+              )}
 
-          <PiMessageList
-            messages={messages}
-            isTyping={isTyping}
-            detail={assistantDetailVisibility}
+              <PiMessageList
+                messages={messages}
+                isTyping={isTyping}
+                detail={assistantDetailVisibility}
+              />
+
+              {isTyping && turnStalled && (
+                <div
+                  role="status"
+                  className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-400"
+                >
+                  <IconAlertTriangle className="mt-0.5 size-4 shrink-0" />
+                  <span>
+                    {t("chat.turnStalled", {
+                      minutes: Math.max(
+                        1,
+                        Math.floor((turnIdleMs ?? 0) / 60_000),
+                      ),
+                    })}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={CHAT_IMAGE_ACCEPT}
+            multiple
+            className="hidden"
+            onChange={handleImageSelection}
           />
 
-          {isTyping && turnStalled && (
-            <div
-              role="status"
-              className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-400"
-            >
-              <IconAlertTriangle className="mt-0.5 size-4 shrink-0" />
-              <span>
-                {t("chat.turnStalled", {
-                  minutes: Math.max(
-                    1,
-                    Math.floor((turnIdleMs ?? 0) / 60_000),
-                  ),
-                })}
-              </span>
-            </div>
-          )}
+          <ChatComposer
+            input={input}
+            attachments={attachments}
+            onInputChange={setInput}
+            onAddImages={handleAddImages}
+            onPaste={handleComposerPaste}
+            onDragEnter={handleComposerDragEnter}
+            onDragLeave={handleComposerDragLeave}
+            onDragOver={handleComposerDragOver}
+            onDrop={handleComposerDrop}
+            onRemoveAttachment={handleRemoveAttachment}
+            onSend={handleSend}
+            isTyping={isTyping}
+            onStop={() => {
+              sendMessage({ content: "/stop", attachments: [] })
+            }}
+            onContextDetail={() => {
+              if (sendMessage({ content: "/context", attachments: [] })) {
+                setInput("")
+              }
+            }}
+            inputDisabledReason={inputDisabledReason}
+            canSend={canSubmit}
+            isDragActive={isDragActive}
+            contextUsage={contextUsage}
+          />
         </div>
       </div>
-
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept={CHAT_IMAGE_ACCEPT}
-        multiple
-        className="hidden"
-        onChange={handleImageSelection}
-      />
-
-      <ChatComposer
-        input={input}
-        attachments={attachments}
-        onInputChange={setInput}
-        onAddImages={handleAddImages}
-        onPaste={handleComposerPaste}
-        onDragEnter={handleComposerDragEnter}
-        onDragLeave={handleComposerDragLeave}
-        onDragOver={handleComposerDragOver}
-        onDrop={handleComposerDrop}
-        onRemoveAttachment={handleRemoveAttachment}
-        onSend={handleSend}
-        isTyping={isTyping}
-        onStop={() => {
-          sendMessage({ content: "/stop", attachments: [] })
-        }}
-        onContextDetail={() => {
-          if (sendMessage({ content: "/context", attachments: [] })) {
-            setInput("")
-          }
-        }}
-        inputDisabledReason={inputDisabledReason}
-        canSend={canSubmit}
-        isDragActive={isDragActive}
-        contextUsage={contextUsage}
-      />
-      </div>
-    </div>
     </PromptTemplatesProvider>
   )
 }
-

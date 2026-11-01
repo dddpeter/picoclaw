@@ -1221,14 +1221,33 @@ func (h *Handler) handleRenameSession(w http.ResponseWriter, r *http.Request) {
 	}
 	defer store.Close()
 
-	// m-7: refuse ghost IDs — SetSessionTitle would otherwise create an
-	// orphan meta file for a nonexistent session and report success.
-	if !store.SessionExists(sessionID) {
+	// Resolve the bare UI id to the full on-disk session key first: legacy
+	// pico sessions are stored under their prefixed key while the list API
+	// exposes the stripped UUID — the m-7 ghost check below must run on the
+	// resolved key or every legacy rename 404s.
+	fullKey := sessionID
+	if ref, refErr := h.findJSONLSession(dir, sessionID, r.URL.Query().Get("channel")); refErr == nil {
+		fullKey = ref.Key
+	} else if _, legacyErr := h.findLegacyPicoSession(dir, sessionID); legacyErr == nil {
+		// Older legacy .json sessions cannot carry a stored title (the list
+		// shows first-message previews for them); refuse honestly instead of
+		// writing a meta file that would never surface in the UI.
+		http.Error(w, "legacy session cannot be renamed", http.StatusConflict)
+		return
+	} else if !store.SessionExists(sessionID) {
+		// Neither a resolvable list id nor a direct on-disk key: ghost.
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
 
-	ok, err := store.SetSessionTitle(r.Context(), sessionID, title, memory.SessionTitleSourceUser)
+	// m-7: refuse ghost IDs — SetSessionTitle would otherwise create an
+	// orphan meta file for a nonexistent session and report success.
+	if !store.SessionExists(fullKey) {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+
+	ok, err := store.SetSessionTitle(r.Context(), fullKey, title, memory.SessionTitleSourceUser)
 	if err != nil {
 		http.Error(w, "failed to rename session", http.StatusInternalServerError)
 		return

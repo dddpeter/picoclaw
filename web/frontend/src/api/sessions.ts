@@ -105,9 +105,13 @@ export async function getSessionHistory(
 export async function renameSession(
   id: string,
   title: string,
+  channel?: string,
 ): Promise<void> {
+  // channel disambiguates opaque keys that collide with a legacy UUID
+  // (same hint GET /api/sessions/{id} uses).
+  const qs = channel ? `?channel=${encodeURIComponent(channel)}` : ""
   const res = await launcherFetch(
-    `/api/sessions/${encodeURIComponent(id)}/title`,
+    `/api/sessions/${encodeURIComponent(id)}/title${qs}`,
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
