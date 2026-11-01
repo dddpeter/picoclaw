@@ -5,6 +5,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.5.3] - 2026-10-31
+
+### Fixed
+
+- **会话重命名兼容 legacy pico 会话**（v0.5.2 评审报告核实的遗留项）：`handleRenameSession` 此前用列表裸 UUID 直调 `SessionExists`，而 legacy 会话在盘上是带 `agent:main:pico:direct:pico:` 前缀的完整 key → 列表页对 legacy 会话改名必 404。现先经 `findJSONLSession` 解析完整 key（支持 `?channel=` 消歧，与 GET 会话端点一致）；legacy `.json` 老会话因无法携带存储标题（列表固定显示首条消息预览）诚实返回 409 而非静默写永不显示的 meta；裸键直接存在时保留旧语义。前端改名请求带上 `channel`（`SessionSummary.channel`）。回归测试 +2（legacy 前缀 .jsonl 改名成功且 meta 落完整 key；legacy .json 409 且无 meta 副作用）
+
 ## [0.5.2] - 2026-10-31
 
 ### Added
