@@ -62,6 +62,13 @@ type SessionMeta struct {
 	// TitleSource records where Title came from (see SessionTitleSource*
 	// constants); user titles are never overwritten by derived/llm ones.
 	TitleSource string `json:"title_source,omitempty"`
+	// IdleCompactedAt / IdleCompactedSeen record the last successful idle
+	// compaction and the UpdatedAt snapshot it covered (fork: idle-compaction
+	// success bookkeeping). Persisted so a gateway restart does not re-compact
+	// sessions whose water level never falls (seahorse compaction does not
+	// shrink the JSONL history the usage is computed from).
+	IdleCompactedAt   time.Time `json:"idle_compacted_at,omitempty"`
+	IdleCompactedSeen time.Time `json:"idle_compacted_seen,omitempty"`
 }
 
 // JSONLStore implements Store using append-only JSONL files.
@@ -207,6 +214,39 @@ func (s *JSONLStore) sessionExists(key string) bool {
 // must refuse ghost IDs instead of creating an orphan meta file (m-7).
 func (s *JSONLStore) SessionExists(key string) bool {
 	return s.sessionExists(key)
+}
+
+// WriteIdleCompactMarker records a successful idle compaction of
+// sessionKey and the UpdatedAt snapshot (seenUpdated) it covered. It must
+// NOT advance meta.UpdatedAt: the marker is bookkeeping, not activity —
+// advancing it would reshuffle the session list and could reset the
+// scanner's idle gate.
+func (s *JSONLStore) WriteIdleCompactMarker(sessionKey string, seenUpdated time.Time) error {
+	l := s.sessionLock(sessionKey)
+	l.Lock()
+	defer l.Unlock()
+	meta, err := s.readMeta(sessionKey)
+	if err != nil {
+		return err
+	}
+	meta.IdleCompactedAt = time.Now()
+	meta.IdleCompactedSeen = seenUpdated
+	return s.writeMeta(sessionKey, meta)
+}
+
+// ReadIdleCompactMarker returns the persisted idle-compaction marker, if
+// any (ok=false when the session was never idle-compacted or its meta is
+// unreadable — the scanner treats that as "not compacted", the
+// degrade-safe direction of a missing marker).
+func (s *JSONLStore) ReadIdleCompactMarker(sessionKey string) (compactedAt, seenUpdated time.Time, ok bool) {
+	l := s.sessionLock(sessionKey)
+	l.Lock()
+	defer l.Unlock()
+	meta, err := s.readMeta(sessionKey)
+	if err != nil || meta.IdleCompactedAt.IsZero() {
+		return time.Time{}, time.Time{}, false
+	}
+	return meta.IdleCompactedAt, meta.IdleCompactedSeen, true
 }
 
 // GetSessionMeta returns the current metadata snapshot for sessionKey.

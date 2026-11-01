@@ -75,7 +75,7 @@ idleCompactScanner（pkg/agent/idle_compact.go）
 - **跳过条件⑤**：`successAt` 非零且该会话 `UpdatedAt == seenUpdatedAt`（压缩完成后无新活动）→ 本轮跳过；
 - **重置**：`UpdatedAt > seenUpdatedAt`（有新消息）→ 清空记录（含失败计数），会话重新获得被压资格；
 - 兼容两条路径：不依赖水位回落（legacy 会回落、seahorse 不会），以"活动与否"为唯一重压依据；
-- 进程重启即清零（记账是进程内状态）——重启后第一次 tick 对 seahorse 会话可能多压一次，可接受（Compact 对已压状态是廉价 no-op 或直接跳过）。
+- **持久化（2026-11-01 修订）**：原稿"进程内状态、重启即清零、多压一次可接受（Compact 是廉价 no-op）"的前提被实测证伪——seahorse 会话每次重启都发真实摘要 LLM 调用，网关频繁重启 = 每次全量重压。成功记账改持久化进 `SessionMeta`（`IdleCompactedAt` + `IdleCompactedSeen` 两字段）：门⑤同一条活性规则（`UpdatedAt ≤ seen` → 跳过），重启后依然生效；marker 写入不推进 `UpdatedAt`（记账不是活动）；`SessionManager` 保留内存回退，写入 best-effort；进程内 `records` 仍保留（同进程内去重 + 失败退避）。
 - **忙碌竞态**：扫描判定 ② 与用户恰好发消息之间存在窗口。Compact 入口本身不持 turn 锁（与回合尾压缩同一条路径），且：
   - legacy `summarizeSession` 末尾 `TruncateHistory + Save` 与消息追加共用 JSONL store 的分片锁，不会写坏；
   - seahorse 有 `condensing` 去重 + store 级一致性；
@@ -175,3 +175,10 @@ func (al *AgentLoop) StopIdleCompactScanner()
 - **水位 nil 语义**：扫描器对 `computeContextUsage == nil` 跳过（§2 修订的扫描器分支）。
 - **压缩动作**：复用 `compactScheduler.inFlight` 单飞 + `wg`（drainCompact 覆盖关机），Reason=summarize、Budget=`agent.CompactionBudget()`，与回合尾压缩完全同一条 Compact 入口。
 - 测试锚点（9 个）：`TestIdleCompact_{GateNotIdle,GateTooFewMessages,FiresWhenEligible,SuccessBookkeepingBlocksRecompaction,NewActivityRestoresEligibility,FailureBackoff,DisabledByConfig,StartStopRoundtrip}`、`TestIdleCompactConfig_Clamps`。
+
+## 9. 修订记录：成功记账持久化（2026-11-01）
+
+- **症状**（用户实测日志）：每次网关启动，空闲扫描器对全部高水位闲置会话发起真实摘要压缩（7 会话、idle 19~43 天），seahorse 会话的 Compact 非但不是"廉价 no-op"，而是逐次真实 LLM 调用。
+- **根因**：门⑤"不重压"的记账是进程内 `records` map，重启即清零；而 seahorse 路径压缩只动 SQLite、JSONL 水位不回落（§3.3），门④重启后恒过 → 每次 ①③④ 全过、全量重压。
+- **修复**：成功 marker 持久化进 `SessionMeta`（`IdleCompactedAt`/`IdleCompactedSeen`，memory 层 `WriteIdleCompactMarker`/`ReadIdleCompactMarker`，不经手 `UpdatedAt`）；session 层 `IdleCompactMarkerStore` 接口（JSONLBackend 委托 memory、SessionManager 内存回退，仿 AskMarkerStore）；扫描器门⑤叠加持久 marker 判定，压缩 goroutine 成功即写 marker（在 result 发送之前，保证 result 可见 ⇒ marker 已落盘；marker store 在 goroutine 外 resolve，避开 P3-5 的 agent 状态锁语义）。
+- **测试**：+`TestIdleCompact_MarkerSurvivesRestart`（重启模拟：新扫描器空 records + 磁盘 marker → 不重压；新活动后恢复资格）、+`TestIdleCompactMarkerRoundtrip`（memory：重开回读 + UpdatedAt 不动 + 未标记会话）。既有 fireCh 等待点统一补 `compactScheduler.wg.Wait()`——marker 写入（文件 I/O）插在 fireCh 信号与 result 发送之间，原"fireCh 即落定"的隐性调度假设不再成立。

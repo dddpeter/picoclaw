@@ -170,7 +170,10 @@ func TestIdleCompact_FiresWhenEligible(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("eligible session was not compacted")
 	}
-	// Drain result and verify bookkeeping recorded success.
+	// fireCh signals from inside Compact, before the goroutine finishes
+	// (result send + marker write follow). Wait for the compaction
+	// goroutine to settle before asserting bookkeeping.
+	al.compactScheduler.wg.Wait()
 	sc.drainResults()
 	rec := sc.records["s1"]
 	if rec == nil || rec.successAt.IsZero() {
@@ -202,6 +205,7 @@ func TestIdleCompact_SuccessBookkeepingBlocksRecompaction(t *testing.T) {
 
 	sc.scanOnce()
 	<-cm.fireCh
+	al.compactScheduler.wg.Wait()
 	sc.drainResults()
 
 	// Second and third ticks: still over threshold (nothing changed), still
@@ -224,6 +228,7 @@ func TestIdleCompact_NewActivityRestoresEligibility(t *testing.T) {
 
 	sc.scanOnce()
 	<-cm.fireCh
+	al.compactScheduler.wg.Wait()
 	sc.drainResults()
 
 	// New activity: append + backdate again (idle once more).
@@ -236,6 +241,47 @@ func TestIdleCompact_NewActivityRestoresEligibility(t *testing.T) {
 	case <-cm.fireCh:
 	case <-time.After(3 * time.Second):
 		t.Fatal("session with new activity must be eligible again")
+	}
+}
+
+// TestIdleCompact_MarkerSurvivesRestart pins the cross-restart dedup (fix
+// for "every gateway start re-compacts all idle sessions"): the in-memory
+// success record dies with the process, so a marker persisted in SessionMeta
+// must block recompaction of sessions whose water level never falls (the
+// seahorse shape). New activity clears eligibility regardless of the marker.
+func TestIdleCompact_MarkerSurvivesRestart(t *testing.T) {
+	store := newIdleTestStore(t)
+	cm := &countingContextManager{fireCh: make(chan struct{}, 8)}
+	al, _ := newIdleTestLoop(t, store, cm, 20)
+	sc := newIdleScanner(al, nil)
+	store.backdateLastModified(t, "s1", time.Hour)
+
+	sc.scanOnce()
+	<-cm.fireCh
+	al.compactScheduler.wg.Wait()
+	sc.drainResults()
+
+	// Simulated restart: a fresh scanner with empty in-memory records over
+	// the same disk. Without the persisted marker this re-compacts.
+	sc2 := newIdleScanner(al, nil)
+	sc2.scanOnce()
+	sc2.scanOnce()
+	if got := cm.callCount(); got != 1 {
+		t.Fatalf("restart re-compacted idle session: calls=%d, want 1", got)
+	}
+
+	// New activity (UpdatedAt moves past the marker's snapshot) makes the
+	// session eligible again even though the marker is still on disk.
+	// Backdate 45m: idle gate needs >= 30m, and the new mtime must land
+	// AFTER the marker's seen snapshot (the first backdate was 60m ago).
+	store.AddFullMessage("s1", providers.Message{Role: "user", Content: "新消息PaddingPaddingPaddingPadding"})
+	_ = store.Save("s1")
+	store.backdateLastModified(t, "s1", 45*time.Minute)
+	sc2.scanOnce()
+	select {
+	case <-cm.fireCh:
+	case <-time.After(3 * time.Second):
+		t.Fatal("session with new activity must be eligible again despite marker")
 	}
 }
 
@@ -252,6 +298,7 @@ func TestIdleCompact_FailureBackoff(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		sc.scanOnce()
 		<-cm.fireCh
+		al.compactScheduler.wg.Wait()
 		sc.drainResults()
 	}
 	if got := cm.callCount(); got != 3 {

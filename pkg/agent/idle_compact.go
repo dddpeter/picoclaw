@@ -7,6 +7,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/sipeed/picoclaw/pkg/session"
 )
 
 // 空闲压缩扫描器（fork, 2026-10-05，docs/design/idle-compaction-design.zh.md）。
@@ -180,6 +181,17 @@ func (s *idleCompactScanner) skip(key, reason string, fields map[string]any) {
 	logger.DebugCF("agent", "Idle compact skipped", fields)
 }
 
+// markerStoreFor resolves the agent's persisted idle-compaction marker store
+// (nil when the backend keeps none — ephemeral stores degrade to in-memory
+// bookkeeping only, i.e. the pre-marker behavior).
+func (s *idleCompactScanner) markerStoreFor(agent *AgentInstance) session.IdleCompactMarkerStore {
+	if agent == nil || agent.Sessions == nil {
+		return nil
+	}
+	ms, _ := agent.Sessions.(session.IdleCompactMarkerStore)
+	return ms
+}
+
 func (s *idleCompactScanner) maybeCompactSession(agent *AgentInstance, key string, idleAfter time.Duration, minMessages int) {
 	updated, ok := agent.Sessions.LastModified(key)
 	if !ok {
@@ -208,6 +220,20 @@ func (s *idleCompactScanner) maybeCompactSession(agent *AgentInstance, key strin
 			return
 		} else if rec.fails >= idleCompactMaxFails {
 			s.skip(key, "backoff", map[string]any{"fails": rec.fails})
+			return
+		}
+	}
+
+	// Persisted success marker survives restarts (the records map above is
+	// process-local): without it every gateway start re-compacts every idle
+	// session whose water level never falls — the seahorse shape, where
+	// Compact touches SQLite while usage is computed from the raw JSONL.
+	// Same liveness rule as the in-memory record: no UpdatedAt progress past
+	// the marker's snapshot ⇒ skip.
+	marker := s.markerStoreFor(agent)
+	if marker != nil {
+		if _, seen, marked := marker.IdleCompactedMarker(key); marked && !updated.After(seen) {
+			s.skip(key, "already_compacted", nil)
 			return
 		}
 	}
@@ -244,10 +270,12 @@ func (s *idleCompactScanner) launchCompaction(agent *AgentInstance, key string, 
 	}
 	// Snapshot the budget BEFORE the goroutine (review P3-5) so the
 	// compaction goroutine itself never touches agent state after launch.
-	// The snapshot helpers take the model-state read lock: the per-model
-	// context_window feature made the windows mutable on /switch, and a
-	// bare read here would race the swap's write path.
+	// The per-model context_window feature made the windows mutable on
+	// /switch, and a bare read here would race the swap's write path. The
+	// marker store is resolved here for the same reason (agent.Sessions is
+	// agent state); the store itself is long-lived and thread-safe.
 	budget := agent.snapshotCompactionBudget()
+	marker := s.markerStoreFor(agent)
 	scheduler.wg.Add(1)
 	go func() {
 		defer scheduler.wg.Done()
@@ -259,6 +287,13 @@ func (s *idleCompactScanner) launchCompaction(agent *AgentInstance, key string, 
 			Reason:     ContextCompressReasonSummarize,
 			Budget:     budget,
 		})
+		// Persist the success marker from here (not applyResult): the
+		// goroutine already owns the outcome, and this way the marker lands
+		// even if the result is dropped on shutdown. Best effort — a failed
+		// write leaves the in-memory record holding the line until restart.
+		if err == nil && marker != nil {
+			marker.MarkIdleCompacted(key, updated)
+		}
 		select {
 		case s.resultCh <- idleCompactResult{sessionKey: key, updated: updated, err: err}:
 		case <-s.stop:

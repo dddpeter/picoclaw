@@ -28,6 +28,7 @@ type SessionManager struct {
 	inflight        inflightTurnMem
 	approvalPending approvalPendingMem
 	askPending      askPendingMem
+	idleCompact     idleCompactMem
 }
 
 func NewSessionManager(storage string) *SessionManager {
