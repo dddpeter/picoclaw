@@ -5,6 +5,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.5.4] - 2026-11-01
+
+### Fixed
+
+- **空闲压缩成功记账持久化——修"每次网关启动全量重压闲置会话"**：门⑤"不重压"的记账原是进程内 records map（重启即清零），而 seahorse 路径压缩只写 SQLite、JSONL 水位不回落 → 每次重启对全部高水位闲置会话发起真实摘要 LLM 调用（实测一次启动 7 会话、idle 19~43 天）；设计稿"Compact 对已压状态是廉价 no-op"的前提被实测证伪。成功 marker 现持久化进 SessionMeta（`IdleCompactedAt`/`IdleCompactedSeen`，不经手 `UpdatedAt`——记账不是活动，不重排会话列表）；门⑤叠加持久判定（同一条活性规则：UpdatedAt 无前进即跳过，新活动后恢复资格）；SessionManager 保留内存回退，best-effort；marker 在压缩 result 回流前落盘（result 可见 ⇒ marker 已落盘），marker store 在 goroutine 外 resolve 避开 P3-5 锁语义。回归测试 +2（重启模拟不重压；marker 落盘回读 + UpdatedAt 不动）；设计文档 §3.6 修订 + §9 修订记录
+
 ## [0.5.3] - 2026-10-31
 
 ### Fixed
