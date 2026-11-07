@@ -1597,6 +1597,11 @@ type ToolsConfig struct {
 	Lsp          LspToolsConfig     `json:"lsp" yaml:"lsp,omitempty"`
 	MediaCleanup MediaCleanupConfig `json:"media_cleanup"     yaml:"-"`
 	MCP          MCPConfig          `json:"mcp"               yaml:"-"`
+	// Checkpoint configures workspace snapshots + turn-level undo (trae
+	// borrowing 增量清单 §2.1). Default off — a plain bool is deliberate:
+	// unlike loop_detection/streaming there is no legacy behavior to
+	// preserve, so the *bool nil=on convention does not apply.
+	Checkpoint CheckpointConfig `json:"checkpoint"        yaml:"-"`
 	AppendFile   ToolConfig         `json:"append_file"       yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_APPEND_FILE_"`
 	EditFile     ToolConfig         `json:"edit_file"         yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_EDIT_FILE_"`
 	FindSkills   ToolConfig         `json:"find_skills"       yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_FIND_SKILLS_"`
@@ -1617,6 +1622,78 @@ type ToolsConfig struct {
 	Subagent     ToolConfig         `json:"subagent"          yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_SUBAGENT_"`
 	WebFetch     ToolConfig         `json:"web_fetch"         yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_WEB_FETCH_"`
 	WriteFile    ToolConfig         `json:"write_file"        yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_WRITE_FILE_"`
+}
+
+// CheckpointConfig bounds the workspace snapshot store (trae borrowing
+// 增量清单 §2.1). Every limit degrades honestly: entries beyond a cap are
+// still recorded in the version manifest with stored=false + reason, never
+// silently dropped.
+type CheckpointConfig struct {
+	// Enabled turns workspace checkpointing on. Default off.
+	Enabled bool `json:"enabled" yaml:"-" env:"PICOCLAW_TOOLS_CHECKPOINT_ENABLED"`
+	// TrackExec covers file changes made through the exec tool via an
+	// incremental mtime scan around each exec call. Default true when
+	// checkpointing is on.
+	TrackExec bool `json:"track_exec" yaml:"-" env:"PICOCLAW_TOOLS_CHECKPOINT_TRACK_EXEC"`
+	// MaxVersions caps retained versions per session; the oldest are evicted
+	// at commit time. 0 = default (20).
+	MaxVersions int `json:"max_versions" yaml:"-" env:"PICOCLAW_TOOLS_CHECKPOINT_MAX_VERSIONS"`
+	// MaxTotalBytes caps stored pre-image bytes per session (content-addressed,
+	// deduplicated across versions). The cap is hard for history but soft for
+	// the newest version: a turn larger than the whole budget is retained and
+	// noted rather than instantly discarded (undoing the last turn is the
+	// primary use case). 0 = default (128MB).
+	MaxTotalBytes int64 `json:"max_total_bytes" yaml:"-" env:"PICOCLAW_TOOLS_CHECKPOINT_MAX_TOTAL_BYTES"`
+	// MaxFileSize caps the size of a single captured file. Larger files are
+	// recorded as changed but their pre-image is not retained. 0 = default
+	// (4MB).
+	MaxFileSize int64 `json:"max_file_size" yaml:"-" env:"PICOCLAW_TOOLS_CHECKPOINT_MAX_FILE_SIZE"`
+	// ScanDepth bounds the exec-change-scan workspace walk depth. 0 = default
+	// (24, aligned with the glob tool).
+	ScanDepth int `json:"scan_depth" yaml:"-" env:"PICOCLAW_TOOLS_CHECKPOINT_SCAN_DEPTH"`
+	// ScanMaxFiles bounds the exec-change-scan walk entry count. 0 = default
+	// (20000).
+	ScanMaxFiles int `json:"scan_max_files" yaml:"-" env:"PICOCLAW_TOOLS_CHECKPOINT_SCAN_MAX_FILES"`
+}
+
+// EffectiveMaxVersions applies the default version cap.
+func (c CheckpointConfig) EffectiveMaxVersions() int {
+	if c.MaxVersions <= 0 {
+		return 20
+	}
+	return c.MaxVersions
+}
+
+// EffectiveMaxTotalBytes applies the default per-session disk budget.
+func (c CheckpointConfig) EffectiveMaxTotalBytes() int64 {
+	if c.MaxTotalBytes <= 0 {
+		return 128 << 20
+	}
+	return c.MaxTotalBytes
+}
+
+// EffectiveMaxFileSize applies the default per-file capture cap.
+func (c CheckpointConfig) EffectiveMaxFileSize() int64 {
+	if c.MaxFileSize <= 0 {
+		return 4 << 20
+	}
+	return c.MaxFileSize
+}
+
+// EffectiveScanDepth applies the default exec-scan walk depth.
+func (c CheckpointConfig) EffectiveScanDepth() int {
+	if c.ScanDepth <= 0 {
+		return 24
+	}
+	return c.ScanDepth
+}
+
+// EffectiveScanMaxFiles applies the default exec-scan entry cap.
+func (c CheckpointConfig) EffectiveScanMaxFiles() int {
+	if c.ScanMaxFiles <= 0 {
+		return 20000
+	}
+	return c.ScanMaxFiles
 }
 
 // IsFilterSensitiveDataEnabled returns true if sensitive data filtering is enabled

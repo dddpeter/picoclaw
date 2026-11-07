@@ -5,6 +5,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/seahorse"
 	"github.com/sipeed/picoclaw/pkg/skills"
+	"github.com/sipeed/picoclaw/pkg/snapshot"
 	"github.com/sipeed/picoclaw/pkg/state"
 	"github.com/sipeed/picoclaw/pkg/tools"
 )
@@ -104,6 +106,49 @@ func NewAgentLoop(
 	al.providerFactory = providers.CreateProviderFromConfig
 	al.hooks = NewHookManager(al.runtimeEvents.Channel())
 	configureHookManagerFromConfig(al.hooks, cfg)
+
+	// Workspace checkpointing (trae borrowing 增量清单 §2.1, default off):
+	// pre-write capture via BeforeTool + version commit on agent.turn.end.
+	// The store lives under ~/.picoclaw/checkpoints (outside every
+	// workspace) so exec-scan walks can never self-track.
+	if cfg.Tools.Checkpoint.Enabled {
+		root := filepath.Join(config.GetHome(), "checkpoints")
+		store, err := snapshot.NewStore(root, snapshot.Config{
+			MaxVersions:   cfg.Tools.Checkpoint.MaxVersions,
+			MaxTotalBytes: cfg.Tools.Checkpoint.MaxTotalBytes,
+			MaxFileSize:   cfg.Tools.Checkpoint.MaxFileSize,
+			TrackExec:     cfg.Tools.Checkpoint.TrackExec,
+			ScanDepth:     cfg.Tools.Checkpoint.ScanDepth,
+			ScanMaxFiles:  cfg.Tools.Checkpoint.ScanMaxFiles,
+		})
+		if err != nil {
+			logger.WarnCF("agent", "Failed to open checkpoint store; checkpointing disabled", map[string]any{
+				"root":  root,
+				"error": err.Error(),
+			})
+		} else {
+			hook := newCheckpointHook(
+				store,
+				cfg.Tools.Checkpoint,
+				func(agentID string) string {
+					if agent, ok := registry.GetAgent(agentID); ok {
+						return agent.Workspace
+					}
+					return ""
+				},
+				cfg.Agents.Defaults.RestrictToWorkspace,
+				compilePatterns(cfg.Tools.AllowWritePaths),
+			)
+			if err := al.hooks.Mount(NamedHook("checkpoint", hook)); err != nil {
+				logger.WarnCF("agent", "Failed to mount checkpoint hook", map[string]any{
+					"error": err.Error(),
+				})
+			} else {
+				al.checkpointStore = store
+			}
+		}
+	}
+
 	al.contextManager = al.resolveContextManager()
 	al.compactScheduler = newCompactScheduler(al)
 	al.toolDefer = newToolDeferState()

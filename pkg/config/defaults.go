@@ -366,6 +366,13 @@ func DefaultConfig() *Config {
 		Tools: ToolsConfig{
 			FilterSensitiveData: true,
 			FilterMinLength:     8,
+			// Workspace checkpointing (trae borrowing 增量清单 §2.1) is
+			// default-off; only the exec-coverage sub-switch defaults on so
+			// enabling the feature covers shell-made changes without extra
+			// configuration.
+			Checkpoint: CheckpointConfig{
+				TrackExec: true,
+			},
 			MediaCleanup: MediaCleanupConfig{
 				ToolConfig: ToolConfig{
 					Enabled: true,

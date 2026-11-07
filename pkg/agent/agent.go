@@ -28,6 +28,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/routing"
 	"github.com/sipeed/picoclaw/pkg/session"
+	"github.com/sipeed/picoclaw/pkg/snapshot"
 	"github.com/sipeed/picoclaw/pkg/state"
 	"github.com/sipeed/picoclaw/pkg/utils"
 )
@@ -114,7 +115,18 @@ type AgentLoop struct {
 	// lets command handlers re-read the file to pick up post-startup edits.
 	configPath string
 
+	// checkpointStore is the workspace snapshot store backing
+	// tools.checkpoint (trae borrowing 增量清单 §2.1); nil when the feature
+	// is disabled. Read by the /revert command binding.
+	checkpointStore *snapshot.Store
+
 	providerFactory func(*config.ModelConfig) (providers.LLMProvider, string, error)
+}
+
+// CheckpointStore returns the workspace snapshot store, or nil when
+// tools.checkpoint is disabled.
+func (al *AgentLoop) CheckpointStore() *snapshot.Store {
+	return al.checkpointStore
 }
 
 // processOptions configures how a message is processed
