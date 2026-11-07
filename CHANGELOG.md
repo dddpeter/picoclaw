@@ -5,18 +5,26 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [0.5.5] - 2026-11-08
 
 ### Added
 
+- **工作区快照 + turn 级撤销（trae borrowing 增量清单 §2.1，`tools.checkpoint`，默认关）**：turn 结束把本 turn 改过的文件写前内容存档为版本，`/revert` 一键恢复
+  - 覆盖面：`write_file`/`edit_file`/`append_file`/`lsp_fix` 精确拦截写前内容；exec 经增量 mtime 扫描环绕覆盖建/改/删（`track_exec` 默认开）；噪声目录（.git/node_modules/sessions/tmp）不跟踪
+  - 撤销：`/revert` 撤最近版本、`/revert <id>` 级联回滚、`/revert list` 列版本；撤销即消费（重复执行继续回溯）；turn 活跃时拒绝恢复、list 始终可用；完成向会话 pico 客户端广播 `revert.status`（带 seq 入补发环）
+  - 诚实降级：超限/预算耗尽条目记录 `stored=false` + 原因，revert 时如实列出"内容未保留"；版本数/磁盘预算淘汰最老版本（最新版本软保护）；walk 不完整（错误/2 万文件截断）不产生任何归因
+  - Web 只读接口：`GET /api/sessions/{id}/versions` 与 `.../versions/{version}/diff`（diff 已过 API key 掩码；存储原文不掩码保证字节级恢复）
+  - 存储在 `~/.picoclaw/checkpoints/`（工作区之外）；配置与行为详见 `docs/guides/configuration.zh.md`「工作区快照与撤销」
+- **入站 message.send 幂等去重（trae borrowing §2.2）**：服务端按 (session, 帧 ID) 记录最近接受的请求，重连/重发同 ID 回 `message.ack` 而不再起第二个 turn；投递失败回滚窗口记录；空 ID 客户端行为不变
+- **出站事件序号与断线补发——网关侧（trae borrowing §一，配套 TUI P2）**：session 广播帧单调 seq + 环形缓冲，重连 `?last_seq=N` 精确重放缺口，缺口过大如实报 `stream.catchup`
 - **TUI P3：问询答题浮层 + 外部编辑器 + bell + 图片粘贴（设计 `docs/design/2026-11-07-tui-p3-design.zh.md`，零服务端改动）**：
-  - 问询浮层：ask 卡到达自动弹出步进式答题（移植 web `ask-flow.ts` 语义：单选即选即进、多选 toggle+确认行、「其他…」自由文本、无选项题直接输入、回顾模式回改、未答禁提交）；字母 A–F 快选；「你决定」发送与 web zh.json 锁定一致的委托文案；Esc 最小化 + `:ask` 重开；回答按协议拼装（多题每题一行、内嵌换行压平“；”、单题整条原文）
+  - 问询浮层：ask 卡到达自动弹出步进式答题（移植 web `ask-flow.ts` 语义：单选即选即进、多选 toggle+确认行、「其他…」自由文本、无选项题直接输入、回顾模式回改、未答禁提交）；字母 A–F 快选；「你决定」发送与 web zh.json 锁定一致的委托文案；Esc 最小化 + `:ask` 重开；回答按协议拼装（多题每题一行、内嵌换行压平"；"、单题整条原文）
   - 外部编辑器（Ctrl+G）：$EDITOR → $VISUAL → notepad|vi；Windows 经 `cmd /c`（.cmd shim）；存盘退出回填 composer（去 BOM/单个尾换行，不自动发送），非 0 退出码保持原内容
   - bell：回合结束（typing.stop）且终端失焦时响铃（`tea.BlurMsg`/`FocusMsg` 跟踪，未知焦点态=响）；审批/问询卡到达必响
   - 图片粘贴（Ctrl+V）：Windows PowerShell GetImage→临时 PNG；macOS osascript «class PNGf» hex 解码；Linux wl-paste/xclip 按型探测；解码后 >20MB 客户端拦截；dataURL 走 message.send media；本地回显用户块 + 📎
 
 - **TUI P2 完善（参考 pi 交互模式，设计文档 `docs/design/2026-11-07-tui-p2-design.zh.md`）**：
-  - 断线补发：`pkg/picoclient` 维护 per-session seq 游标，重连握手 `?last_seq=N` 触发服务端缺口重放（配套网关 89e563aa）；旧 seq 帧幂等丢弃；`turn.status` 重连即知回合状态（恢复 generating 态）；`stream.catchup` 丢帧提示 + 空闲时自动重读磁盘历史重建
+  - 断线补发：`pkg/picoclient` 维护 per-session seq 游标，重连握手 `?last_seq=N` 触发服务端缺口重放（配套网关 §一）；旧 seq 帧幂等丢弃；`turn.status` 重连即知回合状态（恢复 generating 态）；`stream.catchup` 丢帧提示 + 空闲时自动重读磁盘历史重建
   - 命令补全浮层：`/` 服务端命令（含子命令两级）与 `:` 本地命令 fuzzy 补全（pi fuzzy.ts 算法移植）；↑↓ 选择 · Tab 补全 · Enter 选定 · Esc 关闭；行首触发，聊天正文里的 `/path` 不弹
   - 会话选择浮层（Ctrl+S/:ls）：sessions 目录全量扫描（渠道徽标/标题/相对时间/当前标记），fuzzy 搜索，Enter 切换；非 pico 会话只读加载（composer 禁用）；切回同 id 会话靠重连补发重建漏帧
   - 帮助浮层（?/:help）：快捷键 + `:` 命令 + `/` 服务端命令（`BuiltinDefinitions` 生成）总表，可滚动
@@ -33,6 +41,7 @@
 
 ### Fixed
 
+- 快照实现评审批（独立复审 + 逐条亲证）：exec 扫描 walk 不完整（错误/文件数截断）时不再产生 created/deleted 归因（原缺陷可使 /revert 误删真实文件）；TurnCapture 并发锁（hook 超时放弃 goroutine 与 turn_end 提交的 fatal map race）；diff 先 stat 后读（turn 内文件膨胀的 OOM 向量）+ 版本 diff 总量 8MB 封顶；版本号数值排序（v1000+ 字典序翻转会使 /revert 盖错内容）；/revert busy 分支不再漏进 steering 队列；网关 pico 回调接线移到 reload 之后；缓存失效诚实降级等 8 项（详见 d2e058a4）
 - `TestNewPicoclawCommand` 补上 P1 遗漏的 `tui` 子命令断言（P1 引入子命令时未同步测试清单）
 
 ## [0.5.4] - 2026-11-01
