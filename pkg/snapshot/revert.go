@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 )
 
 // RevertResult reports what a cascade revert did, including every entry it
@@ -71,6 +73,16 @@ func (s *Store) Revert(sessionKey, targetID string) (*RevertResult, error) {
 		v := versions[i]
 		result.Versions++
 		for _, entry := range v.Files {
+			// Confine restores to the workspace the capture validated paths
+			// against: if the workspace was relocated, recorded paths must
+			// not silently overwrite whatever now lives there. Older
+			// manifests (pre-workspace-field) carry no root and stay
+			// behavior-compatible.
+			if v.Workspace != "" && !pathUnderRoot(entry.Path, v.Workspace) {
+				result.Notes = append(result.Notes, fmt.Sprintf(
+					"restore of %s skipped: outside the version's workspace %s", entry.Rel, v.Workspace))
+				continue
+			}
 			if !entry.Stored && entry.Op != OpCreated {
 				// Created entries have no pre-image by definition — they are
 				// still revertible (the file gets removed). Everything else
@@ -98,6 +110,33 @@ func (s *Store) Revert(sessionKey, targetID string) (*RevertResult, error) {
 		}
 	}
 	return result, nil
+}
+
+// pathUnderRoot reports whether path is inside root (case-folded on
+// Windows, mirroring the store's path keys).
+func pathUnderRoot(path, root string) bool {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	cleanPath, cleanRoot := filepath.Clean(path), filepath.Clean(absRoot)
+	if runtime.GOOS == "windows" {
+		cleanPath, cleanRoot = strings.ToLower(cleanPath), strings.ToLower(cleanRoot)
+	}
+	rel, err := filepath.Rel(cleanRoot, cleanPath)
+	if err != nil {
+		return false
+	}
+	if rel == "." {
+		return true
+	}
+	if filepath.IsAbs(rel) {
+		return false
+	}
+	// Containment: any ".."-led relative path escapes the root ("..\..\x"
+	// is neither ".." nor absolute).
+	sep := string(os.PathSeparator)
+	return rel != ".." && !strings.HasPrefix(rel, ".."+sep)
 }
 
 // restoreEntry writes back (or removes) one file from its retained

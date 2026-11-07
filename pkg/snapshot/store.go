@@ -104,9 +104,13 @@ type FileEntry struct {
 
 // Version is one committed turn's change record.
 type Version struct {
-	ID          string      `json:"id"`
-	Num         int         `json:"num"`
-	TurnID      string      `json:"turn_id,omitempty"`
+	ID     string `json:"id"`
+	Num    int    `json:"num"`
+	TurnID string `json:"turn_id,omitempty"`
+	// Workspace is the workspace root the capture validated paths against;
+	// revert confines restores to it (defense against a relocated workspace
+	// pointing recorded paths at unrelated files).
+	Workspace   string      `json:"workspace,omitempty"`
 	StartedAt   time.Time   `json:"started_at"`
 	CommittedAt time.Time   `json:"committed_at"`
 	ExecUsed    bool        `json:"exec_used,omitempty"`
@@ -129,9 +133,14 @@ type pendingEntry struct {
 	reason  string
 }
 
-// TurnCapture accumulates one turn's pre-write observations. Owned by the
-// turn goroutine (hook BeforeTool + turn_end); no internal locking.
+// TurnCapture accumulates one turn's pre-write observations. Writers come
+// from several goroutines in practice — a hook interceptor that overrun its
+// timeout is ABANDONED by the hook manager and keeps running (a slow
+// ExecPreScan/ExecPostScan can outlive its 5s budget), while turn_end's
+// CommitTurn iterates the map on another goroutine. Hence the mutex: every
+// tc read/write goes through it.
 type TurnCapture struct {
+	mu         sync.Mutex
 	SessionKey string
 	TurnID     string
 	Workspace  string
@@ -140,6 +149,44 @@ type TurnCapture struct {
 
 	entries map[string]*pendingEntry // keyed by pathKey(abs)
 	order   []string                 // capture order
+}
+
+// addEntry records a pending entry unless the path was already captured
+// (first capture wins). Caller must not hold s.mu (blob writes happen here).
+func (tc *TurnCapture) addEntry(entry *pendingEntry) {
+	key := pathKey(entry.path)
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	if _, seen := tc.entries[key]; seen {
+		return
+	}
+	tc.entries[key] = entry
+	tc.order = append(tc.order, key)
+}
+
+func (tc *TurnCapture) setExecUsed() {
+	tc.mu.Lock()
+	tc.ExecUsed = true
+	tc.mu.Unlock()
+}
+
+// snapshotEntries returns the entries in capture order (shared *pendingEntry
+// pointers: entries are immutable once inserted — finalizeEntry never
+// mutates them).
+func (tc *TurnCapture) snapshotEntries() []*pendingEntry {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	out := make([]*pendingEntry, 0, len(tc.order))
+	for _, key := range tc.order {
+		out = append(out, tc.entries[key])
+	}
+	return out
+}
+
+func (tc *TurnCapture) snapshotExecUsed() bool {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	return tc.ExecUsed
 }
 
 // Store manages all sessions under one root directory.
@@ -191,9 +238,9 @@ func (s *Store) PreRoot(sessionKey string) string {
 	return s.preDir(sessionKey)
 }
 
-// BeginTurn starts a fresh capture for the session, replacing any stale one
-// (a crashed turn's capture never persisted anything but content-addressed
-// pre-images, which the orphan sweep collects).
+// BeginTurn starts a fresh capture for the session. Replacing stale
+// captures (a wedged turn's leftovers) and their commit is the hook's job
+// (checkpoint_hook.captureFor) — the store itself holds no turn registry.
 func (s *Store) BeginTurn(sessionKey, turnID, workspace string) *TurnCapture {
 	return &TurnCapture{
 		SessionKey: sessionKey,
@@ -207,21 +254,21 @@ func (s *Store) BeginTurn(sessionKey, turnID, workspace string) *TurnCapture {
 // CaptureFile records the pre-turn state of absPath. The FIRST capture of a
 // path within a turn wins (earliest pre-state). Validation failures and IO
 // errors are recorded as unstored entries with a reason instead of failing
-// the turn — a capture must never break the tool it wraps.
+// the turn — a capture must never break the tool it wraps. Symlinks are
+// skipped entirely: the walk never follows them and restore replaces the
+// link itself, so tracking them buys nothing.
 func (s *Store) CaptureFile(tc *TurnCapture, absPath, relPath string) {
 	if tc == nil || absPath == "" {
 		return
 	}
-	key := pathKey(absPath)
-	if _, seen := tc.entries[key]; seen {
-		return
-	}
 
 	entry := &pendingEntry{path: filepath.Clean(absPath), rel: relPath}
-	info, err := os.Stat(absPath)
+	info, err := os.Lstat(absPath)
 	switch {
-	case err == nil && info.IsDir():
-		return // directories are not captured
+	case err == nil && info.Mode()&os.ModeSymlink != 0:
+		return // symlink (and special files below): not tracked
+	case err == nil && !info.Mode().IsRegular():
+		return
 	case errors.Is(err, os.ErrNotExist):
 		entry.op = OpCreated
 		entry.stored = false
@@ -235,48 +282,50 @@ func (s *Store) CaptureFile(tc *TurnCapture, absPath, relPath string) {
 		if info.Size() > s.cfg.effectiveMaxFileSize() {
 			entry.stored = false
 			entry.reason = fmt.Sprintf("file size %d exceeds max_file_size %d", info.Size(), s.cfg.effectiveMaxFileSize())
-		} else if hash, err := s.storePreImage(tc.SessionKey, absPath); err != nil {
+		} else if hash, _, storeErr := s.storePreImageFile(tc.SessionKey, absPath); storeErr != nil {
 			entry.stored = false
-			entry.reason = fmt.Sprintf("capture failed: %v", err)
+			entry.reason = fmt.Sprintf("capture failed: %v", storeErr)
 		} else {
 			entry.preHash = hash
 			entry.stored = true
 		}
 	}
 
-	tc.entries[key] = entry
-	tc.order = append(tc.order, key)
+	tc.addEntry(entry)
 }
 
-// storePreImage writes content-addressed pre-image bytes and returns the hash.
-func (s *Store) storePreImage(sessionKey, absPath string) (string, error) {
+// storePreImageFile reads a file and stores its content-addressed pre-image.
+func (s *Store) storePreImageFile(sessionKey, absPath string) (string, bool, error) {
 	data, err := os.ReadFile(absPath)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	return s.storePreImageBytes(sessionKey, data)
 }
 
-func (s *Store) storePreImageBytes(sessionKey string, data []byte) (string, error) {
+// storePreImageBytes stores content-addressed pre-image bytes and returns
+// the hash plus whether a NEW blob was created (dedup hits don't grow the
+// cache accounting).
+func (s *Store) storePreImageBytes(sessionKey string, data []byte) (string, bool, error) {
 	sum := sha256.Sum256(data)
 	hash := hex.EncodeToString(sum[:])
 	dir := s.preDir(sessionKey)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
+		return "", false, err
 	}
 	dst := filepath.Join(dir, hash+".bin")
 	if _, err := os.Stat(dst); err == nil {
-		return hash, nil // deduplicated
+		return hash, false, nil // deduplicated
 	}
 	tmp := dst + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return "", err
+		return "", false, err
 	}
 	if err := os.Rename(tmp, dst); err != nil {
 		_ = os.Remove(tmp)
-		return "", err
+		return "", false, err
 	}
-	return hash, nil
+	return hash, true, nil
 }
 
 // MarkExecUsed flags the turn as having run exec (its change detection is
@@ -293,13 +342,18 @@ func (s *Store) MarkExecUsed(tc *TurnCapture) {
 // commits nothing (returns nil, nil) — the workspace_never_modified
 // short-circuit.
 func (s *Store) CommitTurn(tc *TurnCapture) (*Version, error) {
-	if tc == nil || len(tc.entries) == 0 {
+	if tc == nil {
+		return nil, nil
+	}
+	// Snapshot under tc.mu: a hook goroutine that overran its timeout is
+	// abandoned but keeps running — the map must not be iterated unlocked.
+	entriesPtrs := tc.snapshotEntries()
+	if len(entriesPtrs) == 0 {
 		return nil, nil
 	}
 
-	entries := make([]FileEntry, 0, len(tc.order))
-	for _, key := range tc.order {
-		entry := tc.entries[key]
+	entries := make([]FileEntry, 0, len(entriesPtrs))
+	for _, entry := range entriesPtrs {
 		final, keep := s.finalizeEntry(tc.SessionKey, entry)
 		if keep {
 			entries = append(entries, final)
@@ -335,9 +389,10 @@ func (s *Store) CommitTurn(tc *TurnCapture) (*Version, error) {
 		ID:          fmt.Sprintf("v%03d-%s", num, strconv36(tc.StartedAt.Unix())),
 		Num:         num,
 		TurnID:      tc.TurnID,
+		Workspace:   tc.Workspace,
 		StartedAt:   tc.StartedAt,
 		CommittedAt: time.Now(),
-		ExecUsed:    tc.ExecUsed,
+		ExecUsed:    tc.snapshotExecUsed(),
 		Files:       entries,
 		DiffFiles:   diffFiles,
 		DiffBytes:   int64(len(diffText)),
@@ -476,7 +531,16 @@ func (s *Store) versionIDs(sessionKey string) ([]string, error) {
 			ids = append(ids, e.Name())
 		}
 	}
-	sort.Strings(ids) // v-prefixed zero-padded names sort chronologically
+	sort.Slice(ids, func(i, j int) bool {
+		// Numeric order: the %03d prefix breaks lexicographic order at v1000
+		// (a long-lived session crosses it; Revert's cascade assumes
+		// chronological order). Parse failures fall back to the name.
+		ni, nj := versionNum(ids[i]), versionNum(ids[j])
+		if ni != nj {
+			return ni < nj
+		}
+		return ids[i] < ids[j]
+	})
 	return ids, nil
 }
 
@@ -663,6 +727,13 @@ func (s *Store) sweepOrphans(maxAge time.Duration) error {
 		}
 		for _, pe := range preEntries {
 			name := pe.Name()
+			if strings.HasSuffix(name, ".tmp") {
+				// Crashed content-addressed write: removable by age.
+				if info, err := pe.Info(); err == nil && info.ModTime().Before(cutoff) {
+					_ = os.Remove(filepath.Join(s.preDir(sessionKey), name))
+				}
+				continue
+			}
 			hash := strings.TrimSuffix(name, ".bin")
 			if !strings.HasSuffix(name, ".bin") || !validHash(hash) {
 				continue

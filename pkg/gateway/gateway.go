@@ -752,13 +752,13 @@ func restartServices(
 
 	al.SetChannelManager(runningServices.ChannelManager)
 
-	// Re-wire pico callbacks after a reload (the channel instance may have
-	// been rebuilt — see wirePicoChannelCallbacks).
-	wirePicoChannelCallbacks(al, runningServices.ChannelManager)
-
 	if err = runningServices.ChannelManager.Reload(context.Background(), cfg); err != nil {
 		return fmt.Errorf("error reload channels: %w", err)
 	}
+	// Re-wire pico callbacks AFTER the reload: Reload may have rebuilt the
+	// pico channel (config change), and wiring before it would point the
+	// probe and the revert notifier at the dead instance.
+	wirePicoChannelCallbacks(al, runningServices.ChannelManager)
 	fmt.Println("  ✓ Channels restarted.")
 
 	enabledChannels := runningServices.ChannelManager.GetEnabledChannels()

@@ -29,25 +29,16 @@ func (al *AgentLoop) SetCheckpointNotifier(fn func(channel, chatID, sessionKey s
 }
 
 // tryHandleRevertCommand intercepts /revert in the busy branch (before it
-// would be enqueued as steering and leak into the model context). Only the
-// read-only `list` form executes; restores are refused while a turn is live.
+// would be enqueued as steering and leak into the model context). Restores
+// are refused while a turn is live; the read-only `list` form and the
+// mid-teardown window (turn state just cleared) execute right here — the
+// command must NEVER fall through to the steering queue.
 func (al *AgentLoop) tryHandleRevertCommand(ctx context.Context, msg bus.InboundMessage, sessionKey string) bool {
 	cmdName, ok := commands.CommandName(msg.Content)
 	if !ok || cmdName != "revert" {
 		return false
 	}
-	arg := revertArg(msg.Content)
-	if arg != "list" {
-		reply := "⏳ A task is running for this session — /revert is skipped while a turn is active. Try again after it finishes."
-		if al.SessionTurnActiveByKey(sessionKey) {
-			al.PublishResponseIfNeeded(ctx, msg.Channel, msg.ChatID, sessionKey, reply)
-			return true
-		}
-		// The turn state may be mid-teardown; fall through to the normal
-		// executor path by not handling here.
-		return false
-	}
-	reply := al.executeRevertCommand(sessionKey, "", msg.Channel, msg.ChatID, arg)
+	reply := al.executeRevertCommand(sessionKey, "", msg.Channel, msg.ChatID, revertArg(msg.Content))
 	al.PublishResponseIfNeeded(ctx, msg.Channel, msg.ChatID, sessionKey, reply)
 	return true
 }

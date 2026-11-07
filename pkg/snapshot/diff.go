@@ -22,6 +22,10 @@ import (
 const (
 	maxDiffInputBytes = 64 * 1024
 	maxDiffInputLines = 2000
+	// maxVersionDiffBytes bounds the whole version's diffs.txt: a turn that
+	// touched thousands of files otherwise multiplies past the disk budget
+	// with no backpressure.
+	maxVersionDiffBytes = 8 << 20
 )
 
 // buildVersionDiff renders the masked diffs.txt for the given entries and
@@ -31,6 +35,10 @@ func (s *Store) buildVersionDiff(sessionKey string, entries []FileEntry) (string
 	var b strings.Builder
 	count := 0
 	for _, e := range entries {
+		if b.Len() >= maxVersionDiffBytes {
+			b.WriteString("[diff truncated: version diff budget exceeded]\n")
+			break
+		}
 		b.WriteString(fmt.Sprintf("=== %s (%s)\n", e.Rel, e.Op))
 		if e.Op == OpCreated && !e.Stored {
 			// created: no pre-image by definition
@@ -46,6 +54,16 @@ func (s *Store) buildVersionDiff(sessionKey string, entries []FileEntry) (string
 			continue
 		}
 
+		// Stat BEFORE reading: the post-turn file can have grown past every
+		// cap during the turn (e.g. exec regenerated it) and an unbounded
+		// ReadFile here is an OOM vector.
+		if e.Op != OpDeleted {
+			if info, statErr := os.Stat(e.Path); statErr == nil && info.Size() > maxDiffInputBytes {
+				b.WriteString(fmt.Sprintf("[diff skipped: current file is %d bytes > %d]\n\n",
+					info.Size(), maxDiffInputBytes))
+				continue
+			}
+		}
 		after, err := os.ReadFile(e.Path)
 		if err != nil {
 			if e.Op == OpDeleted {

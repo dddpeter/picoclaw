@@ -111,7 +111,7 @@ func (s *Store) ExecPreScan(tc *TurnCapture) {
 
 	s.evictScanCacheLocked(tc.SessionKey, idx)
 
-	candidates := s.walkWorkspace(tc.Workspace)
+	candidates, complete := s.walkWorkspace(tc.Workspace)
 	seen := make(map[string]struct{}, len(candidates))
 	for _, cand := range candidates {
 		seen[cand.key] = struct{}{}
@@ -125,10 +125,12 @@ func (s *Store) ExecPreScan(tc *TurnCapture) {
 		updated := scanEntry{Path: cand.path, Rel: cand.rel, MtimeNS: cand.mtimeNS, Size: cand.size, LastSeen: now}
 		if cand.size <= s.cfg.effectiveMaxFileSize() {
 			if data, err := os.ReadFile(cand.path); err == nil {
-				if hash, storeErr := s.storePreImageBytes(tc.SessionKey, data); storeErr == nil {
+				if hash, created, storeErr := s.storePreImageBytes(tc.SessionKey, data); storeErr == nil {
 					updated.Hash = hash
 					updated.Cached = true
-					idx.CacheBytes += int64(len(data))
+					if created {
+						idx.CacheBytes += int64(len(data))
+					}
 				}
 			}
 		}
@@ -137,13 +139,19 @@ func (s *Store) ExecPreScan(tc *TurnCapture) {
 
 	// Vanished since the last scan: deleted outside any exec run (by the
 	// user or a previous turn's revert) — forget them instead of letting
-	// the post-scan attribute the deletion to this exec.
-	for key, entry := range idx.Entries {
-		if _, ok := seen[key]; !ok {
-			if entry.Cached && entry.Hash != "" {
-				idx.CacheBytes -= s.blobSize(tc.SessionKey, entry.Hash)
+	// the post-scan attribute the deletion to this exec. Skipped when the
+	// walk was incomplete: "not seen" then means nothing, and dropping
+	// entries here would turn a transient walk error into phantom deletions
+	// (and, via the post-scan created branch, into revert deleting real
+	// files).
+	if complete {
+		for key, entry := range idx.Entries {
+			if _, ok := seen[key]; !ok {
+				if entry.Cached && entry.Hash != "" {
+					idx.CacheBytes -= s.blobSize(tc.SessionKey, entry.Hash)
+				}
+				delete(idx.Entries, key)
 			}
-			delete(idx.Entries, key)
 		}
 	}
 	s.saveScanIndexLocked(tc.SessionKey, idx)
@@ -162,15 +170,20 @@ func (s *Store) ExecPostScan(tc *TurnCapture) {
 	idx := loadScanIndex(s.sessionDir(tc.SessionKey))
 	now := time.Now().UnixNano()
 
-	candidates := s.walkWorkspace(tc.Workspace)
+	candidates, complete := s.walkWorkspace(tc.Workspace)
 	seen := make(map[string]struct{}, len(candidates))
 	for _, cand := range candidates {
 		seen[cand.key] = struct{}{}
 		entry, known := idx.Entries[cand.key]
 
 		if !known {
-			// New file: created by the exec run.
-			s.recordExecEntry(tc, cand.path, cand.rel, OpCreated, "", false, "")
+			// New file: created by the exec run. Attribution requires a
+			// COMPLETE post-scan walk — an incomplete walk's "unseen at
+			// pre-scan" proves nothing, and recording those as created
+			// would make /revert DELETE real files.
+			if complete {
+				s.recordExecEntry(tc, cand.path, cand.rel, OpCreated, "", false, "")
+			}
 			idx.Entries[cand.key] = scanEntry{Path: cand.path, Rel: cand.rel, MtimeNS: cand.mtimeNS, Size: cand.size, LastSeen: now}
 			continue
 		}
@@ -179,8 +192,9 @@ func (s *Store) ExecPostScan(tc *TurnCapture) {
 		}
 
 		// Changed by the exec run: pre-exec content is whatever the pre-scan
-		// cached; a stat-only entry degrades honestly.
-		if entry.Cached && entry.Hash != "" {
+		// cached. A stat-only entry — or one whose blob was evicted meanwhile
+		// (cache/版本淘汰不通知索引) — degrades honestly.
+		if entry.Cached && entry.Hash != "" && s.blobSize(tc.SessionKey, entry.Hash) > 0 {
 			s.recordExecEntry(tc, entry.Path, entry.Rel, OpModified, entry.Hash, true, "")
 		} else {
 			s.recordExecEntry(tc, entry.Path, entry.Rel, OpModified, "", false,
@@ -192,19 +206,25 @@ func (s *Store) ExecPostScan(tc *TurnCapture) {
 		idx.Entries[cand.key] = scanEntry{Path: entry.Path, Rel: entry.Rel, MtimeNS: cand.mtimeNS, Size: cand.size, LastSeen: now}
 	}
 
-	// Present in the index, missing now: deleted by the exec run.
-	for key, entry := range idx.Entries {
-		if _, ok := seen[key]; ok {
-			continue
+	// Present in the index, missing now: deleted by the exec run. Same
+	// completeness gate as the created branch — an incomplete walk's
+	// "missing" proves nothing (and a phantom deletion makes /revert
+	// resurrect files that still exist). A real deletion missed here is
+	// picked up by the next complete scan pair.
+	if complete {
+		for key, entry := range idx.Entries {
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			if entry.Cached && entry.Hash != "" {
+				s.recordExecEntry(tc, entry.Path, entry.Rel, OpDeleted, entry.Hash, true, "")
+			} else {
+				s.recordExecEntry(tc, entry.Path, entry.Rel, OpDeleted, "", false,
+					"deleted before its content was cached")
+			}
+			idx.CacheBytes -= s.blobSize(tc.SessionKey, entry.Hash)
+			delete(idx.Entries, key)
 		}
-		if entry.Cached && entry.Hash != "" {
-			s.recordExecEntry(tc, entry.Path, entry.Rel, OpDeleted, entry.Hash, true, "")
-		} else {
-			s.recordExecEntry(tc, entry.Path, entry.Rel, OpDeleted, "", false,
-				"deleted before its content was cached")
-		}
-		idx.CacheBytes -= s.blobSize(tc.SessionKey, entry.Hash)
-		delete(idx.Entries, key)
 	}
 	s.saveScanIndexLocked(tc.SessionKey, idx)
 }
@@ -213,20 +233,14 @@ func (s *Store) ExecPostScan(tc *TurnCapture) {
 // overriding an existing entry (an fs tool's earlier capture of the same
 // file wins — it observed the true pre-turn state).
 func (s *Store) recordExecEntry(tc *TurnCapture, absPath, relPath string, op Op, hash string, stored bool, reason string) {
-	key := pathKey(absPath)
-	if _, seen := tc.entries[key]; seen {
-		return
-	}
-	entry := &pendingEntry{
+	tc.addEntry(&pendingEntry{
 		path:    filepath.Clean(absPath),
 		rel:     relPath,
 		op:      op,
 		preHash: hash,
 		stored:  stored,
 		reason:  reason,
-	}
-	tc.entries[key] = entry
-	tc.order = append(tc.order, key)
+	})
 }
 
 // evictScanCacheLocked LRU-evicts cache-only blobs when the content cache
@@ -290,19 +304,24 @@ type walkCandidate struct {
 }
 
 // walkWorkspace lists the workspace's regular files within the scan caps.
-// Unreadable entries are skipped, never fatal.
-func (s *Store) walkWorkspace(workspace string) []walkCandidate {
+// Unreadable entries are skipped, never fatal. The second return reports
+// whether the walk was COMPLETE: a truncated or error-interrupted walk's
+// "not seen" must never be interpreted as "deleted/created" by the callers.
+func (s *Store) walkWorkspace(workspace string) ([]walkCandidate, bool) {
 	maxDepth := s.cfg.effectiveScanDepth()
 	maxFiles := s.cfg.effectiveScanMaxFiles()
 
 	out := make([]walkCandidate, 0, 64)
+	complete := true
 	count := 0
-	_ = filepath.WalkDir(workspace, func(path string, d fs.DirEntry, err error) error {
+	walkErr := filepath.WalkDir(workspace, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
+			complete = false // unreadable subtree: the seen-set is not exhaustive
 			return nil
 		}
 		rel, relErr := filepath.Rel(workspace, path)
 		if relErr != nil {
+			complete = false
 			return nil
 		}
 		if d.IsDir() {
@@ -321,12 +340,17 @@ func (s *Store) walkWorkspace(workspace string) []walkCandidate {
 		if !d.Type().IsRegular() {
 			return nil // symlinks and special files: never followed
 		}
+		if strings.HasSuffix(d.Name(), ".picoclaw-revert.tmp") {
+			return nil // a crashed restore's leftover, not user content
+		}
 		count++
 		if count > maxFiles {
+			complete = false // truncated: files beyond the cap are unseen
 			return fs.SkipAll
 		}
 		info, statErr := d.Info()
 		if statErr != nil {
+			complete = false
 			return nil
 		}
 		relSlash := filepath.ToSlash(rel)
@@ -339,5 +363,9 @@ func (s *Store) walkWorkspace(workspace string) []walkCandidate {
 		})
 		return nil
 	})
-	return out
+	if walkErr != nil {
+		// WalkDir itself failed (e.g. the root vanished mid-walk).
+		complete = false
+	}
+	return out, complete
 }

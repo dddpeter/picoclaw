@@ -153,25 +153,32 @@ func (h *CheckpointHook) OnRuntimeEvent(ctx context.Context, evt runtimeevents.E
 
 // captureFor returns the open capture for the session, committing a stale
 // one first (a turn that wedged past its turn_end — the hard-abort watchdog
-// releases such sessions — keeps its already-captured observations).
+// releases such sessions — keeps its already-captured observations). The
+// stale commit happens OUTSIDE h.mu: CommitTurn does file IO and must not
+// block every agent's BeforeTool on this hook's lock.
 func (h *CheckpointHook) captureFor(sessionKey, turnID, workspace string) *snapshot.TurnCapture {
 	if sessionKey == "" || workspace == "" {
 		return nil
 	}
+	var stale *snapshot.TurnCapture
 	h.mu.Lock()
-	defer h.mu.Unlock()
-
 	if tc, ok := h.active[sessionKey]; ok {
 		if tc.TurnID == turnID || turnID == "" {
+			h.mu.Unlock()
 			return tc
 		}
 		// Stale capture from a previous turn: commit what it observed, then
 		// start fresh for this turn.
 		delete(h.active, sessionKey)
-		h.commit(tc)
+		stale = tc
 	}
 	tc := h.store.BeginTurn(sessionKey, turnID, workspace)
 	h.active[sessionKey] = tc
+	h.mu.Unlock()
+
+	if stale != nil {
+		h.commit(stale)
+	}
 	return tc
 }
 
