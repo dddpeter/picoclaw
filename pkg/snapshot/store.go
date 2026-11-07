@@ -31,6 +31,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/sipeed/picoclaw/pkg/config"
 )
 
 // Op classifies what the turn did to a file relative to the pre-turn state.
@@ -152,6 +154,12 @@ func NewStore(root string, cfg Config) (*Store, error) {
 
 // Root returns the store root directory.
 func (s *Store) Root() string { return s.root }
+
+// DefaultRoot is the conventional checkpoint location: ~/.picoclaw/checkpoints
+// (outside every agent workspace, so exec-scan walks can never self-track).
+func DefaultRoot() string {
+	return filepath.Join(config.GetHome(), "checkpoints")
+}
 
 // sessionDir is the per-session directory (sanitized session key).
 func (s *Store) sessionDir(sessionKey string) string {
@@ -287,6 +295,9 @@ func (s *Store) CommitTurn(tc *TurnCapture) (*Version, error) {
 		return nil, nil
 	}
 
+	// Diffs read current file contents — done before the store lock.
+	diffText, diffFiles := s.buildVersionDiff(tc.SessionKey, entries)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -314,6 +325,8 @@ func (s *Store) CommitTurn(tc *TurnCapture) (*Version, error) {
 		CommittedAt: time.Now(),
 		ExecUsed:    tc.ExecUsed,
 		Files:       entries,
+		DiffFiles:   diffFiles,
+		DiffBytes:   int64(len(diffText)),
 	}
 	version.Notes = s.evictLocked(tc.SessionKey, incoming)
 
@@ -321,10 +334,26 @@ func (s *Store) CommitTurn(tc *TurnCapture) (*Version, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("snapshot: create version dir: %w", err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "diffs.txt"), []byte(diffText), 0o600); err != nil {
+		return nil, fmt.Errorf("snapshot: write diffs: %w", err)
+	}
 	if err := writeJSONFile(filepath.Join(dir, "manifest.json"), version); err != nil {
 		return nil, fmt.Errorf("snapshot: write manifest: %w", err)
 	}
 	return &version, nil
+}
+
+// ReadDiff returns the masked unified diffs of a committed version
+// (diffs.txt). The text is safe to display: pre-images stay raw for
+// byte-exact restore, but every query/display surface is masked.
+func (s *Store) ReadDiff(sessionKey, id string) ([]byte, error) {
+	if !validVersionID(id) {
+		return nil, fmt.Errorf("snapshot: invalid version id %q", id)
+	}
+	if _, err := s.readManifest(sessionKey, id); err != nil {
+		return nil, err
+	}
+	return os.ReadFile(filepath.Join(s.sessionDir(sessionKey), id, "diffs.txt"))
 }
 
 // finalizeEntry reconciles a pending entry against the file's current
@@ -667,6 +696,13 @@ func sanitizeSessionKey(key string) string {
 		out = "session"
 	}
 	return out
+}
+
+// SanitizeSessionKey exposes the session-key → directory-name mapping so
+// external readers (web launcher) address the same directories the store
+// writes. One implementation, one mapping.
+func SanitizeSessionKey(key string) string {
+	return sanitizeSessionKey(key)
 }
 
 // pathKey normalizes an absolute path for map keys (Windows case-insensitivity).

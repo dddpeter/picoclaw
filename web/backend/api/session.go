@@ -28,6 +28,9 @@ func (h *Handler) registerSessionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sessions/{id}", h.handleGetSession)
 	mux.HandleFunc("DELETE /api/sessions/{id}", h.handleDeleteSession)
 	mux.HandleFunc("PUT /api/sessions/{id}/title", h.handleRenameSession)
+	// Workspace checkpoint queries (trae borrowing 增量清单 §2.1).
+	mux.HandleFunc("GET /api/sessions/{id}/versions", h.handleSessionVersions)
+	mux.HandleFunc("GET /api/sessions/{id}/versions/{version}/diff", h.handleSessionVersionDiff)
 }
 
 // sessionFile mirrors the on-disk session JSON structure from pkg/session.

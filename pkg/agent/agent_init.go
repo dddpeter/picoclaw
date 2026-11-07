@@ -5,7 +5,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -112,7 +111,7 @@ func NewAgentLoop(
 	// The store lives under ~/.picoclaw/checkpoints (outside every
 	// workspace) so exec-scan walks can never self-track.
 	if cfg.Tools.Checkpoint.Enabled {
-		root := filepath.Join(config.GetHome(), "checkpoints")
+		root := snapshot.DefaultRoot()
 		store, err := snapshot.NewStore(root, snapshot.Config{
 			MaxVersions:   cfg.Tools.Checkpoint.MaxVersions,
 			MaxTotalBytes: cfg.Tools.Checkpoint.MaxTotalBytes,
