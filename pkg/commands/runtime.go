@@ -112,8 +112,12 @@ type Runtime struct {
 	// NewSession archives the current conversation into a fresh session and
 	// clears the live one; archived reports whether anything was preserved.
 	// When nil, /new falls back to ClearHistory (plain in-place wipe).
-	NewSession     func() (archived bool, err error)
-	ReloadConfig   func() error
+	NewSession func() (archived bool, err error)
+	// RevertTurn undoes workspace checkpoint versions (trae borrowing
+	// 增量清单 §2.1). arg: "" (undo newest), "list", or a version id.
+	// When nil, /revert replies that snapshots are unavailable.
+	RevertTurn  func(channel, chatID string, arg string) (string, error)
+	ReloadConfig func() error
 	StopActiveTurn func() (StopResult, error)
 	// Cron automation surface (all optional; nil entries make /cron
 	// sub-commands reply with unavailableMsg).

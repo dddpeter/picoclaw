@@ -42,6 +42,7 @@ import (
 	_ "github.com/sipeed/picoclaw/pkg/channels/whatsapp"
 	_ "github.com/sipeed/picoclaw/pkg/channels/whatsapp_native"
 	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/snapshot"
 	"github.com/sipeed/picoclaw/pkg/cron"
 	"github.com/sipeed/picoclaw/pkg/devices"
 	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
@@ -495,16 +496,11 @@ func setupAndStartServices(
 	agentLoop.SetChannelManager(runningServices.ChannelManager)
 	agentLoop.SetMediaStore(runningServices.MediaStore)
 
-	// Reconnect signal (octop borrowing §四): let pico WS clients learn on
-	// connect whether a turn is live for their session — a page refresh no
-	// longer loses the typing state (the turn itself survives on the gateway).
-	if ch, ok := runningServices.ChannelManager.GetChannel(config.ChannelPico); ok {
-		if picoCh, ok := ch.(*pico.PicoChannel); ok {
-			picoCh.SetTurnActiveProbe(func(chatID string) bool {
-				return agentLoop.SessionTurnActive(config.ChannelPico, chatID)
-			})
-		}
-	}
+	// Reconnect signal (octop borrowing §四) + /revert notifier (trae
+	// borrowing 增量清单 §2.1). Wired through a shared helper that BOTH this
+	// startup path and restartServices call: a config reload may rebuild the
+	// pico channel, and callbacks pointed at the old instance would die.
+	wirePicoChannelCallbacks(agentLoop, runningServices.ChannelManager)
 
 	transcriber := asr.DetectTranscriber(cfg)
 	if transcriber != nil {
@@ -756,6 +752,10 @@ func restartServices(
 
 	al.SetChannelManager(runningServices.ChannelManager)
 
+	// Re-wire pico callbacks after a reload (the channel instance may have
+	// been rebuilt — see wirePicoChannelCallbacks).
+	wirePicoChannelCallbacks(al, runningServices.ChannelManager)
+
 	if err = runningServices.ChannelManager.Reload(context.Background(), cfg); err != nil {
 		return fmt.Errorf("error reload channels: %w", err)
 	}
@@ -983,4 +983,46 @@ func createHeartbeatHandler(agentLoop *agent.AgentLoop) func(prompt, channel, ch
 		}
 		return tools.SilentResult(response)
 	}
+}
+
+// wirePicoChannelCallbacks injects the agent→pico callback surface: the
+// turn-active probe (octop borrowing §四) and the /revert completion
+// notifier (trae borrowing 增量清单 §2.1). Called from BOTH the startup path
+// and restartServices — a config reload may rebuild the pico channel, and
+// callbacks still pointed at the old instance would silently die.
+func wirePicoChannelCallbacks(agentLoop *agent.AgentLoop, manager *channels.Manager) {
+	if manager == nil {
+		return
+	}
+	ch, ok := manager.GetChannel(config.ChannelPico)
+	if !ok {
+		return
+	}
+	picoCh, ok := ch.(*pico.PicoChannel)
+	if !ok {
+		return
+	}
+	picoCh.SetTurnActiveProbe(func(chatID string) bool {
+		return agentLoop.SessionTurnActive(config.ChannelPico, chatID)
+	})
+	agentLoop.SetCheckpointNotifier(func(channel, chatID, sessionKey string, result *snapshot.RevertResult) {
+		if channel != config.ChannelPico {
+			return // only pico clients (web chat included) render revert.status
+		}
+		payload := map[string]any{
+			"version":  result.ToID,
+			"restored": result.Restored,
+			"deleted":  result.Deleted,
+			"skipped":  len(result.Skipped),
+		}
+		if err := picoCh.BroadcastRevert(chatID, payload); err != nil {
+			// No live connection for the session: the frame still entered the
+			// seq ring and replays on the next reconnect.
+			logger.DebugCF("gateway", "revert broadcast found no live pico clients", map[string]any{
+				"chat_id":     chatID,
+				"session_key": sessionKey,
+				"error":       err.Error(),
+			})
+		}
+	})
 }

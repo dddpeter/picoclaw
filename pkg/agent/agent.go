@@ -119,6 +119,9 @@ type AgentLoop struct {
 	// tools.checkpoint (trae borrowing 增量清单 §2.1); nil when the feature
 	// is disabled. Read by the /revert command binding.
 	checkpointStore *snapshot.Store
+	// checkpointNotifier fans a completed /revert out to session clients
+	// (gateway injects a pico broadcast). Nil = no fan-out.
+	checkpointNotifier func(channel, chatID, sessionKey string, result *snapshot.RevertResult)
 
 	providerFactory func(*config.ModelConfig) (providers.LLMProvider, string, error)
 }
@@ -259,6 +262,12 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 					continue
 				}
 				if al.tryHandleCompactCommand(ctx, msg, sessionKey) {
+					continue
+				}
+				// /revert (trae borrowing 增量清单 §2.1): intercept before the
+				// steering queue — a restore must never leak into the model
+				// context, and `list` stays available while a turn is live.
+				if al.tryHandleRevertCommand(ctx, msg, sessionKey) {
 					continue
 				}
 				// ask_user replies（octop 借鉴 §三）：plain text（or /skip）

@@ -448,6 +448,16 @@ func (al *AgentLoop) buildCommandsRuntime(
 			return al.rotateSession(ctx, agent, opts)
 		}
 
+		// /revert: turn-level workspace undo (trae borrowing 增量清单 §2.1).
+		// The store lives on the loop; the command needs the session identity
+		// of the message it answers, captured here at build time.
+		rt.RevertTurn = func(channel, chatID string, arg string) (string, error) {
+			if opts == nil {
+				return "", fmt.Errorf("process options not available")
+			}
+			return al.executeRevertCommand(opts.Dispatch.SessionKey, agent.ID, channel, chatID, arg), nil
+		}
+
 		// /title: manual session titles outrank derived and light-model ones.
 		rt.SetSessionTitle = func(title string) bool {
 			if opts == nil {

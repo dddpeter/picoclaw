@@ -5,6 +5,9 @@ const (
 	KindAgentTurnStart Kind = "agent.turn.start"
 	// KindAgentTurnEnd is emitted when an agent turn ends.
 	KindAgentTurnEnd Kind = "agent.turn.end"
+	// KindAgentRevert is emitted after a /revert workspace restore completes
+	// (trae borrowing 增量清单 §2.1). Payload: *snapshot.RevertResult.
+	KindAgentRevert Kind = "agent.revert"
 
 	// KindAgentLLMRequest is emitted before an LLM request.
 	KindAgentLLMRequest Kind = "agent.llm.request"
@@ -107,6 +110,7 @@ const (
 var knownKinds = []Kind{
 	KindAgentTurnStart,
 	KindAgentTurnEnd,
+	KindAgentRevert,
 	KindAgentLLMRequest,
 	KindAgentLLMResponse,
 	KindAgentLLMRetry,

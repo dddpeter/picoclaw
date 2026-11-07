@@ -18,6 +18,7 @@ func BuiltinDefinitions() []Definition {
 		checkCommand(),
 		clearCommand(),
 		newCommand(),
+		revertCommand(),
 		titleCommand(),
 		contextCommand(),
 		compactCommand(),

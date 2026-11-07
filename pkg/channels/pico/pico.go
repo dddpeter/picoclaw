@@ -523,6 +523,15 @@ func (c *PicoChannel) DeleteMessage(ctx context.Context, chatID string, messageI
 	return c.broadcastToSession(chatID, outMsg)
 }
 
+// BroadcastRevert reports a completed /revert workspace restore to every
+// connection of the session (trae borrowing 增量清单 §2.1). Session-level
+// broadcast: the frame carries a seq and enters the replay ring, so a client
+// that refreshes after the revert still learns the workspace changed.
+func (c *PicoChannel) BroadcastRevert(chatID string, payload map[string]any) error {
+	outMsg := newMessage(TypeRevertStatus, payload)
+	return c.broadcastToSession(chatID, outMsg)
+}
+
 func (c *PicoChannel) currentToolFeedbackMessage(chatID string) (string, bool) {
 	if c.progress == nil {
 		return "", false

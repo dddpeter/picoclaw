@@ -38,6 +38,12 @@ const (
 	// enters the seq ring and is not replayed on catch-up. Payload:
 	// {request_id: string, duplicate: true}.
 	TypeMessageAck = "message.ack"
+	// TypeRevertStatus reports a completed /revert workspace restore (trae
+	// borrowing 增量清单 §2.1). Session-level broadcast — it carries a seq
+	// and is replayed by catch-up, so a client that refreshes after the
+	// revert still learns the workspace state changed. Payload:
+	// {version: string, restored: int, deleted: int, skipped: int}.
+	TypeRevertStatus = "revert.status"
 
 	PayloadKeyContent     = "content"
 	PayloadKeyThought     = "thought"

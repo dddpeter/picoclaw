@@ -34,3 +34,16 @@ func (al *AgentLoop) SessionTurnActive(channel, chatID string) bool {
 	})
 	return found
 }
+
+// SessionTurnActiveByKey reports whether a live turn (placeholder or
+// running) is registered for the session key — the /revert busy guard (trae
+// borrowing 增量清单 §2.1): restoring workspace files while the session's
+// turn is writing them would corrupt both. Same lock discipline as
+// SessionTurnActive: never touches the model-state mutex.
+func (al *AgentLoop) SessionTurnActiveByKey(sessionKey string) bool {
+	if al == nil || sessionKey == "" {
+		return false
+	}
+	_, ok := al.activeTurnStates.Load(sessionKey)
+	return ok
+}
