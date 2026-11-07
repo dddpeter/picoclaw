@@ -195,6 +195,10 @@ type PicoChannel struct {
 	// seqs stamps session broadcasts with monotonic seqs and retains them
 	// in a bounded ring for reconnect catch-up (trae borrowing §一).
 	seqs *seqStore
+	// seenIDs dedupes inbound message.send/media.send IDs so a client
+	// retrying the same request gets message.ack instead of a second turn
+	// (trae borrowing 增量清单 §2.2).
+	seenIDs *idempotencyStore
 }
 
 // NewPicoChannel creates a new Pico Protocol channel.
@@ -235,6 +239,7 @@ func NewPicoChannel(
 		connections:        make(map[string]*picoConn),
 		sessionConnections: make(map[string]map[string]*picoConn),
 		seqs:               newSeqStore(DefaultSeqBufferCapacity),
+		seenIDs:            newIdempotencyStore(DefaultSeqBufferCapacity),
 	}
 	ch.progress = channels.NewToolFeedbackAnimator(ch.EditMessage)
 	ch.deleteMessageFn = ch.DeleteMessage
@@ -1456,6 +1461,20 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 		return
 	}
 
+	// Inbound idempotency (trae borrowing 增量清单 §2.2): after validation
+	// and the sender whitelist, so failed validations and unauthorized
+	// senders never consume window slots. A repeated ID is acknowledged on
+	// the same connection instead of dispatching a second turn.
+	if msg.ID != "" && c.seenIDs.Seen(sessionID, msg.ID) {
+		ack := newMessage(TypeMessageAck, map[string]any{
+			"request_id": msg.ID,
+			"duplicate":  true,
+		})
+		ack.ID = msg.ID
+		pc.writeJSON(ack)
+		return
+	}
+
 	inboundCtx := bus.InboundContext{
 		Channel:   "pico",
 		ChatID:    chatID,
@@ -1465,7 +1484,17 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 		Raw:       metadata,
 	}
 
-	c.HandleInboundContext(c.ctx, chatID, content, media, inboundCtx, sender)
+	// Delivery failure used to be swallowed silently; roll the idempotency
+	// record back so a client retry with the same ID can still be delivered
+	// instead of being acked as a duplicate.
+	if err := c.HandleInboundContext(c.ctx, chatID, content, media, inboundCtx, sender); err != nil {
+		c.seenIDs.Unseen(sessionID, msg.ID)
+		logger.DebugCF("pico", "Inbound delivery failed, idempotency rolled back", map[string]any{
+			"session_id": sessionID,
+			"request_id": msg.ID,
+			"error":      err.Error(),
+		})
+	}
 }
 
 // truncate truncates a string to maxLen runes.

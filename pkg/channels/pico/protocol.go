@@ -31,6 +31,13 @@ const (
 	TypeStreamCatchup = "stream.catchup"
 	TypeError         = "error"
 	TypePong          = "pong"
+	// TypeMessageAck acknowledges a duplicate inbound message.send /
+	// media.send (trae borrowing 增量清单 §2.2): sent on the same connection
+	// when the message ID was already accepted, instead of dispatching a
+	// second turn. Seq-less per-connection reply like pong/error — it never
+	// enters the seq ring and is not replayed on catch-up. Payload:
+	// {request_id: string, duplicate: true}.
+	TypeMessageAck = "message.ack"
 
 	PayloadKeyContent     = "content"
 	PayloadKeyThought     = "thought"
@@ -51,7 +58,13 @@ const (
 
 // PicoMessage is the wire format for all Pico Protocol messages.
 type PicoMessage struct {
-	Type      string `json:"type"`
+	Type string `json:"type"`
+	// ID is the client-assigned request/message ID. On inbound
+	// message.send/media.send it doubles as the idempotency key (trae
+	// borrowing 增量清单 §2.2): the server dedupes repeats within a bounded
+	// per-session window and answers a duplicate with message.ack instead
+	// of starting a second turn. Clients that retry a send must resend the
+	// same ID.
 	ID        string `json:"id,omitempty"`
 	SessionID string `json:"session_id,omitempty"`
 	// Seq is the per-session monotonic outbound sequence number (trae
