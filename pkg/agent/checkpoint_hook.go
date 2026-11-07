@@ -39,6 +39,7 @@ var checkpointWriteTools = map[string]string{
 // CheckpointHook implements ToolInterceptor and RuntimeEventObserver.
 type CheckpointHook struct {
 	store *snapshot.Store
+	cfg   config.CheckpointConfig
 	// workspaceFor resolves the workspace root of the agent running the
 	// turn (multi-agent: each agent owns its own workspace).
 	workspaceFor func(agentID string) string
@@ -58,6 +59,7 @@ func newCheckpointHook(
 ) *CheckpointHook {
 	return &CheckpointHook{
 		store:        store,
+		cfg:          cfg,
 		workspaceFor: workspaceFor,
 		restrict:     restrict,
 		allowWrite:   allowWrite,
@@ -69,6 +71,21 @@ func newCheckpointHook(
 // before validation-sensitive hooks are affected: a path the tool itself
 // would reject simply produces no capture.
 func (h *CheckpointHook) BeforeTool(ctx context.Context, call *ToolCallHookRequest) (*ToolCallHookRequest, HookDecision, error) {
+	if call.Tool == "exec" {
+		// exec change detection (trae borrowing 增量清单 §2.1, TrackExec):
+		// only the run action touches the filesystem; wrap it with a
+		// pre-scan so whatever it changes is recoverable afterwards.
+		if h.cfg.TrackExec {
+			if action, _ := call.Arguments["action"].(string); action == "run" {
+				workspace := h.workspaceFor(call.Meta.AgentID)
+				if tc := h.captureFor(call.Meta.SessionKey, call.Meta.TurnID, workspace); tc != nil {
+					h.store.ExecPreScan(tc)
+				}
+			}
+		}
+		return call, HookDecision{Action: HookActionContinue}, nil
+	}
+
 	argName, isWriteTool := checkpointWriteTools[call.Tool]
 	if !isWriteTool {
 		return call, HookDecision{Action: HookActionContinue}, nil
@@ -100,10 +117,23 @@ func (h *CheckpointHook) BeforeTool(ctx context.Context, call *ToolCallHookReque
 	return call, HookDecision{Action: HookActionContinue}, nil
 }
 
-// AfterTool participates in the interceptor chain (exec-scan detection hooks
-// in here in the exec-coverage stage); it never modifies results.
+// AfterTool closes the exec wrap: the post-scan turns everything the run
+// changed into pending turn entries. It never modifies results.
 func (h *CheckpointHook) AfterTool(ctx context.Context, result *ToolResultHookResponse) (*ToolResultHookResponse, HookDecision, error) {
+	if result != nil && result.Tool == "exec" && h.cfg.TrackExec {
+		if action, _ := result.Arguments["action"].(string); action == "run" {
+			workspace := h.workspaceFor(h.agentIDFor(result.Meta))
+			if tc := h.captureFor(result.Meta.SessionKey, result.Meta.TurnID, workspace); tc != nil {
+				h.store.ExecPostScan(tc)
+			}
+		}
+	}
 	return result, HookDecision{Action: HookActionContinue}, nil
+}
+
+// agentIDFor extracts the agent id from hook metadata (empty-safe).
+func (h *CheckpointHook) agentIDFor(meta HookMeta) string {
+	return meta.AgentID
 }
 
 // OnRuntimeEvent opens captures on turn start and commits them on turn end

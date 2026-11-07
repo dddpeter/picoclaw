@@ -14,13 +14,22 @@ import (
 
 func newTestCheckpointHook(t *testing.T, restrict bool) (*CheckpointHook, *snapshot.Store, string) {
 	t.Helper()
+	return newTestCheckpointHookCfg(t, restrict, config.CheckpointConfig{})
+}
+
+func newTestCheckpointHookCfg(t *testing.T, restrict bool, cfg config.CheckpointConfig) (*CheckpointHook, *snapshot.Store, string) {
+	t.Helper()
 	t.Setenv(config.EnvHome, t.TempDir()) // isolate ~/.picoclaw (checkpoint root)
 	ws := t.TempDir()
-	store, err := snapshot.NewStore(filepath.Join(config.GetHome(), "checkpoints"), snapshot.Config{})
+	store, err := snapshot.NewStore(filepath.Join(config.GetHome(), "checkpoints"), snapshot.Config{
+		MaxFileSize: cfg.MaxFileSize, TrackExec: cfg.TrackExec,
+		MaxVersions: cfg.MaxVersions, MaxTotalBytes: cfg.MaxTotalBytes,
+		ScanDepth: cfg.ScanDepth, ScanMaxFiles: cfg.ScanMaxFiles,
+	})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
-	hook := newCheckpointHook(store, config.CheckpointConfig{}, func(string) string { return ws }, restrict, nil)
+	hook := newCheckpointHook(store, cfg, func(string) string { return ws }, restrict, nil)
 	return hook, store, ws
 }
 
@@ -250,5 +259,78 @@ func TestCheckpointHook_MountWiring(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(config.GetHome(), "checkpoints")); err != nil {
 		t.Fatalf("store root not created under PICOCLAW_HOME: %v", err)
+	}
+}
+
+// TestCheckpointHook_ExecScanWiring pins the exec coverage wiring: a run
+// action triggers pre/post scans around the tool call and everything the
+// run did to the workspace is committed as part of the turn's version.
+func TestCheckpointHook_ExecScanWiring(t *testing.T) {
+	hook, store, ws := newTestCheckpointHookCfg(t, false, config.CheckpointConfig{TrackExec: true, Enabled: true})
+	ctx := context.Background()
+
+	existing := filepath.Join(ws, "f.txt")
+	if err := os.WriteFile(existing, []byte("pre-exec"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	hook.OnRuntimeEvent(ctx, turnEvent(runtimeevents.KindAgentTurnStart, "sess-1", "t1"))
+
+	execReq := &ToolCallHookRequest{
+		Meta:      HookMeta{AgentID: "default", SessionKey: "sess-1", TurnID: "t1"},
+		Tool:      "exec",
+		Arguments: map[string]any{"action": "run", "command": "echo hi"},
+	}
+	if _, _, err := hook.BeforeTool(ctx, execReq); err != nil {
+		t.Fatalf("BeforeTool exec: %v", err)
+	}
+
+	// The exec run's filesystem effects.
+	if err := os.WriteFile(existing, []byte("post-exec"), 0o644); err != nil {
+		t.Fatalf("modify: %v", err)
+	}
+	created := filepath.Join(ws, "out.txt")
+	if err := os.WriteFile(created, []byte("output"), 0o644); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	hook.AfterTool(ctx, &ToolResultHookResponse{
+		Meta:      HookMeta{AgentID: "default", SessionKey: "sess-1", TurnID: "t1"},
+		Tool:      "exec",
+		Arguments: execReq.Arguments,
+	})
+	hook.OnRuntimeEvent(ctx, turnEvent(runtimeevents.KindAgentTurnEnd, "sess-1", "t1"))
+
+	versions, err := store.Versions("sess-1")
+	if err != nil || len(versions) != 1 {
+		t.Fatalf("Versions() = %d, %v; want 1", len(versions), err)
+	}
+	v := versions[0]
+	if !v.ExecUsed {
+		t.Fatal("version must be marked exec-used")
+	}
+	ops := map[string]snapshot.Op{}
+	for _, f := range v.Files {
+		ops[filepath.Base(f.Path)] = f.Op
+	}
+	if ops["f.txt"] != snapshot.OpModified || ops["out.txt"] != snapshot.OpCreated {
+		t.Fatalf("ops = %v, want f.txt modified + out.txt created", ops)
+	}
+
+	// Non-run actions never scan.
+	hook.OnRuntimeEvent(ctx, turnEvent(runtimeevents.KindAgentTurnStart, "sess-1", "t2"))
+	hook.BeforeTool(ctx, &ToolCallHookRequest{
+		Meta:      HookMeta{AgentID: "default", SessionKey: "sess-1", TurnID: "t2"},
+		Tool:      "exec",
+		Arguments: map[string]any{"action": "list"},
+	})
+	hook.AfterTool(ctx, &ToolResultHookResponse{
+		Meta:      HookMeta{AgentID: "default", SessionKey: "sess-1", TurnID: "t2"},
+		Tool:      "exec",
+		Arguments: map[string]any{"action": "list"},
+	})
+	hook.OnRuntimeEvent(ctx, turnEvent(runtimeevents.KindAgentTurnEnd, "sess-1", "t2"))
+	if versions, _ := store.Versions("sess-1"); len(versions) != 1 {
+		t.Fatalf("non-run exec must not commit, got %d versions", len(versions))
 	}
 }
