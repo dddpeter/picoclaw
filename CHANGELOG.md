@@ -5,6 +5,30 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### Added
+
+- **TUI P2 完善（参考 pi 交互模式，设计文档 `docs/design/2026-11-07-tui-p2-design.zh.md`）**：
+  - 断线补发：`pkg/picoclient` 维护 per-session seq 游标，重连握手 `?last_seq=N` 触发服务端缺口重放（配套网关 89e563aa）；旧 seq 帧幂等丢弃；`turn.status` 重连即知回合状态（恢复 generating 态）；`stream.catchup` 丢帧提示 + 空闲时自动重读磁盘历史重建
+  - 命令补全浮层：`/` 服务端命令（含子命令两级）与 `:` 本地命令 fuzzy 补全（pi fuzzy.ts 算法移植）；↑↓ 选择 · Tab 补全 · Enter 选定 · Esc 关闭；行首触发，聊天正文里的 `/path` 不弹
+  - 会话选择浮层（Ctrl+S/:ls）：sessions 目录全量扫描（渠道徽标/标题/相对时间/当前标记），fuzzy 搜索，Enter 切换；非 pico 会话只读加载（composer 禁用）；切回同 id 会话靠重连补发重建漏帧
+  - 帮助浮层（?/:help）：快捷键 + `:` 命令 + `/` 服务端命令（`BuiltinDefinitions` 生成）总表，可滚动
+  - 用量浮层（:usage）：context 各水位 + 百分比条 + 最近一轮 token
+  - 模型浮层（:model 无参）：清单取 config agents 模型并集，选中合成 `/switch model to <id>`
+  - 复制（Ctrl+X/:copy [n]）：倒数第 n 条答案 → OSC52（`tea.SetClipboard`，ssh/tmux 可用）
+  - 工具输出展开（Ctrl+T）：完整输出 + diff 行着色（+绿/-红）
+  - 输入回溯：单行 composer 时 ↑/↓ 回溯已发送输入（内存环）
+  - 鼠标滚轮滚动（Shift+拖动选文本）
+  - 审批卡/问询卡：v1 payload + v0 文本兜底（对齐 approval_hook/ask_user 锁定契约文案）；回执（✅/⛔/📝/⏭️/⏰）自动封存卡片，孤儿回执照常入时间线；卡片带回复语法提示（/approve /deny、选项文本）
+  - 终帧 markdown：glamour v2（dark 风格 + WordWrap），流式期间仍纯文本；`:raw` 切换原文显示
+  - `:` 命令集终版：help/quit/stop/new/clear/ls/model/status/context/title/reload/usage/copy/raw（合成型直发服务端命令，回复入时间线）
+  - Item 级渲染缓存：长会话不再每帧全量重渲（签名含 kind/width/flags/content hash）
+
+### Fixed
+
+- `TestNewPicoclawCommand` 补上 P1 遗漏的 `tui` 子命令断言（P1 引入子命令时未同步测试清单）
+
 ## [0.5.4] - 2026-11-01
 
 ### Fixed

@@ -36,6 +36,41 @@ type Attachment struct {
 	ContentType string
 }
 
+// ApprovalInfo mirrors the payload["approval"] block (tool approval ask).
+type ApprovalInfo struct {
+	Tool      string
+	Preview   string
+	TimeoutMS int64
+}
+
+// AskOption is one option of an ask question.
+type AskOption struct {
+	Label       string
+	Description string
+}
+
+// AskQuestion is one question of the payload["ask"] block.
+type AskQuestion struct {
+	Question    string
+	Header      string
+	Options     []AskOption
+	MultiSelect bool
+}
+
+// AskInfo mirrors the payload["ask"] block (structured user questions).
+type AskInfo struct {
+	Questions []AskQuestion
+	TimeoutMS int64
+}
+
+// CatchupInfo mirrors the stream.catchup boundary frame payload
+// {complete, dropped}. Complete=false means the server could not replay the
+// full gap and the client must fall back to history.
+type CatchupInfo struct {
+	Complete bool
+	Dropped  int
+}
+
 // ContextUsage mirrors the context_usage payload block.
 type ContextUsage struct {
 	UsedTokens        int
@@ -61,6 +96,10 @@ type Event struct {
 	SessionID string
 	Timestamp int64
 
+	// Seq is the per-session monotonic sequence number (0 = seq-less frame
+	// such as pong/error/turn.status; those never participate in replay).
+	Seq uint64
+
 	MessageID   string
 	Content     string
 	Kind        string
@@ -68,6 +107,11 @@ type Event struct {
 	ModelName   string
 	ToolCalls   []ToolCall
 	Attachments []Attachment
+
+	TurnActive *bool         // turn.status payload {active}
+	Approval   *ApprovalInfo // message.create payload approval block
+	Ask        *AskInfo      // message.create payload ask block
+	Catchup    *CatchupInfo  // stream.catchup boundary frame
 
 	ContextUsage *ContextUsage
 	Usage        *TurnUsage
@@ -109,6 +153,7 @@ func Decode(msg pico.PicoMessage) Event {
 		Type:      msg.Type,
 		SessionID: msg.SessionID,
 		Timestamp: msg.Timestamp,
+		Seq:       msg.Seq,
 	}
 	p := msg.Payload
 	if p == nil {
@@ -155,7 +200,79 @@ func Decode(msg pico.PicoMessage) Event {
 	ev.Code = str(p, "code")
 	ev.ErrMessage = str(p, "message")
 	ev.RequestID = str(p, "request_id")
+
+	// turn.status: {active: bool}
+	if active, ok := p["active"].(bool); ok {
+		v := active
+		ev.TurnActive = &v
+	}
+	// stream.catchup: {complete: bool, dropped: int}
+	if raw, ok := p["complete"].(bool); ok {
+		ev.Catchup = &CatchupInfo{
+			Complete: raw,
+			Dropped:  integer(p, "dropped"),
+		}
+	}
+	// message.create approval block
+	if raw, ok := p[pico.PayloadKeyApproval].(map[string]any); ok {
+		info := &ApprovalInfo{
+			Tool:      strings.TrimSpace(str(raw, "tool")),
+			Preview:   strings.TrimSpace(str(raw, "preview")),
+			TimeoutMS: int64(number(raw, "timeout_ms")),
+		}
+		if info.Tool != "" {
+			ev.Approval = info
+		}
+	}
+	// message.create ask block
+	if raw, ok := p[pico.PayloadKeyAsk].(map[string]any); ok {
+		if info := decodeAsk(raw); len(info.Questions) > 0 {
+			ev.Ask = info
+		}
+	}
 	return ev
+}
+
+func decodeAsk(raw map[string]any) *AskInfo {
+	info := &AskInfo{TimeoutMS: int64(number(raw, "timeout_ms"))}
+	questions, ok := raw["questions"].([]any)
+	if !ok {
+		return info
+	}
+	for _, q := range questions {
+		qo, ok := q.(map[string]any)
+		if !ok {
+			continue
+		}
+		question := AskQuestion{
+			Question: strings.TrimSpace(str(qo, "question")),
+			Header:   strings.TrimSpace(str(qo, "header")),
+		}
+		if question.Question == "" {
+			continue
+		}
+		if ms, ok := qo["multi_select"].(bool); ok {
+			question.MultiSelect = ms
+		}
+		if opts, ok := qo["options"].([]any); ok {
+			for _, o := range opts {
+				oo, ok := o.(map[string]any)
+				if !ok {
+					continue
+				}
+				label := strings.TrimSpace(str(oo, "label"))
+				if label == "" {
+					continue
+				}
+				question.Options = append(question.Options, AskOption{
+					Label:       label,
+					Description: strings.TrimSpace(str(oo, "description")),
+				})
+			}
+		}
+		info.Questions = append(info.Questions, question)
+	}
+	return info
 }
 
 func decodeToolCalls(raw []any) []ToolCall {

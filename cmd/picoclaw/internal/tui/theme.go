@@ -32,6 +32,10 @@ const (
 	colToolPendBg = "237" // toolPendingBg  okhsl(229 5% 24%)
 	colToolOkBg   = "23"  // toolSuccessBg  okhsl(158 46% 25%) 深青绿
 	colToolErrBg  = "52"  // toolErrorBg    okhsl(19 54% 25%)  深红
+
+	colAccentRowBg = "97" // 浮层选中行底色：低饱和紫（accent 同族）
+	colDiffAddBg   = "22" // diff + 行底色：暗绿
+	colDiffDelBg   = "52" // diff - 行底色：暗红（同 toolErrorBg）
 )
 
 var (
@@ -64,6 +68,10 @@ var (
 	stWarning  = lipgloss.NewStyle().Foreground(cWarn)
 	stHint     = lipgloss.NewStyle().Foreground(cDim).Faint(true)
 	stBorderLn = lipgloss.NewStyle().Foreground(cBMut)
+
+	// stAccentRow 是浮层选中行高亮（accent 同族紫底 + 高对比前景，pi
+	// select-list 选中态）。
+	stAccentRow = lipgloss.NewStyle().Foreground(cText).Background(lipgloss.Color(colAccentRowBg))
 )
 
 // spinnerFrames 与 pi loader 一致（braille，80ms 节奏）。

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	pico "github.com/sipeed/picoclaw/pkg/channels/pico"
@@ -221,4 +222,220 @@ func TestState_ModelFromCommandReplyLine(t *testing.T) {
 	if s3.ModelName != "keep-me" {
 		t.Fatalf("plain content must not touch model: %q", s3.ModelName)
 	}
+}
+
+func TestState_TurnStatusRestoresGenerating(t *testing.T) {
+	s := NewState()
+	active := true
+	if !s.Apply(picoclient.Event{Type: "turn.status", TurnActive: &active}) || !s.Generating {
+		t.Fatal("turn.status active=true must restore generating")
+	}
+	inactive := false
+	if !s.Apply(picoclient.Event{Type: "turn.status", TurnActive: &inactive}) || s.Generating {
+		t.Fatal("turn.status active=false must clear generating")
+	}
+	// Redundant frames are no-ops.
+	if s.Apply(picoclient.Event{Type: "turn.status", TurnActive: &inactive}) {
+		t.Fatal("duplicate inactive frame should be a no-op")
+	}
+}
+
+func TestState_CatchupIncompleteMarksStale(t *testing.T) {
+	s := NewState()
+	if s.Apply(picoclient.Event{Type: "stream.catchup", Catchup: &picoclient.CatchupInfo{Complete: true}}) {
+		t.Fatal("complete catchup must be a no-op")
+	}
+	if !s.Apply(picoclient.Event{Type: "stream.catchup", Catchup: &picoclient.CatchupInfo{Complete: false, Dropped: 7}}) {
+		t.Fatal("incomplete catchup must change state")
+	}
+	if !s.HistoryStale {
+		t.Fatal("HistoryStale must be set")
+	}
+	last := s.Items[len(s.Items)-1]
+	if last.Kind != ItemAction || !strings.Contains(last.Content, "7") {
+		t.Fatalf("dropped-frame notice missing: %+v", last)
+	}
+}
+
+func TestState_ApprovalCardAndSeal(t *testing.T) {
+	s := NewState()
+	if !s.Apply(msg(pico.TypeMessageCreate, map[string]any{
+		"message_id": "ap1",
+		"content":    "⚠️ 需要批准：即将执行工具 exec",
+		"approval":   map[string]any{"tool": "exec", "preview": "rm -rf /tmp/x", "timeout_ms": 300000},
+	})) {
+		t.Fatal("approval create must change state")
+	}
+	card := s.Items[0]
+	if card.Approval == nil || card.Approval.Tool != "exec" || card.Sealed != "" {
+		t.Fatalf("approval card wrong: %+v", card)
+	}
+
+	// Receipt seals the card and is swallowed.
+	if !s.Apply(msg(pico.TypeMessageCreate, map[string]any{
+		"message_id": "r1", "content": "✅ 已批准，继续执行。",
+	})) {
+		t.Fatal("receipt must change state")
+	}
+	if n := len(s.Items); n != 1 {
+		t.Fatalf("receipt should not append an item, got %d", n)
+	}
+	if s.Items[0].Sealed == "" {
+		t.Fatal("card must be sealed")
+	}
+
+	// Orphan receipts fall through to the timeline.
+	s.Apply(msg(pico.TypeMessageCreate, map[string]any{
+		"message_id": "r2", "content": "⛔ 已拒绝本次工具执行。",
+	}))
+	if n := len(s.Items); n != 2 || s.Items[1].Kind == ItemToolFeedback {
+		t.Fatalf("orphan receipt should land as a plain item: %+v", s.Items)
+	}
+}
+
+func TestState_AskCardAndSeal(t *testing.T) {
+	s := NewState()
+	if !s.Apply(msg(pico.TypeMessageCreate, map[string]any{
+		"message_id": "ask1",
+		"ask": map[string]any{
+			"questions": []any{map[string]any{
+				"question": "选一个", "header": "选项",
+				"options": []any{map[string]any{"label": "A"}, map[string]any{"label": "B"}},
+			}},
+		},
+	})) {
+		t.Fatal("ask create must change state")
+	}
+	if s.Items[0].Ask == nil || len(s.Items[0].Ask.Questions) != 1 {
+		t.Fatalf("ask card wrong: %+v", s.Items[0])
+	}
+	if !s.Apply(msg(pico.TypeMessageCreate, map[string]any{
+		"message_id": "r1", "content": "📝 已收到回答：A",
+	})) {
+		t.Fatal("ask receipt must change state")
+	}
+	if len(s.Items) != 1 || s.Items[0].Sealed != "📝 已回答" {
+		t.Fatalf("ask card must seal: %+v", s.Items)
+	}
+}
+
+func TestState_V0ApprovalTextFallback(t *testing.T) {
+	s := NewState()
+	// v0 兜底：无 payload.approval 时按固定文本特征建卡（跨语言契约文案）。
+	s.Apply(msg(pico.TypeMessageCreate, map[string]any{
+		"message_id": "ap1",
+		"content":    "⚠️ 需要批准：即将执行工具 exec\nrm -rf /tmp/x\n回复 /approve 或 /deny；超过 5m0s 未回复按拒绝",
+	}))
+	if len(s.Items) != 1 || s.Items[0].Approval == nil {
+		t.Fatalf("v0 text should build a card: %+v", s.Items)
+	}
+	ap := s.Items[0].Approval
+	if ap.Tool != "exec" || ap.Preview != "rm -rf /tmp/x" || ap.TimeoutMS != 5*60_000 {
+		t.Fatalf("v0 parse wrong: %+v", ap)
+	}
+	// 回执封存 v0 卡。
+	s.Apply(msg(pico.TypeMessageCreate, map[string]any{
+		"message_id": "r1", "content": "✅ 已批准，继续执行。",
+	}))
+	if len(s.Items) != 1 || s.Items[0].Sealed != "✅ 已批准" {
+		t.Fatalf("v0 card must seal on receipt: %+v", s.Items)
+	}
+}
+
+func TestState_InputHistory(t *testing.T) {
+	s := NewState()
+	s.PushInputHistory("第一条")
+	s.PushInputHistory("第二条")
+	s.PushInputHistory("第二条") // dedup tail
+	if len(s.InputHistory) != 2 {
+		t.Fatalf("dedup failed: %v", s.InputHistory)
+	}
+	s.PushInputHistory("  ") // whitespace ignored
+	if len(s.InputHistory) != 2 {
+		t.Fatal("blank input must be ignored")
+	}
+}
+
+func TestState_LastAnswer(t *testing.T) {
+	s := NewState()
+	s.Apply(msg(pico.TypeMessageCreate, map[string]any{"message_id": "a1", "content": "第一答"}))
+	s.Apply(msg(pico.TypeMessageCreate, map[string]any{"message_id": "a2", "content": "第二答"}))
+	if c, ok := s.LastAnswer(1); !ok || c != "第二答" {
+		t.Fatalf("LastAnswer(1) = %q %v", c, ok)
+	}
+	if c, ok := s.LastAnswer(2); !ok || c != "第一答" {
+		t.Fatalf("LastAnswer(2) = %q %v", c, ok)
+	}
+	if _, ok := s.LastAnswer(3); ok {
+		t.Fatal("LastAnswer(3) should miss")
+	}
+}
+
+func TestState_ToggleLastToolFeedback(t *testing.T) {
+	s := NewState()
+	s.Apply(msg(pico.TypeMessageCreate, map[string]any{
+		"message_id": "f1", "content": "🔧 `exec` 运行中…",
+	}))
+	if !s.ToggleLastToolFeedback() || !s.Items[0].Expanded {
+		t.Fatal("toggle must expand the tool feedback")
+	}
+	if !s.ToggleLastToolFeedback() || s.Items[0].Expanded {
+		t.Fatal("toggle must collapse again")
+	}
+}
+
+func TestRenderCache_HitAndInvalidate(t *testing.T) {
+	s := NewState()
+	s.Apply(msg(pico.TypeMessageCreate, map[string]any{"message_id": "a1", "content": "# 答案\n\n正文"}))
+	md := newMarkdownRenderer()
+	first := renderTimeline(s, 80, md)
+	if s.Items[0].renderCacheKey == "" {
+		t.Fatal("cache key must be recorded")
+	}
+	second := renderTimeline(s, 80, md)
+	if first != second {
+		t.Fatal("cached render must be stable")
+	}
+	// Width change → different key → re-render.
+	_ = renderTimeline(s, 60, md)
+	if s.Items[0].renderCacheKey == "" {
+		t.Fatal("key must be recomputed on width change")
+	}
+	// Raw toggle invalidates explicitly.
+	s.RawMarkdown = true
+	s.invalidateRenderCache()
+	if s.Items[0].renderCacheVal != "" {
+		t.Fatal("invalidate must clear the memo")
+	}
+}
+
+func TestMarkdownRender_ProducesStyledOutput(t *testing.T) {
+	md := newMarkdownRenderer()
+	out := md.render("# 标题\n\n- 甲\n- 乙\n", 60)
+	if !containsANSI(out) {
+		t.Fatalf("glamour output should carry ANSI styling: %q", out)
+	}
+	if !strings.Contains(stripANSI(out), "标题") {
+		t.Fatalf("content lost: %q", out)
+	}
+	// Same content twice hits the cache (identical result).
+	if md.render("# 标题\n\n- 甲\n- 乙\n", 60) != out {
+		t.Fatal("cache should return identical output")
+	}
+}
+
+func stripANSI(s string) string {
+	var b strings.Builder
+	inEsc := false
+	for _, r := range s {
+		switch {
+		case r == '\x1b':
+			inEsc = true
+		case inEsc && r == 'm':
+			inEsc = false
+		case !inEsc:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }

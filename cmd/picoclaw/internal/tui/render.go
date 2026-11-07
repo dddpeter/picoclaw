@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -23,8 +24,10 @@ func connIndicator(s picoclient.ConnState) (string, lipgloss.Style) {
 	}
 }
 
-// renderTimeline renders every state item; width is the wrap width.
-func renderTimeline(s *State, width int) string {
+// renderTimeline renders every state item; width is the wrap width. Results
+// are memoized per item (design §5.2) — steady-state frames only re-render
+// the footer/statusbar and the tail item.
+func renderTimeline(s *State, width int, md *markdownRenderer) string {
 	if width < 10 {
 		width = 10
 	}
@@ -36,14 +39,78 @@ func renderTimeline(s *State, width int) string {
 		if it.Kind == ItemUser && i > 0 && prev != ItemUser {
 			b.WriteString("\n")
 		}
-		renderItem(&b, it, width)
+		b.WriteString(renderItemCached(s, it, width, md))
 		b.WriteString("\n")
 		prev = it.Kind
 	}
 	return strings.TrimSuffix(b.String(), "\n")
 }
 
-func renderItem(b *strings.Builder, it *Item, width int) {
+// itemRenderKey is the cache signature: any input that changes an item's
+// rendered bytes must appear here (design §5.2).
+func itemRenderKey(s *State, it *Item, width int) string {
+	var sb strings.Builder
+	sb.WriteString(strconv.Itoa(int(it.Kind)))
+	sb.WriteByte('|')
+	sb.WriteString(strconv.Itoa(width))
+	sb.WriteByte('|')
+	sb.WriteString(strconv.FormatBool(it.Streaming))
+	sb.WriteByte('|')
+	sb.WriteString(strconv.FormatBool(it.Expanded))
+	sb.WriteByte('|')
+	sb.WriteString(strconv.FormatBool(s.RawMarkdown))
+	sb.WriteByte('|')
+	sb.WriteString(strconv.Itoa(len(it.Content)))
+	sb.WriteByte('|')
+	sb.WriteString(fnvHash(it.Content))
+	if it.Approval != nil {
+		sb.WriteString("|ap:")
+		sb.WriteString(it.Approval.Tool)
+	}
+	if it.Ask != nil {
+		sb.WriteString("|ask:")
+		sb.WriteString(strconv.Itoa(len(it.Ask.Questions)))
+	}
+	sb.WriteString("|seal:")
+	sb.WriteString(it.Sealed)
+	if it.Kind == ItemToolCalls {
+		sb.WriteString("|" + it.ToolName + "|" + strconv.Itoa(len(it.ToolArgs)))
+	}
+	return sb.String()
+}
+
+func fnvHash(s string) string {
+	h := uint64(14695981039346656037)
+	for i := 0; i < len(s); i++ {
+		h ^= uint64(s[i])
+		h *= 1099511628211
+	}
+	return strconv.FormatUint(h, 36)
+}
+
+// renderItemCached returns the memoized render for one item.
+func renderItemCached(s *State, it *Item, width int, md *markdownRenderer) string {
+	key := itemRenderKey(s, it, width)
+	if it.renderCacheKey == key && it.renderCacheVal != "" {
+		return it.renderCacheVal
+	}
+	var b strings.Builder
+	renderItem(&b, s, it, width, md)
+	out := b.String()
+	it.renderCacheKey = key
+	it.renderCacheVal = out
+	return out
+}
+
+// invalidateRenderCache clears every item's memo (width change / :raw / clear).
+func (s *State) invalidateRenderCache() {
+	for i := range s.Items {
+		s.Items[i].renderCacheKey = ""
+		s.Items[i].renderCacheVal = ""
+	}
+}
+
+func renderItem(b *strings.Builder, s *State, it *Item, width int, md *markdownRenderer) {
 	switch it.Kind {
 	case ItemUser:
 		line := it.Content
@@ -64,7 +131,14 @@ func renderItem(b *strings.Builder, it *Item, width int) {
 		b.WriteString(stText.MaxWidth(width).Render(line))
 
 	case ItemToolFeedback:
-		b.WriteString(stMuted.MaxWidth(width).Render(renderToolFeedback(it.Content)))
+		switch {
+		case it.Approval != nil:
+			b.WriteString(renderApprovalCard(it, width))
+		case it.Ask != nil:
+			b.WriteString(renderAskCard(it, width))
+		default:
+			b.WriteString(renderToolFeedbackLine(it, width))
+		}
 
 	case ItemAnswer:
 		st := stText
@@ -73,9 +147,18 @@ func renderItem(b *strings.Builder, it *Item, width int) {
 		}
 		if it.Content == "" {
 			b.WriteString(st.Render("…"))
-		} else {
-			b.WriteString(st.Width(width).Render(it.Content))
+			return
 		}
+		if !it.Streaming && !s.RawMarkdown && md != nil {
+			rendered := md.render(it.Content, max(20, width-2))
+			if containsANSI(rendered) {
+				b.WriteString(rendered)
+				return
+			}
+			b.WriteString(rendered)
+			return
+		}
+		b.WriteString(st.Width(width).Render(it.Content))
 
 	case ItemError:
 		line := ""
@@ -118,6 +201,150 @@ func renderToolFeedback(content string) string {
 		line += " " + stMuted.Render(firstLine(rest))
 	}
 	return line
+}
+
+// renderToolFeedbackLine renders the animated tool feedback line: collapsed
+// shows the bold tool name + first-line preview; expanded (Ctrl+T) shows the
+// full content with diff coloring (+绿/-红，设计 §1)。
+func renderToolFeedbackLine(it *Item, width int) string {
+	if it.Expanded {
+		var b strings.Builder
+		b.WriteString(renderToolFeedback(it.Content))
+		b.WriteString("\n")
+		b.WriteString(renderDiffColored(it.Content, width))
+		b.WriteString("\n")
+		b.WriteString(stHint.Render("Ctrl+T 收起"))
+		return b.String()
+	}
+	line := renderToolFeedback(it.Content)
+	return stMuted.MaxWidth(width).Render(line)
+}
+
+// renderDiffColored wraps content lines and colors diff-looking line starts.
+func renderDiffColored(content string, width int) string {
+	lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
+	// Skip the "🔧 name" header line(s): the caller already rendered them.
+	start := 0
+	if len(lines) > 0 && strings.HasPrefix(strings.TrimSpace(lines[0]), "🔧") {
+		start = 1
+	}
+	out := make([]string, 0, len(lines)-start)
+	for _, ln := range lines[start:] {
+		trimmed := strings.TrimLeft(ln, " \t")
+		switch {
+		case strings.HasPrefix(trimmed, "+"):
+			out = append(out, diffLineSt(colDiffAddBg).MaxWidth(width).Render(ln))
+		case strings.HasPrefix(trimmed, "-") && !strings.HasPrefix(trimmed, "---"):
+			out = append(out, diffLineSt(colDiffDelBg).MaxWidth(width).Render(ln))
+		default:
+			out = append(out, stMuted.MaxWidth(width).Render(ln))
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+var diffStCache = map[string]lipgloss.Style{}
+
+func diffLineSt(bg string) lipgloss.Style {
+	if st, ok := diffStCache[bg]; ok {
+		return st
+	}
+	st := lipgloss.NewStyle().Foreground(cText).Background(lipgloss.Color(bg))
+	diffStCache[bg] = st
+	return st
+}
+
+// renderApprovalCard renders the tool-approval ask card (design §2.3):
+// warning-tone block with tool/preview/reply-hint, or the sealed one-liner.
+func renderApprovalCard(it *Item, width int) string {
+	if it.Sealed != "" {
+		return stDim.Render("⚠ 审批 · " + it.Approval.Tool + " — " + it.Sealed)
+	}
+	ap := it.Approval
+	var b strings.Builder
+	b.WriteString(stWarning.Bold(true).Render("⚠ 审批请求 · " + ap.Tool))
+	b.WriteString("\n")
+	if pv := firstLine(ap.Preview); pv != "" {
+		b.WriteString(stMuted.Width(width).Render(truncateRunes(pv, max(10, width-4))))
+		b.WriteString("\n")
+	}
+	hint := "回复 /approve 或 /deny <原因>（可加 always / all）"
+	if ap.TimeoutMS > 0 {
+		hint += " · " + (time.Duration(ap.TimeoutMS) * time.Millisecond).Round(time.Second).String() + " 未答复按拒绝"
+	}
+	b.WriteString(stHint.Width(width).Render(hint))
+	return b.String()
+}
+
+// renderAskCard renders the structured ask card (design §2.3).
+func renderAskCard(it *Item, width int) string {
+	if it.Sealed != "" {
+		label := "问询"
+		if len(it.Ask.Questions) > 0 {
+			label = firstLine(it.Ask.Questions[0].Question)
+		}
+		return stDim.Render("❓ " + truncateRunes(label, 40) + " — " + it.Sealed)
+	}
+	ask := it.Ask
+	var b strings.Builder
+	for qi, q := range ask.Questions {
+		head := q.Header
+		if head == "" {
+			head = "问询 " + strconv.Itoa(qi+1)
+		}
+		b.WriteString(stAccent.Render("❓ " + head))
+		b.WriteString("\n")
+		b.WriteString(stText.Width(width).Render(q.Question))
+		for _, opt := range q.Options {
+			line := "  • " + opt.Label
+			if opt.Description != "" {
+				line += " — " + opt.Description
+			}
+			b.WriteString("\n")
+			b.WriteString(stMuted.MaxWidth(width).Render(line))
+		}
+		if qi < len(ask.Questions)-1 {
+			b.WriteString("\n")
+		}
+	}
+	b.WriteString("\n")
+	hint := "回复选项文本或自由输入（多选用 ; 分隔，多题每题一行）"
+	if ask.TimeoutMS > 0 {
+		hint += " · " + (time.Duration(ask.TimeoutMS) * time.Millisecond).Round(time.Second).String() + " 超时"
+	}
+	b.WriteString(stHint.Width(width).Render(hint))
+	return b.String()
+}
+
+// renderCompletionPopup renders the command-completion popup above the
+// editor (design §3.4): accent-selected row + dim hint footer.
+func renderCompletionPopup(cs *completionState, width int) []string {
+	if !cs.active() || width < 12 {
+		return nil
+	}
+	rows := cs.visibleRows()
+	if len(rows) > maxCompletionRows {
+		rows = rows[:maxCompletionRows]
+	}
+	out := make([]string, 0, len(rows)+1)
+	for i, row := range rows {
+		label := row.Label
+		hint := row.Hint
+		if hint != "" {
+			if w := lipgloss.Width(label) + lipgloss.Width(hint) + 2; w < width {
+				label += strings.Repeat(" ", min(4, width-w))
+			}
+		}
+		line := stBold.Render(label) + " " + stDim.Render(hint)
+		if i == cs.selected {
+			line = padBlockLines(line, width, stAccentRow)
+		} else {
+			line = clipLine(line, width)
+		}
+		out = append(out, line)
+	}
+	out = append(out, stHint.Render("↑↓ 选择 · Tab 补全 · Enter 选定 · Esc 关闭"))
+	return out
 }
 
 // renderThought renders the folding reasoning block: pi 式 italic muted，
@@ -175,6 +402,9 @@ func renderStatusbar(m *appModel) string {
 			b.WriteString(stError.Render(" · " + dialErr))
 		}
 	}
+	if m.state.ReadOnly {
+		b.WriteString(stWarning.Render(" · 只读(" + m.state.ReadOnlyChannel + ")"))
+	}
 	return clipLine(b.String(), m.width)
 }
 
@@ -216,7 +446,7 @@ func renderFooter(m *appModel) string {
 
 func renderHint(width int) string {
 	return stHint.MaxWidth(width).Render(
-		"Enter 发送 · Esc 停止回合 · Ctrl+N 新会话 · Ctrl+O 展开思考 · Ctrl+C 两次退出 · :help")
+		"Enter 发送 · Esc 停止 · Ctrl+S 会话 · Ctrl+X 复制 · Ctrl+O 思考 · Ctrl+T 工具 · ? 帮助")
 }
 
 // renderWelcome is the empty-timeline panel: 两条边框线夹内容（pi 的
@@ -258,7 +488,8 @@ func renderWelcome(m *appModel, width int) string {
 }
 
 // renderEditor draws the composer framed by two full-width "─" lines（无侧框
-// 无四角，对齐 pi editor）；生成中边框染 accent 色，spinner 嵌入上边框。
+// 无四角，对齐 pi editor）；生成中边框染 accent 色，spinner 嵌入上边框；
+// 只读会话（非 pico）边框降 dim 并提示切回。
 func renderEditor(m *appModel) string {
 	width := m.width
 	if width < 4 {
@@ -268,13 +499,20 @@ func renderEditor(m *appModel) string {
 	if m.state.Generating {
 		frameSt = stAccent
 	}
+	if m.state.ReadOnly {
+		frameSt = stHint
+	}
 
 	var top string
-	if m.state.Generating {
+	switch {
+	case m.state.Generating:
 		frame := spinnerFrames[m.spinnerIdx%len(spinnerFrames)]
 		label := stAccent.Render(string(frame) + " 生成中 · Esc 停止")
 		top = horizontalLine(width, frameSt, label)
-	} else {
+	case m.state.ReadOnly:
+		label := stHint.Render("只读 · " + m.state.ReadOnlyChannel + " 渠道 · Ctrl+S 切换会话")
+		top = horizontalLine(width, frameSt, label)
+	default:
 		top = frameSt.Render(strings.Repeat("─", width))
 	}
 

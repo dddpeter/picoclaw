@@ -110,6 +110,39 @@ func runTUI(ctx context.Context, cmd *cobra.Command, opts *tuiOptions) error {
 	return nil
 }
 
+// configModels collects the model ids the :model picker offers: the default
+// agent's primary + fallbacks, then every named agent's model, deduped
+// (design §1 —— 模型目录不做服务端 API，客户端 config 即清单)。
+func configModels(cfg *config.Config) []string {
+	if cfg == nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var out []string
+	add := func(id string) {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			return
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	add(cfg.Agents.Defaults.ModelName)
+	for _, fb := range cfg.Agents.Defaults.ModelFallbacks {
+		add(fb)
+	}
+	for _, ag := range cfg.Agents.List {
+		if ag.Model == nil {
+			continue
+		}
+		add(ag.Model.Primary)
+		for _, fb := range ag.Model.Fallbacks {
+			add(fb)
+		}
+	}
+	return out
+}
+
 func picoTokenFromConfig(cfg *config.Config) string {
 	if cfg == nil || cfg.Channels == nil {
 		return ""

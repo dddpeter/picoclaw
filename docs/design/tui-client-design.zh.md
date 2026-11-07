@@ -1,6 +1,6 @@
 # TUI 终端客户端设计（A 路径：网关客户端型）
 
-> 状态：**P1 已实现**（2026-10-04）：`pkg/picoclient`（WS 客户端 + 事件解码 + 重连）、`cmd/picoclaw/internal/tui`（聊天视图/状态机/快捷键/`:q :stop :new :clear :help` 本地命令）、main.go 注册 `picoclaw tui`。P2（会话侧栏/markdown 终帧渲染/完整 `:` 命令集/命令提示）与 P3 未实现。日期：2026-10-04。
+> 状态：**P1 已实现**（2026-10-04）：`pkg/picoclient`（WS 客户端 + 事件解码 + 重连）、`cmd/picoclaw/internal/tui`（聊天视图/状态机/快捷键/`:q :stop :new :clear :help` 本地命令）、main.go 注册 `picoclaw tui`。**P2 已按 `docs/design/2026-11-07-tui-p2-design.zh.md` 另行设计并实现**（会话侧栏改为浮层选择器，键位/命令集/协议补全以该文档为准；本文 §4.2/§4.3 的侧栏与命令分期描述已被其取代）。P3 未实现。日期：2026-10-04（P2 修订 2026-11-07）。
 > 结论先行：新增 `picoclaw tui` 子命令，用 bubbletea 连接**运行中的网关** `/pico/ws`，做"终端版 web 前端"。聊天主链路 100% 复用 pico 协议与既有服务端能力；仅会话列表需要补一条本地读取路径（或 Phase 2 的网关只读 API）。
 
 ## 1. 背景与目标

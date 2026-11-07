@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -79,6 +80,12 @@ type Client struct {
 	cfg       Config
 	sessionID string
 
+	// lastSeq tracks the highest seq seen per session so a reconnect can
+	// present ?last_seq=N and the server replays the missed gap (trae
+	// borrowing §一). Bounded by the number of distinct sessions used in
+	// this process; entries are cheap (uint64).
+	lastSeq map[string]uint64
+
 	events chan Event
 	states chan ConnState
 
@@ -112,6 +119,7 @@ func New(cfg Config) *Client {
 	return &Client{
 		cfg:       cfg,
 		sessionID: cfg.SessionID,
+		lastSeq:   make(map[string]uint64),
 		events:    make(chan Event, eventBuffer),
 		states:    make(chan ConnState, stateBuffer),
 	}
@@ -244,6 +252,11 @@ func (c *Client) setLastDialError(err string) {
 func (c *Client) dial() (*websocket.Conn, error) {
 	c.mu.Lock()
 	url := c.cfg.URL + "?session_id=" + c.sessionID
+	// Catch-up cursor: when we have seen seqs for this session, present the
+	// latest one so the server replays everything we missed while offline.
+	if seq := c.lastSeq[c.sessionID]; seq > 0 {
+		url += "&last_seq=" + strconv.FormatUint(seq, 10)
+	}
 	token := c.cfg.Token
 	c.mu.Unlock()
 
@@ -312,12 +325,35 @@ func (c *Client) readLoop(conn *websocket.Conn) {
 		if msg.Type == pico.TypePong {
 			continue
 		}
+		ev := Decode(msg)
+		if !c.trackSeq(ev) {
+			// Stale replay of an already-seen seq (e.g. a frame the previous
+			// connection delivered just before dying). The server promises
+			// exactly-once per catch-up; this drop is idempotent insurance.
+			continue
+		}
 		select {
-		case c.events <- Decode(msg):
+		case c.events <- ev:
 		case <-c.ctx.Done():
 			return
 		}
 	}
+}
+
+// trackSeq advances the per-session cursor for seq-bearing frames and
+// reports whether the event should be delivered. Seq-less frames (pong,
+// error, turn.status) always pass and never move the cursor.
+func (c *Client) trackSeq(ev Event) bool {
+	if ev.Seq == 0 {
+		return true
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if ev.Seq <= c.lastSeq[c.sessionID] {
+		return false
+	}
+	c.lastSeq[c.sessionID] = ev.Seq
+	return true
 }
 
 // Send delivers a message.send with the given content and optional media

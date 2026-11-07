@@ -50,6 +50,7 @@ func TestNewPicoclawCommand(t *testing.T) {
 		"plugin",
 		"skills",
 		"status",
+		"tui",
 		"update",
 		"version",
 	}

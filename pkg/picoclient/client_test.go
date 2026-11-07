@@ -3,7 +3,9 @@ package picoclient
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -524,5 +526,159 @@ func TestConnState_String(t *testing.T) {
 	if StateConnected.String() != "connected" || StateConnecting.String() != "connecting" ||
 		StateDisconnected.String() != "disconnected" {
 		t.Fatal("unexpected ConnState strings")
+	}
+}
+
+func TestDecode_ApprovalAskSeqTurnStatusCatchup(t *testing.T) {
+	// approval block
+	ev := Decode(pico.PicoMessage{
+		Type: pico.TypeMessageCreate,
+		Payload: map[string]any{
+			"message_id": "ap1",
+			"content":    "⚠️ 需要批准：即将执行工具 exec",
+			"approval": map[string]any{
+				"tool": "exec", "preview": "rm -rf /tmp/x", "timeout_ms": float64(300000),
+			},
+		},
+	})
+	if ev.Approval == nil || ev.Approval.Tool != "exec" ||
+		ev.Approval.Preview != "rm -rf /tmp/x" || ev.Approval.TimeoutMS != 300000 {
+		t.Fatalf("approval decoded wrong: %+v", ev.Approval)
+	}
+
+	// ask block (multi questions, multi_select)
+	ev = Decode(pico.PicoMessage{
+		Type: pico.TypeMessageCreate,
+		Payload: map[string]any{
+			"message_id": "ask1",
+			"ask": map[string]any{
+				"timeout_ms": float64(120000),
+				"questions": []any{
+					map[string]any{
+						"question":     "选一个",
+						"header":       "选项",
+						"multi_select": true,
+						"options": []any{
+							map[string]any{"label": "A", "description": "第一项"},
+							map[string]any{"label": "B"},
+							map[string]any{"label": "  "}, // empty labels filtered
+						},
+					},
+					map[string]any{"question": " "}, // empty question filtered
+				},
+			},
+		},
+	})
+	if ev.Ask == nil || len(ev.Ask.Questions) != 1 {
+		t.Fatalf("ask decoded wrong: %+v", ev.Ask)
+	}
+	q := ev.Ask.Questions[0]
+	if q.Question != "选一个" || q.Header != "选项" || !q.MultiSelect || len(q.Options) != 2 {
+		t.Fatalf("ask question wrong: %+v", q)
+	}
+	if q.Options[0].Description != "第一项" || q.Options[1].Description != "" {
+		t.Fatalf("ask options wrong: %+v", q.Options)
+	}
+
+	// turn.status
+	ev = Decode(pico.PicoMessage{Type: pico.TypeTurnStatus, Payload: map[string]any{"active": true}})
+	if ev.TurnActive == nil || !*ev.TurnActive {
+		t.Fatalf("turn.status wrong: %+v", ev.TurnActive)
+	}
+
+	// stream.catchup
+	ev = Decode(pico.PicoMessage{Type: pico.TypeStreamCatchup, Payload: map[string]any{
+		"complete": false, "dropped": float64(7),
+	}})
+	if ev.Catchup == nil || ev.Catchup.Complete || ev.Catchup.Dropped != 7 {
+		t.Fatalf("catchup wrong: %+v", ev.Catchup)
+	}
+
+	// seq passthrough
+	ev = Decode(pico.PicoMessage{Type: pico.TypeMessageCreate, Seq: 42, Payload: map[string]any{"content": "x"}})
+	if ev.Seq != 42 {
+		t.Fatalf("seq not decoded: %d", ev.Seq)
+	}
+}
+
+func TestDecode_MalformedApprovalAsk(t *testing.T) {
+	ev := Decode(pico.PicoMessage{Type: pico.TypeMessageCreate, Payload: map[string]any{
+		"approval": "exec", // not an object
+		"ask":      []any{"nope"},
+	}})
+	if ev.Approval != nil || ev.Ask != nil {
+		t.Fatalf("malformed blocks should be ignored: %+v %+v", ev.Approval, ev.Ask)
+	}
+	// approval without tool name is dropped
+	ev = Decode(pico.PicoMessage{Type: pico.TypeMessageCreate, Payload: map[string]any{
+		"approval": map[string]any{"preview": "x"},
+	}})
+	if ev.Approval != nil {
+		t.Fatalf("approval without tool should be nil: %+v", ev.Approval)
+	}
+}
+
+func TestClient_LastSeqReplayAndDedup(t *testing.T) {
+	var mu sync.Mutex
+	var lastSeqs []string
+	var wrote bool
+	fs := newFakePicoServer(t, false, func(t *testing.T, conn *websocket.Conn, r *http.Request) {
+		mu.Lock()
+		lastSeqs = append(lastSeqs, r.URL.Query().Get("last_seq"))
+		first := !wrote
+		wrote = true
+		mu.Unlock()
+		// First connection delivers seq 1..3 then dies; later dials stay
+		// idle (the test only asserts the reconnect cursor).
+		if first {
+			for i := uint64(1); i <= 3; i++ {
+				writeSeqJSON(t, conn, pico.TypeMessageCreate, i, map[string]any{
+					"message_id": "m" + strconv.FormatUint(i, 10), "content": "msg" + strconv.FormatUint(i, 10),
+				})
+			}
+		}
+		if first {
+			_ = conn.Close()
+		}
+	})
+	c := newTestClient(t, fs.url())
+
+	waitState(t, c) // connecting
+	waitState(t, c) // connected
+
+	var evs []Event
+	deadline := time.After(3 * time.Second)
+	for len(evs) < 3 {
+		select {
+		case ev := <-c.Events():
+			if ev.Type == pico.TypeMessageCreate {
+				evs = append(evs, ev)
+			}
+		case <-deadline:
+			t.Fatalf("timed out, got %d events", len(evs))
+		}
+	}
+	if evs[0].Seq != 1 || evs[2].Seq != 3 {
+		t.Fatalf("seqs not delivered: %+v", evs)
+	}
+
+	// Reconnect: the dial must present last_seq=3.
+	waitState(t, c) // disconnected
+	waitState(t, c) // connecting
+	waitState(t, c) // connected
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(lastSeqs) < 2 || lastSeqs[0] != "" || lastSeqs[len(lastSeqs)-1] != "3" {
+		t.Fatalf("last_seq query wrong: %v", lastSeqs)
+	}
+}
+
+// writeSeqJSON sends a seq-bearing PicoMessage (session broadcast shape).
+func writeSeqJSON(t *testing.T, conn *websocket.Conn, msgType string, seq uint64, payload map[string]any) {
+	t.Helper()
+	msg := pico.PicoMessage{Type: msgType, Seq: seq, Timestamp: time.Now().UnixMilli(), Payload: payload}
+	if err := conn.WriteJSON(msg); err != nil {
+		t.Fatalf("fake server write %s: %v", msgType, err)
 	}
 }

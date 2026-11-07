@@ -44,6 +44,25 @@ func LoadSessionHistory(cfg *config.Config, sessionID string) SessionHistory {
 	if !ok {
 		return SessionHistory{}
 	}
+	return loadSessionByKey(dir, key, meta)
+}
+
+// LoadSessionHistoryByKey loads any channel's session by its store key
+// (read-only preview of non-pico sessions from the session picker, design
+// §4.2). Best-effort, same decode path as LoadSessionHistory.
+func LoadSessionHistoryByKey(cfg *config.Config, key string) SessionHistory {
+	dir, err := sessionsDirFromConfig(cfg)
+	if err != nil {
+		return SessionHistory{}
+	}
+	meta, ok := readSessionMeta(dir, key)
+	if !ok {
+		return SessionHistory{}
+	}
+	return loadSessionByKey(dir, key, meta)
+}
+
+func loadSessionByKey(dir, key string, meta memory.SessionMeta) SessionHistory {
 	msgs, err := readSessionJSONL(filepath.Join(dir, sanitizeSessionKey(key)+".jsonl"), meta.Skip)
 	if err != nil {
 		return SessionHistory{Title: meta.Title, Found: true}
@@ -53,6 +72,19 @@ func LoadSessionHistory(cfg *config.Config, sessionID string) SessionHistory {
 		Items: historyToItems(msgs),
 		Found: true,
 	}
+}
+
+// readSessionMeta loads the meta json for a sanitized store key.
+func readSessionMeta(dir, key string) (memory.SessionMeta, bool) {
+	data, err := os.ReadFile(filepath.Join(dir, sanitizeSessionKey(key)+".meta.json"))
+	if err != nil {
+		return memory.SessionMeta{}, false
+	}
+	var meta memory.SessionMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return memory.SessionMeta{}, false
+	}
+	return meta, true
 }
 
 // sessionsDirFromConfig resolves <workspace>/sessions with the same rules as
