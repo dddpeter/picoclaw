@@ -186,6 +186,24 @@ func (o *overlayState) pick() (entry *SessionEntry, model string, ok bool) {
 // ---------------------------------------------------------------------------
 // Rendering
 
+// scrollLines returns the content-overlay window for the current scroll
+// offset, clamping the offset to the content bounds（评审修复：move() 无法
+// 知道内容行数，越界偏移在此收敛，防止切片越界 panic）。
+func scrollLines(all []string, o *overlayState, maxLines int) []string {
+	maxScroll := max(0, len(all)-maxLines)
+	if o.scroll > maxScroll {
+		o.scroll = maxScroll
+	}
+	if o.scroll < 0 {
+		o.scroll = 0
+	}
+	end := min(o.scroll+maxLines, len(all))
+	if o.scroll >= end {
+		return nil
+	}
+	return all[o.scroll:end]
+}
+
 // overlayMaxHeight bounds an overlay to the viewport area minus breathing
 // room (design §4.2: min(内容, viewport 高-2)).
 func overlayMaxHeight(viewportHeight int) int {
@@ -217,9 +235,9 @@ func renderOverlayBox(o *overlayState, rc overlayRenderCtx, width, maxLines int)
 	case overlayModel:
 		body = renderModelBody(o, width, maxLines)
 	case overlayHelp:
-		body = clipLines(renderHelpBody(width, 0), maxLines+o.scrollLines())[o.scrollLines():]
+		body = scrollLines(renderHelpBody(width, 0), o, maxLines)
 	case overlayUsage:
-		body = clipLines(renderUsageBody(rc, 0), maxLines+o.scrollLines())[o.scrollLines():]
+		body = scrollLines(renderUsageBody(rc, 0), o, maxLines)
 	}
 
 	title := " " + o.title() + " "

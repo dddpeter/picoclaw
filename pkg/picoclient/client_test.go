@@ -682,3 +682,20 @@ func writeSeqJSON(t *testing.T, conn *websocket.Conn, msgType string, seq uint64
 		t.Fatalf("fake server write %s: %v", msgType, err)
 	}
 }
+
+// 评审回归：complete/active 字段按帧型门控——message.create 混入同名字段
+// 不得误置 Catchup/TurnActive。
+func TestDecode_TypeGatedPayloadKeys(t *testing.T) {
+	ev := Decode(pico.PicoMessage{Type: pico.TypeMessageCreate, Payload: map[string]any{
+		"content": "x", "complete": false, "dropped": float64(3),
+	}})
+	if ev.Catchup != nil || ev.TurnActive != nil {
+		t.Fatalf("message.create must not populate catchup/turnActive: %+v %+v", ev.Catchup, ev.TurnActive)
+	}
+	ev = Decode(pico.PicoMessage{Type: pico.TypeMessageCreate, Payload: map[string]any{
+		"content": "x", "active": true,
+	}})
+	if ev.TurnActive != nil {
+		t.Fatalf("active is turn.status-only: %+v", ev.TurnActive)
+	}
+}

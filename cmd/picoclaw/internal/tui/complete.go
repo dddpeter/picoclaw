@@ -140,11 +140,10 @@ func serverCompletionItems() []completionSuggestion {
 	defs := loadServerCommands()
 	items := make([]completionSuggestion, 0, len(defs)*2)
 	for _, d := range defs {
-		usage := d.EffectiveUsage()
 		items = append(items, completionSuggestion{
 			Replace: "/" + d.Name,
 			Label:   "/" + d.Name,
-			Hint:    hintFor(usage, d.Description),
+			Hint:    d.Description,
 		})
 		for _, sc := range d.SubCommands {
 			if sc.Name == "" {
@@ -172,21 +171,13 @@ func serverCompletionItems() []completionSuggestion {
 	return items
 }
 
-func hintFor(usage, desc string) string {
-	if usage == "" || usage == "/"+desc {
-		return desc
-	}
-	return desc
-}
-
 func localCompletionItems() []completionSuggestion {
 	items := make([]completionSuggestion, 0, len(localCommands))
 	for _, lc := range localCommands {
-		usage := strings.TrimPrefix(lc.Usage, ":")
 		items = append(items, completionSuggestion{
 			Replace: ":" + lc.Name,
 			Label:   ":" + lc.Name,
-			Hint:    hintFor(usage, lc.Desc),
+			Hint:    lc.Desc,
 		})
 	}
 	return items

@@ -439,3 +439,57 @@ func stripANSI(s string) string {
 	}
 	return b.String()
 }
+
+// 评审回归 3：tool_calls 参数同长度原地改写必须失效渲染缓存
+// （旧签名只含长度，hash 不变则渲染陈旧参数）。
+func TestRenderCache_ToolArgsSameLengthChange(t *testing.T) {
+	s := NewState()
+	s.Apply(msg(pico.TypeMessageCreate, map[string]any{
+		"message_id": "tc1", "kind": "tool_calls",
+		"tool_calls": []any{map[string]any{
+			"id": "c1", "function": map[string]any{"name": "exec", "arguments": `{"command":"aaa"}`},
+		}},
+	}))
+	md := newMarkdownRenderer()
+	first := renderTimeline(s, 80, md)
+	// 同长度不同内容原地更新（message.update 路径）。
+	s.Apply(msg(pico.TypeMessageUpdate, map[string]any{
+		"message_id": "tc1", "kind": "tool_calls",
+		"tool_calls": []any{map[string]any{
+			"id": "c1", "function": map[string]any{"name": "exec", "arguments": `{"command":"bbb"}`},
+		}},
+	}))
+	second := renderTimeline(s, 80, md)
+	if first == second {
+		t.Fatal("same-length ToolArgs change must invalidate the render cache")
+	}
+}
+
+// 评审回归 4：Ctrl+T 不吃审批/问询卡（对卡片无视觉变化）。
+func TestToggleToolFeedbackSkipsCards(t *testing.T) {
+	s := NewState()
+	s.Apply(msg(pico.TypeMessageCreate, map[string]any{
+		"message_id": "ap1", "content": "审批文本",
+		"approval": map[string]any{"tool": "exec"},
+	}))
+	s.Apply(msg(pico.TypeMessageCreate, map[string]any{
+		"message_id": "f1", "content": "🔧 `exec` 运行中…",
+	}))
+	if !s.ToggleLastToolFeedback() {
+		t.Fatal("toggle should hit the plain feedback line")
+	}
+	for i := range s.Items {
+		if s.Items[i].Approval != nil && s.Items[i].Expanded {
+			t.Fatal("approval card must not be toggled")
+		}
+	}
+	// 只剩卡片时 Ctrl+T 无操作而非误中。
+	s2 := NewState()
+	s2.Apply(msg(pico.TypeMessageCreate, map[string]any{
+		"message_id": "ap1", "content": "审批文本",
+		"approval": map[string]any{"tool": "exec"},
+	}))
+	if s2.ToggleLastToolFeedback() {
+		t.Fatal("toggle must skip when only cards exist")
+	}
+}

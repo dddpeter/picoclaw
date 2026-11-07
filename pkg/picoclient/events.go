@@ -201,16 +201,21 @@ func Decode(msg pico.PicoMessage) Event {
 	ev.ErrMessage = str(p, "message")
 	ev.RequestID = str(p, "request_id")
 
-	// turn.status: {active: bool}
-	if active, ok := p["active"].(bool); ok {
-		v := active
-		ev.TurnActive = &v
+	// turn.status: {active: bool} —— 仅在该帧型解析，防其他 payload 混入
+	// 同名字段时误置（评审加严）。
+	if msg.Type == pico.TypeTurnStatus {
+		if active, ok := p["active"].(bool); ok {
+			v := active
+			ev.TurnActive = &v
+		}
 	}
-	// stream.catchup: {complete: bool, dropped: int}
-	if raw, ok := p["complete"].(bool); ok {
-		ev.Catchup = &CatchupInfo{
-			Complete: raw,
-			Dropped:  integer(p, "dropped"),
+	// stream.catchup: {complete: bool, dropped: int} —— 同上按帧型门控。
+	if msg.Type == pico.TypeStreamCatchup {
+		if raw, ok := p["complete"].(bool); ok {
+			ev.Catchup = &CatchupInfo{
+				Complete: raw,
+				Dropped:  integer(p, "dropped"),
+			}
 		}
 	}
 	// message.create approval block

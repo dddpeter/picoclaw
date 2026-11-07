@@ -74,8 +74,13 @@ func itemRenderKey(s *State, it *Item, width int) string {
 	sb.WriteString("|seal:")
 	sb.WriteString(it.Sealed)
 	if it.Kind == ItemToolCalls {
-		sb.WriteString("|" + it.ToolName + "|" + strconv.Itoa(len(it.ToolArgs)))
+		// ToolArgs 可能被 message.update 原地改写：同长度不同内容也必须
+		// 失效缓存（评审修复：仅长度会渲染陈旧参数）。
+		sb.WriteString("|" + it.ToolName + "|" + fnvHash(it.ToolArgs))
 	}
+	// media.create 会原地更新 Attachments：数量入签名。
+	sb.WriteString("|att:")
+	sb.WriteString(strconv.Itoa(len(it.Attachments)))
 	return sb.String()
 }
 

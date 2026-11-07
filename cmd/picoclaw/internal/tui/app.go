@@ -591,7 +591,12 @@ func (m *appModel) localCommand(cmd string) tea.Cmd {
 			m.newSession()
 		}
 	case "clear":
+		// 只读态与 :raw 偏好跨 clear 保留（评审修复：NewState 直接替换
+		// 会把非 pico 只读会话“解锁”，而 composer 仍 blurred、行为错乱）。
+		ro, roCh := m.state.ReadOnly, m.state.ReadOnlyChannel
+		raw := m.state.RawMarkdown
 		m.state = NewState()
+		m.state.ReadOnly, m.state.ReadOnlyChannel, m.state.RawMarkdown = ro, roCh, raw
 		m.syncViewport()
 	case "ls", "sessions":
 		m.openSessionsOverlay()

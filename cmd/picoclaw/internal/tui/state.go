@@ -169,10 +169,12 @@ func (s *State) ToggleLastThought() bool {
 
 // ToggleLastToolFeedback flips the expanded state of the most recent tool
 // feedback item (Ctrl+T, design §1) and reports whether anything changed.
+// 审批/问询卡不参与（展开对卡片无视觉变化，Ctrl+T 会“吃掉”本次按压）。
 func (s *State) ToggleLastToolFeedback() bool {
 	for i := len(s.Items) - 1; i >= 0; i-- {
-		if s.Items[i].Kind == ItemToolFeedback {
-			s.Items[i].Expanded = !s.Items[i].Expanded
+		it := &s.Items[i]
+		if it.Kind == ItemToolFeedback && it.Approval == nil && it.Ask == nil {
+			it.Expanded = !it.Expanded
 			return true
 		}
 	}
