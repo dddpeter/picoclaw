@@ -757,6 +757,45 @@ Agent 陷入"烧 token 换不来进展"的循环时（同一命令反复失败�
 
 标题来源优先级 `user > llm > derived`：`/title` 手动命名永不被覆盖；轻模型标题只替换派生标题；派生标题只填充空位。心跳/cron/异步工具结果等机器消息不触发命名（防"心跳"型标题）；轻模型输出超过 32 字或含换行视为"回答而非命名"，拒绝且不截断存储。标题持久化在会话 `.meta.json`，launcher 控制台的会话列表优先展示。环境变量：`PICOCLAW_AGENTS_DEFAULTS_SESSION_TITLES_ENABLED`。
 
+### 工作区快照与撤销 (tools.checkpoint)
+
+turn 边界的工作区文件版本化（fork 新增，借鉴 Trae 的 SnapshotService，trae borrowing 增量清单 §2.1）：每个 turn 结束把本 turn 改过的文件写前内容存档为版本，`/revert` 一键恢复。**默认关闭**。
+
+```json
+{
+  "tools": {
+    "checkpoint": {
+      "enabled": true,
+      "track_exec": true,
+      "max_versions": 20,
+      "max_total_bytes": 134217728,
+      "max_file_size": 4194304
+    }
+  }
+}
+```
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `enabled` | `false` | 总开关。普通 bool（默认关，无存量兼容问题，不用 `*bool` 三态） |
+| `track_exec` | `true` | exec 命令造成的变更也纳入跟踪（增量 mtime 扫描环绕每次 run） |
+| `max_versions` | `20` | 每会话保留版本数；提交时淘汰最老版本（最新版本软保护） |
+| `max_total_bytes` | `134217728`（128MB） | 每会话磁盘预算（写前原文内容寻址去重后计）；对历史硬执行、对最新版本只记 note |
+| `max_file_size` | `4194304`（4MB） | 单文件捕获上限；超限文件照记变更但内容不保留，revert 时如实报告 |
+| `scan_depth` | `24` | exec 扫描遍历深度 |
+| `scan_max_files` | `20000` | exec 扫描文件数上限 |
+
+行为要点：
+
+- **覆盖面**：`write_file`/`edit_file`/`append_file`/`lsp_fix` 精确拦截写前内容；exec 经环绕扫描覆盖建/改/删（含删除恢复）。噪声目录（`.git`/`node_modules`/`sessions`/`tmp`）不跟踪。
+- **诚实降级**：超限/预算耗尽的条目记录 `stored=false` + 原因，`/revert` 时明确列出"内容未保留"，绝不静默丢弃。
+- **命令**：`/revert` 撤销最近一个版本；`/revert <版本id>` 级联回滚到该 turn 之前；`/revert list` 列版本。turn 活跃时恢复动作拒绝（busy），list 始终可用。撤销完成向该会话的 pico 客户端（含 web 聊天）广播 `revert.status`。
+- **Web 查询**：`GET /api/sessions/{id}/versions` 与 `GET /api/sessions/{id}/versions/{version}/diff`（只读；diff 已过 API key 掩码，存储原文不掩码以保证字节级恢复）。
+- **存储位置**：`~/.picoclaw/checkpoints/<会话key>/`（工作区之外，exec 扫描不会自跟踪）；崩溃残留按龄自动清扫。
+- **边界**：捕获路径与文件工具同一条 `ValidatePathWithAllowPaths` 校验（workspace 锚定/系统目录保护/restrict 语义零改动）；撤销恢复绝不触碰记录集合之外的路径。
+
+环境变量：`PICOCLAW_TOOLS_CHECKPOINT_ENABLED`、`PICOCLAW_TOOLS_CHECKPOINT_TRACK_EXEC`、`PICOCLAW_TOOLS_CHECKPOINT_MAX_VERSIONS`、`PICOCLAW_TOOLS_CHECKPOINT_MAX_TOTAL_BYTES`、`PICOCLAW_TOOLS_CHECKPOINT_MAX_FILE_SIZE`。
+
 ### 共享记忆 (memory)
 
 对接 MCP 记忆服务（如 OpenViking）的自动召回与会话提交，完整接入指南见 `docs/guides/openviking.md`。

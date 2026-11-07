@@ -37,6 +37,7 @@
 | agentscope-go 借鉴四件套 | `<2026-10-05>` | `pkg/agent/approval_hook.go`、`pkg/agent/compact_context_tool.go`、`pkg/tools/output_budget.go`、`pkg/agent/agent_media.go`、`pkg/config/config.go` | 本文 §23、`docs/design/agentscope-go-borrowing-analysis.zh.md` |
 | 按模型上下文窗口（context_window） | `<2026-10-08>` | `pkg/config/config.go`（ModelConfig.ContextWindow）、`pkg/agent/instance.go`（min 解析 + liveCompactionBudget）、`pkg/agent/agent_command.go`（swap 跟随） | 本文 §24、`docs/guides/configuration.zh.md`「按模型上下文窗口」 |
 | Octop 借鉴七件套 | `<2026-10-12>` | `pkg/tokenizer/estimator.go`（CJK 感知估算）、`pkg/agent/approval_hook.go`（拒绝带理由+策略三档）、`pkg/commands/cmd_compact.go`+`pkg/agent/manual_compact.go`（/compact）、`pkg/agent/context_usage.go`（分段计量）、`pkg/agent/tool_defer.go`（渐进工具加载）、`pkg/agent/turn_active.go`+`pkg/channels/pico`（turn_status 重连信号）、`pkg/agent/ask_user.go`（ask_user 问询）、`pkg/tools/shell.go`+`output_clean.go`（deny 补丁+API key 掩码） | 本文 §25、`docs/design/octop-borrowing-analysis.zh.md` |
+| Trae 借鉴（seq 补发/入站幂等/工作区快照） | `<2026-11-07/08>` | `pkg/channels/pico/seq.go`+`idempotency.go`（出站 seq 补发+入站幂等）、`pkg/snapshot/`+`pkg/agent/checkpoint_hook.go`+`agent_revert.go`+`pkg/commands/cmd_revert.go`+`web/backend/api/session_versions.go`（工作区快照与 /revert） | 本文 §27、`docs/guides/configuration.zh.md`「工作区快照与撤销」 |
 
 ## 1. 飞书 CardKit v2 流式卡片
 
@@ -454,3 +455,14 @@
 **修复轮要点**（二轮评审交叉核实，报告 v2 有全部机理与测试映射）：运行中网关微信/企微扫码确认绑定死锁（六环节链）、spawn_status 跨会话泄露、deltachat 泄漏进程+双监护、任务表无界增长（50 条封顶淘汰）、DialogTrigger 渲染即炸、glob 绝对路径重定位、grep 大文件内存、drafts 跨 workspace、rename 幽灵 ID、matrix 退避重置、telegram import 排序等微瑕；共 14 个回归测试钉住。
 
 上游同步注意：`pkg/tools/fs/glob_tool.go`/`grep_tool.go`（新文件）、`pkg/commands/cmd_drafts.go`+`evolution/runtime.go` 的 CandidateDraftsForReview/DraftByID/DecideDraft（WorkspaceID 过滤语义）、`tools/subagent.go` 的 RegisterTask 五参与 CompleteTask 淘汰、`deltachat/rpc.go` 的 killCurrent/generation、`web/backend/api/weixin.go+wecom.go` 的 `*BindingLocked` 拆分与 `restartGatewayAfterBinding` 锁外重启、`config/diagnostics.go` 的 toleratedLegacyNoopKeys、`memory/jsonl.go` 导出的 SessionExists——均为 fork 行为，同步时保留。
+
+## 27. Trae 借鉴：seq 补发 + 入站幂等 + 工作区快照（2026-11-07/08）
+
+来源：trae borrowing 增量清单（PICOCLAW_MORE.md，第二轮目录级证据）。三项互相独立：
+
+- **§一 出站 seq + 断线补发**（`89e563aa`）：`pkg/channels/pico/seq.go`——session 广播帧单调 seq + 512 环缓冲，重连 `?last_seq=N` 精确重放，缺口如实报 `stream.catchup{complete:false}`；连续同 message_id 的 update 合并入环。
+- **§2.2 入站幂等**（`164ce3f7`）：`idempotency.go`——复用帧 ID 作幂等键（客户端本就逐发 UUID，零 wire 变更）；重复 `(sessionID, ID)` 回 `message.ack`（seq-less）不再起第二个 turn；投递失败回滚窗口记录；窗口 512/会话、LRU 256 会话，重启清空为文档化降级。
+- **§2.1 工作区快照 + turn 级撤销**（`5d643213`→`d2b56edc` 四提交）：`pkg/snapshot`（manifest 权威、pre-image 内容寻址、最新版本软保护的预算淘汰、孤儿清扫）+ `checkpoint_hook.go`（BeforeTool 精确捕获 fs 写类工具 + exec 环绕 mtime 扫描 TrackExec）+ `agent.turn.end` deferred 提交版本 + `/revert` 级联撤销（撤销即消费，重复执行继续回溯）+ pico `revert.status` 帧（session 级带 seq 入补发环）+ `agent.revert` runtime 事件 + launcher 两只读端点。**默认关**（`tools.checkpoint.enabled`，普通 bool——默认关无存量兼容问题，`*bool` nil=on 约定不适用）。掩码契约：diff/查询输出过 `MaskAPIKeys`，存储原文不掩码（字节级恢复的前提）。
+- busy 拦截序：`/revert` 在消息泵 busy 分支于 stop/compact/ask 之后拦截——恢复动作拒绝、只读 `list` 放行，绝不漏进 steering 队列。
+
+上游同步注意：`pkg/channels/pico/seq.go`+`idempotency.go`+`revert_status` 帧+`message.ack` 帧、`pkg/snapshot/` 全包、`pkg/agent/checkpoint_hook.go`/`agent_revert.go`、`agent.go` busy 分支的 revert 拦截、`pkg/commands/cmd_revert.go`+`Runtime.RevertTurn`、`pkg/config` 的 `CheckpointConfig`、`web/backend/api/session_versions.go`、`wirePicoChannelCallbacks`（探针+通知器统一接线，setup/restartServices 双路）——均为 fork 行为，同步时保留；`TestCheckpointDisabledByDefault`/`TestRevertRestoresExactFileState`/`TestExecScanDetectsCreateModifyDelete` 等锚点必须全过。不要把「存储原文不掩码」按展示层掩码语义"修"齐（会破坏恢复保真），也不要把预算的"最新版本软保护"改成硬淘汰（撤销最近 turn 是主场景）。

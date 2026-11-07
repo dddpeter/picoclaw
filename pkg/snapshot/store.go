@@ -77,6 +77,20 @@ func (c Config) effectiveMaxFileSize() int64 {
 	return c.MaxFileSize
 }
 
+func (c Config) effectiveScanDepth() int {
+	if c.ScanDepth <= 0 {
+		return 24
+	}
+	return c.ScanDepth
+}
+
+func (c Config) effectiveScanMaxFiles() int {
+	if c.ScanMaxFiles <= 0 {
+		return 20000
+	}
+	return c.ScanMaxFiles
+}
+
 // FileEntry records one file's change within a committed version.
 type FileEntry struct {
 	Path   string `json:"path"`             // absolute path in the workspace
