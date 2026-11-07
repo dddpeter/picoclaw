@@ -69,6 +69,24 @@ func (oc *outboundCapture) text() string {
 	return sb.String()
 }
 
+// waitForText polls until cond matches the captured outbound text or the
+// deadline passes. PublishOutbound only enqueues; a separate goroutine
+// consumes the channel, so asserting immediately after publish races the
+// consumer (restart-recovery tests were flaky ~50% for this reason).
+func (oc *outboundCapture) waitForText(cond func(string) bool, timeout time.Duration) string {
+	deadline := time.Now().Add(timeout)
+	for {
+		got := oc.text()
+		if cond(got) {
+			return got
+		}
+		if time.Now().After(deadline) {
+			return got
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
 func newRestartRecoveryLoop(t *testing.T, cfgMutate func(*config.Config)) (*AgentLoop, *AgentInstance, *bus.MessageBus, *outboundCapture) {
 	t.Helper()
 	tmpDir := t.TempDir()
@@ -130,8 +148,10 @@ func TestRunRestartRecovery_SealsAndNotifies(t *testing.T) {
 	if !sealed {
 		t.Fatalf("history after recovery has no restart seal: %d msgs", len(history))
 	}
-	if !strings.Contains(oc.text(), "检测到上次任务被中断") {
-		t.Fatalf("expected user notification, got: %q", oc.text())
+	if got := oc.waitForText(func(s string) bool {
+		return strings.Contains(s, "检测到上次任务被中断")
+	}, 2*time.Second); !strings.Contains(got, "检测到上次任务被中断") {
+		t.Fatalf("expected user notification, got: %q", got)
 	}
 }
 
@@ -231,6 +251,9 @@ func TestRunRestartRecovery_ReminderStopsAfterMax(t *testing.T) {
 	for al.recoveryReminderCount(key) < 2 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
+	oc.waitForText(func(s string) bool {
+		return strings.Count(s, "检测到上次任务被中断") == 2
+	}, 2*time.Second)
 	time.Sleep(60 * time.Millisecond) // give the loop room to over-send if buggy
 	if n := al.recoveryReminderCount(key); n != 2 {
 		t.Fatalf("reminders should cap at 2, sent=%d", n)

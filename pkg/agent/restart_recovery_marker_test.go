@@ -66,7 +66,9 @@ func TestRunRestartRecovery_NotifiesCleanTailInterruption(t *testing.T) {
 
 	al.RunRestartRecovery(context.Background())
 
-	got := oc.text()
+	got := oc.waitForText(func(s string) bool {
+		return strings.Contains(s, "回答未能完成") && strings.Contains(s, "继续")
+	}, 2*time.Second)
 	if !strings.Contains(got, "回答未能完成") || !strings.Contains(got, "继续") {
 		t.Fatalf("expected unsealed interruption notice, got: %q", got)
 	}
@@ -131,6 +133,9 @@ func TestRunRestartRecovery_MarkerPlusDanglingNotifiesOnce(t *testing.T) {
 
 	al.RunRestartRecovery(context.Background())
 
+	oc.waitForText(func(s string) bool {
+		return strings.Count(s, "检测到上次任务被中断") == 1
+	}, 2*time.Second)
 	if n := strings.Count(oc.text(), "检测到上次任务被中断"); n != 1 {
 		t.Fatalf("expected exactly 1 notification, got %d: %q", n, oc.text())
 	}
@@ -168,6 +173,9 @@ func TestRunRestartRecovery_LeavesLiveTurnMarkerAlone(t *testing.T) {
 	// Once the turn is gone, the same marker is a real interruption.
 	al.activeTurnStates.Delete(key)
 	al.RunRestartRecovery(context.Background())
+	oc.waitForText(func(s string) bool {
+		return strings.Contains(s, "检测到上次任务被中断")
+	}, 2*time.Second)
 	if !strings.Contains(oc.text(), "检测到上次任务被中断") {
 		t.Fatal("marker should notify once no turn is active")
 	}

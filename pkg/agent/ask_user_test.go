@@ -286,10 +286,18 @@ func TestRunAskUser_KeepAliveCalmsWatchdog(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("timeout must stay a soft failure, got: %+v", res)
 	}
-	// The wait lasted ~150ms with 10ms keepalive beats: the last touch must
+	// The wait lasted ~150ms with keepalive beats: the last touch must
 	// be within a couple of intervals of "now", not the turn-start stamp.
-	if idle := ts.activityIdleFor(time.Now()); idle > 3*askKeepAliveInterval {
-		t.Fatalf("keepalive must keep touching activity during the wait, idle=%v", idle)
+	// Note the production floor clamp (ask_user.go: keepAliveInterval is
+	// raised to ≥50ms even when askKeepAliveInterval is smaller), so with
+	// the test's 10ms setting the effective beat is 50ms — assert against
+	// the floor, not the configured interval.
+	effectiveBeat := askKeepAliveInterval
+	if effectiveBeat < 50*time.Millisecond {
+		effectiveBeat = 50 * time.Millisecond
+	}
+	if idle := ts.activityIdleFor(time.Now()); idle > 2*effectiveBeat+20*time.Millisecond {
+		t.Fatalf("keepalive must keep touching activity during the wait, idle=%v (beat=%v)", idle, effectiveBeat)
 	}
 }
 
