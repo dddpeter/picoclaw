@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,6 +29,9 @@ type PicoClientChannel struct {
 	mu     sync.Mutex
 	ctx    context.Context
 	cancel context.CancelFunc
+	// lastSeq tracks the highest inbound seq seen (trae borrowing §一) so
+	// the reconnect dial presents a catch-up cursor. 0 = nothing seen yet.
+	lastSeq atomic.Uint64
 }
 
 // NewPicoClientChannel creates a new Pico Protocol client channel.
@@ -86,7 +91,18 @@ func (c *PicoClientChannel) dial() error {
 		header.Set("Authorization", "Bearer "+c.config.Token.String())
 	}
 
-	ws, resp, err := websocket.DefaultDialer.DialContext(c.ctx, c.config.URL, header)
+	// Trae borrowing §一: present the catch-up cursor on reconnect so the
+	// server replays frames missed while disconnected.
+	dialURL := c.config.URL
+	if last := c.lastSeq.Load(); last > 0 {
+		sep := "?"
+		if strings.Contains(dialURL, "?") {
+			sep = "&"
+		}
+		dialURL += sep + "last_seq=" + strconv.FormatUint(last, 10)
+	}
+
+	ws, resp, err := websocket.DefaultDialer.DialContext(c.ctx, dialURL, header)
 	if resp != nil && resp.Body != nil {
 		_ = resp.Body.Close()
 	}
@@ -229,6 +245,12 @@ func (c *PicoClientChannel) pingLoop(connCtx context.Context, pc *picoConn, inte
 // sends message.send (user input). We treat message.create from the server
 // as inbound user messages to feed into the agent loop.
 func (c *PicoClientChannel) handleInbound(pc *picoConn, msg PicoMessage) {
+	// Track the catch-up cursor (trae borrowing §一) before any dispatch:
+	// seq numbers are monotonic per session, so max is the cursor.
+	if msg.Seq > c.lastSeq.Load() {
+		c.lastSeq.Store(msg.Seq)
+	}
+
 	switch msg.Type {
 	case TypePong:
 		// response to our ping, ignore

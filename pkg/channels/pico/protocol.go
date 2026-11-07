@@ -23,8 +23,14 @@ const (
 	// the first frame on connect so a page refresh learns whether a turn is
 	// live for its session. Payload: {active: bool}.
 	TypeTurnStatus = "turn.status"
-	TypeError      = "error"
-	TypePong       = "pong"
+	// TypeStreamCatchup marks a catch-up boundary (trae borrowing §一): sent
+	// after replayed frames when the client's last_seq predates the buffer's
+	// oldest retained frame. Payload: {complete: bool, dropped: int}. Clients
+	// must fall back to history replay for the dropped gap instead of
+	// silently assuming a contiguous stream.
+	TypeStreamCatchup = "stream.catchup"
+	TypeError         = "error"
+	TypePong          = "pong"
 
 	PayloadKeyContent     = "content"
 	PayloadKeyThought     = "thought"
@@ -45,9 +51,15 @@ const (
 
 // PicoMessage is the wire format for all Pico Protocol messages.
 type PicoMessage struct {
-	Type      string         `json:"type"`
-	ID        string         `json:"id,omitempty"`
-	SessionID string         `json:"session_id,omitempty"`
+	Type      string `json:"type"`
+	ID        string `json:"id,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	// Seq is the per-session monotonic outbound sequence number (trae
+	// borrowing §一). Assigned on session-level broadcasts only — per-connection
+	// frames (pong, error, turn.status) stay seq-less. Omitempty keeps the
+	// wire format byte-compatible for legacy clients and for frames that
+	// never enter the seq stream.
+	Seq       uint64         `json:"seq,omitempty"`
 	Timestamp int64          `json:"timestamp,omitempty"`
 	Payload   map[string]any `json:"payload,omitempty"`
 }

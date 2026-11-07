@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -35,6 +36,15 @@ type picoConn struct {
 	writeMu   sync.Mutex
 	closed    atomic.Bool
 	cancel    context.CancelFunc // cancels per-connection goroutines (e.g. pingLoop)
+	// deliveryMu serializes every ordered session-frame write (deliver /
+	// endCatchup) so catch-up replay and live broadcasts cannot interleave on
+	// the wire. Lock order: deliveryMu → writeMu; connsMu is never held here.
+	deliveryMu sync.Mutex
+	// catchingUp and pending are guarded by deliveryMu. A fresh connection
+	// starts in catch-up mode: session broadcasts buffer into pending until
+	// the handshake replay (endCatchup) drains them in order.
+	catchingUp bool
+	pending    []PicoMessage
 }
 
 var allowedInlineImageMIMETypes = map[string]struct{}{
@@ -101,6 +111,56 @@ func (pc *picoConn) writeJSON(v any) error {
 	return pc.conn.WriteJSON(v)
 }
 
+// deliver hands a session frame to this connection preserving per-connection
+// order (trae borrowing §一, exactly-once contract). While the connection is
+// catching up — between registration and the end of its handshake replay —
+// frames are buffered instead of written, so a live broadcast can never
+// interleave with, jump ahead of, or duplicate replayed frames.
+func (pc *picoConn) deliver(msg PicoMessage) error {
+	pc.deliveryMu.Lock()
+	defer pc.deliveryMu.Unlock()
+	if pc.catchingUp {
+		pc.pending = append(pc.pending, msg)
+		return nil
+	}
+	return pc.writeJSON(msg)
+}
+
+// endCatchup writes the replayed frames, leaves catch-up mode, then flushes
+// the frames broadcast during the replay — replay first, then pending, then
+// live delivers, strictly ordered. Frames already covered by the replay
+// (seq <= maxReplayed: assigned between registration and the replay snapshot)
+// are skipped, so every frame reaches the client exactly once. Seq-less
+// frames (seq 0) never enter the ring and are always flushed.
+func (pc *picoConn) endCatchup(replay []PicoMessage, maxReplayed uint64) error {
+	pc.deliveryMu.Lock()
+	defer pc.deliveryMu.Unlock()
+
+	for i := range replay {
+		if pc.closed.Load() {
+			return fmt.Errorf("connection closed")
+		}
+		if err := pc.writeJSON(replay[i]); err != nil {
+			return err
+		}
+	}
+	pending := pc.pending
+	pc.pending = nil
+	pc.catchingUp = false
+	for i := range pending {
+		if pc.closed.Load() {
+			return fmt.Errorf("connection closed")
+		}
+		if pending[i].Seq != 0 && pending[i].Seq <= maxReplayed {
+			continue // already delivered as part of the replay
+		}
+		if err := pc.writeJSON(pending[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // close closes the connection.
 func (pc *picoConn) close() {
 	if pc.closed.CompareAndSwap(false, true) {
@@ -132,6 +192,9 @@ type PicoChannel struct {
 	turnActiveProbe   func(chatID string) bool
 	// broadcastFn lets tests intercept outbound broadcasts. nil → broadcastToSession.
 	broadcastFn func(chatID string, msg PicoMessage) error
+	// seqs stamps session broadcasts with monotonic seqs and retains them
+	// in a bounded ring for reconnect catch-up (trae borrowing §一).
+	seqs *seqStore
 }
 
 // NewPicoChannel creates a new Pico Protocol channel.
@@ -171,6 +234,7 @@ func NewPicoChannel(
 		},
 		connections:        make(map[string]*picoConn),
 		sessionConnections: make(map[string]map[string]*picoConn),
+		seqs:               newSeqStore(DefaultSeqBufferCapacity),
 	}
 	ch.progress = channels.NewToolFeedbackAnimator(ch.EditMessage)
 	ch.deleteMessageFn = ch.DeleteMessage
@@ -208,9 +272,10 @@ func (c *PicoChannel) createAndAddConnection(conn *websocket.Conn, sessionID str
 	}
 
 	pc := &picoConn{
-		id:        connID,
-		conn:      conn,
-		sessionID: sessionID,
+		id:         connID,
+		conn:       conn,
+		sessionID:  sessionID,
+		catchingUp: true, // broadcasts buffer until the handshake replay drains (§一)
 	}
 
 	c.connections[pc.id] = pc
@@ -1045,9 +1110,17 @@ func (c *PicoChannel) broadcastToSession(chatID string, msg PicoMessage) error {
 	sessionID := strings.TrimPrefix(chatID, "pico:")
 	msg.SessionID = sessionID
 
+	// Trae borrowing §一: stamp the monotonic seq and retain the frame in
+	// the ring before delivery. Frames whose broadcast fails below (no
+	// active connections) stay replayable for reconnecting clients — the
+	// exact case that previously dropped stream deltas forever.
+	c.seqs.assign(sessionID, &msg)
+
 	var sent bool
 	for _, pc := range c.sessionConnectionsSnapshot(sessionID) {
-		if err := pc.writeJSON(msg); err != nil {
+		// deliver buffers (counts as sent) while a connection is catching
+		// up, writes directly otherwise — see picoConn.deliver.
+		if err := pc.deliver(msg); err != nil {
 			logger.DebugCF("pico", "Write to connection failed", map[string]any{
 				"conn_id": pc.id,
 				"error":   err.Error(),
@@ -1133,7 +1206,55 @@ func (c *PicoChannel) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		pc.writeJSON(status)
 	}
 
+	// Catch-up replay (trae borrowing §一): after turn.status, replay the
+	// frames the client missed while disconnected. Client presents its last
+	// seen seq via ?last_seq=N; 0/absent means "start from now". Runs even
+	// without a cursor: endCatchup also drains the frames broadcast since
+	// this connection registered (they were buffered, not written).
+	c.replayCatchup(pc, sessionID, parseLastSeqQuery(r))
+
 	go c.readLoop(pc)
+}
+
+// parseLastSeqQuery extracts the catch-up cursor from the handshake query.
+// Invalid or missing values yield 0 (no replay).
+func parseLastSeqQuery(r *http.Request) uint64 {
+	raw := strings.TrimSpace(r.URL.Query().Get("last_seq"))
+	if raw == "" {
+		return 0
+	}
+	value, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return value
+}
+
+// replayCatchup hands the missed frames to the connection via endCatchup
+// (replay, then the frames broadcast during it, strictly ordered — other
+// connections already received everything live), then a stream.catchup
+// boundary frame when part of the gap was evicted.
+func (c *PicoChannel) replayCatchup(pc *picoConn, sessionID string, lastSeq uint64) {
+	replay := seqReplay{complete: true}
+	if lastSeq > 0 {
+		replay = c.seqs.replaySince(sessionID, lastSeq)
+	}
+	maxReplayed := uint64(0)
+	if n := len(replay.frames); n > 0 {
+		maxReplayed = replay.frames[n-1].Seq
+	}
+	if err := pc.endCatchup(replay.frames, maxReplayed); err != nil {
+		return
+	}
+	if lastSeq > 0 && !replay.complete {
+		boundary := newMessage(TypeStreamCatchup, map[string]any{
+			"last_seq": lastSeq,
+			"complete": false,
+			"dropped":  replay.dropped,
+		})
+		boundary.SessionID = sessionID
+		_ = pc.writeJSON(boundary)
+	}
 }
 
 // authenticate checks the request for a valid token:
