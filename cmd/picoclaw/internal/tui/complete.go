@@ -71,6 +71,7 @@ var localCommands = []localCommand{
 	{Name: "title", Desc: "设置会话标题", Usage: ":title <文本>"},
 	{Name: "reload", Desc: "重载配置", Usage: ":reload"},
 	{Name: "usage", Desc: "token 用量浮层", Usage: ":usage"},
+	{Name: "ask", Desc: "重开最近的问询答题浮层", Usage: ":ask"},
 	{Name: "copy", Desc: "复制第 n 条答案（默认 1）", Usage: ":copy [n]"},
 	{Name: "raw", Desc: "切换答案 markdown/原文渲染", Usage: ":raw"},
 }

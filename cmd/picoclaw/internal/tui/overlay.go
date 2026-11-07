@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -18,6 +19,7 @@ const (
 	overlayModel
 	overlayHelp
 	overlayUsage
+	overlayAsk
 )
 
 // overlayState is the terminal-independent state of the active modal. It owns
@@ -37,6 +39,11 @@ type overlayState struct {
 
 	// model picker
 	models []string
+
+	// ask overlay（P3 §1）：步进式问询答题，绑定时间线卡 item ID
+	ask      *askFlow
+	askItem  string
+	askFlash string // 最近一次动作提示行（submit-blocked 等）
 }
 
 // open resets the overlay for a new kind.
@@ -58,6 +65,11 @@ func (o *overlayState) title() string {
 		return "帮助"
 	case overlayUsage:
 		return "用量"
+	case overlayAsk:
+		if o.ask != nil && len(o.ask.questions) > 1 {
+			return "问询 · " + strconv.Itoa(o.ask.current+1) + "/" + strconv.Itoa(len(o.ask.questions))
+		}
+		return "问询"
 	}
 	return ""
 }
@@ -238,6 +250,8 @@ func renderOverlayBox(o *overlayState, rc overlayRenderCtx, width, maxLines int)
 		body = scrollLines(renderHelpBody(width, 0), o, maxLines)
 	case overlayUsage:
 		body = scrollLines(renderUsageBody(rc, 0), o, maxLines)
+	case overlayAsk:
+		body = renderAskBody(o, width, maxLines)
 	}
 
 	title := " " + o.title() + " "
@@ -259,10 +273,25 @@ func overlayFooterHint(o *overlayState) string {
 		return "↑↓ 选择 · Enter 切换 · Esc 关闭 · 非 pico 会话只读"
 	case overlayModel:
 		return "↑↓ 选择 · Enter 切换（/switch model to）· Esc 关闭"
+	case overlayAsk:
+		return askFooterHint(o)
 	case overlayHelp, overlayUsage:
 		return "↑↓ 滚动 · Esc 关闭"
 	}
 	return "Esc 关闭"
+}
+
+func askFooterHint(o *overlayState) string {
+	if o.ask == nil {
+		return "Esc 关闭"
+	}
+	switch o.ask.mode {
+	case "input":
+		return "输入自由文本 · Enter 确认 · Esc 返回"
+	case "review":
+		return "↑↓ 选题回改 · Enter 提交 · Esc 回末题"
+	}
+	return "↑↓/字母 选择 · Enter 确认 · Space 多选 · Esc 返回/关闭"
 }
 
 // overlayRow renders one selectable row; selected rows get the accent block
@@ -367,6 +396,8 @@ var helpKeyRows = [][]string{
 	{"Ctrl+T", "展开/折叠最近工具输出"},
 	{"Ctrl+S", "会话选择浮层"},
 	{"Ctrl+X", "复制最近一条答案"},
+	{"Ctrl+G", "外部编辑器编辑输入（存盘回填）"},
+	{"Ctrl+V", "粘贴剪贴板图片并发送"},
 	{"?", "本帮助（输入框为空时）"},
 	{"↑ / ↓", "补全/浮层导航；单行输入时回溯发送历史"},
 	{"PgUp/PgDn/Home/End", "滚动时间线"},
@@ -437,6 +468,94 @@ func pctBar(pct float64, width int) string {
 		st = stWarning
 	}
 	return st.Render(strings.Repeat("▓", filled) + stDim.Render(strings.Repeat("·", width-filled)))
+}
+
+// renderAskBody renders the ask overlay body（P3 §1.3）。
+func renderAskBody(o *overlayState, width, maxLines int) []string {
+	f := o.ask
+	if f == nil || len(f.questions) == 0 {
+		return []string{stHint.Render("无效的问询卡")}
+	}
+	lines := make([]string, 0, 16)
+	switch f.mode {
+	case "input":
+		q := f.questions[f.current]
+		if q.Header != "" {
+			lines = append(lines, stAccent.Render("❓ "+q.Header))
+		}
+		lines = append(lines, stText.Width(width).Render(q.Question))
+		lines = append(lines, "")
+		label := f.inputLabel()
+		if label == "" {
+			label = stDim.Render("（输入自由回答…）")
+		}
+		lines = append(lines, stMuted.Render("✎ ")+stText.Render(label)+stAccent.Render("▏"))
+	case "review":
+		lines = append(lines, stHead.Render("回顾 — 确认后提交"))
+		for i, q := range f.questions {
+			ans := f.answerText(i)
+			if ans == "" {
+				ans = stDim.Render("（未答）")
+			}
+			selected := f.selected == i
+			lines = append(lines, overlayRow(width, selected,
+				strconv.Itoa(i+1)+".", firstLine(q.Question), ans))
+		}
+		selected := f.selected == len(f.questions)
+		submit := "✓ 提交（发送回答）"
+		if _, ok := f.buildSubmitBody(); !ok {
+			submit += " — 尚有未答题"
+		}
+		lines = append(lines, overlayRow(width, selected, submit))
+	default: // step
+		q := f.questions[f.current]
+		if q.Header != "" {
+			lines = append(lines, stAccent.Render("❓ "+q.Header))
+		}
+		lines = append(lines, stText.Width(width).Render(q.Question))
+		lines = append(lines, "")
+		rows := f.rows()
+		ans := &f.answers[f.current]
+		for i, row := range rows {
+			selected := i == f.selected
+			var chip, label, desc string
+			switch row.kind {
+			case "option":
+				chip = string(askOptionKeys[row.option])
+				label = row.label
+				desc = q.Options[row.option].Description
+				if containsPick(ans.picked, row.label) {
+					chip = "✓"
+				}
+			case "other":
+				chip = "✎"
+				label = "其他…"
+				if containsPick(ans.picked, askOther) {
+					label = "其他…（已填 " + truncateRunes(ans.other, 16) + "）"
+				}
+			case "confirm":
+				chip = "✓"
+				label = row.label
+			case "skip":
+				chip = "→"
+				label = row.label
+			}
+			lines = append(lines, overlayRow(width, selected, " "+chip, label, stDim.Render(desc)))
+		}
+	}
+	if o.askFlash != "" {
+		lines = append(lines, stWarning.Render(o.askFlash))
+	}
+	return clipLines(lines, maxLines)
+}
+
+func containsPick(picked []string, v string) bool {
+	for _, p := range picked {
+		if p == v {
+			return true
+		}
+	}
+	return false
 }
 
 // clipLines keeps at most n lines.

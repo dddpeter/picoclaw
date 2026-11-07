@@ -46,7 +46,7 @@ func TestViewLayoutInvariants(t *testing.T) {
 	check("timeline+progress")
 
 	// each overlay splices over the viewport area: height must not change
-	for _, kind := range []overlayKind{overlaySessions, overlayModel, overlayHelp, overlayUsage} {
+	for _, kind := range []overlayKind{overlaySessions, overlayModel, overlayHelp, overlayUsage, overlayAsk} {
 		m.overlay.open(kind)
 		switch kind {
 		case overlaySessions:
@@ -57,6 +57,11 @@ func TestViewLayoutInvariants(t *testing.T) {
 			m.overlay.current = "11111111-2222-3333-4444-555555555555"
 		case overlayModel:
 			m.overlay.models = []string{"glm-4.7", "kimi-k2"}
+		case overlayAsk:
+			m.overlay.ask = newAskFlow([]askQuestionView{{
+				Question: "选一个", Header: "偏好",
+				Options: []askOptionView{{Label: "A"}, {Label: "B"}}, MultiSelect: true,
+			}})
 		}
 		m.overlay.refilter()
 		check("overlay-" + strconvI(int(kind)))

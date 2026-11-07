@@ -9,6 +9,12 @@
 
 ### Added
 
+- **TUI P3：问询答题浮层 + 外部编辑器 + bell + 图片粘贴（设计 `docs/design/2026-11-07-tui-p3-design.zh.md`，零服务端改动）**：
+  - 问询浮层：ask 卡到达自动弹出步进式答题（移植 web `ask-flow.ts` 语义：单选即选即进、多选 toggle+确认行、「其他…」自由文本、无选项题直接输入、回顾模式回改、未答禁提交）；字母 A–F 快选；「你决定」发送与 web zh.json 锁定一致的委托文案；Esc 最小化 + `:ask` 重开；回答按协议拼装（多题每题一行、内嵌换行压平“；”、单题整条原文）
+  - 外部编辑器（Ctrl+G）：$EDITOR → $VISUAL → notepad|vi；Windows 经 `cmd /c`（.cmd shim）；存盘退出回填 composer（去 BOM/单个尾换行，不自动发送），非 0 退出码保持原内容
+  - bell：回合结束（typing.stop）且终端失焦时响铃（`tea.BlurMsg`/`FocusMsg` 跟踪，未知焦点态=响）；审批/问询卡到达必响
+  - 图片粘贴（Ctrl+V）：Windows PowerShell GetImage→临时 PNG；macOS osascript «class PNGf» hex 解码；Linux wl-paste/xclip 按型探测；解码后 >20MB 客户端拦截；dataURL 走 message.send media；本地回显用户块 + 📎
+
 - **TUI P2 完善（参考 pi 交互模式，设计文档 `docs/design/2026-11-07-tui-p2-design.zh.md`）**：
   - 断线补发：`pkg/picoclient` 维护 per-session seq 游标，重连握手 `?last_seq=N` 触发服务端缺口重放（配套网关 89e563aa）；旧 seq 帧幂等丢弃；`turn.status` 重连即知回合状态（恢复 generating 态）；`stream.catchup` 丢帧提示 + 空闲时自动重读磁盘历史重建
   - 命令补全浮层：`/` 服务端命令（含子命令两级）与 `:` 本地命令 fuzzy 补全（pi fuzzy.ts 算法移植）；↑↓ 选择 · Tab 补全 · Enter 选定 · Esc 关闭；行首触发，聊天正文里的 `/path` 不弹

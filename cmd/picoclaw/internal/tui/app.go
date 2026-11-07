@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +22,14 @@ type eventMsg picoclient.Event
 type stateMsg picoclient.ConnState
 type spinnerTickMsg struct{}
 type streamClosedMsg struct{}
+type pasteImageMsg struct {
+	img *clipboardImage
+	err error
+}
+type editorDoneMsg struct {
+	err error
+	dir string
+}
 
 type appModel struct {
 	client          *picoclient.Client
@@ -51,6 +60,10 @@ type appModel struct {
 	listSessions func() []SessionEntry
 	historyByKey func(key string) SessionHistory
 	models       []string
+
+	// P3：终端焦点跟踪（bell 只在失焦时响）与剪贴板读取器
+	focused    *bool
+	clipReader *clipboardReader
 }
 
 func newAppModel(client *picoclient.Client, sessionFile, gatewayURL, version string, historyLoad func(sessionID string) SessionHistory) *appModel {
@@ -169,6 +182,18 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.state.Apply(ev) {
 			m.syncViewport()
 		}
+		// P3 §1.4：ask 卡到达自动弹答题浮层（无其他浮层打开时）；
+		// 审批/问询卡必响 bell（打断式，P3 §3）。
+		if ev.Ask != nil || ev.Approval != nil {
+			if ev.Ask != nil && (!m.overlay.active() || m.overlay.kind == overlayAsk) {
+				m.openAskForLatest()
+			}
+			return m, tea.Batch(waitForEvent(m.client), bell())
+		}
+		// 回合结束且终端失焦（未知焦点态=响）→ bell（P3 §3）。
+		if ev.Type == "typing.stop" && (m.focused == nil || !*m.focused) {
+			return m, tea.Batch(waitForEvent(m.client), bell())
+		}
 		// catchup 丢帧且空闲：重读磁盘历史重建时间线（§2.1）。
 		if ev.Type == "stream.catchup" && m.state.HistoryStale && !m.state.Generating && m.historyLoad != nil {
 			return m, loadHistory(m.client, m.historyLoad)
@@ -204,6 +229,22 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.spinnerIdx++
 		}
 		return m, spin()
+
+	case tea.FocusMsg:
+		v := true
+		m.focused = &v
+		return m, nil
+
+	case tea.BlurMsg:
+		v := false
+		m.focused = &v
+		return m, nil
+
+	case pasteImageMsg:
+		return m.handlePasteImage(msg)
+
+	case editorDoneMsg:
+		return m.handleEditorDone(msg)
 
 	case streamClosedMsg:
 		m.state.AddLocalError("与服务器的连接已关闭，请退出后重开")
@@ -278,6 +319,12 @@ func (m *appModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	case k.Code == 'x' && k.Mod.Contains(tea.ModCtrl):
 		return m.copyLastAnswer(1)
+
+	case k.Code == 'g' && k.Mod.Contains(tea.ModCtrl):
+		return m.openExternalEditor()
+
+	case k.Code == 'v' && k.Mod.Contains(tea.ModCtrl):
+		return m, m.pasteImage()
 
 	case k.Code == 'l' && k.Mod.Contains(tea.ModCtrl):
 		return m, tea.ClearScreen
@@ -387,8 +434,12 @@ func (m *appModel) handleCompletionKey(k tea.Key) (bool, tea.Model, tea.Cmd) {
 	return false, m, nil
 }
 
-// handleOverlayKey: everything except Ctrl+C feeds the modal (§4.2).
+// handleOverlayKey: everything except Ctrl+C feeds the modal (§4.2)；ask
+// 浮层有自己的三级路由（step/input/review，P3 §1.3）。
 func (m *appModel) handleOverlayKey(k tea.Key) (tea.Model, tea.Cmd) {
+	if m.overlay.kind == overlayAsk {
+		return m.handleAskKey(k)
+	}
 	window := overlayMaxHeight(m.viewport.Height()) - 2
 	switch {
 	case k.Code == tea.KeyEsc:
@@ -429,6 +480,145 @@ func (m *appModel) handleOverlayKey(k tea.Key) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// handleAskKey routes the ask overlay: input/step/review modes (P3 §1.3).
+func (m *appModel) handleAskKey(k tea.Key) (tea.Model, tea.Cmd) {
+	f := m.overlay.ask
+	if f == nil {
+		m.overlay.open(overlayNone)
+		return m, nil
+	}
+	m.overlay.askFlash = ""
+
+	// 输入模式：自由文本。
+	if f.mode == "input" {
+		switch {
+		case k.Code == tea.KeyEsc:
+			f.back()
+			return m, nil
+		case k.Code == tea.KeyEnter:
+			if action := f.confirmInput(); action != "" {
+				return m.handleAskAction(action)
+			}
+			return m, nil
+		case k.Code == tea.KeyBackspace:
+			label := f.inputLabel()
+			if r := []rune(label); len(r) > 0 {
+				f.setInput(string(r[:len(r)-1]))
+			}
+			return m, nil
+		case k.Text != "" && !k.Mod.Contains(tea.ModCtrl):
+			f.setInput(f.inputLabel() + k.Text)
+			return m, nil
+		}
+		return m, nil
+	}
+
+	// 回顾模式。
+	if f.mode == "review" {
+		switch {
+		case k.Code == tea.KeyEsc:
+			f.back()
+			return m, nil
+		case k.Code == tea.KeyUp:
+			f.reviewMove(-1)
+			return m, nil
+		case k.Code == tea.KeyDown:
+			f.reviewMove(+1)
+			return m, nil
+		case k.Code == tea.KeyEnter:
+			return m.handleAskAction(f.reviewActivate())
+		}
+		return m, nil
+	}
+
+	// 步进模式。
+	switch {
+	case k.Code == tea.KeyEsc:
+		return m.handleAskAction(f.back())
+	case k.Code == tea.KeyUp:
+		f.move(-1)
+		return m, nil
+	case k.Code == tea.KeyDown:
+		f.move(+1)
+		return m, nil
+	case k.Code == tea.KeyEnter || k.Code == tea.KeySpace:
+		return m.handleAskAction(f.activate())
+	}
+	if k.Text != "" && !k.Mod.Contains(tea.ModCtrl) {
+		upper := strings.ToUpper(k.Text)
+		if r := []rune(upper); len(r) > 0 {
+			if row := f.letterRow(r[0]); row >= 0 {
+				f.selected = row
+				return m.handleAskAction(f.activate())
+			}
+		}
+	}
+	return m, nil
+}
+
+// handleAskAction executes ask-flow action strings.
+func (m *appModel) handleAskAction(action string) (tea.Model, tea.Cmd) {
+	switch action {
+	case "close":
+		m.overlay.open(overlayNone)
+		m.state.AddActionDeduped("问询已最小化：:ask 重开（或直接回复文本）")
+		m.syncViewport()
+	case "skip":
+		m.overlay.open(overlayNone)
+		return m, m.sendPlain(askDelegateMessage)
+	case "submit":
+		if body, ok := m.overlay.ask.buildSubmitBody(); ok {
+			m.overlay.open(overlayNone)
+			return m, m.sendPlain(body)
+		}
+	case "submit-blocked":
+		m.overlay.askFlash = "尚有未答题——↑↓ 选题回改后再提交"
+	}
+	return m, nil
+}
+
+// sendPlain ships a plain user message（问询回答/委托共用，走既有链路；
+// 生成的回答不进输入回溯历史）。
+func (m *appModel) sendPlain(content string) tea.Cmd {
+	m.state.AddUser(content)
+	if err := m.client.Send(context.Background(), content, nil); err != nil {
+		m.state.AddLocalError("发送失败：" + err.Error())
+	}
+	m.syncViewport()
+	return nil
+}
+
+// openAskForLatest opens the ask overlay for the newest unanswered ask card.
+func (m *appModel) openAskForLatest() bool {
+	for i := len(m.state.Items) - 1; i >= 0; i-- {
+		it := &m.state.Items[i]
+		if it.Ask != nil && it.Sealed == "" {
+			m.overlay.open(overlayAsk)
+			m.overlay.ask = newAskFlow(askQuestionsFromInfo(it.Ask))
+			m.overlay.askItem = it.ID
+			return true
+		}
+	}
+	return false
+}
+
+// askQuestionsFromInfo maps the decoded protocol questions onto flow views.
+func askQuestionsFromInfo(info *picoclient.AskInfo) []askQuestionView {
+	out := make([]askQuestionView, 0, len(info.Questions))
+	for _, q := range info.Questions {
+		qv := askQuestionView{
+			Question:    q.Question,
+			Header:      q.Header,
+			MultiSelect: q.MultiSelect,
+		}
+		for _, opt := range q.Options {
+			qv.Options = append(qv.Options, askOptionView{Label: opt.Label, Description: opt.Description})
+		}
+		out = append(out, qv)
+	}
+	return out
 }
 
 // openSessionsOverlay loads the session catalog and opens the picker.
@@ -625,6 +815,10 @@ func (m *appModel) localCommand(cmd string) tea.Cmd {
 		}
 	case "usage":
 		m.overlay.open(overlayUsage)
+	case "ask":
+		if !m.openAskForLatest() {
+			m.state.AddAction("当前没有待回答的问询")
+		}
 	case "copy":
 		n := 1
 		if v, err := strconv.Atoi(strings.TrimSpace(rest)); err == nil && v > 0 {
@@ -656,6 +850,98 @@ func (m *appModel) synthesize(serverCmd string) tea.Cmd {
 	}
 	m.syncViewport()
 	return nil
+}
+
+// openExternalEditor hands the composer to $EDITOR via tea.ExecProcess（P3
+// §2：存盘退出后回填，不自动发送；非 0 退出码保持原内容）。
+func (m *appModel) openExternalEditor() (tea.Model, tea.Cmd) {
+	if m.state.ReadOnly {
+		m.state.AddActionDeduped("只读会话：外部编辑器不可用")
+		m.syncViewport()
+		return m, nil
+	}
+	dir, path, err := newEditorTempFile(m.composer.Value())
+	if err != nil {
+		m.state.AddLocalError("外部编辑器启动失败：" + err.Error())
+		m.syncViewport()
+		return m, nil
+	}
+	cmd := buildEditorCmd(resolveEditorCommand(os.Getenv), path)
+	return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return editorDoneMsg{err: err, dir: dir}
+	})
+}
+
+func (m *appModel) handleEditorDone(msg editorDoneMsg) (tea.Model, tea.Cmd) {
+	defer os.RemoveAll(msg.dir)
+	if msg.err != nil {
+		m.state.AddAction("编辑器退出异常，内容未变：" + msg.err.Error())
+		m.syncViewport()
+		return m, nil
+	}
+	content, err := readEditorResult(filepath.Join(msg.dir, "prompt.md"))
+	if err != nil {
+		m.state.AddLocalError("读回编辑内容失败：" + err.Error())
+		m.syncViewport()
+		return m, nil
+	}
+	m.composer.SetValue(content)
+	m.composer.CursorEnd()
+	m.completion.reset()
+	m.histIdx = -1
+	m.syncComposerHeight()
+	return m, nil
+}
+
+// pasteImage reads the system clipboard image off the UI loop（P3 §4）。
+func (m *appModel) pasteImage() tea.Cmd {
+	if m.state.ReadOnly {
+		m.state.AddActionDeduped("只读会话：发送已禁用")
+		m.syncViewport()
+		return nil
+	}
+	reader := m.clipReader
+	if reader == nil {
+		reader = newClipboardReader()
+	}
+	m.state.AddActionDeduped("读取剪贴板图片…")
+	m.syncViewport()
+	return func() tea.Msg {
+		img, err := reader.readImage()
+		return pasteImageMsg{img: img, err: err}
+	}
+}
+
+func (m *appModel) handlePasteImage(msg pasteImageMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.state.AddActionDeduped(msg.err.Error())
+		m.syncViewport()
+		return m, nil
+	}
+	img := msg.img
+	if !img.sizeOK() {
+		m.state.AddActionDeduped(fmt.Sprintf("图片过大（%.1fMB > 20MB 上限），未发送", float64(len(img.data))/1048576))
+		m.syncViewport()
+		return m, nil
+	}
+	// 本地回显：用户块 + 📎（服务端不回显用户消息，与文本发送同构）。
+	m.state.AddUserMedia(picoclient.Attachment{
+		Type: "image", ContentType: img.mimeType, Filename: "clipboard.png",
+	})
+	if err := m.client.Send(context.Background(), "", []string{img.dataURL()}); err != nil {
+		m.state.AddLocalError("图片发送失败：" + err.Error())
+	}
+	m.syncViewport()
+	return m, nil
+}
+
+// bell emits a terminal BEL（P3 §3：bubbletea v2 无原生命令，直接写
+// stdout；BEL 不可见，与渲染帧交错无害）。
+func bell() tea.Cmd {
+	return func() tea.Msg {
+		_, _ = os.Stdout.WriteString("\a")
+		return nil
+	}
 }
 
 func (m *appModel) requestStop() {

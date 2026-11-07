@@ -135,6 +135,19 @@ func (s *State) AddUser(content string) {
 	})
 }
 
+// AddUserMedia appends a media-only user echo（剪贴板图片发送，P3 §4：
+// 服务端不回显用户消息，本地以用户块 + 📎 表达）。
+func (s *State) AddUserMedia(attachments ...picoclient.Attachment) {
+	s.Items = append(s.Items, Item{
+		Kind:        ItemUser,
+		ID:          s.localID(),
+		Content:     "🖼 图片",
+		Attachments: attachments,
+		Steering:    s.Generating,
+		Timestamp:   time.Now(),
+	})
+}
+
 // AddAction appends a dim synthesized-command line (":stop" → ⏹ …).
 func (s *State) AddAction(text string) {
 	s.Items = append(s.Items, Item{
@@ -153,6 +166,13 @@ func (s *State) AddLocalError(message string) {
 		ErrMessage: message,
 		Timestamp:  time.Now(),
 	})
+}
+
+// ItemSealed reports whether the timeline item with the given server id has
+// been sealed（问询/审批回执封存；答题浮层据此自动关闭，P3）。
+func (s *State) ItemSealed(id string) bool {
+	it := s.findByID(id)
+	return it != nil && it.Sealed != ""
 }
 
 // ToggleLastThought flips the fold of the most recent thought item and
