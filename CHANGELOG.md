@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-11-08
+
 ### Changed
 
 - **TUI P4：默认改为主屏滚动模式 + pi 布局一致性（设计 `docs/design/2026-11-07-tui-p4-pi-layout-design.zh.md`）**——行为变更，升级注意：
@@ -246,6 +248,5 @@
 - 11 commits 自 v0.3.2
 - 对应 tag：`v0.3.3`
 
-[Unreleased]: https://example.com/picoclaw/compare/v0.4.0...HEAD
-[0.4.0]: https://example.com/picoclaw/compare/v0.3.3...v0.4.0
-[0.3.3]: https://example.com/picoclaw/compare/v0.3.2...v0.3.3
+[Unreleased]: https://github.com/dddpeter/picoclaw/compare/v0.5.6...HEAD
+[0.5.6]: https://github.com/dddpeter/picoclaw/compare/v0.5.5...v0.5.6
