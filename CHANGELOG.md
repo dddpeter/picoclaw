@@ -5,6 +5,15 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### Changed
+
+- **TUI P4：默认改为主屏滚动模式 + pi 布局一致性（设计 `docs/design/2026-11-07-tui-p4-pi-layout-design.zh.md`）**——行为变更，升级注意：
+  - **渲染模式**：默认主屏滚动（对话沉淀进终端 scrollback，滚轮/复制/翻页用终端原生）；`--fullscreen` 保留原 alt-screen 全屏模式
+  - **键位变更**：`Ctrl+O`↔`Ctrl+T` 对调（O=展开工具输出、T=展开 Thinking，对齐 pi）；`Ctrl+C` 不再停止回合——改为清空输入框/双击退出（停止回合只走 `Esc`）；新增 `Ctrl+D` 空输入退出
+  - **布局**：顶部 statusbar 删除；footer 改 pi 式两行（L1 网关·标题·连接态，L2 tokens·ctx%+右对齐模型）；启动时打印一次性启动头（brand+快捷键提示）；thinking 折叠标签改「Thinking…」
+
 ## [0.5.5] - 2026-11-08
 
 ### Added

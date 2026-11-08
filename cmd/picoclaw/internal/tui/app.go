@@ -64,6 +64,11 @@ type appModel struct {
 	// P3：终端焦点跟踪（bell 只在失焦时响）与剪贴板读取器
 	focused    *bool
 	clipReader *clipboardReader
+
+	// P4：fullscreen=true 保留 P1–P3 的 alt-screen 全屏路径；默认主屏滚动
+	//（docs/design/2026-11-07-tui-p4-pi-layout-design.zh.md）。
+	fullscreen bool
+	pendingCmd tea.Cmd // localCommand 等单返回值路径的延迟命令
 }
 
 func newAppModel(client *picoclient.Client, sessionFile, gatewayURL, version string, historyLoad func(sessionID string) SessionHistory) *appModel {
@@ -95,6 +100,9 @@ func newAppModel(client *picoclient.Client, sessionFile, gatewayURL, version str
 func (m *appModel) setListSessions(fn func() []SessionEntry)       { m.listSessions = fn }
 func (m *appModel) setHistoryByKey(fn func(string) SessionHistory) { m.historyByKey = fn }
 func (m *appModel) setModels(models []string)                      { m.models = models }
+
+// setFullscreen switches the render mode (P4)：主屏滚动（默认）或 --fullscreen。
+func (m *appModel) setFullscreen(v bool) { m.fullscreen = v }
 
 // syncComposerHeight 让输入框随内容行数增长（1..maxComposerLines），空态
 // 只占一行，不再出现成排的空 ❯ 提示行。
@@ -154,7 +162,13 @@ func spin() tea.Cmd {
 	return tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg { return spinnerTickMsg{} })
 }
 
-func (m *appModel) Init() tea.Cmd { return m.initCmd }
+func (m *appModel) Init() tea.Cmd {
+	if m.fullscreen {
+		return m.initCmd
+	}
+	// 主屏模式（P4）：启动头一次性打印进 scrollback。
+	return tea.Batch(m.initCmd, tea.Println(renderStartupHeader(m.version, m.gatewayURL)))
+}
 
 func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -164,20 +178,14 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state.invalidateRenderCache()
 		m.relayout()
 		m.syncViewport()
-		return m, nil
+		return m, m.flushCommits()
 
 	case eventMsg:
 		ev := picoclient.Event(msg)
 		if m.state.ReadOnly {
 			// 非 pico 只读视图：当前 WS 仍属于原 pico 会话，事件不混入视图
-			//（设计 §4.2）；切回时会重连补发（last_seq）重建。
+			//（P2 设计 §4.2）；切回时会重连补发（last_seq）重建。
 			return m, waitForEvent(m.client)
-		}
-		if ev.Type == "typing.start" {
-			m.stopRequestedAt = time.Time{} // fresh turn: Esc/Ctrl+C stop again
-		}
-		if ev.Type == "typing.stop" || ev.Type == "error" {
-			m.stopRequestedAt = time.Time{}
 		}
 		if m.state.Apply(ev) {
 			m.syncViewport()
@@ -188,23 +196,31 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if ev.Ask != nil && (!m.overlay.active() || m.overlay.kind == overlayAsk) {
 				m.openAskForLatest()
 			}
-			return m, tea.Batch(waitForEvent(m.client), bell())
+			return m, tea.Batch(waitForEvent(m.client), bell(), m.flushCommits())
 		}
-		// 回合结束且终端失焦（未知焦点态=响）→ bell（P3 §3）。
-		if ev.Type == "typing.stop" && (m.focused == nil || !*m.focused) {
-			return m, tea.Batch(waitForEvent(m.client), bell())
+		// 回合结束且终端失焦（未知焦点态=响）→ bell（P3 §3）；turn 收尾提交
+		// （P4 §1.2）。
+		if ev.Type == "typing.stop" || ev.Type == "error" {
+			cmds := []tea.Cmd{waitForEvent(m.client), m.flushCommits()}
+			if m.focused == nil || !*m.focused {
+				cmds = append(cmds, bell())
+			}
+			return m, tea.Batch(cmds...)
 		}
-		// catchup 丢帧且空闲：重读磁盘历史重建时间线（§2.1）。
+		// catchup 丢帧且空闲：重读磁盘历史重建时间线（P2 §2.1）。
 		if ev.Type == "stream.catchup" && m.state.HistoryStale && !m.state.Generating && m.historyLoad != nil {
 			return m, loadHistory(m.client, m.historyLoad)
 		}
-		return m, waitForEvent(m.client)
+		return m, tea.Batch(waitForEvent(m.client), m.flushCommits())
 
 	case historyMsg:
 		if msg.sessionID == m.client.SessionID() && !m.state.ReadOnly {
 			m.historyDone = true
+			var reset tea.Cmd
 			if m.state.HistoryStale {
 				// Stale rebuild: replace the timeline wholesale with disk truth.
+				// 主屏：清屏重头在历史提交前有序执行（评审修复：原提前
+				// return 会跳过 ApplyHistory 丢历史）。
 				st := m.state
 				m.state = NewState()
 				m.state.RawMarkdown = st.RawMarkdown
@@ -213,9 +229,14 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state.Usage = st.Usage
 				m.state.InputHistory = st.InputHistory
 				m.state.HistoryStale = false
+				reset = m.resetMainScreen()
 			}
 			m.state.ApplyHistory(msg.history.Title, msg.history.Items)
 			m.syncViewport()
+			if reset != nil {
+				return m, tea.Sequence(reset, m.commitAll())
+			}
+			return m, m.commitAll()
 		}
 		return m, nil
 
@@ -255,9 +276,12 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case tea.MouseWheelMsg:
-		nm, cmd := m.viewport.Update(msg)
-		m.viewport = nm
-		return m, cmd
+		if m.fullscreen {
+			nm, cmd := m.viewport.Update(msg)
+			m.viewport = nm
+			return m, cmd
+		}
+		return m, nil // 主屏：滚轮归终端原生滚动（P4 §1.4）
 
 	default:
 		return m, nil
@@ -267,9 +291,16 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *appModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	k := msg.Key()
 
-	// Ctrl+C 永远全局生效（退出语义不变，设计 §7）。
+	// Ctrl+C 全局生效（P4 §3：清空输入框，双击退出，照搬 pi）。
 	if k.Code == 'c' && k.Mod.Contains(tea.ModCtrl) {
 		return m.handleCtrlC()
+	}
+	// Ctrl+D：输入为空时退出（pi app.exit，P4 §3）。
+	if k.Code == 'd' && k.Mod.Contains(tea.ModCtrl) {
+		if strings.TrimSpace(m.composer.Value()) == "" {
+			return m, tea.Quit
+		}
+		return m, nil
 	}
 
 	// 浮层打开时优先消费按键（§4.2/§6）。
@@ -299,17 +330,20 @@ func (m *appModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.newSession()
-		return m, nil
+		return m, m.resetMainScreen()
 
 	case k.Code == 'o' && k.Mod.Contains(tea.ModCtrl):
-		if m.state.ToggleLastThought() {
+		// P4 §3：对调对齐 pi——Ctrl+O=工具输出、Ctrl+T=thinking。
+		if m.state.ToggleLastToolFeedback() {
 			m.syncViewport()
+			return m, m.flushCommits()
 		}
 		return m, nil
 
 	case k.Code == 't' && k.Mod.Contains(tea.ModCtrl):
-		if m.state.ToggleLastToolFeedback() {
+		if m.state.ToggleLastThought() {
 			m.syncViewport()
+			return m, m.flushCommits()
 		}
 		return m, nil
 
@@ -330,19 +364,27 @@ func (m *appModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.ClearScreen
 
 	case k.Code == tea.KeyPgUp:
-		m.viewport.PageUp()
+		if m.fullscreen {
+			m.viewport.PageUp()
+		}
 		return m, nil
 
 	case k.Code == tea.KeyPgDown:
-		m.viewport.PageDown()
+		if m.fullscreen {
+			m.viewport.PageDown()
+		}
 		return m, nil
 
 	case k.Code == tea.KeyHome:
-		m.viewport.GotoTop()
+		if m.fullscreen {
+			m.viewport.GotoTop()
+		}
 		return m, nil
 
 	case k.Code == tea.KeyEnd:
-		m.viewport.GotoBottom()
+		if m.fullscreen {
+			m.viewport.GotoBottom()
+		}
 		return m, nil
 
 	case k.Code == tea.KeyUp:
@@ -378,23 +420,25 @@ func (m *appModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *appModel) handleCtrlC() (tea.Model, tea.Cmd) {
-	// Deterministic exit: a press within 1s of the previous one quits.
-	// Otherwise: generating → stop the turn once (after which a single
-	// Ctrl+C quits outright), idle → show the hint once (deduped).
+	// P4 §3（照搬 pi）：Ctrl+C 清空输入框；1.5s 内双击退出。生成中的停止
+	// 只走 Esc（唯一打断键）。
 	now := time.Now()
-	within := now.Sub(m.lastCtrlC) <= time.Second
+	within := now.Sub(m.lastCtrlC) <= 1500*time.Millisecond
 	m.lastCtrlC = now
-	if within || (m.state.Generating && !m.stopRequestedAt.IsZero()) {
+	if within {
 		return m, tea.Quit
 	}
-	if m.state.Generating {
-		m.requestStop()
-		m.state.AddAction("已请求停止当前回合；再按一次 Ctrl+C 退出")
-	} else {
-		m.state.AddActionDeduped("再按一次 Ctrl+C 退出")
+	if content := m.composer.Value(); strings.TrimSpace(content) != "" {
+		m.composer.Reset()
+		m.completion.reset()
+		m.histIdx = -1
+		m.histDraft = ""
+		m.syncComposerHeight()
+		return m, m.flushCommits()
 	}
+	m.state.AddActionDeduped("再按一次 Ctrl+C 退出")
 	m.syncViewport()
-	return m, nil
+	return m, m.flushCommits()
 }
 
 // handleCompletionKey routes popup keys; handled=false falls through to the
@@ -655,6 +699,10 @@ func (m *appModel) activateOverlayPick() (tea.Model, tea.Cmd) {
 			}
 			m.composer.Blur()
 			m.syncViewport()
+			if !m.fullscreen {
+				// 清屏 → 头部 → 只读历史整段入 scrollback（顺序执行，P4 §1.2）。
+				return m, tea.Sequence(m.resetMainScreen(), m.commitAll())
+			}
 			return m, nil
 		}
 		wasReadOnly := m.state.ReadOnly
@@ -672,6 +720,9 @@ func (m *appModel) activateOverlayPick() (tea.Model, tea.Cmd) {
 		m.persistSession(entry.PicoID)
 		m.composer.Focus()
 		m.syncViewport()
+		if !m.fullscreen {
+			return m, tea.Sequence(m.resetMainScreen(), loadHistory(m.client, m.historyLoad))
+		}
 		return m, loadHistory(m.client, m.historyLoad)
 
 	case overlayModel:
@@ -779,6 +830,7 @@ func (m *appModel) localCommand(cmd string) tea.Cmd {
 			m.state.AddAction("回合进行中，暂不能开新会话")
 		} else {
 			m.newSession()
+			m.pendingCmd = m.resetMainScreen()
 		}
 	case "clear":
 		// 只读态与 :raw 偏好跨 clear 保留（评审修复：NewState 直接替换
@@ -788,6 +840,7 @@ func (m *appModel) localCommand(cmd string) tea.Cmd {
 		m.state = NewState()
 		m.state.ReadOnly, m.state.ReadOnlyChannel, m.state.RawMarkdown = ro, roCh, raw
 		m.syncViewport()
+		m.pendingCmd = m.resetMainScreen()
 	case "ls", "sessions":
 		m.openSessionsOverlay()
 	case "model":
@@ -839,7 +892,9 @@ func (m *appModel) localCommand(cmd string) tea.Cmd {
 		m.state.AddLocalError(fmt.Sprintf("未知本地命令 :%s（服务端命令用 / 前缀发送）", name))
 	}
 	m.syncViewport()
-	return nil
+	deferred := m.pendingCmd
+	m.pendingCmd = nil
+	return deferred
 }
 
 // synthesize sends a server slash command, showing a dim action line first.
@@ -945,7 +1000,6 @@ func bell() tea.Cmd {
 }
 
 func (m *appModel) requestStop() {
-	m.stopRequestedAt = time.Now()
 	m.state.AddAction("⏹ 已请求停止当前回合")
 	if err := m.client.Send(context.Background(), "/stop", nil); err != nil {
 		m.state.AddLocalError("停止请求发送失败：" + err.Error())
@@ -958,6 +1012,16 @@ func (m *appModel) newSession() {
 	m.state = NewState()
 	m.persistSession(id)
 	m.syncViewport()
+}
+
+// resetMainScreen clears the terminal and reprints the startup header for a
+// fresh view（切会话 / 新会话 / :clear 主屏路径，P4 §1.2）。清屏与头部
+// 打印必须有序。
+func (m *appModel) resetMainScreen() tea.Cmd {
+	if m.fullscreen {
+		return nil
+	}
+	return tea.Sequence(tea.ClearScreen, tea.Println(renderStartupHeader(m.version, m.gatewayURL)))
 }
 
 func (m *appModel) persistSession(id string) {
@@ -986,7 +1050,8 @@ func (m *appModel) relayout() {
 	if m.state.Generating && m.state.Progress != "" {
 		progressLines = 1
 	}
-	vh := m.height - 1 - progressLines - m.composerLines - editorFrameLines - footerLines
+	// P4：顶部 statusbar 已删除，高度预算 = progress + editor + footer。
+	vh := m.height - progressLines - m.composerLines - editorFrameLines - footerLines
 	if vh < 3 {
 		vh = 3
 	}
@@ -998,7 +1063,8 @@ func (m *appModel) relayout() {
 // only when the user is already reading the latest output. The empty state
 // renders the welcome screen instead of a blank void.
 func (m *appModel) syncViewport() {
-	if !m.ready {
+	if !m.ready || !m.fullscreen {
+		// 主屏模式不维护 viewport：活区每帧直读 liveLines（P4 §1）。
 		return
 	}
 	follow := m.viewport.AtBottom()
@@ -1022,9 +1088,74 @@ func (m *appModel) View() tea.View {
 		return tea.NewView("正在启动 Limulus TUI…")
 	}
 
+	if !m.fullscreen {
+		return m.viewMain()
+	}
+	return m.viewFullscreen()
+}
+
+// viewMain 主屏滚动模式（P4 §1）：活区 = 未提交尾部（裁到预算）+ progress
+// + editor + pi 式 footer；浮层激活时占据活区内容位（scrollback 不动）。
+func (m *appModel) viewMain() tea.View {
 	var b strings.Builder
-	b.WriteString(renderStatusbar(m))
+
+	budget := m.liveBudget()
+	content := m.liveLines()
+	// 溢出时保尾部（进行中内容的顶部暂隐，完成后整段提交回 scrollback）。
+	if len(content) > budget && budget > 0 {
+		content = content[len(content)-budget:]
+	}
+
+	if m.overlay.active() {
+		maxLines := overlayMaxHeight(m.height - m.composerLines - editorFrameLines - footerLines - 2)
+		box := renderOverlayBox(&m.overlay, overlayRenderCtx{
+			usage:     m.state.CtxUsage,
+			turnUsage: m.state.Usage,
+			modelName: m.state.ModelName,
+		}, m.width, maxLines-2)
+		if len(box) > maxLines {
+			box = box[:maxLines]
+		}
+		for _, ln := range box {
+			b.WriteString(clipLine(ln, m.width))
+			b.WriteString("\n")
+		}
+	} else {
+		if rows := renderCompletionPopup(&m.completion, m.width); len(rows) > 0 {
+			keep := max(0, budget-len(rows))
+			if len(content) > keep {
+				content = content[len(content)-keep:]
+			}
+			for _, ln := range rows {
+				b.WriteString(ln)
+				b.WriteString("\n")
+			}
+		}
+		for _, ln := range content {
+			b.WriteString(clipLine(ln, m.width))
+			b.WriteString("\n")
+		}
+		if m.state.Generating && m.state.Progress != "" {
+			b.WriteString(stWarning.MaxWidth(m.width).Render("· " + m.state.Progress))
+			b.WriteString("\n")
+		}
+	}
+
+	b.WriteString(renderEditor(m))
 	b.WriteString("\n")
+	b.WriteString(renderFooterPi(m))
+
+	v := tea.NewView(b.String())
+	v.AltScreen = false // 主屏：对话沉淀 scrollback（P4）
+	v.WindowTitle = "Limulus tui"
+	v.MouseMode = tea.MouseModeNone // 滚轮/选择归终端原生
+	return v
+}
+
+// viewFullscreen 保留 P1–P3 的 alt-screen 路径（--fullscreen），但 footer
+// 换 pi 式两行、去掉顶部 statusbar（P4 §2）。
+func (m *appModel) viewFullscreen() tea.View {
+	var b strings.Builder
 
 	if m.state.Generating && m.state.Progress != "" {
 		b.WriteString(stWarning.MaxWidth(m.width).Render("· " + m.state.Progress))
@@ -1034,9 +1165,8 @@ func (m *appModel) View() tea.View {
 	m.relayout() // keep bounds fresh for progress-line toggling
 
 	viewportLines := strings.Split(m.viewport.View(), "\n")
-	overlayLines := m.overlayLines(len(viewportLines))
-	if len(overlayLines) > 0 {
-		// 叠绘在 viewport 区域底部（§3.4/§4）：主布局不变，浮层盖住
+	if overlayLines := m.overlayLines(len(viewportLines)); len(overlayLines) > 0 {
+		// 叠绘在 viewport 区域底部（P2 §3.4）：主布局不变，浮层盖住
 		// timeline 的最后 h 行。
 		start := max(0, len(viewportLines)-len(overlayLines))
 		copy(viewportLines[start:], overlayLines)
@@ -1046,12 +1176,12 @@ func (m *appModel) View() tea.View {
 	b.WriteString("\n")
 	b.WriteString(renderEditor(m))
 	b.WriteString("\n")
-	b.WriteString(renderFooter(m))
+	b.WriteString(renderFooterPi(m))
 
 	v := tea.NewView(b.String())
 	v.AltScreen = true
 	v.WindowTitle = "Limulus tui"
-	v.MouseMode = tea.MouseModeCellMotion // 滚轮滚动（§7）；Shift+拖动选文本
+	v.MouseMode = tea.MouseModeCellMotion // 滚轮滚动；Shift+拖动选文本
 	return v
 }
 

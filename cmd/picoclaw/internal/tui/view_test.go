@@ -21,10 +21,11 @@ func newTestApp(t *testing.T) *appModel {
 	return m
 }
 
-// TestViewLayoutInvariants: alt-screen rendering must be exactly terminal
-// height, with or without progress line, overlays and completion popup.
+// TestViewLayoutInvariants: fullscreen 模式下 alt-screen 渲染必须精确等于
+// 终端高度，有无 progress/浮层/补全均不变。主屏模式的活区不变量另测。
 func TestViewLayoutInvariants(t *testing.T) {
 	m := newTestApp(t)
+	m.setFullscreen(true)
 
 	check := func(name string) {
 		t.Helper()
@@ -87,6 +88,7 @@ func TestViewLayoutInvariants(t *testing.T) {
 // bottom of the viewport region, not extend past the editor.
 func TestViewOverlayCoversViewportTail(t *testing.T) {
 	m := newTestApp(t)
+	m.setFullscreen(true)
 	m.state.Apply(picoclient.Event{Type: "message.create", MessageID: "a1", Content: "答案内容"})
 	m.syncViewport()
 
@@ -109,6 +111,7 @@ func TestViewOverlayCoversViewportTail(t *testing.T) {
 // TestNarrowTerminal: 60-column terminal keeps every line within width.
 func TestNarrowTerminal(t *testing.T) {
 	m := newTestApp(t)
+	m.setFullscreen(true)
 	m.width, m.height = 60, 20
 	m.state.Apply(picoclient.Event{Type: "typing.start"})
 	m.state.Progress = "⏱ 3m 无新进展"
@@ -141,4 +144,105 @@ func strconvI(n int) string {
 		n /= 10
 	}
 	return string(b)
+}
+
+// TestViewMainScreen：主屏模式活区不变量（P4 §1）——
+// ①活区高度恒 ≤ 终端高；②footer 固定两行且宽度合规；③溢出时保尾部。
+func TestViewMainScreen(t *testing.T) {
+	m := newTestApp(t) // 默认主屏模式
+	m.state.Apply(picoclient.Event{Type: "typing.start"})
+	m.state.Progress = "⏱ 3m 无新进展"
+	for i := 0; i < 5; i++ {
+		m.state.Apply(picoclient.Event{
+			Type: "message.create", MessageID: "a" + strconvI(i),
+			Content: "第 " + strconvI(i) + " 条较长的回答内容，占两行以上，验证活区裁剪与提交边界逻辑。",
+		})
+	}
+	v := m.View()
+	lines := strings.Split(v.Content, "\n")
+	if len(lines) > m.height {
+		t.Fatalf("main view height %d > terminal %d\n%s", len(lines), m.height, v.Content)
+	}
+	if v.AltScreen {
+		t.Fatal("main mode must not use alt screen")
+	}
+	// footer 两行（末尾两行：L1 连接态 / L2 统计）
+	l1, l2 := lines[len(lines)-2], lines[len(lines)-1]
+	if !strings.Contains(l1, "connected") && !strings.Contains(l1, "connecting") && !strings.Contains(l1, "disconnected") {
+		t.Fatalf("footer L1 must carry connection state: %q", l1)
+	}
+	_ = l2
+	for i, ln := range lines {
+		if w := lipgloss.Width(ln); w > m.width {
+			t.Fatalf("line %d width %d > %d: %q", i, w, m.width, ln)
+		}
+	}
+}
+
+// TestViewMainScreenFlushCommits：turn 结束后终态项被提交、活区清空。
+func TestViewMainScreenFlushCommits(t *testing.T) {
+	m := newTestApp(t)
+	m.state.Apply(picoclient.Event{Type: "typing.start"})
+	m.state.Apply(picoclient.Event{
+		Type: "message.create", MessageID: "a1", Content: "答案内容",
+	})
+	m.state.Apply(picoclient.Event{Type: "typing.stop"})
+	cmd := m.flushCommits()
+	if cmd == nil {
+		t.Fatal("turn end must flush stable items")
+	}
+	if m.state.CommitIndex != len(m.state.Items) {
+		t.Fatalf("commit index = %d, want %d", m.state.CommitIndex, len(m.state.Items))
+	}
+	// 活区清空后 View 不含已提交内容。
+	v := m.View()
+	if strings.Contains(v.Content, "答案内容") {
+		t.Fatalf("committed content must leave the live region:\n%s", v.Content)
+	}
+}
+
+// TestViewMainScreenStreamingBlocksCommit：流式项不提交、不阻挡后续。
+func TestViewMainScreenStreamingBlocksCommit(t *testing.T) {
+	m := newTestApp(t)
+	m.state.Apply(picoclient.Event{Type: "typing.start"})
+	m.state.Apply(picoclient.Event{Type: "message.create", MessageID: "a1", Content: "流式答案", ModelName: "glm"})
+	// 未 typing.stop：a1 仍 Streaming → 不得提交。
+	if cmd := m.flushCommits(); cmd != nil {
+		t.Fatal("streaming item must not be committed")
+	}
+	if m.state.CommitIndex != 0 {
+		t.Fatal("commit index must stay 0 while streaming")
+	}
+	// 结束后可提交。
+	m.state.Apply(picoclient.Event{Type: "typing.stop"})
+	if cmd := m.flushCommits(); cmd == nil || m.state.CommitIndex == 0 {
+		t.Fatal("turn end must commit")
+	}
+}
+
+// TestViewMainScreenOverflowCommits：活区超预算时从顶部提交到预算内。
+func TestViewMainScreenOverflowCommits(t *testing.T) {
+	m := newTestApp(t)
+	m.state.Apply(picoclient.Event{Type: "typing.start"})
+	for i := 0; i < 20; i++ {
+		m.state.Apply(picoclient.Event{
+			Type: "message.create", MessageID: "m" + strconvI(i),
+			Content: "动作行 " + strconvI(i), Kind: "progress_note",
+		})
+	}
+	// progress_note 不入时间线——换 action 行；保持生成中态（否则 force
+	// 模式会全量提交，测不出溢出路径）。
+	m.state = NewState()
+	m.state.Apply(picoclient.Event{Type: "typing.start"})
+	for i := 0; i < 30; i++ {
+		m.state.AddAction("动作行 " + strconvI(i))
+	}
+	if cmd := m.flushCommits(); cmd == nil {
+		t.Fatal("overflow must flush top items")
+	}
+	live, total := m.itemHeights()
+	budget := m.liveBudget()
+	if len(live) == 0 || total > budget {
+		t.Fatalf("live overflow after flush: total=%d budget=%d", total, budget)
+	}
 }

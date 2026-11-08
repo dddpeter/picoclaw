@@ -1,11 +1,9 @@
 package tui
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
 
@@ -352,28 +350,19 @@ func renderCompletionPopup(cs *completionState, width int) []string {
 	return out
 }
 
-// renderThought renders the folding reasoning block: pi 式 italic muted，
-// 收起时一行摘要，流式期间显示尾部 3 行，Ctrl+O 切换。
+// renderThought renders the folding reasoning block：pi 同款「Thinking…」
+// italic muted 标签（P4 §2），Ctrl+T 切换；流式期间显示尾部 3 行。
 func renderThought(it *Item, width int) string {
-	n := utf8.RuneCountInString(it.Content)
-	var header string
-	switch {
-	case it.Streaming:
-		header = stThink.Render(fmt.Sprintf("思考中…（%d 字 · Ctrl+O）", n))
-	case it.Expanded:
-		header = stThink.Render(fmt.Sprintf("已思考 %d 字（Ctrl+O 收起）", n))
-	default:
-		header = stThink.Render(fmt.Sprintf("已思考 %d 字（Ctrl+O 展开）", n))
-	}
+	label := stThink.Render("Thinking…")
 
 	if it.Expanded || it.Streaming {
 		lines := strings.Split(strings.TrimRight(it.Content, "\n"), "\n")
 		if !it.Expanded && len(lines) > 3 {
 			lines = lines[len(lines)-3:]
 		}
-		return header + "\n" + stThink.Width(width).Render(strings.Join(lines, "\n"))
+		return label + "\n" + stThink.Width(width).Render(strings.Join(lines, "\n"))
 	}
-	return header
+	return label
 }
 
 // displayVersion strips the redundant "(git: xxx)" suffix that
@@ -383,75 +372,6 @@ func displayVersion(v string) string {
 		return v[:i]
 	}
 	return v
-}
-
-// renderStatusbar renders the top line: brand, version, connection, session,
-// title, and (when disconnected) the last dial error.
-func renderStatusbar(m *appModel) string {
-	dot, dotSt := connIndicator(m.connState)
-
-	var b strings.Builder
-	b.WriteString(stBrand.Render("鲎 Limulus tui"))
-	if v := displayVersion(m.version); v != "" {
-		b.WriteString(stHint.Render(" · " + v))
-	}
-	b.WriteString(dotSt.Render(" " + dot + " " + m.connState.String()))
-	if session := m.client.SessionID(); len(session) > 8 {
-		b.WriteString(stHint.Render(" · " + session[:8]))
-	}
-	if t := strings.TrimSpace(m.state.Title); t != "" {
-		b.WriteString(stText.Render(" · " + truncateRunes(t, 24)))
-	}
-	if m.connState != picoclient.StateConnected {
-		if dialErr := tail(m.client.LastDialError(), 72); dialErr != "" {
-			b.WriteString(stError.Render(" · " + dialErr))
-		}
-	}
-	if m.state.ReadOnly {
-		b.WriteString(stWarning.Render(" · 只读(" + m.state.ReadOnlyChannel + ")"))
-	}
-	return clipLine(b.String(), m.width)
-}
-
-// renderFooter renders the bottom two lines（对齐 pi footer）：
-// 第一行 = token 统计 + context 用量（阈值变色）+ 右对齐模型名；
-// 第二行 = 快捷键提示。
-func renderFooter(m *appModel) string {
-	var left strings.Builder
-	if u := m.state.Usage; u != nil && u.InputTokens+u.OutputTokens > 0 {
-		left.WriteString(stMuted.Render(
-			"↑" + formatTokens(u.InputTokens) + " ↓" + formatTokens(u.OutputTokens)))
-	}
-	if u := m.state.CtxUsage; u != nil && u.TotalTokens > 0 {
-		pct := u.UsedPercent
-		pctSt := stMuted
-		switch {
-		case pct >= 90:
-			pctSt = stError
-		case pct >= 70:
-			pctSt = stWarning
-		}
-		left.WriteString(pctSt.Render(fmt.Sprintf(" · ctx %.0f%%", pct)))
-		left.WriteString(stHint.Render(
-			" (" + formatTokens(u.UsedTokens) + "/" + formatTokens(u.TotalTokens) + ")"))
-	}
-
-	right := ""
-	if m.state.ModelName != "" {
-		right = stMuted.Render(m.state.ModelName)
-	}
-	if m.state.Generating {
-		frame := spinnerFrames[m.spinnerIdx%len(spinnerFrames)]
-		right = stAccent.Render(string(frame) + " 生成中 " + elapsed(m.state.GeneratingSince))
-	}
-
-	line1 := clipLine(joinLeftRight(left.String(), right, m.width), m.width)
-	return line1 + "\n" + renderHint(m.width)
-}
-
-func renderHint(width int) string {
-	return stHint.MaxWidth(width).Render(
-		"Enter 发送 · Esc 停止 · Ctrl+S 会话 · Ctrl+X 复制 · Ctrl+O 思考 · Ctrl+T 工具 · ? 帮助")
 }
 
 // renderWelcome is the empty-timeline panel: 两条边框线夹内容（pi 的
@@ -486,7 +406,8 @@ func renderWelcome(m *appModel, width int) string {
 	b.WriteString("\n\n")
 	b.WriteString(stText.Width(width).Render("直接输入消息开始对话。/ 开头发送服务端命令（/status /help /cron …），: 开头为本地指令。"))
 	b.WriteString("\n")
-	b.WriteString(renderHint(width))
+	b.WriteString(stHint.MaxWidth(width).Render(
+		"Enter 发送 · Esc 停止 · Ctrl+C 清空 · Ctrl+D 退出 · Ctrl+S 会话 · Ctrl+T 思考 · Ctrl+O 工具 · ? 帮助"))
 	b.WriteString("\n")
 	b.WriteString(stBorderLn.Render(strings.Repeat("─", width)))
 	return b.String()

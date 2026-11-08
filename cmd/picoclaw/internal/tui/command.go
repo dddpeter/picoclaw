@@ -25,6 +25,7 @@ type tuiOptions struct {
 	Token      string
 	SessionID  string
 	NewSession bool
+	Fullscreen bool
 }
 
 // NewTUICommand builds the "picoclaw tui" subcommand: a terminal client for a
@@ -46,6 +47,8 @@ func NewTUICommand() *cobra.Command {
 		"pico 会话 ID（默认恢复上次会话）")
 	cmd.Flags().BoolVar(&opts.NewSession, "new", false,
 		"忽略已保存的会话，开一个全新会话")
+	cmd.Flags().BoolVar(&opts.Fullscreen, "fullscreen", false,
+		"备用屏全屏模式（应用内滚动；默认主屏滚动模式，对话沉淀进终端 scrollback）")
 	return cmd
 }
 
@@ -101,6 +104,7 @@ func runTUI(ctx context.Context, cmd *cobra.Command, opts *tuiOptions) error {
 		return LoadSessionHistory(cfg, sid)
 	}
 	model := newAppModel(client, sessionFile, gatewayURL, config.FormatVersion(), historyLoad)
+	model.setFullscreen(opts.Fullscreen)
 	program := bubbletea.NewProgram(model, bubbletea.WithContext(ctx))
 	if _, runErr := program.Run(); runErr != nil {
 		client.Stop()

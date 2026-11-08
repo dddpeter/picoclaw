@@ -83,6 +83,10 @@ type State struct {
 	// 时间线可能缺内容；空闲时应重读磁盘历史重建（设计 §2.1）。
 	HistoryStale bool
 
+	// CommitIndex 主屏滚动模式的提交边界（P4 §1.2）：之前的 item 已
+	// tea.Println 进 scrollback，不再进活区、不可变更。fullscreen 模式恒 0。
+	CommitIndex int
+
 	// RawMarkdown 关闭终帧 markdown 渲染（:raw 切换，默认 false）。
 	RawMarkdown bool
 
@@ -174,6 +178,23 @@ func (s *State) ItemSealed(id string) bool {
 	it := s.findByID(id)
 	return it != nil && it.Sealed != ""
 }
+
+// ItemCommitted reports whether the item was already committed to the
+// terminal scrollback (main-screen mode, P4 §1.2).
+func (s *State) ItemCommitted(i int) bool { return i < s.CommitIndex }
+
+// ItemTerminal reports whether an item is in a stable state safe to commit
+// to scrollback: streaming kinds must have finished streaming.
+func ItemTerminal(it *Item) bool {
+	if it.Kind == ItemThought || it.Kind == ItemAnswer {
+		return !it.Streaming
+	}
+	return true
+}
+
+// CommittedItemsReset resets the commit boundary（:clear / 切会话 / 历史重建
+// 时配合 tea.ClearScreen 使用，P4 §1.2）。
+func (s *State) CommittedItemsReset() { s.CommitIndex = 0 }
 
 // ToggleLastThought flips the fold of the most recent thought item and
 // reports whether anything changed.
