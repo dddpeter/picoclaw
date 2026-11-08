@@ -105,6 +105,9 @@ func runTUI(ctx context.Context, cmd *cobra.Command, opts *tuiOptions) error {
 	}
 	model := newAppModel(client, sessionFile, gatewayURL, config.FormatVersion(), historyLoad)
 	model.setFullscreen(opts.Fullscreen)
+	if cfg != nil {
+		model.setDefaultModel(cfg.Agents.Defaults.ModelName)
+	}
 	program := bubbletea.NewProgram(model, bubbletea.WithContext(ctx))
 	if _, runErr := program.Run(); runErr != nil {
 		client.Stop()

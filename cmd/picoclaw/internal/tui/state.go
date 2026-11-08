@@ -44,8 +44,10 @@ type Item struct {
 	ToolArgs string
 
 	Streaming bool // thought/answer still receiving updates
-	Expanded  bool // thought / tool-feedback fold state
-	Steering  bool // user message sent while a turn was active
+	// Folded：thought / 工具反馈的手动折叠态。默认 false = **完整展开**
+	// （对齐 web ThinkingBlock/ToolCallBlock 的 wrap=true 语义，P4 修订①）。
+	Folded   bool
+	Steering bool // user message sent while a turn was active
 
 	Approval *picoclient.ApprovalInfo // v1 审批卡（设计 §2.3）
 	Ask      *picoclient.AskInfo      // v1 问询卡
@@ -201,7 +203,7 @@ func (s *State) CommittedItemsReset() { s.CommitIndex = 0 }
 func (s *State) ToggleLastThought() bool {
 	for i := len(s.Items) - 1; i >= 0; i-- {
 		if s.Items[i].Kind == ItemThought {
-			s.Items[i].Expanded = !s.Items[i].Expanded
+			s.Items[i].Folded = !s.Items[i].Folded
 			return true
 		}
 	}
@@ -215,7 +217,7 @@ func (s *State) ToggleLastToolFeedback() bool {
 	for i := len(s.Items) - 1; i >= 0; i-- {
 		it := &s.Items[i]
 		if it.Kind == ItemToolFeedback && it.Approval == nil && it.Ask == nil {
-			it.Expanded = !it.Expanded
+			it.Folded = !it.Folded
 			return true
 		}
 	}

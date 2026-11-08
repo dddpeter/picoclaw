@@ -14,6 +14,12 @@
   - **键位变更**：`Ctrl+O`↔`Ctrl+T` 对调（O=展开工具输出、T=展开 Thinking，对齐 pi）；`Ctrl+C` 不再停止回合——改为清空输入框/双击退出（停止回合只走 `Esc`）；新增 `Ctrl+D` 空输入退出
   - **布局**：顶部 statusbar 删除；footer 改 pi 式两行（L1 网关·标题·连接态，L2 tokens·ctx%+右对齐模型）；启动时打印一次性启动头（brand+快捷键提示）；thinking 折叠标签改「Thinking…」
 
+### Changed（2026-11-08 使用反馈）
+
+- **思考/工具输出默认完整展开**（对齐 web wrap=true）：流式思考全量实时可见，完成后不再折叠；`Ctrl+T`/`Ctrl+O` 变为"折叠/展开"切换
+- **footer 模型常显**：生成中显示 `spinner · 模型`（不再顶掉）；空闲回退 config 默认模型
+- **配色丰富化**：思考紫、工具名青、用户块文字提亮、action 行 accent 圆点
+
 ## [0.5.5] - 2026-11-08
 
 ### Added

@@ -246,3 +246,19 @@ func TestViewMainScreenOverflowCommits(t *testing.T) {
 		t.Fatalf("live overflow after flush: total=%d budget=%d", total, budget)
 	}
 }
+
+// P4 修订②：footer 模型常显——空闲回退 config 种子；生成中 spinner 不顶掉模型。
+func TestFooterModelAlwaysShown(t *testing.T) {
+	m := newTestApp(t)
+	m.setDefaultModel("glm-4.7")
+	v := m.View()
+	if !strings.Contains(v.Content, "glm-4.7") {
+		t.Fatalf("footer must show the seeded default model:\n%s", v.Content)
+	}
+	m.state.Apply(picoclient.Event{Type: "typing.start"})
+	m.state.ModelName = "kimi-k2"
+	v = m.View()
+	if !strings.Contains(v.Content, "kimi-k2") {
+		t.Fatalf("generating footer must keep the model next to the spinner:\n%s", v.Content)
+	}
+}

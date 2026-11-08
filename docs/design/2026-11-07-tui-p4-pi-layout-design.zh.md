@@ -96,3 +96,9 @@ cmd/picoclaw/internal/tui/
 3. **流式纯文本 vs pi 全程 markdown**：维持 P2 决策（glamour 全量渲染性能不可行），文档记录偏差。
 4. **Ctrl+C 不再停止回合**：行为变更，启动头/help 第一眼可见（`Esc 打断`），CHANGELOG 显著标注。
 5. 不做：pi 的 `!` bash 模式、`/` 命令面板、cwd/git（无本地对应物）、英文文案（用户决策：中文）。
+
+## 7. 修订记录（2026-11-08 使用反馈）
+
+1. **思考/工具输出默认完整展开**（对齐 web `ThinkingBlock`/`ToolCallBlock` 的 `wrap=true` 语义）：`Item.Expanded` 改 `Item.Folded`（默认 false=全量），流式思考不再只显尾部 3 行；`Ctrl+T`/`Ctrl+O` 语义变为"折叠/展开"。
+2. **模型常显**：footer L2 右侧模型位永在——生成中显示 `⠋ elapsed · model`（spinner 不再顶掉模型）；空闲回退 config 种子（`agents.defaults.model_name`）。
+3. **色彩丰富化**：思考紫罗兰（italic，colThink 176）、工具名青色（bold，colTool 80）、用户块文字提亮（stText）、action 行 accent 圆点 + muted 正文、📎 accent。

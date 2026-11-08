@@ -69,6 +69,9 @@ type appModel struct {
 	//（docs/design/2026-11-07-tui-p4-pi-layout-design.zh.md）。
 	fullscreen bool
 	pendingCmd tea.Cmd // localCommand 等单返回值路径的延迟命令
+
+	// defaultModel：config 默认模型，footer 模型位的首选回退（P4 修订②）。
+	defaultModel string
 }
 
 func newAppModel(client *picoclient.Client, sessionFile, gatewayURL, version string, historyLoad func(sessionID string) SessionHistory) *appModel {
@@ -103,6 +106,9 @@ func (m *appModel) setModels(models []string)                      { m.models = 
 
 // setFullscreen switches the render mode (P4)：主屏滚动（默认）或 --fullscreen。
 func (m *appModel) setFullscreen(v bool) { m.fullscreen = v }
+
+// setDefaultModel seeds the footer model slot（P4 修订②）。
+func (m *appModel) setDefaultModel(model string) { m.defaultModel = strings.TrimSpace(model) }
 
 // syncComposerHeight 让输入框随内容行数增长（1..maxComposerLines），空态
 // 只占一行，不再出现成排的空 ❯ 提示行。

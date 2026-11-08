@@ -54,7 +54,7 @@ func itemRenderKey(s *State, it *Item, width int) string {
 	sb.WriteByte('|')
 	sb.WriteString(strconv.FormatBool(it.Streaming))
 	sb.WriteByte('|')
-	sb.WriteString(strconv.FormatBool(it.Expanded))
+	sb.WriteString(strconv.FormatBool(it.Folded))
 	sb.WriteByte('|')
 	sb.WriteString(strconv.FormatBool(s.RawMarkdown))
 	sb.WriteByte('|')
@@ -116,18 +116,18 @@ func (s *State) invalidateRenderCache() {
 func renderItem(b *strings.Builder, s *State, it *Item, width int, md *markdownRenderer) {
 	switch it.Kind {
 	case ItemUser:
-		line := it.Content
+		line := stText.Render(it.Content)
 		if it.Steering {
 			line += "  " + stDim.Render("↩ 并入当前回合")
 		}
-		// pi 式：全宽低饱和背景块，无前缀符号。
+		// pi 式：全宽低饱和背景块，无前缀符号；文字提亮（P4 修订③）。
 		b.WriteString(bgBlock(line, width, lipgloss.Color(colUserBg)))
 
 	case ItemThought:
 		b.WriteString(renderThought(it, width))
 
 	case ItemToolCalls:
-		line := stBold.Render(it.ToolName)
+		line := stTool.Render(it.ToolName)
 		if args := firstLine(it.ToolArgs); args != "" {
 			line += " " + stDim.Render(truncateRunes(args, max(8, width-lipgloss.Width(line)-4)))
 		}
@@ -171,7 +171,7 @@ func renderItem(b *strings.Builder, s *State, it *Item, width int, md *markdownR
 		b.WriteString(stError.Width(width).Render(line + it.ErrMessage))
 
 	case ItemAction:
-		b.WriteString(stDim.Width(width).Render("· " + it.Content))
+		b.WriteString(stAccent.Render("· ") + stMuted.Width(width).Render(it.Content))
 
 	case ItemMedia:
 		names := make([]string, 0, len(it.Attachments))
@@ -182,7 +182,7 @@ func renderItem(b *strings.Builder, s *State, it *Item, width int, md *markdownR
 			}
 			names = append(names, name)
 		}
-		b.WriteString(stMuted.Width(width).Render("📎 " + strings.Join(names, ", ")))
+		b.WriteString(stAccent.Render("📎 ") + stMuted.Width(width).Render(strings.Join(names, ", ")))
 	}
 }
 
@@ -199,28 +199,26 @@ func renderToolFeedback(content string) string {
 	}
 	name := s[1 : 1+end]
 	rest := strings.TrimSpace(s[2+end:])
-	line := stBold.Render(name)
+	line := stTool.Render(name)
 	if rest != "" {
 		line += " " + stMuted.Render(firstLine(rest))
 	}
 	return line
 }
 
-// renderToolFeedbackLine renders the animated tool feedback line: collapsed
-// shows the bold tool name + first-line preview; expanded (Ctrl+T) shows the
-// full content with diff coloring (+绿/-红，设计 §1)。
+// renderToolFeedbackLine renders the tool feedback: **默认完整展开**
+// （P4 修订①，web ToolCallBlock wrap=true 同款），diff 行着色；Ctrl+O 折叠
+// 为单行标题。
 func renderToolFeedbackLine(it *Item, width int) string {
-	if it.Expanded {
-		var b strings.Builder
-		b.WriteString(renderToolFeedback(it.Content))
-		b.WriteString("\n")
-		b.WriteString(renderDiffColored(it.Content, width))
-		b.WriteString("\n")
-		b.WriteString(stHint.Render("Ctrl+T 收起"))
-		return b.String()
+	title := renderToolFeedback(it.Content)
+	if it.Folded {
+		return stMuted.MaxWidth(width).Render(title + "  " + stHint.Render("(Ctrl+O 展开)"))
 	}
-	line := renderToolFeedback(it.Content)
-	return stMuted.MaxWidth(width).Render(line)
+	var b strings.Builder
+	b.WriteString(title)
+	b.WriteString("\n")
+	b.WriteString(renderDiffColored(it.Content, width))
+	return b.String()
 }
 
 // renderDiffColored wraps content lines and colors diff-looking line starts.
@@ -350,19 +348,15 @@ func renderCompletionPopup(cs *completionState, width int) []string {
 	return out
 }
 
-// renderThought renders the folding reasoning block：pi 同款「Thinking…」
-// italic muted 标签（P4 §2），Ctrl+T 切换；流式期间显示尾部 3 行。
+// renderThought renders the reasoning block：**默认完整展开**（P4 修订①，
+// web ThinkingBlock wrap=true 同款），流式期间全量实时可见；Ctrl+T 折叠
+// 为单行「Thinking…」标签。
 func renderThought(it *Item, width int) string {
 	label := stThink.Render("Thinking…")
-
-	if it.Expanded || it.Streaming {
-		lines := strings.Split(strings.TrimRight(it.Content, "\n"), "\n")
-		if !it.Expanded && len(lines) > 3 {
-			lines = lines[len(lines)-3:]
-		}
-		return label + "\n" + stThink.Width(width).Render(strings.Join(lines, "\n"))
+	if it.Folded {
+		return label
 	}
-	return label
+	return label + "\n" + stThink.Width(width).Render(strings.TrimRight(it.Content, "\n"))
 }
 
 // displayVersion strips the redundant "(git: xxx)" suffix that

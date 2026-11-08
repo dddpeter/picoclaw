@@ -199,11 +199,18 @@ func renderFooterPi(m *appModel) string {
 			trimTrailingDotZero(fmt.Sprintf("%.1f", pct)) + "%/" + formatTokens(u.TotalTokens)))
 	}
 	right := m.state.ModelName
+	if right == "" {
+		right = m.defaultModel // 启动种子：config 默认模型（P4 修订②）
+	}
 	if m.state.Generating {
 		frame := spinnerFrames[m.spinnerIdx%len(spinnerFrames)]
-		right = string(frame) + " " + elapsed(m.state.GeneratingSince)
+		elapsedLabel := string(frame) + " " + elapsed(m.state.GeneratingSince)
+		if right != "" {
+			elapsedLabel += " · " + right
+		}
+		right = elapsedLabel
 	}
-	l2 := joinLeftRight(stDim.Render(stats.String()), stDim.Render(right), m.width)
+	l2 := joinLeftRight(stDim.Render(stats.String()), stMuted.Render(right), m.width)
 
 	return clipLine(l1.String(), m.width) + "\n" + clipLine(l2, m.width)
 }

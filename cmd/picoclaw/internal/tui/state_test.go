@@ -169,10 +169,10 @@ func TestState_ToggleLastThought(t *testing.T) {
 	s.Apply(msg(pico.TypeMessageCreate, map[string]any{
 		"message_id": "t2", "content": "再想", "kind": "thought",
 	}))
-	if !s.ToggleLastThought() || s.Items[0].Expanded || !s.Items[1].Expanded {
+	if !s.ToggleLastThought() || s.Items[0].Folded || !s.Items[1].Folded {
 		t.Fatal("toggle must flip only the latest thought")
 	}
-	if !s.ToggleLastThought() || s.Items[1].Expanded {
+	if !s.ToggleLastThought() || s.Items[1].Folded {
 		t.Fatal("second toggle must collapse it back")
 	}
 }
@@ -376,10 +376,10 @@ func TestState_ToggleLastToolFeedback(t *testing.T) {
 	s.Apply(msg(pico.TypeMessageCreate, map[string]any{
 		"message_id": "f1", "content": "🔧 `exec` 运行中…",
 	}))
-	if !s.ToggleLastToolFeedback() || !s.Items[0].Expanded {
+	if !s.ToggleLastToolFeedback() || !s.Items[0].Folded {
 		t.Fatal("toggle must expand the tool feedback")
 	}
-	if !s.ToggleLastToolFeedback() || s.Items[0].Expanded {
+	if !s.ToggleLastToolFeedback() || s.Items[0].Folded {
 		t.Fatal("toggle must collapse again")
 	}
 }
@@ -479,7 +479,7 @@ func TestToggleToolFeedbackSkipsCards(t *testing.T) {
 		t.Fatal("toggle should hit the plain feedback line")
 	}
 	for i := range s.Items {
-		if s.Items[i].Approval != nil && s.Items[i].Expanded {
+		if s.Items[i].Approval != nil && s.Items[i].Folded {
 			t.Fatal("approval card must not be toggled")
 		}
 	}
@@ -491,5 +491,42 @@ func TestToggleToolFeedbackSkipsCards(t *testing.T) {
 	}))
 	if s2.ToggleLastToolFeedback() {
 		t.Fatal("toggle must skip when only cards exist")
+	}
+}
+
+// P4 修订①：思考默认完整展开（web wrap=true），Ctrl+T 折叠为标签。
+func TestThoughtDefaultExpandedFoldable(t *testing.T) {
+	s := NewState()
+	s.Apply(msg(pico.TypeMessageCreate, map[string]any{
+		"message_id": "t1", "content": "第一行推理\n第二行推理\n第三行推理\n第四行推理", "kind": "thought",
+	}))
+	out := renderTimeline(s, 80, nil)
+	if !strings.Contains(out, "第一行推理") || !strings.Contains(out, "第四行推理") {
+		t.Fatalf("thought must render fully by default:\n%s", out)
+	}
+	s.ToggleLastThought()
+	out = renderTimeline(s, 80, nil)
+	if strings.Contains(out, "第一行推理") || !strings.Contains(out, "Thinking…") {
+		t.Fatalf("folded thought must show only the label:\n%s", out)
+	}
+}
+
+// P4 修订①：工具反馈默认完整展开（diff 着色保留），Ctrl+O 折叠为单行。
+func TestToolFeedbackDefaultExpandedFoldable(t *testing.T) {
+	s := NewState()
+	s.Apply(msg(pico.TypeMessageCreate, map[string]any{
+		"message_id": "f1", "content": "🔧 `exec` 运行中\n+added line\n-removed line\nplain line",
+	}))
+	out := renderTimeline(s, 80, nil)
+	if !strings.Contains(out, "added line") || !strings.Contains(out, "plain line") {
+		t.Fatalf("tool feedback must render fully by default:\n%s", out)
+	}
+	s.ToggleLastToolFeedback()
+	out = renderTimeline(s, 80, nil)
+	if strings.Contains(out, "plain line") {
+		t.Fatalf("folded feedback must collapse to the title line:\n%s", out)
+	}
+	if !strings.Contains(out, "exec") {
+		t.Fatalf("folded feedback keeps the tool title:\n%s", out)
 	}
 }

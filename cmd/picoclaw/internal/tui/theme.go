@@ -36,6 +36,10 @@ const (
 	colAccentRowBg = "97" // 浮层选中行底色：低饱和紫（accent 同族）
 	colDiffAddBg   = "22" // diff + 行底色：暗绿
 	colDiffDelBg   = "52" // diff - 行底色：暗红（同 toolErrorBg）
+
+	// P4 修订③：色彩丰富化——思考紫罗兰（italic 保留）、工具名青色。
+	colThink = "176" // thinking 紫（okhsl 午夜紫系，与 accent 同族但更柔）
+	colTool  = "80"  // 工具名/工具标题 青（cyan）
 )
 
 var (
@@ -56,9 +60,12 @@ var (
 	stText  = lipgloss.NewStyle().Foreground(cText)
 	stMuted = lipgloss.NewStyle().Foreground(cMuted)
 	stDim   = lipgloss.NewStyle().Foreground(cDim).Faint(true)
-	// 强调：bold 只给工具名/品牌，italic 只给 thinking
-	stBold  = lipgloss.NewStyle().Foreground(cText).Bold(true)
-	stThink = lipgloss.NewStyle().Foreground(cMuted).Italic(true)
+	// 强调：bold 只给品牌，italic 只给 thinking
+	stBold = lipgloss.NewStyle().Foreground(cText).Bold(true)
+
+	// P4 修订③：思考紫（italic）、工具青（bold）
+	stThink = lipgloss.NewStyle().Foreground(lipgloss.Color(colThink)).Italic(true)
+	stTool  = lipgloss.NewStyle().Foreground(lipgloss.Color(colTool)).Bold(true)
 
 	stBrand    = lipgloss.NewStyle().Foreground(cAccent).Bold(true)
 	stHead     = lipgloss.NewStyle().Foreground(cHead)
