@@ -390,6 +390,37 @@ func TestRenderUIToolInvalidBatchRejected(t *testing.T) {
 			}},
 			want: "not reachable",
 		},
+		{
+			// Third live incident (2026-11-14, second retest): the model used
+			// the same id for a Column container and the Row inside it — the
+			// renderer throws "Duplicate component ID" and the batch dies.
+			name: "duplicate component id",
+			args: map[string]any{"messages": []any{
+				map[string]any{
+					"version":       "v0.9",
+					"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+				},
+				map[string]any{
+					"version": "v0.9",
+					"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{
+						map[string]any{"id": "root", "component": "Card", "child": "c2"},
+						map[string]any{"id": "c2", "component": "Column", "children": []any{"r1"}},
+						map[string]any{"id": "r1", "component": "Column", "children": []any{}},
+						map[string]any{"id": "r1", "component": "Row", "children": []any{"x"}},
+						map[string]any{"id": "x", "component": "Text", "text": "dup"},
+					}},
+				},
+			}},
+			want: "duplicate component id",
+		},
+		{
+			name: "catalogId not the registered basic catalog",
+			args: map[string]any{"messages": []any{map[string]any{
+				"version":       "v0.9",
+				"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://example.com/catalog.json"},
+			}}},
+			want: "registered catalog",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -487,6 +518,10 @@ func TestRenderUIToolSchemaContract(t *testing.T) {
 		// renderer mounts the tree at the component with id "root".
 		`id MUST be "root"`,
 		`reachable from "root"`,
+		// Uniqueness + exact-catalogId teaching locked after the third live
+		// incident (duplicate year ids killed the batch).
+		`UNIQUE across the whole components array`,
+		`catalogId must be EXACTLY`,
 	} {
 		if !strings.Contains(desc, want) {
 			t.Errorf("messages description missing %q: %s", want, desc)

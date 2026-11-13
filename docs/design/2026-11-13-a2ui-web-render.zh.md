@@ -196,6 +196,24 @@ DOM 渲染），三种载体两对错，说明"fixture 对"不等于"规则被�
 - 两处 Go fixture 的根改 `"root"`，render_ui 测试 fixture 顺带修掉潜伏的孤儿 Text（c3 原本
   不在任何父的 children 里）。
 
+### 3.4 第四次实测缺陷：组件 id 重复 → 整批拒绝（2026-11-14 二次重测）
+
+根规则生效后模型批次形状又进一层：分帧/键集/props/root/可达性全对，但**组件 id 重复**——
+每年（bar2018…bar2024）的 id 同时给了外层 Column 容器和内层 Row，36 个组件里 7 对重名。
+实测 web_core：`processMessages` 对重复 id 直接抛 `Duplicate component ID: 'bar2018'`（不是
+警告），整批拒绝 → 错误占位卡。Go 门的 byID map 是"后者覆盖"语义，没有拦截。
+
+顺带收敛的另一个已知致命项：**catalogId 精确匹配**——前端只注册 basicCatalog 一个目录，
+catalogId 写错（或缺失）= surface 无目录可解析的死卡；strict schema 里 catalogId 必填。
+修复：
+- 门新增重复 id 检查（renderUIRootViolation 内，错误引用渲染器的原话）与
+  createSurface.catalogId 精确匹配检查（`renderUIBasicCatalogID` 常量）。
+- description 补"ids must be UNIQUE across the whole components array"与
+  "catalogId must be EXACTLY …"。
+- 至此工具门覆盖的致命类：非 JSON/非数组、version 缺失、分支缺失/多分支、分支键集、
+  组件名白名单、id 缺失、根缺失、孤儿组件、id 重复、catalogId 错误、256KB 超限——
+  剩余的 props 精度仍由 description 承担（防上游演进误拒）。
+
 ## 4. 实现与计划的偏差
 
 ### 4.1 任务 5：历史回放选了"无 marker 提取"（计划 A/B 的第三条路）

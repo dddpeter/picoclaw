@@ -60,6 +60,14 @@ var renderUIBranchAllowedKeys = map[string]map[string]bool{
 	"deleteSurface":    {"surfaceId": true},
 }
 
+// renderUIBasicCatalogID is the exact catalogId the frontend registers (the
+// v0.9 basicCatalog). The strict schema requires catalogId on createSurface,
+// and an id that does not resolve to a registered catalog leaves the surface
+// without a catalog to render against — dead card. Enforcing the exact match
+// (the only catalog the web frontend ships) turns a typo into a retryable
+// error.
+const renderUIBasicCatalogID = "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"
+
 // renderUIBasicCatalogComponents is the closed component-name whitelist of
 // the v0.9 basicCatalog. The renderer fails a batch whose component falls
 // outside this set (catalog-level lookup); catching it here is a cheap
@@ -118,7 +126,8 @@ func (t *RenderUITool) Parameters() map[string]any {
 				},
 				"description": `Array of A2UI v0.9 messages in FRAME shape (the renderer schema is strict). ` +
 					`First message creates the surface: {"version":"v0.9","createSurface":{"surfaceId":"<unique-id>","catalogId":"https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"}} ` +
-					`— createSurface allows ONLY surfaceId + catalogId (plus optional theme/sendDataModel); do NOT add "title" or any other key (unknown keys reject the whole batch). ` +
+					`— createSurface allows ONLY surfaceId + catalogId (plus optional theme/sendDataModel); do NOT add "title" or any other key (unknown keys reject the whole batch); ` +
+					`catalogId must be EXACTLY "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json" (the only registered catalog — no other id resolves). ` +
 					`Then one message per update, reusing the SAME surfaceId: ` +
 					`{"version":"v0.9","updateComponents":{"surfaceId":"<id>","components":[...]}}, and optionally ` +
 					`{"version":"v0.9","updateDataModel":{"surfaceId":"<id>","path":"/","value":{...}}}. ` +
@@ -126,7 +135,8 @@ func (t *RenderUITool) Parameters() map[string]any {
 					`{"version":"v0.9","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Card","child":"c2"},{"id":"c2","component":"Text","text":"hello"}]}},` +
 					`{"version":"v0.9","updateDataModel":{"surfaceId":"s1","path":"/","value":{"title":"hello"}}}] — ` +
 					`the TOP-LEVEL component's id MUST be "root": the renderer always renders the tree rooted at the component named "root" (any other root id renders an empty card), ` +
-					`and every component must be reachable from "root" via child/children references (unreachable components never render); ` +
+					`every component must be reachable from "root" via child/children references (unreachable components never render), ` +
+					`and component ids must be UNIQUE across the whole components array (a duplicate id makes the renderer reject the batch); ` +
 					`every message top level allows ONLY "version" plus exactly ONE of ` + renderUIBranchKeysDoc + `; ` +
 					`do NOT inline components or dataModel inside createSurface (the strict schema rejects them with Unrecognized key(s)). ` +
 					`components entries are {id, component, ...props}; props are STRICT and per-component: ` +
@@ -271,6 +281,9 @@ func renderUIEnvelopeViolation(items []any) error {
 			branches++
 			if key == "createSurface" {
 				hasCreateSurface = true
+				if cid, _ := payload["catalogId"].(string); cid != renderUIBasicCatalogID {
+					return fmt.Errorf("messages[%d]: createSurface.catalogId %q does not name a registered catalog — use exactly %q", i, cid, renderUIBasicCatalogID)
+				}
 			}
 		}
 		if branches != 1 {
@@ -283,15 +296,18 @@ func renderUIEnvelopeViolation(items []any) error {
 	return renderUIRootViolation(items)
 }
 
-// renderUIRootViolation checks the batch's component forest: at least one
-// component with id "root" must exist, and every component must be
+// renderUIRootViolation checks the batch's component forest: component ids
+// must be unique (the renderer throws "Duplicate component ID"), at least
+// one component with id "root" must exist, and every component must be
 // reachable from it via child/children references. The renderer always
 // mounts SurfaceModel.rootId — which the v0.9 adapter pins to the literal
 // "root" (createSurface carries no root field) — so any other root id
 // renders an empty card no matter how many components were delivered
 // (observed live 2026-11-14: 24 components, root named "c1", empty card),
-// and components orphaned from the tree never render at all. Path-bound
-// children ({"path":...}) are opaque here and skipped, not traversed.
+// components orphaned from the tree never render at all, and a duplicated
+// id aborts the whole batch (observed live 2026-11-14 second batch: year
+// ids used for both a Column and its inner Row). Path-bound children
+// ({"path":...}) are opaque here and skipped, not traversed.
 func renderUIRootViolation(items []any) error {
 	byID := map[string]map[string]any{}
 	var order []string
@@ -317,9 +333,10 @@ func renderUIRootViolation(items []any) error {
 			if id == "" {
 				continue // 缺 id 已由 renderUIComponentsViolation 拦截
 			}
-			if _, seen := byID[id]; !seen {
-				order = append(order, id)
+			if _, exists := byID[id]; exists {
+				return fmt.Errorf("duplicate component id %q — every component must have a unique id across the whole batch (the renderer rejects duplicates with \"Duplicate component ID\")", id)
 			}
+			order = append(order, id)
 			byID[id] = comp
 		}
 	}
