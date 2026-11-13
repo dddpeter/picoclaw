@@ -18,9 +18,9 @@
   - 非 pico 渠道（飞书/TUI）降级为零新代码：`OutboundMessage.Content` 携带纯文本兜底（summary 参数优先，缺省从组件树生成摘要），现有渠道逻辑直接显示
   - 开关：注册走 `cfg.Tools.IsToolEnabled("render_ui")` 门（无独立配置键，默认分支放行 = 默认开启）
 
-### Known Issues
+### Fixed
 
-- `render_ui` 工具的 LLM 参数描述示例仍是 components/dataModel 内联在 `createSurface` 的旧形态，会被 v0.9 strict zod 拒绝（前端显示错误占位卡而非崩）；模型自用分帧形态（createSurface → updateComponents → updateDataModel）则正常。修复面仅 `pkg/tools/render_ui.go` 的 description 字符串，详见设计文档 §3.1
+- **`render_ui` 工具描述与校验门对齐 v0.9 strict schema（fix round 1，端到端验证发现）**：messages 参数描述由 components/dataModel 内联在 `createSurface` 的错误形态（会被前端 strict zod 拒、渲染错误占位卡）改为分帧示例——首条 `createSurface` 封包（仅 surfaceId/catalogId/theme?/sendDataModel?）→ `updateComponents` 分帧 → 可选 `updateDataModel`，顶层只允许 `version` + 四分支之一；工具校验门同步修正——旧门要求每条消息都带 `createSurface`，会拒绝合法分帧批次，现改为每条消息恰好一个非空 union 分支 + 批内至少一条 `createSurface`，旧内联形态不再被工具预拒（前端 zod 是 schema 权威、占位卡兜底）；纯文本兜底摘要改从分帧组件与数据模型字符串生成（path 绑定文本也进兜底），预修复内联批次的历史回放兜底保持兼容。详见设计文档 §3.1
 
 ## [0.5.6] - 2026-11-08
 

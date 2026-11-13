@@ -2250,8 +2250,10 @@ func TestHandleGetSession_TurnActiveFromTurnMarker(t *testing.T) {
 	}
 }
 
-// a2uiTestBatch is a minimal valid A2UI v0.9 message batch (same shape the
-// render_ui tool validates before publishing).
+// a2uiTestBatch is a minimal valid A2UI v0.9 message batch (same frame shape
+// the render_ui tool validates before publishing: createSurface envelope +
+// updateComponents frame + updateDataModel frame — components are never
+// inlined in createSurface, the strict zod adapter rejects that).
 func a2uiTestBatch() []any {
 	return []any{
 		map[string]any{
@@ -2259,10 +2261,24 @@ func a2uiTestBatch() []any {
 			"createSurface": map[string]any{
 				"surfaceId": "surface-1",
 				"catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json",
+			},
+		},
+		map[string]any{
+			"version": "v0.9",
+			"updateComponents": map[string]any{
+				"surfaceId": "surface-1",
 				"components": []any{
-					map[string]any{"id": "c1", "component": "Card", "label": "季度体检人数"},
-					map[string]any{"id": "c2", "component": "Text", "text": "2026 Q1: 128 人"},
+					map[string]any{"id": "c1", "component": "Card", "child": "c2"},
+					map[string]any{"id": "c2", "component": "Text", "text": "季度体检人数"},
 				},
+			},
+		},
+		map[string]any{
+			"version": "v0.9",
+			"updateDataModel": map[string]any{
+				"surfaceId": "surface-1",
+				"path":      "/",
+				"value":     map[string]any{"rows": []any{"2026 Q1: 128 人"}},
 			},
 		},
 	}

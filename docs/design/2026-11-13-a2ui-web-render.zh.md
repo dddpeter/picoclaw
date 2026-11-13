@@ -124,16 +124,24 @@ MessageProcessor 实测（2026-11-13，node 直跑验证）。
 basicCatalog 组件清单：Text/Image/Icon/Video/AudioPlayer/Row/Column/List/Card/Tabs/Modal/Divider/
 Button/TextField/CheckBox/ChoicePicker/Slider/DateTimeInput（无 Chart，图表二期，见 §6）。
 
-### 3.1 已知缺陷：工具参数描述与 schema 不符（待修复）
+### 3.1 已修复缺陷：工具参数描述与校验门按真实 schema 改为分帧（fix round 1）
 
-`pkg/tools/render_ui.go:72-75` 的 messages 参数 description 教模型产出
+`pkg/tools/render_ui.go` 的 messages 参数 description 曾教模型产出
 `createSurface:{..., "components":[...], "dataModel":{}}` 的**内联形态**——该形态会被 strict zod 拒绝
-（实测报 `Unrecognized key(s) in object: 'components', 'dataModel'`），前端渲染错误占位卡。
-正确形态是上面的分帧三消息。Go 侧三门不校验 components 位置，所以工具会"成功"发布一条渲染必败的
-批次。**影响**：模型严格照抄工具描述时卡片渲染失败（降级占位文案，不崩）；模型自用分帧形态则正常。
-**修复面**：仅 `render_ui.go` 的 description 字符串改为分帧示例（`TestRenderUIToolSchemaContract`
-只断言描述含 `{"version":"v0.9","createSurface":` 前缀，不锁定错误形态，无需改测试）。
-根因：任务 2 先落地时抄了计划全局约束里的（不准确）示例，任务 4 TDD 发现真实 schema 时未回改工具描述。
+（实测报 `Unrecognized key(s) in object: 'components', 'dataModel'`），前端渲染错误占位卡；且旧校验门
+要求**每条**消息都带 `createSurface`，会反过来**拒绝合法的分帧批次**（updateComponents/updateDataModel
+帧没有 createSurface）。2026-11-13 端到端验证发现后修复：
+
+- description 改教分帧形态：首条 `createSurface` 封包（仅 surfaceId/catalogId/theme?/sendDataModel?）+
+  `updateComponents` 分帧 + 可选 `updateDataModel`，明确"顶层只允许 version + 四分支之一，不要内联"；
+  `TestRenderUIToolSchemaContract` 锁定新描述关键内容，并断言旧内联示例已从描述中消失。
+- 校验门放宽为与真实 schema 一致：每条消息 `version` 前缀 + **恰好一个**非空 union 分支
+  （createSurface/updateComponents/updateDataModel/deleteSurface），批内至少一条 createSurface 封包；
+  旧内联形态不再被工具预拒（前端 zod 是 schema 权威、错误占位卡兜底）——
+  `TestRenderUIToolLegacyInlineBatchStillPublishes` 锁定，预修复持久化批次的历史回放因此保持一致语义。
+- 兜底摘要改读分帧：updateComponents 的组件 + updateDataModel 的字符串叶子（path 绑定文本也进兜底），
+  `createSurface.components` 仅作历史内联批次的兼容读取。
+根因：任务 2 先落地时抄了计划全局约束里的（不准确）内联示例，任务 4 TDD 发现真实 schema 时未回改工具侧。
 
 ## 4. 实现与计划的偏差
 
@@ -158,7 +166,7 @@ assistant 消息。弃 B 的实证理由：刷新后连文本兜底都不在—�
 | 工具成功反馈 | 未提 | `Silent: true` | 成功不进工具反馈流，避免噪音 |
 | i18n | 未提 | `chat.a2uiTitle`/`chat.a2uiRenderFailed` 五语言（zh/en/bn-in/cs/pt-br） | 卡片标题与错误占位 |
 | 兜底 Content | 未提推导细节 | summary 参数 → 组件树逐行摘要 → `Interactive UI (N message(s))` | live 与历史回放同一路推导，逐字节一致 |
-| 封包示例 | 全局约束给的是内联形态 | 实际 schema 只收分帧形态 | 即 §3.1 缺陷，唯一待修复项 |
+| 封包示例 | 全局约束给的是内联形态 | 实际 schema 只收分帧形态 | 曾致 §3.1 缺陷，fix round 1 已按分帧修复 |
 
 ## 5. 测试与验证状态
 
@@ -166,7 +174,8 @@ assistant 消息。弃 B 的实证理由：刷新后连文本兜底都不在—�
 
 - Go：`pkg/channels/pico/pico_test.go` TestPicoA2UI_SendCarriesA2UIPayload；
   `pkg/tools/render_ui_test.go` TestRenderUIToolValidBatchPublishesUI / …SummaryParamWinsAsFallbackContent /
-  …InvalidBatchRejected / …OversizedBatchRejected / …SchemaContract / TestRenderUIHistoryMessages；
+  …InvalidBatchRejected / …OversizedBatchRejected / …SchemaContract / …LegacyInlineBatchStillPublishes /
+  TestRenderUIHistoryMessages；
   `web/backend/api/session_test.go` TestSessionA2UIHistoryReplay / TestSessionA2UIHistoryReplayInvalidBatchNotResurfaced（任务 5）。
 - 前端：`turns.test.ts` "buildTurns a2ui block" 3 用例；`protocol.test.ts` parseA2uiFromPayload 2 用例；
   `a2ui-card.test.tsx` 2 用例（合法 surface 渲染出 custom element + 数据文本；畸形封包渲染占位不抛）。
@@ -180,7 +189,7 @@ cgo 构建失败）——差集为空，**无回归**。前端 vitest 75/75 通�
 **待用户手测**（涉及真实模型与多渠道环境，本文不代测）：
 
 1. pico web 会话中让模型"用 render_ui 画一张 2026 年季度体检人数表格"——流式中卡片出现
-   （注意 §3.1 缺陷：模型若照抄工具描述会得错误占位卡，手测可顺带确认修复前行为）。
+   （§3.1 缺陷已修复：工具描述现教分帧形态，模型照抄即可正常渲染）。
 2. 刷新页面——卡片仍在（历史回放路径）。
 3. 飞书渠道同会话调用 render_ui——显示纯文本兜底（Content），无 JSON 原文泄漏。
 
