@@ -113,12 +113,15 @@ func (t *RenderUITool) Description() string {
 // Parameters returns the tool parameters schema. The messages description
 // teaches the FRAME shape the strict v0.9 zod adapter accepts: a
 // createSurface envelope first, then one message per update
-// (updateComponents / updateDataModel). Inlining components or dataModel
-// inside createSurface is rejected by the renderer — the original inline
-// wording here was a verified defect and is deliberately gone. It also
-// teaches the interaction uplink contract: Button event.context {path}
-// bindings collect form values from the dataModel at click time, and the
-// user's interaction arrives as a "[A2UI 交互]"-prefixed user message.
+// (updateComponents / updateDataModel), plus the task-4 streamed-increment
+// usage — call render_ui again with delta frames only (same surfaceId, no
+// createSurface) to update an existing surface in place. Inlining
+// components or dataModel inside createSurface is rejected by the renderer
+// — the original inline wording here was a verified defect and is
+// deliberately gone. It also teaches the interaction uplink contract:
+// Button event.context {path} bindings collect form values from the
+// dataModel at click time, and the user's interaction arrives as a
+// "[A2UI 交互]"-prefixed user message.
 func (t *RenderUITool) Parameters() map[string]any {
 	return map[string]any{
 		"type": "object",
@@ -135,6 +138,8 @@ func (t *RenderUITool) Parameters() map[string]any {
 					`Then one message per update, reusing the SAME surfaceId: ` +
 					`{"version":"v0.9","updateComponents":{"surfaceId":"<id>","components":[...]}}, and optionally ` +
 					`{"version":"v0.9","updateDataModel":{"surfaceId":"<id>","path":"/","value":{...}}}. ` +
+					`To update an existing surface in place, call render_ui again with updateComponents/updateDataModel frames only ` +
+					`(same surfaceId, no createSurface) — the streamed delta merges into that card. ` +
 					`Example: [{"version":"v0.9","createSurface":{"surfaceId":"s1","catalogId":"https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"}},` +
 					`{"version":"v0.9","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Card","child":"c2"},{"id":"c2","component":"Text","text":"hello"}]}},` +
 					`{"version":"v0.9","updateDataModel":{"surfaceId":"s1","path":"/","value":{"title":"hello"}}}] — ` +
@@ -195,8 +200,9 @@ func (t *RenderUITool) Execute(ctx context.Context, args map[string]any) *ToolRe
 		return &ToolResult{ForLLM: "messages is not valid JSON", IsError: true}
 	}
 
-	// Gate 2: frame check — per-message version + exactly one union branch,
-	// and at least one createSurface envelope in the batch.
+	// Gate 2: frame check — per-message version + exactly one union branch;
+	// a batch carrying a createSurface envelope additionally passes the tree
+	// gates, one without is an update-only delta (delta-local checks only).
 	if violation := renderUIEnvelopeViolation(items); violation != nil {
 		return &ToolResult{ForLLM: violation.Error(), IsError: true}
 	}
@@ -264,14 +270,22 @@ func (t *RenderUITool) Execute(ctx context.Context, args map[string]any) *ToolRe
 // batch (Execute gate 2), or nil when every message is an object with a
 // compatible version carrying exactly one non-empty union branch payload,
 // every branch payload stays within its strict key subset, updateComponents
-// entries reference known basicCatalog components with ids, every branch
-// payload targets the same non-empty surfaceId, and the batch contains at
-// least one createSurface envelope. The legacy inline shape
-// (components inside createSurface) is rejected by the key-subset check:
-// nothing published that shape before the frame-shape fix, so tolerance
-// would only mask model mistakes the model could otherwise retry out of.
-// Shared with RenderUIHistoryMessages so history replay applies the exact
-// live gates.
+// entries reference known basicCatalog components with unique ids, and every
+// branch payload targets the same non-empty surfaceId. A batch carrying a
+// createSurface envelope additionally passes the tree gates (root existence,
+// reachability, multi-parent refs); a batch WITHOUT one is an update-only
+// delta (task 4 streamed increments): its frames patch a surface that
+// already rendered live, so the tree gates have no delta to walk and are
+// skipped — a delta never carries the whole tree (a BFS inside it would flag
+// every component "orphan"). The delta-local checks (version / branch count
+// / key subsets / component names / component ids / intra-batch duplicate
+// ids / single surfaceId) still apply, and the frontend processor
+// re-validates the merged tree when applying the delta. The legacy inline
+// shape (components inside createSurface) is rejected by the key-subset
+// check: nothing published that shape before the frame-shape fix, so
+// tolerance would only mask model mistakes the model could otherwise retry
+// out of. Shared with history replay (RenderUIHistoryMessages /
+// RenderUIHistoryFold) so history replay applies the exact live gates.
 func renderUIEnvelopeViolation(items []any) error {
 	hasCreateSurface := false
 	for i, item := range items {
@@ -315,15 +329,27 @@ func renderUIEnvelopeViolation(items []any) error {
 			return fmt.Errorf("messages[%d]: exactly one of %s is required (non-empty object)", i, renderUIBranchKeysDoc)
 		}
 	}
-	if !hasCreateSurface {
-		return fmt.Errorf("batch must contain at least one \"createSurface\" envelope message")
-	}
 	// Single-surfaceId gate: the pico layer merges streamed updates by
 	// (session, surfaceId), so a batch mixing two ids — or missing one —
-	// cannot be attributed to a single card. Shared with history replay
-	// through this envelope gate.
+	// cannot be attributed to a single card. Applies to full batches and
+	// update-only deltas alike. Shared with history replay through this
+	// envelope gate.
 	if _, err := renderUISurfaceID(items); err != nil {
 		return err
+	}
+	// Duplicate component ids are batch-local and meaningful for deltas too:
+	// applying a delta that defines the same id twice collides in the merged
+	// tree ("Duplicate component ID"). Split out of the tree gates so the
+	// delta path below can skip the latter and keep this one.
+	if err := renderUIDuplicateComponentIDViolation(items); err != nil {
+		return err
+	}
+	if !hasCreateSurface {
+		// Update-only delta: root existence, reachability and multi-parent
+		// refs only make sense against the full merged tree, which lives on
+		// the frontend — skipped on purpose (accepted limitation: a bad
+		// delta the frontend rejects on merge gets no retry feedback).
+		return nil
 	}
 	return renderUIRootViolation(items)
 }
@@ -377,17 +403,58 @@ func renderUISurfaceID(items []any) (string, error) {
 	return surfaceID, nil
 }
 
-// renderUIRootViolation checks the batch's component forest: component ids
-// must be unique (the renderer throws "Duplicate component ID"), at least
-// one component with id "root" must exist, and every component must be
+// renderUIDuplicateComponentIDViolation rejects an updateComponents frame
+// set that defines the same component id twice (the renderer throws
+// "Duplicate component ID"; observed live 2026-11-14 second batch: year ids
+// used for both a Column and its inner Row). Split out of the tree gates so
+// update-only deltas — which skip root/reachability/multi-parent — still
+// enforce it: the duplicate lives inside the delta itself and collides in
+// the merged tree.
+func renderUIDuplicateComponentIDViolation(items []any) error {
+	seen := map[string]bool{}
+	for _, item := range items {
+		msg, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		uc, ok := msg["updateComponents"].(map[string]any)
+		if !ok {
+			continue
+		}
+		comps, ok := uc["components"].([]any)
+		if !ok {
+			continue
+		}
+		for _, c := range comps {
+			comp, ok := c.(map[string]any)
+			if !ok {
+				continue
+			}
+			id, _ := comp["id"].(string)
+			if id == "" {
+				continue // 缺 id 已由 renderUIComponentsViolation 拦截
+			}
+			if seen[id] {
+				return fmt.Errorf("duplicate component id %q — every component must have a unique id across the whole batch (the renderer rejects duplicates with \"Duplicate component ID\")", id)
+			}
+			seen[id] = true
+		}
+	}
+	return nil
+}
+
+// renderUIRootViolation checks the batch's component forest: at least one
+// component with id "root" must exist, and every component must be
 // reachable from it via child/children references. The renderer always
 // mounts SurfaceModel.rootId — which the v0.9 adapter pins to the literal
 // "root" (createSurface carries no root field) — so any other root id
 // renders an empty card no matter how many components were delivered
 // (observed live 2026-11-14: 24 components, root named "c1", empty card),
-// components orphaned from the tree never render at all, and a duplicated
-// id aborts the whole batch (observed live 2026-11-14 second batch: year
-// ids used for both a Column and its inner Row). Path-bound children
+// and components orphaned from the tree never render at all. Duplicate ids
+// are checked separately (renderUIDuplicateComponentIDViolation) so
+// update-only deltas — which skip this tree check — still enforce them.
+// Only meaningful for batches carrying a createSurface envelope; the
+// envelope gate routes update-only deltas around it. Path-bound children
 // ({"path":...}) are opaque here and skipped, not traversed.
 func renderUIRootViolation(items []any) error {
 	byID := map[string]map[string]any{}
@@ -413,9 +480,6 @@ func renderUIRootViolation(items []any) error {
 			id, _ := comp["id"].(string)
 			if id == "" {
 				continue // 缺 id 已由 renderUIComponentsViolation 拦截
-			}
-			if _, exists := byID[id]; exists {
-				return fmt.Errorf("duplicate component id %q — every component must have a unique id across the whole batch (the renderer rejects duplicates with \"Duplicate component ID\")", id)
 			}
 			order = append(order, id)
 			byID[id] = comp
@@ -541,53 +605,202 @@ func renderUIComponentNamesDoc() string {
 	return strings.Join(names, ", ")
 }
 
-// RenderUIHistoryMessages extracts the validated A2UI batch and its
-// plain-text fallback from a persisted render_ui tool-call arguments JSON
-// (the full arguments string the pipeline stores verbatim in
-// ToolCalls[].Function.Arguments — A2UI web render history replay). It
-// applies the same gates as Execute (frame check, size cap) so history
-// only resurfaces batches that actually rendered live; ok=false otherwise.
-// fallback mirrors the live OutboundMessage Content derivation (summary
-// argument, else the generated batch text, else a count line). The
-// arguments are decoded key-by-key so a non-string summary (e.g. a
-// number) downgrades to the tree-derived fallback exactly like the live
-// path's args["summary"].(string) assertion miss, instead of failing the
-// whole Unmarshal and silently dropping the card on replay.
-func RenderUIHistoryMessages(argsJSON string) (messages json.RawMessage, fallback string, ok bool) {
+// renderUIDecodeHistoryArgs decodes one persisted render_ui arguments JSON
+// (the full arguments string stored verbatim in
+// ToolCalls[].Function.Arguments) into its message frames and summary,
+// applying the same gates as the live Execute (envelope frame check, size
+// cap). ok=false when the call never rendered live. The arguments are
+// decoded key-by-key so a non-string summary (e.g. a number) downgrades to
+// the tree-derived fallback exactly like the live path's
+// args["summary"].(string) assertion miss, instead of failing the whole
+// Unmarshal and silently dropping the card on replay.
+func renderUIDecodeHistoryArgs(argsJSON string) (items []any, payload json.RawMessage, summary string, ok bool) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(argsJSON), &raw); err != nil {
-		return nil, "", false
+		return nil, nil, "", false
 	}
-	var items []any
 	if msgRaw, exists := raw["messages"]; exists {
 		if err := json.Unmarshal(msgRaw, &items); err != nil {
-			return nil, "", false
+			return nil, nil, "", false
 		}
 	}
 	if len(items) == 0 {
-		return nil, "", false
+		return nil, nil, "", false
 	}
 	if renderUIEnvelopeViolation(items) != nil {
-		return nil, "", false
+		return nil, nil, "", false
 	}
-	payload, err := json.Marshal(items)
-	if err != nil || len(payload) > renderUIMaxBytes {
-		return nil, "", false
+	encoded, err := json.Marshal(items)
+	if err != nil || len(encoded) > renderUIMaxBytes {
+		return nil, nil, "", false
 	}
 	// summary 二次按字符串解码：类型不对（数字/布尔/对象）按空处理，
 	// 与 live 路径的静默降级对齐。
-	var summary string
 	if summaryRaw, exists := raw["summary"]; exists {
 		_ = json.Unmarshal(summaryRaw, &summary)
 	}
-	fallback = strings.TrimSpace(summary)
+	summary = strings.TrimSpace(summary)
+	return items, encoded, summary, true
+}
+
+// renderUIHistoryFallback mirrors the live OutboundMessage Content
+// derivation: the summary argument, else the generated batch text, else a
+// count line.
+func renderUIHistoryFallback(items []any, summary string) string {
+	fallback := summary
 	if fallback == "" {
 		fallback = renderUITextSummary(items)
 	}
 	if fallback == "" {
 		fallback = fmt.Sprintf("Interactive UI (%d A2UI message(s))", len(items))
 	}
-	return payload, fallback, true
+	return fallback
+}
+
+// RenderUIHistoryMessages extracts the validated A2UI batch and its
+// plain-text fallback from a persisted render_ui tool-call arguments JSON
+// (A2UI web render history replay). It applies the same gates as Execute
+// (frame check, size cap) so history only resurfaces batches that actually
+// rendered live; ok=false otherwise. Task 4: an update-only delta batch (no
+// createSurface envelope) passes too — ok=true with the verbatim delta
+// frames, so new callers can key it by its surfaceId. Single-batch semantics
+// unchanged for createSurface batches. For a call sequence folded by
+// surfaceId use RenderUIHistoryFold.
+func RenderUIHistoryMessages(argsJSON string) (messages json.RawMessage, fallback string, ok bool) {
+	items, payload, summary, ok := renderUIDecodeHistoryArgs(argsJSON)
+	if !ok {
+		return nil, "", false
+	}
+	return payload, renderUIHistoryFallback(items, summary), true
+}
+
+// RenderUIHistoryItem is one fold result per input call, in the same order
+// and length as the arguments list passed to RenderUIHistoryFold.
+type RenderUIHistoryItem struct {
+	// A2UI carries the folded card batch for the call that establishes the
+	// surviving card of its surfaceId: the create batch's frames plus every
+	// merged update-only batch's frames (components/delete frames appended,
+	// updateDataModel frames overwritten per path). Empty for update-only
+	// calls merged into an earlier card and for create calls superseded by
+	// a later create of the same surfaceId.
+	A2UI json.RawMessage
+	// Fallback is the plain text to show for this call: the folded card's
+	// caption on the establishing call (the create call's summary param,
+	// else re-derived from the merged final frames), the derived summary for
+	// an orphan update-only call (text-only, no card), empty when the call
+	// contributes nothing visible to the transcript.
+	Fallback string
+}
+
+// RenderUIHistoryFold folds a call-ordered list of persisted render_ui
+// arguments JSON strings into history-replay items by surfaceId (A2UI web
+// render history replay, phase 2): a createSurface batch establishes the
+// card for its surfaceId, later update-only batches merge their frames into
+// it (components/delete frames appended, updateDataModel frames overwritten
+// per path — last value wins, mirroring live replay order), a second
+// createSurface for the same surfaceId replaces the card with the last one
+// (discarding the previous card and any updates merged into it), and an
+// update-only batch with no matching card stays text-only (its fallback
+// surfaces, no card). Calls the live gates reject (frame check, size cap)
+// contribute nothing — history never resurfaces batches that never rendered.
+// The result is parallel to the input: one item per call, in call order.
+func RenderUIHistoryFold(argsJSONList []string) []RenderUIHistoryItem {
+	items := make([]RenderUIHistoryItem, len(argsJSONList))
+
+	type cardState struct {
+		frames    []any
+		createIdx int
+		summary   string
+	}
+	cards := map[string]*cardState{}
+
+	for i, argsJSON := range argsJSONList {
+		frames, _, summary, ok := renderUIDecodeHistoryArgs(argsJSON)
+		if !ok {
+			continue // rejected live: nothing resurfaces, no text either
+		}
+		surfaceID, err := renderUISurfaceID(frames)
+		if err != nil { // defensive: unreachable after the envelope gate
+			continue
+		}
+		hasCreate := false
+		for _, frame := range frames {
+			if msg, isMsg := frame.(map[string]any); isMsg {
+				if _, isCreate := msg["createSurface"]; isCreate {
+					hasCreate = true
+					break
+				}
+			}
+		}
+		if hasCreate {
+			// New card for this surfaceId — a later create replaces the
+			// previous one ("take the last card"), discarding any updates
+			// already merged into it.
+			cards[surfaceID] = &cardState{frames: frames, createIdx: i, summary: summary}
+			continue
+		}
+		state := cards[surfaceID]
+		if state == nil {
+			// Orphan update-only: no card to merge into — text fallback
+			// only, no card.
+			items[i] = RenderUIHistoryItem{Fallback: renderUIHistoryFallback(frames, summary)}
+			continue
+		}
+		// Merge into the card: components/delete frames append;
+		// updateDataModel frames overwrite the frame targeting the same
+		// path in place (last value wins, matching live replay order), so
+		// the folded card carries the final dataModel.
+		for _, frame := range frames {
+			if merged := mergeDataModelFrame(state.frames, frame); merged {
+				continue
+			}
+			state.frames = append(state.frames, frame)
+		}
+	}
+
+	// Emit the surviving cards at their create call's transcript position.
+	for _, state := range cards {
+		encoded, err := json.Marshal(state.frames)
+		if err != nil { // defensive: frames came from decoded JSON
+			continue
+		}
+		items[state.createIdx] = RenderUIHistoryItem{
+			A2UI:     encoded,
+			Fallback: renderUIHistoryFallback(state.frames, state.summary),
+		}
+	}
+	return items
+}
+
+// mergeDataModelFrame overwrites an existing updateDataModel frame with the
+// same path in the card's frame list and reports whether it did. Non-
+// updateDataModel frames never merge.
+func mergeDataModelFrame(cardFrames []any, frame any) bool {
+	msg, ok := frame.(map[string]any)
+	if !ok {
+		return false
+	}
+	dm, ok := msg["updateDataModel"].(map[string]any)
+	if !ok {
+		return false
+	}
+	path, _ := dm["path"].(string)
+	for j, existing := range cardFrames {
+		exMsg, ok := existing.(map[string]any)
+		if !ok {
+			continue
+		}
+		exDM, ok := exMsg["updateDataModel"].(map[string]any)
+		if !ok {
+			continue
+		}
+		exPath, _ := exDM["path"].(string)
+		if exPath == path {
+			cardFrames[j] = frame
+			return true
+		}
+	}
+	return false
 }
 
 // renderUITextSummary derives a plain-text fallback from the batch: a

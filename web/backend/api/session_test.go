@@ -2474,3 +2474,265 @@ func TestSessionA2UIHistoryReplayInvalidBatchNotResurfaced(t *testing.T) {
 		}
 	}
 }
+
+// a2uiUpdateOnlyBatch returns the update-only delta batch for surface-1
+// (task 4 streamed increments): components frame + dataModel frame reusing
+// the same surfaceId, NO createSurface envelope.
+func a2uiUpdateOnlyBatch() []any {
+	return []any{
+		map[string]any{
+			"version": "v0.9",
+			"updateComponents": map[string]any{
+				"surfaceId": "surface-1",
+				"components": []any{
+					map[string]any{"id": "t9", "component": "Text", "text": "追加行"},
+				},
+			},
+		},
+		map[string]any{
+			"version": "v0.9",
+			"updateDataModel": map[string]any{
+				"surfaceId": "surface-1",
+				"path":      "/",
+				"value":     map[string]any{"rows": []any{"2026 Q3: 172 人"}},
+			},
+		},
+	}
+}
+
+// TestSessionA2UIHistoryFoldMergesUpdateIntoCard pins the transcript-level
+// fold (task 4): a createSurface render_ui call establishes the card at its
+// own transcript position and a later update-only call for the same
+// surfaceId merges its frames into that card — exactly one a2ui message
+// carrying the final frames — while an orphan update-only call (surfaceId
+// with no matching card) stays plain text with no card.
+func TestSessionA2UIHistoryFoldMergesUpdateIntoCard(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	dir := sessionsTestDir(t, configPath)
+	store, err := memory.NewJSONLStore(dir)
+	if err != nil {
+		t.Fatalf("NewJSONLStore() error = %v", err)
+	}
+
+	orphanBatch := []any{
+		map[string]any{
+			"version":          "v0.9",
+			"updateComponents": map[string]any{"surfaceId": "surface-9", "components": []any{map[string]any{"id": "w", "component": "Text", "text": "孤儿增量"}}},
+		},
+	}
+	sessionKey := legacyPicoSessionPrefix + "a2ui-fold"
+	for _, msg := range []providers.Message{
+		{Role: "user", Content: "给我一张季度卡"},
+		{
+			Role: "assistant",
+			ToolCalls: []providers.ToolCall{{
+				ID:   "call_create",
+				Type: "function",
+				Function: &providers.FunctionCall{
+					Name:      "render_ui",
+					Arguments: marshalRenderUIArgs(t, a2uiTestBatch(), "季度体检人数表"),
+				},
+			}},
+		},
+		{Role: "tool", Content: "UI rendered: 3 A2UI message(s) delivered", ToolCallID: "call_create"},
+		{
+			Role: "assistant",
+			ToolCalls: []providers.ToolCall{{
+				ID:   "call_update",
+				Type: "function",
+				Function: &providers.FunctionCall{
+					Name:      "render_ui",
+					Arguments: marshalRenderUIArgs(t, a2uiUpdateOnlyBatch(), ""),
+				},
+			}},
+		},
+		{Role: "tool", Content: "UI rendered: 2 A2UI message(s) delivered", ToolCallID: "call_update"},
+		{
+			Role: "assistant",
+			ToolCalls: []providers.ToolCall{{
+				ID:   "call_orphan",
+				Type: "function",
+				Function: &providers.FunctionCall{
+					Name:      "render_ui",
+					Arguments: marshalRenderUIArgs(t, orphanBatch, ""),
+				},
+			}},
+		},
+		{Role: "tool", Content: "UI rendered: 1 A2UI message(s) delivered", ToolCallID: "call_orphan"},
+	} {
+		if err := store.AddFullMessage(nil, sessionKey, msg); err != nil {
+			t.Fatalf("AddFullMessage() error = %v", err)
+		}
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/a2ui-fold", nil)
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var resp struct {
+		Messages []struct {
+			Role    string          `json:"role"`
+			Content string          `json:"content"`
+			A2UI    json.RawMessage `json:"a2ui"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+
+	// Exactly one message carries the folded card: the create batch's frames
+	// plus the appended delta components frame plus the overwritten
+	// dataModel frame.
+	a2uiCount := 0
+	var cardContent string
+	for i := range resp.Messages {
+		msg := &resp.Messages[i]
+		if len(msg.A2UI) == 0 {
+			continue
+		}
+		a2uiCount++
+		cardContent = msg.Content
+		var frames []map[string]any
+		if err := json.Unmarshal(msg.A2UI, &frames); err != nil {
+			t.Fatalf("a2ui field is not a JSON frame array: %v (%s)", err, msg.A2UI)
+		}
+		if len(frames) != 4 {
+			t.Errorf("folded card frames = %d, want 4 (create + components + overwritten dataModel + appended delta components): %s", len(frames), msg.A2UI)
+		}
+		if !strings.Contains(string(msg.A2UI), "追加行") || !strings.Contains(string(msg.A2UI), "2026 Q3: 172 人") {
+			t.Errorf("folded card missing the merged delta frames: %s", msg.A2UI)
+		}
+		if strings.Count(string(msg.A2UI), "updateDataModel") != 1 {
+			t.Errorf("folded card should carry ONE dataModel frame (overwritten per path): %s", msg.A2UI)
+		}
+	}
+	if a2uiCount != 1 {
+		t.Fatalf("messages carrying a2ui = %d, want 1 (resp=%s)", a2uiCount, rec.Body.String())
+	}
+	// The card caption stays the create call's summary param.
+	if cardContent != "季度体检人数表" {
+		t.Errorf("card content = %q, want the create call's summary fallback", cardContent)
+	}
+
+	// The orphan update-only call (surface-9 has no card) stays plain text:
+	// its derived fallback surfaces, no card.
+	orphanText := false
+	for _, msg := range resp.Messages {
+		if len(msg.A2UI) == 0 && strings.Contains(msg.Content, "孤儿增量") {
+			orphanText = true
+		}
+	}
+	if !orphanText {
+		t.Errorf("orphan update-only call did not surface its text fallback (resp=%s)", rec.Body.String())
+	}
+}
+
+// TestSessionA2UIHistoryFoldTwoCreatesKeepsLastCard pins: two createSurface
+// calls for the same surfaceId fold to the LAST card — the first card (and
+// any updates merged into it) vanishes from the replay.
+func TestSessionA2UIHistoryFoldTwoCreatesKeepsLastCard(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	dir := sessionsTestDir(t, configPath)
+	store, err := memory.NewJSONLStore(dir)
+	if err != nil {
+		t.Fatalf("NewJSONLStore() error = %v", err)
+	}
+
+	secondCreate := []any{
+		map[string]any{
+			"version":       "v0.9",
+			"createSurface": map[string]any{"surfaceId": "surface-1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+		},
+		map[string]any{
+			"version":          "v0.9",
+			"updateComponents": map[string]any{"surfaceId": "surface-1", "components": []any{map[string]any{"id": "root", "component": "Text", "text": "重画"}}},
+		},
+	}
+	sessionKey := legacyPicoSessionPrefix + "a2ui-fold-two-creates"
+	for _, msg := range []providers.Message{
+		{Role: "user", Content: "重画季度卡"},
+		{
+			Role: "assistant",
+			ToolCalls: []providers.ToolCall{{
+				ID:   "call_first",
+				Type: "function",
+				Function: &providers.FunctionCall{
+					Name:      "render_ui",
+					Arguments: marshalRenderUIArgs(t, a2uiTestBatch(), "第一张"),
+				},
+			}},
+		},
+		{Role: "tool", Content: "UI rendered: 3 A2UI message(s) delivered", ToolCallID: "call_first"},
+		{
+			Role: "assistant",
+			ToolCalls: []providers.ToolCall{{
+				ID:   "call_second",
+				Type: "function",
+				Function: &providers.FunctionCall{
+					Name:      "render_ui",
+					Arguments: marshalRenderUIArgs(t, secondCreate, "第二张"),
+				},
+			}},
+		},
+		{Role: "tool", Content: "UI rendered: 2 A2UI message(s) delivered", ToolCallID: "call_second"},
+	} {
+		if err := store.AddFullMessage(nil, sessionKey, msg); err != nil {
+			t.Fatalf("AddFullMessage() error = %v", err)
+		}
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/a2ui-fold-two-creates", nil)
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var resp struct {
+		Messages []struct {
+			Content string          `json:"content"`
+			A2UI    json.RawMessage `json:"a2ui"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+
+	a2uiCount := 0
+	var cardContent string
+	for i := range resp.Messages {
+		msg := &resp.Messages[i]
+		if len(msg.A2UI) == 0 {
+			continue
+		}
+		a2uiCount++
+		cardContent = msg.Content
+		if !strings.Contains(string(msg.A2UI), "重画") {
+			t.Errorf("surviving card missing the second create's frame: %s", msg.A2UI)
+		}
+		if strings.Contains(string(msg.A2UI), "季度体检人数") {
+			t.Errorf("the superseded first card leaked into the folded card: %s", msg.A2UI)
+		}
+	}
+	if a2uiCount != 1 {
+		t.Fatalf("messages carrying a2ui = %d, want 1 (the last create's card only; resp=%s)", a2uiCount, rec.Body.String())
+	}
+	if cardContent != "第二张" {
+		t.Errorf("card content = %q, want the surviving create's summary", cardContent)
+	}
+}

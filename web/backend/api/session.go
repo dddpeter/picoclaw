@@ -599,6 +599,28 @@ func sessionTranscriptMessages(
 ) []sessionChatMessage {
 	transcript := make([]sessionChatMessage, 0, len(messages))
 
+	// A2UI history replay (A2UI web render, task 4): fold the render_ui
+	// calls by surfaceId across the whole transcript BEFORE assembling it —
+	// a createSurface call establishes the card at its own position and
+	// later update-only calls merge their frames into it. The fold result is
+	// parallel to collectRenderUIArgs' order; this pass consumes one item
+	// per render_ui call through nextRenderUIFold.
+	renderUIFolded := tools.RenderUIHistoryFold(collectRenderUIArgs(messages))
+	renderUISeq := 0
+	nextRenderUIFold := func(argsJSON string) tools.RenderUIHistoryItem {
+		var item tools.RenderUIHistoryItem
+		if renderUISeq < len(renderUIFolded) {
+			item = renderUIFolded[renderUISeq]
+		} else if a2uiMessages, fallback, ok := tools.RenderUIHistoryMessages(argsJSON); ok {
+			// Defensive: the fold pre-scan and this pass walk the same call
+			// order; on drift, fall back to the single-batch extraction
+			// rather than dropping the card.
+			item = tools.RenderUIHistoryItem{A2UI: a2uiMessages, Fallback: fallback}
+		}
+		renderUISeq++
+		return item
+	}
+
 	for _, msg := range messages {
 		attachments := sessionAttachments(msg)
 
@@ -635,7 +657,7 @@ func sessionTranscriptMessages(
 				toolFeedbackMaxArgsLength,
 				msg.CreatedAt,
 			)
-			visibleToolMessages := visibleAssistantToolMessages(msg.ToolCalls, msg.ModelName, msg.CreatedAt)
+			visibleToolMessages := visibleAssistantToolMessages(msg.ToolCalls, msg.ModelName, msg.CreatedAt, nextRenderUIFold)
 
 			// Pico web chat can persist both visible `message` tool output and a
 			// later plain assistant reply in the same turn. Hide only the fixed
@@ -686,6 +708,26 @@ func sessionTranscriptMessages(
 	}
 
 	return filterSessionChatMessages(transcript)
+}
+
+// collectRenderUIArgs gathers the persisted render_ui tool-call arguments
+// across the message list in call order — the same order the transcript pass
+// visits them (assistant messages in sequence, tool calls in order,
+// transient thought messages skipped) — for the surfaceId history fold
+// (A2UI web render replay, task 4).
+func collectRenderUIArgs(messages []providers.Message) []string {
+	var args []string
+	for _, msg := range messages {
+		if msg.Role != "assistant" || messageutil.IsTransientAssistantThoughtMessage(msg) {
+			continue
+		}
+		for _, tc := range msg.ToolCalls {
+			if name, argsJSON := utils.VisibleToolCallNameAndArguments(tc); name == "render_ui" {
+				args = append(args, argsJSON)
+			}
+		}
+	}
+	return args
 }
 
 func filterSessionChatMessages(messages []sessionChatMessage) []sessionChatMessage {
@@ -834,6 +876,7 @@ func visibleAssistantToolMessages(
 	toolCalls []providers.ToolCall,
 	modelName string,
 	createdAt *time.Time,
+	nextRenderUIFold func(argsJSON string) tools.RenderUIHistoryItem,
 ) []sessionChatMessage {
 	if len(toolCalls) == 0 {
 		return nil
@@ -843,21 +886,33 @@ func visibleAssistantToolMessages(
 	for _, tc := range toolCalls {
 		name, argsJSON := utils.VisibleToolCallNameAndArguments(tc)
 		if name == "render_ui" {
-			// A2UI history replay (A2UI web render): the live card rides an
-			// unpersisted OutboundMessage, but its payload is stored verbatim
-			// in the tool-call arguments — re-extract it (same validation
-			// gates + fallback derivation as the live publish) so the
-			// transcript resurfaces the card after a page refresh.
-			a2uiMessages, fallback, ok := tools.RenderUIHistoryMessages(argsJSON)
-			if !ok {
+			// A2UI history replay (A2UI web render, folded by surfaceId in
+			// task 4): the live card rides an unpersisted OutboundMessage,
+			// but its payload is stored verbatim in the tool-call arguments.
+			// The fold pre-scan merged update-only calls into the creating
+			// call's card; this call resurfaces a card when it is the
+			// surviving create, plain text when it is an orphan update, and
+			// nothing when its frames merged into an earlier card or the
+			// live gates rejected it.
+			item := nextRenderUIFold(argsJSON)
+			if len(item.A2UI) == 0 {
+				if strings.TrimSpace(item.Fallback) == "" {
+					continue
+				}
+				messages = append(messages, sessionChatMessage{
+					Role:      "assistant",
+					Content:   item.Fallback,
+					ModelName: modelName,
+					CreatedAt: createdAt,
+				})
 				continue
 			}
 			messages = append(messages, sessionChatMessage{
 				Role:      "assistant",
-				Content:   fallback,
+				Content:   item.Fallback,
 				ModelName: modelName,
 				CreatedAt: createdAt,
-				A2UI:      a2uiMessages,
+				A2UI:      item.A2UI,
 			})
 			continue
 		}

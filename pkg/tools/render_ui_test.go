@@ -307,14 +307,6 @@ func TestRenderUIToolInvalidBatchRejected(t *testing.T) {
 			want: "exactly one of",
 		},
 		{
-			name: "batch without any createSurface envelope",
-			args: map[string]any{"messages": []any{map[string]any{
-				"version":         "v0.9",
-				"updateDataModel": map[string]any{"surfaceId": "s1", "path": "/", "value": map[string]any{}},
-			}}},
-			want: "createSurface",
-		},
-		{
 			name: "message version not v0.9",
 			args: map[string]any{"messages": []any{map[string]any{
 				"version":       "v0.8",
@@ -629,6 +621,12 @@ func TestRenderUIToolSchemaContract(t *testing.T) {
 		// the user's interaction arrives as a prefixed user message.
 		`event.context`,
 		`A2UI 交互`,
+		// Update-only teaching locked with task 4 (streamed increments): the
+		// model can call render_ui again with delta frames only — same
+		// surfaceId, no createSurface — to patch an existing card.
+		`updateComponents/updateDataModel frames only`,
+		`same surfaceId, no createSurface`,
+		`update an existing surface in place`,
 	} {
 		if !strings.Contains(desc, want) {
 			t.Errorf("messages description missing %q: %s", want, desc)
@@ -718,6 +716,23 @@ func TestRenderUIHistoryMessages(t *testing.T) {
 			t.Fatal("ok = true, want mixed-surfaceId batch to stay rejected")
 		}
 	})
+	t.Run("update-only delta returns the delta batch", func(t *testing.T) {
+		// Task 4 (streamed increments): a delta batch the live tool now
+		// accepts must extract from history too — ok=true with the verbatim
+		// delta frames.
+		argsJSON := `{"messages":` + marshalForTest(t, renderUIUpdateOnlyMessages()) + `,"summary":"追加行"}`
+		messages, fallback, ok := RenderUIHistoryMessages(argsJSON)
+		if !ok {
+			t.Fatal("ok = false, want update-only delta extraction to succeed")
+		}
+		want := marshalForTest(t, renderUIUpdateOnlyMessages())
+		if string(messages) != want {
+			t.Errorf("messages = %s, want %s", messages, want)
+		}
+		if fallback != "追加行" {
+			t.Errorf("fallback = %q, want summary param", fallback)
+		}
+	})
 	t.Run("rejected live stays rejected", func(t *testing.T) {
 		for name, argsJSON := range map[string]string{
 			"invalid json":       `{not json`,
@@ -726,7 +741,11 @@ func TestRenderUIHistoryMessages(t *testing.T) {
 			"missing messages":   `{"summary":"x"}`,
 			"bad version":        `{"messages":[{"version":"v1.0","createSurface":{"surfaceId":"s"}}]}`,
 			"no branch payload":  `{"messages":[{"version":"v0.9"}]}`,
-			"no createSurface":   `{"messages":[{"version":"v0.9","updateComponents":{"surfaceId":"s","components":[]}}]}`,
+			// Empty components stay a delta-local rejection — "no
+			// createSurface" alone is no longer one (task 4).
+			"update-only delta with empty components": `{"messages":[{"version":"v0.9","updateComponents":{"surfaceId":"s","components":[]}}]}`,
+			"update-only delta with duplicate id": `{"messages":[{"version":"v0.9","updateComponents":{"surfaceId":"s","components":[` +
+				`{"id":"t","component":"Text","text":"a"},{"id":"t","component":"Text","text":"b"}]}}]}`,
 			"message not object": `{"messages":["x"]}`,
 			"oversized frame batch": func() string {
 				big := []any{
@@ -755,4 +774,441 @@ func marshalForTest(t *testing.T, value any) string {
 		t.Fatalf("marshal: %v", err)
 	}
 	return string(encoded)
+}
+
+// renderUIUpdateOnlyMessages returns a valid update-only delta batch (task 4,
+// streamed increments): updateComponents + updateDataModel frames reusing an
+// existing surfaceId, NO createSurface envelope. The delta patches a card
+// that already rendered live, so only delta-local checks apply — root
+// existence, reachability and the multi-parent invariant are skipped (the
+// delta components hang off the tree that already lives on the frontend; the
+// component id here is deliberately NOT "root").
+func renderUIUpdateOnlyMessages() []any {
+	return []any{
+		map[string]any{
+			"version": "v0.9",
+			"updateComponents": map[string]any{
+				"surfaceId": "surface-1",
+				"components": []any{
+					map[string]any{"id": "t9", "component": "Text", "text": "追加行"},
+				},
+			},
+		},
+		map[string]any{
+			"version": "v0.9",
+			"updateDataModel": map[string]any{
+				"surfaceId": "surface-1",
+				"path":      "/",
+				"value":     map[string]any{"rows": []any{"2026 Q3: 172 人"}},
+			},
+		},
+	}
+}
+
+// TestRenderUIToolUpdateOnlyBatchPublishesUI pins the task-4 gate opening:
+// a batch of delta frames only (no createSurface envelope) publishes — the
+// pico layer (phase 2) merges it into the live card keyed by
+// UIMeta.SurfaceID. Delta-local gates apply; the tree gates
+// (root/reachability/multi-parent) do not.
+func TestRenderUIToolUpdateOnlyBatchPublishesUI(t *testing.T) {
+	tool, msgBus := newTestRenderUITool(t)
+	ctx := WithToolSessionContext(
+		WithToolContext(context.Background(), "pico", "pico:sess-1"),
+		"agent-1", "session-key-1", nil,
+	)
+
+	messages := renderUIUpdateOnlyMessages()
+	result := tool.Execute(ctx, map[string]any{"messages": messages})
+	if result.IsError {
+		t.Fatalf("Execute() IsError = true, ForLLM: %s", result.ForLLM)
+	}
+	if !result.Silent {
+		t.Error("Silent = false, want silent success like the create path")
+	}
+
+	msg := waitOutboundMessage(t, msgBus)
+	if msg.UI == nil {
+		t.Fatalf("published message UI = nil, want UIMeta")
+	}
+	want, err := json.Marshal(messages)
+	if err != nil {
+		t.Fatalf("marshal test messages: %v", err)
+	}
+	if string(msg.UI.Messages) != string(want) {
+		t.Errorf("UI.Messages = %s, want %s", msg.UI.Messages, want)
+	}
+	if msg.UI.SurfaceID != "surface-1" {
+		t.Errorf("UI.SurfaceID = %q, want %q (the pico merge registry key)", msg.UI.SurfaceID, "surface-1")
+	}
+	// The delta text must surface in the plain-text fallback so non-pico
+	// channels stay readable.
+	for _, wantText := range []string{"追加行", "2026 Q3: 172 人"} {
+		if !strings.Contains(msg.Content, wantText) {
+			t.Errorf("Content = %q, want it to contain %q", msg.Content, wantText)
+		}
+	}
+}
+
+// TestRenderUIToolUpdateOnlyDataModelOnlyBatchPublishesUI: a dataModel-only
+// delta (no components frame, no createSurface) is a valid streamed update
+// too — form values can change without touching the tree.
+func TestRenderUIToolUpdateOnlyDataModelOnlyBatchPublishesUI(t *testing.T) {
+	tool, msgBus := newTestRenderUITool(t)
+	ctx := WithToolContext(context.Background(), "pico", "pico:sess-1")
+
+	messages := []any{map[string]any{
+		"version":         "v0.9",
+		"updateDataModel": map[string]any{"surfaceId": "surface-1", "path": "/", "value": map[string]any{"count": 3}},
+	}}
+	result := tool.Execute(ctx, map[string]any{"messages": messages})
+	if result.IsError {
+		t.Fatalf("Execute() IsError = true, ForLLM: %s", result.ForLLM)
+	}
+	msg := waitOutboundMessage(t, msgBus)
+	if msg.UI == nil || msg.UI.SurfaceID != "surface-1" {
+		t.Fatalf("UI = %+v, want UIMeta with SurfaceID surface-1", msg.UI)
+	}
+}
+
+// TestRenderUIToolUpdateOnlyDeltaStillGated: the delta-local checks still
+// apply to update-only batches — version / branch count / key subsets /
+// component names / component ids / intra-batch duplicate ids / single
+// surfaceId / size cap. Only the tree gates (root existence, reachability,
+// multi-parent refs) are skipped.
+func TestRenderUIToolUpdateOnlyDeltaStillGated(t *testing.T) {
+	comp := func(id string) map[string]any {
+		return map[string]any{"id": id, "component": "Text", "text": "x"}
+	}
+	cases := []struct {
+		name     string
+		messages []any
+		want     string
+	}{
+		{
+			name:     "delta frame without branch payload",
+			messages: []any{map[string]any{"version": "v0.9"}},
+			want:     "exactly one of",
+		},
+		{
+			name: "delta frame carries two branch payloads",
+			messages: []any{map[string]any{
+				"version":          "v0.9",
+				"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{comp("t1")}},
+				"updateDataModel":  map[string]any{"surfaceId": "s1", "path": "/", "value": map[string]any{}},
+			}},
+			want: "exactly one of",
+		},
+		{
+			name: "bad version in delta frame",
+			messages: []any{map[string]any{
+				"version":          "v0.8",
+				"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{comp("t1")}},
+			}},
+			want: "v0.9",
+		},
+		{
+			name: "unknown key in delta frame",
+			messages: []any{map[string]any{
+				"version":          "v0.9",
+				"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{comp("t1")}, "title": "x"},
+			}},
+			want: "invalid key",
+		},
+		{
+			name: "unknown component name in delta",
+			messages: []any{map[string]any{
+				"version":          "v0.9",
+				"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{map[string]any{"id": "t1", "component": "Table", "text": "x"}}},
+			}},
+			want: "unknown component",
+		},
+		{
+			name: "delta component missing id",
+			messages: []any{map[string]any{
+				"version":          "v0.9",
+				"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{map[string]any{"component": "Text", "text": "x"}}},
+			}},
+			want: `"id"`,
+		},
+		{
+			name: "duplicate component id within delta",
+			messages: []any{map[string]any{
+				"version": "v0.9",
+				"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{
+					map[string]any{"id": "t1", "component": "Text", "text": "a"},
+					map[string]any{"id": "t1", "component": "Text", "text": "b"},
+				}},
+			}},
+			want: "duplicate component id",
+		},
+		{
+			name: "delta mixes two surfaceIds",
+			messages: []any{
+				map[string]any{
+					"version":          "v0.9",
+					"updateComponents": map[string]any{"surfaceId": "s-a", "components": []any{comp("t1")}},
+				},
+				map[string]any{
+					"version":         "v0.9",
+					"updateDataModel": map[string]any{"surfaceId": "s-b", "path": "/", "value": map[string]any{}},
+				},
+			},
+			want: "s-a",
+		},
+		{
+			name: "delta frame with empty surfaceId",
+			messages: []any{map[string]any{
+				"version":          "v0.9",
+				"updateComponents": map[string]any{"surfaceId": "", "components": []any{comp("t1")}},
+			}},
+			want: "non-empty",
+		},
+		{
+			name: "delta components array empty",
+			messages: []any{map[string]any{
+				"version":          "v0.9",
+				"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{}},
+			}},
+			want: "non-empty array",
+		},
+		{
+			name: "oversized delta",
+			messages: []any{map[string]any{
+				"version":          "v0.9",
+				"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{map[string]any{"id": "t1", "component": "Text", "text": strings.Repeat("x", 256*1024)}}},
+			}},
+			want: "large",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tool, msgBus := newTestRenderUITool(t)
+			ctx := WithToolContext(context.Background(), "pico", "pico:sess-1")
+
+			result := tool.Execute(ctx, map[string]any{"messages": tc.messages})
+			if !result.IsError {
+				t.Fatalf("Execute() IsError = false, want delta-local rejection; ForLLM: %s", result.ForLLM)
+			}
+			if !strings.Contains(result.ForLLM, tc.want) {
+				t.Errorf("ForLLM = %q, want it to mention %q", result.ForLLM, tc.want)
+			}
+			assertNoOutboundMessage(t, msgBus)
+		})
+	}
+}
+
+// TestRenderUIHistoryFold pins the call-sequence folding (task 4, A2UI web
+// render history replay): read render_ui calls in order, fold by surfaceId —
+// a createSurface batch establishes the card, later update-only batches
+// merge their frames into it (components frames appended, updateDataModel
+// frames overwritten per path), a second createSurface for the same
+// surfaceId keeps the LAST card, an orphan update-only batch (no matching
+// card) stays text-only, and calls the live gates reject contribute nothing.
+func TestRenderUIHistoryFold(t *testing.T) {
+	createJSON := `{"messages":` + marshalForTest(t, renderUITestMessages()) + `,"summary":"季度体检人数表"}`
+	updateJSON := `{"messages":` + marshalForTest(t, renderUIUpdateOnlyMessages()) + `}`
+
+	t.Run("create then update folds into one card with final frames", func(t *testing.T) {
+		items := RenderUIHistoryFold([]string{createJSON, updateJSON})
+		if len(items) != 2 {
+			t.Fatalf("items length = %d, want 2", len(items))
+		}
+		// The update call merged into the card: nothing resurfaces at its
+		// own position.
+		if len(items[1].A2UI) != 0 || items[1].Fallback != "" {
+			t.Errorf("update item = {a2ui:%s fallback:%q}, want empty (frames ride the card)", items[1].A2UI, items[1].Fallback)
+		}
+		if len(items[0].A2UI) == 0 {
+			t.Fatal("create item carries no folded card")
+		}
+		var frames []map[string]any
+		if err := json.Unmarshal(items[0].A2UI, &frames); err != nil {
+			t.Fatalf("folded card is not a frame array: %v (%s)", err, items[0].A2UI)
+		}
+		if len(frames) != 4 {
+			t.Fatalf("folded frames = %d, want 4 (create + components + overwritten dataModel + appended delta components): %s", len(frames), items[0].A2UI)
+		}
+		if _, ok := frames[0]["createSurface"]; !ok {
+			t.Errorf("frames[0] = %s, want the createSurface envelope", frames[0])
+		}
+		uc, ok := frames[1]["updateComponents"].(map[string]any)
+		if !ok {
+			t.Fatalf("frames[1] = %s, want the original updateComponents frame", frames[1])
+		}
+		comps, _ := uc["components"].([]any)
+		if len(comps) != 4 {
+			t.Errorf("frames[1] components = %d, want 4 (the original tree)", len(comps))
+		}
+		dm, ok := frames[2]["updateDataModel"].(map[string]any)
+		if !ok {
+			t.Fatalf("frames[2] = %s, want the updateDataModel frame", frames[2])
+		}
+		if dm["path"] != "/" {
+			t.Errorf("dataModel path = %v, want /", dm["path"])
+		}
+		value, _ := dm["value"].(map[string]any)
+		rows, _ := value["rows"].([]any)
+		if len(rows) != 1 || rows[0] != "2026 Q3: 172 人" {
+			t.Errorf("dataModel rows = %v, want the last update's value (frame overwritten per path)", rows)
+		}
+		uc, ok = frames[3]["updateComponents"].(map[string]any)
+		if !ok {
+			t.Fatalf("frames[3] = %s, want the appended delta components frame", frames[3])
+		}
+		comps, _ = uc["components"].([]any)
+		if len(comps) != 1 {
+			t.Errorf("frames[3] components = %d, want 1 (the delta frame)", len(comps))
+		}
+		// The card caption stays the create call's summary param.
+		if items[0].Fallback != "季度体检人数表" {
+			t.Errorf("card fallback = %q, want the create call's summary", items[0].Fallback)
+		}
+	})
+
+	t.Run("second create for the same surfaceId keeps the last card", func(t *testing.T) {
+		secondCreate := []any{
+			map[string]any{
+				"version":       "v0.9",
+				"createSurface": map[string]any{"surfaceId": "surface-1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+			},
+			map[string]any{
+				"version":          "v0.9",
+				"updateComponents": map[string]any{"surfaceId": "surface-1", "components": []any{map[string]any{"id": "root", "component": "Text", "text": "重画"}}},
+			},
+		}
+		secondJSON := `{"messages":` + marshalForTest(t, secondCreate) + `,"summary":"第二张"}`
+		items := RenderUIHistoryFold([]string{createJSON, updateJSON, secondJSON})
+		if len(items) != 3 {
+			t.Fatalf("items length = %d, want 3", len(items))
+		}
+		if len(items[0].A2UI) != 0 || items[0].Fallback != "" {
+			t.Errorf("first create item = {a2ui:%s fallback:%q}, want empty (superseded by the last create)", items[0].A2UI, items[0].Fallback)
+		}
+		if len(items[1].A2UI) != 0 || items[1].Fallback != "" {
+			t.Errorf("update item = {a2ui:%s fallback:%q}, want empty (merged into the discarded card)", items[1].A2UI, items[1].Fallback)
+		}
+		if len(items[2].A2UI) == 0 {
+			t.Fatal("second create item carries no card")
+		}
+		var frames []map[string]any
+		if err := json.Unmarshal(items[2].A2UI, &frames); err != nil {
+			t.Fatalf("card is not a frame array: %v (%s)", err, items[2].A2UI)
+		}
+		if len(frames) != 2 {
+			t.Errorf("card frames = %d, want 2 (the second create's batch)", len(frames))
+		}
+		if items[2].Fallback != "第二张" {
+			t.Errorf("card fallback = %q, want the surviving create's summary", items[2].Fallback)
+		}
+	})
+
+	t.Run("orphan update-only batch surfaces text only", func(t *testing.T) {
+		items := RenderUIHistoryFold([]string{updateJSON})
+		if len(items) != 1 {
+			t.Fatalf("items length = %d, want 1", len(items))
+		}
+		if len(items[0].A2UI) != 0 {
+			t.Errorf("orphan update produced a card: %s", items[0].A2UI)
+		}
+		// No summary param: the fallback is derived from the delta frames.
+		for _, wantText := range []string{"追加行", "2026 Q3: 172 人"} {
+			if !strings.Contains(items[0].Fallback, wantText) {
+				t.Errorf("fallback = %q, want tree-derived text containing %q", items[0].Fallback, wantText)
+			}
+		}
+	})
+
+	t.Run("calls the live gates reject contribute nothing", func(t *testing.T) {
+		dupDelta := []any{map[string]any{
+			"version": "v0.9",
+			"updateComponents": map[string]any{"surfaceId": "s", "components": []any{
+				map[string]any{"id": "t", "component": "Text", "text": "a"},
+				map[string]any{"id": "t", "component": "Text", "text": "b"},
+			}},
+		}}
+		oversized := []any{map[string]any{
+			"version":          "v0.9",
+			"updateComponents": map[string]any{"surfaceId": "s", "components": []any{map[string]any{"id": "t", "component": "Text", "text": strings.Repeat("x", 256*1024)}}},
+		}}
+		items := RenderUIHistoryFold([]string{
+			`{not json`,
+			`{"messages":[]}`,
+			`{"messages":[{"version":"v1.0","createSurface":{"surfaceId":"s"}}]}`,
+			`{"messages":` + marshalForTest(t, dupDelta) + `}`,
+			`{"messages":` + marshalForTest(t, oversized) + `}`,
+		})
+		for i, item := range items {
+			if len(item.A2UI) != 0 || item.Fallback != "" {
+				t.Errorf("items[%d] = {a2ui:%s fallback:%q}, want empty (rejected live)", i, item.A2UI, item.Fallback)
+			}
+		}
+	})
+
+	t.Run("single create matches RenderUIHistoryMessages", func(t *testing.T) {
+		items := RenderUIHistoryFold([]string{createJSON})
+		messages, fallback, ok := RenderUIHistoryMessages(createJSON)
+		if !ok {
+			t.Fatal("RenderUIHistoryMessages ok = false")
+		}
+		if string(items[0].A2UI) != string(messages) {
+			t.Errorf("fold a2ui = %s, want %s", items[0].A2UI, messages)
+		}
+		if items[0].Fallback != fallback {
+			t.Errorf("fold fallback = %q, want %q", items[0].Fallback, fallback)
+		}
+	})
+}
+
+// TestRenderUIToolUpdateOnlyDeltaSkipsTreeGates pins the controller
+// correction: root existence, reachability and the multi-parent invariant
+// are meaningless inside a delta (the delta components hang off the tree
+// that already lives on the frontend — a BFS inside the delta would flag
+// every component "orphan"), so deltas carrying orphaned or
+// doubly-referenced components still publish. The frontend processor
+// re-validates the merged tree when applying the delta (accepted limitation).
+func TestRenderUIToolUpdateOnlyDeltaSkipsTreeGates(t *testing.T) {
+	cases := []struct {
+		name       string
+		components []any
+	}{
+		{
+			name:       "delta components without a root id",
+			components: []any{map[string]any{"id": "t1", "component": "Text", "text": "orphan"}},
+		},
+		{
+			name: "delta components all unreachable from the live tree",
+			components: []any{
+				map[string]any{"id": "a", "component": "Text", "text": "a"},
+				map[string]any{"id": "b", "component": "Text", "text": "b"},
+			},
+		},
+		{
+			name: "delta component referenced by two parents inside the delta",
+			components: []any{
+				map[string]any{"id": "row", "component": "Row", "children": []any{"t1", "t2"}},
+				map[string]any{"id": "col", "component": "Column", "children": []any{"t1"}},
+				map[string]any{"id": "t1", "component": "Text", "text": "shared"},
+				map[string]any{"id": "t2", "component": "Text", "text": "x"},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tool, msgBus := newTestRenderUITool(t)
+			ctx := WithToolContext(context.Background(), "pico", "pico:sess-1")
+
+			messages := []any{map[string]any{
+				"version":          "v0.9",
+				"updateComponents": map[string]any{"surfaceId": "surface-1", "components": tc.components},
+			}}
+			result := tool.Execute(ctx, map[string]any{"messages": messages})
+			if result.IsError {
+				t.Fatalf("Execute() IsError = true, want tree gates skipped for delta; ForLLM: %s", result.ForLLM)
+			}
+			msg := waitOutboundMessage(t, msgBus)
+			if msg.UI == nil || msg.UI.SurfaceID != "surface-1" {
+				t.Fatalf("UI = %+v, want UIMeta with SurfaceID surface-1", msg.UI)
+			}
+		})
+	}
 }
