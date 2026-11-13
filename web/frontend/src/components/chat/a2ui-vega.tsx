@@ -6,9 +6,16 @@
  * 自动注册为 a2ui-react-vegachart custom element）+ `Catalog.derive` 混入
  * basicCatalog。渲染管线（A2uiCard/MessageProcessor/A2uiSurface）零改动。
  *
- * 打包红线：react-vega（→ vega-embed → vega-lite/vega）只能在 React.lazy
- * 工厂里动态 import——图表栈落在独立 vite chunk，主 bundle 不得引入。
- * 类型导入（import type）编译期擦除，不影响打包。
+ * 打包红线：react-vega（→ vega-embed → vega-lite/vega）只能在动态 import
+ * 里引用——图表栈落在独立 vite chunk，主 bundle 不得引入。类型导入
+ * （import type）编译期擦除，不影响打包。
+ *
+ * 失败分层（都不炸卡、不炸聊天流）：① spec 未就绪/缺路径 → 占位；
+ * ② vega-lite 编译/渲染失败 → VegaEmbed 内部 catch 经 onError → 占位；
+ * ③ chunk 加载被拒（网络抖动/重部署后旧 hash 404）→ Suspense 只兜 pending
+ * 不兜 rejection，VegaChartChunkBoundary 组件内捕获降级——绝不冒泡到卡级
+ * A2uiRenderBoundary 把整卡打成占位。②③ 共用 failed 态，spec 变化时重置
+ * 并重建 lazy 实例重试 chunk 加载。
  *
  * wire 兼容：Catalog.derive 不自动保留源 catalog id（实测省略 catalogId
  * 产生无 id catalog），因此显式传 basicCatalog.id——Go render_ui 门强制的
@@ -27,28 +34,38 @@ import {
 } from "@a2ui/web_core/v0_9"
 import { basicCatalog } from "@a2ui/web_core/v0_9/basic_catalog"
 import { type WebComponentImplementation } from "@a2ui/web_core/v0_9/universal"
-import { IconChartBarOff } from "@tabler/icons-react"
-import { Suspense, lazy, useEffect, useState } from "react"
+import { IconChartBarOff, IconLoader2 } from "@tabler/icons-react"
+import {
+  Component,
+  type ReactNode,
+  Suspense,
+  lazy,
+  useEffect,
+  useState,
+} from "react"
 import { useTranslation } from "react-i18next"
 import type { EmbedOptions, VisualizationSpec } from "vega-embed"
 import { z } from "zod"
 
 /**
- * 懒加载的 vega-embed React 封装。首次渲染 VegaChart 才拉取图表 chunk。
- * react-vega@8 的 VegaEmbed 内部 catch 了 embed 异步错误并经 onError 上抛
- * （不冒泡异常），失败时落占位即可，不炸卡不炸聊天流。
+ * 生成一个全新的 React.lazy 实例。ES module registry 缓存让首次成功后的
+ * import() 立即返回，但 rejected 的 React.lazy 会把拒绝缓存进实例——
+ * 重试 chunk 加载必须换新实例（见 VegaChartView 的重置 effect）。
  */
-const LazyVegaEmbed = lazy(async () => {
-  const { VegaEmbed } = await import("react-vega")
-  return { default: VegaEmbed }
-})
+function createLazyVegaEmbed() {
+  return lazy(async () => {
+    const { VegaEmbed } = await import("react-vega")
+    return { default: VegaEmbed }
+  })
+}
 
 /** svg 渲染器：矢量清晰、无需 canvas（jsdom 测试可跑）；actions 关闭——
  * 导出/编辑菜单在聊天卡片里是噪音。模块级常量：react-vega 对 options 做
  * 深比较，恒定引用避免多余的 re-embed。 */
 const VegaEmbedOptions: EmbedOptions = { renderer: "svg", actions: false }
 
-/** 图表渲染失败/数据未就绪的组件内占位：不炸卡、不炸聊天流。 */
+/** chunk 加载/编译渲染失败的组件内占位：与卡级错误占位同款虚线视觉，
+ * 但失败被限制在图表槽位内。 */
 function VegaChartPlaceholder() {
   const { t } = useTranslation()
   return (
@@ -62,6 +79,44 @@ function VegaChartPlaceholder() {
   )
 }
 
+/** chunk 加载中的中性占位：只用加载图标不用文案（chunk 通常亚秒完成，
+ * 为一瞬间的回退补五语言 loading 文案不值——中性符号免 i18n）。 */
+function VegaChartLoadingPlaceholder() {
+  return (
+    <div
+      data-vegachart-loading=""
+      aria-label="loading chart"
+      className="border-border/60 bg-muted/30 text-muted-foreground flex min-h-16 w-full items-center justify-center rounded-lg border border-dashed px-3 py-4"
+    >
+      <IconLoader2 className="size-4 animate-spin" />
+    </div>
+  )
+}
+
+/**
+ * 图表级错误边界：懒加载 chunk 被拒时 React 会把 rejection 抛给 Suspense
+ * 外侧最近的错误边界（Suspense 自身只处理 pending），若不拦会把异常送到
+ * 卡级 A2uiRenderBoundary → 整卡降级且无重试路径。本边界就地拦截：
+ * catch 当轮渲染 null（阻断冒泡），componentDidCatch 上抛给视图的 failed
+ * 态（复用 spec 变化重置机制，attempt 重建 lazy 实例实现真重试）。位于
+ * Suspense 外侧，同时兜子树内任何渲染崩溃。
+ */
+class VegaChartChunkBoundary extends Component<
+  { onError: (error: unknown) => void; children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false }
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+  componentDidCatch(error: unknown) {
+    this.props.onError(error)
+  }
+  render() {
+    return this.state.failed ? null : this.props.children
+  }
+}
+
 /**
  * VegaChart 视图。props.spec 已经过 generic binder 解析（schema 的
  * spec 字段因含 DataBindingSchema 分支被绑定为 DYNAMIC）：内联对象原样
@@ -71,21 +126,35 @@ function VegaChartPlaceholder() {
 function VegaChartView({ props }: ReactA2uiComponentProps<{ spec: unknown }>) {
   const spec = props.spec
   const [failed, setFailed] = useState(false)
-  // dataModel 更新产生新 spec 对象时重置失败态，让修好的 spec 能重绘。
+  // lazy 实例持有在 state（创建发生在 initializer/updateUpdater，渲染期
+  // 只消费）：rejected 的 React.lazy 会把拒绝缓存进实例，复用实例不会
+  // 重试 chunk 加载——重置失败态时必须换新实例。
+  const [LazyVegaEmbed, setLazyVegaEmbed] = useState(createLazyVegaEmbed)
+  // dataModel 更新产生新 spec 对象时重置失败态并重建 lazy 实例，让修好的
+  // spec / 恢复的网络真正重试。
   useEffect(() => {
     setFailed(false)
+    setLazyVegaEmbed(createLazyVegaEmbed())
   }, [spec])
   const usable = typeof spec === "object" && spec !== null && !("path" in spec)
+  const handleError = (error: unknown) => {
+    console.warn("[VegaChart] chart failed to render/load:", error)
+    setFailed(true)
+  }
   if (!usable || failed) return <VegaChartPlaceholder />
   return (
-    <Suspense fallback={<VegaChartPlaceholder />}>
-      <LazyVegaEmbed
-        spec={spec as VisualizationSpec}
-        options={VegaEmbedOptions}
-        onError={() => setFailed(true)}
-        className="w-full [&_svg]:mx-auto [&_svg]:max-w-full"
-      />
-    </Suspense>
+    // 边界在 Suspense 外侧：Suspense 只兜 pending，rejection 抛给它上方
+    // 最近的错误边界——正是本边界。
+    <VegaChartChunkBoundary onError={handleError}>
+      <Suspense fallback={<VegaChartLoadingPlaceholder />}>
+        <LazyVegaEmbed
+          spec={spec as VisualizationSpec}
+          options={VegaEmbedOptions}
+          onError={handleError}
+          className="w-full [&_svg]:mx-auto [&_svg]:max-w-full"
+        />
+      </Suspense>
+    </VegaChartChunkBoundary>
   )
 }
 
