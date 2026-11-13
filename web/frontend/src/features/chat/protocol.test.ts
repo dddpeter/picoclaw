@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest"
 
+import { mergeHistoryMessages } from "@/features/chat/history"
 import {
+  handlePicoMessage,
   parseA2uiFromPayload,
   parseContextUsage,
   parseTurnStats,
 } from "@/features/chat/protocol"
+import { getChatState, updateChatStore } from "@/store/chat"
 
 // 分段解析（octop 借鉴 §五，评审 P3-8）：context_usage.segments 的 wire 解析
 // 是 web 环分段堆叠条的数据源——畸形条目必须被丢弃而非炸掉整个环。
@@ -180,5 +183,243 @@ describe("parseTurnStats", () => {
         wrapTurnUsage({ input_tokens: Number.NaN, output_tokens: 5 }),
       ),
     ).toBeUndefined()
+  })
+})
+
+// message.update consuming a2ui (phase 2, task 3): the backend merges
+// update-only frames into the already broadcast card's payload and broadcasts
+// a message.update carrying the merged batch (task 5); the frontend swaps the
+// card data in place. The replacement must be immutable (fresh ui object /
+// fresh messages array reference) — A2uiCard's useMemo depends on the
+// ui.messages reference, so in-place mutation would never recompute. Updates
+// without the a2ui key or with a malformed shape (non-array / empty array)
+// leave the existing card and the 5-field update semantics untouched
+// (regression red line).
+describe("handlePicoMessage message.update a2ui", () => {
+  const seedCardMessage = (batch: unknown[]) => {
+    handlePicoMessage(
+      {
+        type: "message.create",
+        session_id: "s1",
+        timestamp: 1_700_000_000,
+        payload: {
+          message_id: "card-1",
+          content: "交互视图",
+          a2ui: batch,
+        },
+      },
+      "s1",
+    )
+  }
+
+  const sendUpdate = (payload: Record<string, unknown>) => {
+    handlePicoMessage(
+      {
+        type: "message.update",
+        session_id: "s1",
+        timestamp: 1_700_000_060,
+        payload,
+      },
+      "s1",
+    )
+  }
+
+  it("replaces ui with the new batch immutably when the update carries a valid a2ui", () => {
+    const snapshot = getChatState()
+    try {
+      const initialBatch = [
+        { version: "v0.9", createSurface: { surfaceId: "s" } },
+      ]
+      seedCardMessage(initialBatch)
+
+      const before = getChatState().messages[0]
+      const beforeUi = before.ui
+      expect(beforeUi?.messages).toEqual(initialBatch)
+
+      const mergedBatch = [
+        { version: "v0.9", createSurface: { surfaceId: "s" } },
+        { version: "v0.9", updateComponents: { surfaceId: "s" } },
+      ]
+      sendUpdate({
+        message_id: "card-1",
+        content: "交互视图（更新）",
+        a2ui: mergedBatch,
+      })
+
+      const state = getChatState()
+      expect(state.messages).toHaveLength(1)
+      const after = state.messages[0]
+      // Card data swapped to the merged batch...
+      expect(after.ui?.messages).toEqual(mergedBatch)
+      // ...as an immutable replacement: fresh ui object and fresh messages
+      // array reference so A2uiCard's [ui.messages] useMemo recomputes.
+      expect(after.ui).not.toBe(beforeUi)
+      expect(after.ui?.messages).not.toBe(beforeUi?.messages)
+      // Untouched dimensions survive the spread (no accidental reset).
+      expect(after.content).toBe("交互视图（更新）")
+      expect(after.kind).toBe("progress_note")
+      expect(after.timestamp).toBe(before.timestamp)
+    } finally {
+      updateChatStore(snapshot)
+    }
+  })
+
+  it("keeps the existing card and the 5-field semantics when the update has no a2ui key", () => {
+    const snapshot = getChatState()
+    try {
+      const batch = [{ version: "v0.9", createSurface: { surfaceId: "s" } }]
+      seedCardMessage(batch)
+
+      const beforeUi = getChatState().messages[0].ui
+      sendUpdate({
+        message_id: "card-1",
+        content: "内容更新",
+        model_name: "glm-5.3",
+        attachments: [{ url: "https://example.com/a.png", type: "image" }],
+      })
+
+      const after = getChatState().messages[0]
+      // Regression red line: ui untouched (same reference, not even cloned).
+      expect(after.ui).toBe(beforeUi)
+      // The 5 existing update fields keep their semantics.
+      expect(after.content).toBe("内容更新")
+      expect(after.modelName).toBe("glm-5.3")
+      expect(after.attachments).toEqual([
+        { type: "image", url: "https://example.com/a.png" },
+      ])
+      expect(after.kind).toBe("progress_note")
+    } finally {
+      updateChatStore(snapshot)
+    }
+  })
+
+  it("updates plain text messages exactly as before (no ui key appears)", () => {
+    const snapshot = getChatState()
+    try {
+      handlePicoMessage(
+        {
+          type: "message.create",
+          session_id: "s1",
+          timestamp: 1_700_000_000,
+          payload: { message_id: "plain-1", content: "第一版" },
+        },
+        "s1",
+      )
+      sendUpdate({ message_id: "plain-1", content: "第二版" })
+
+      const after = getChatState().messages[0]
+      expect(after.content).toBe("第二版")
+      expect("ui" in after).toBe(false)
+    } finally {
+      updateChatStore(snapshot)
+    }
+  })
+
+  it("ignores a malformed a2ui key without disturbing the existing card", () => {
+    const snapshot = getChatState()
+    try {
+      const batch = [{ version: "v0.9", createSurface: { surfaceId: "s" } }]
+      seedCardMessage(batch)
+      const beforeUi = getChatState().messages[0].ui
+
+      for (const bad of [null, "no", [], { broken: true }, 42]) {
+        sendUpdate({
+          message_id: "card-1",
+          content: "畸形批次",
+          a2ui: bad,
+        })
+        const after = getChatState().messages[0]
+        expect(after.ui).toBe(beforeUi)
+        expect(after.content).toBe("畸形批次")
+      }
+    } finally {
+      updateChatStore(snapshot)
+    }
+  })
+
+  it("attaches ui when an update for an unseen id creates the message", () => {
+    const snapshot = getChatState()
+    try {
+      updateChatStore({ messages: [] })
+      const batch = [{ version: "v0.9", createSurface: { surfaceId: "s" } }]
+      sendUpdate({ message_id: "late-1", content: "迟到更新", a2ui: batch })
+
+      const state = getChatState()
+      expect(state.messages).toHaveLength(1)
+      expect(state.messages[0]).toMatchObject({
+        id: "late-1",
+        content: "迟到更新",
+        ui: { messages: batch },
+      })
+    } finally {
+      updateChatStore(snapshot)
+    }
+  })
+})
+
+// messageSignature gains the ui dimension (phase 2, task 3; fixes phase-1
+// deferred minor #18): the REST history copy and the WS live copy of the same
+// logical message must only dedupe when their card matches too — same-frame
+// replays parse to equal-length batches and still dedupe, while a hot-updated
+// merged batch with a different length keeps both copies (prefer a visible
+// duplicate over silently dropping one); the backend closes that window by
+// folding history (task 4) the same way it merges live updates (task 5).
+describe("mergeHistoryMessages ui dimension", () => {
+  const base = {
+    role: "assistant" as const,
+    content: "hi",
+    timestamp: 1_700_000_000,
+  }
+
+  it("still dedupes same-content copies without ui", () => {
+    const merged = mergeHistoryMessages(
+      [{ ...base, id: "hist-1" }],
+      [{ ...base, id: "live-1" }],
+    )
+    expect(merged).toHaveLength(1)
+    expect(merged[0].id).toBe("live-1")
+  })
+
+  it("dedupes when both copies carry an equal-length batch", () => {
+    const merged = mergeHistoryMessages(
+      [
+        {
+          ...base,
+          id: "hist-1",
+          ui: { messages: [{ createSurface: { surfaceId: "s" } }, {}] },
+        },
+      ],
+      [
+        {
+          ...base,
+          id: "live-1",
+          ui: { messages: [{ version: "v0.9" }, { updateComponents: {} }] },
+        },
+      ],
+    )
+    expect(merged).toHaveLength(1)
+    expect(merged[0].id).toBe("live-1")
+  })
+
+  it("keeps both copies when the batch length differs (hot-updated vs stale)", () => {
+    const merged = mergeHistoryMessages(
+      [{ ...base, id: "hist-1", ui: { messages: [{}] } }],
+      [
+        {
+          ...base,
+          id: "live-1",
+          ui: { messages: [{}, {}, {}] },
+        },
+      ],
+    )
+    expect(merged).toHaveLength(2)
+  })
+
+  it("keeps both copies when only one side carries a card", () => {
+    const merged = mergeHistoryMessages(
+      [{ ...base, id: "hist-1", ui: { messages: [{}] } }],
+      [{ ...base, id: "live-1" }],
+    )
+    expect(merged).toHaveLength(2)
   })
 })

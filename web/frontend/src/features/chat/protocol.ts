@@ -281,6 +281,15 @@ export function handlePicoMessage(
       const attachments = parseAttachments(payload)
       const contextUsage = parseContextUsage(payload)
       const modelName = parseModelName(payload)
+      // A2UI hot-update (phase 2, task 3): when the payload explicitly carries
+      // a valid a2ui key, swap the card data in place (the backend broadcasts
+      // the merged batch in task 5). The replacement is immutable —
+      // parseA2uiFromPayload yields a fresh A2uiInfo per frame whose messages
+      // point at the freshly parsed wire array, so A2uiCard's [ui.messages]
+      // useMemo recomputes. Malformed shapes (non-array / empty array) return
+      // undefined → the key is not attached, leaving any existing card and
+      // the existing 5-field update semantics untouched.
+      const ui = parseA2uiFromPayload(payload)
       const timestamp =
         message.timestamp !== undefined &&
         Number.isFinite(Number(message.timestamp))
@@ -308,6 +317,7 @@ export function handlePicoMessage(
               toolCalls,
               ...(modelName ? { modelName } : {}),
               ...(attachments ? { attachments } : {}),
+              ...(ui ? { ui } : {}),
             }
           })
           if (found) {
@@ -327,6 +337,7 @@ export function handlePicoMessage(
               toolCalls,
               ...(modelName ? { modelName } : {}),
               ...(attachments ? { attachments } : {}),
+              ...(ui ? { ui } : {}),
               timestamp,
             },
           ]

@@ -185,11 +185,22 @@ function messageSignature(message: ChatMessage): string {
     )
     .join("\u0002")
 
+  // A2UI card dimension (phase 2, task 3; fixes phase-1 deferred minor #18):
+  // the REST history copy and the WS live copy of the same logical message
+  // must only dedupe when their card matches too. Batch length over a JSON
+  // dump: same-frame replays parse to the identical batch (equal length →
+  // still dedupe), O(1) and key-order immune; a hot-updated merged batch has
+  // a different length than a stale copy → both kept instead of silently
+  // dropping one, and the backend closes that window by folding history the
+  // same way it merges live updates. 0 for card-less never collides with a
+  // card, since parseA2uiFromPayload only attaches non-empty batches.
+  const uiSignature = message.ui ? message.ui.messages.length : 0
+
   return `${message.role}\u0000${message.content}\u0000${normalizeMessageTimestamp(
     message.timestamp,
   )}\u0000${message.kind ?? ""}\u0000${message.modelName ?? ""}\u0000${attachmentSignature}\u0000${toolCallsSignature(
     message.toolCalls,
-  )}`
+  )}\u0000${uiSignature}`
 }
 
 function comparableTimestamp(timestamp: number | string): number {
