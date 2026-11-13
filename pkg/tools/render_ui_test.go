@@ -94,7 +94,9 @@ func renderUILegacyInlineMessages() []any {
 // TestRenderUIToolValidBatchPublishesUI pins the happy path: a valid framed
 // v0.9 batch publishes one OutboundMessage whose UI.Messages carries the
 // input verbatim and whose Content is a non-empty plain-text fallback built
-// from the updateComponents frames and the updateDataModel strings.
+// from the updateComponents frames and the updateDataModel strings; the
+// returned ToolResult is silent (success stays out of the tool feedback
+// stream — locked for the design doc §2.1 claim).
 func TestRenderUIToolValidBatchPublishesUI(t *testing.T) {
 	tool, msgBus := newTestRenderUITool(t)
 	ctx := WithToolSessionContext(
@@ -109,6 +111,9 @@ func TestRenderUIToolValidBatchPublishesUI(t *testing.T) {
 	}
 	if !strings.Contains(strings.ToLower(result.ForLLM), "render") {
 		t.Errorf("ForLLM = %q, want a render success hint", result.ForLLM)
+	}
+	if !result.Silent {
+		t.Error("Silent = false, want silent success (no success noise in tool feedback)")
 	}
 
 	msg := waitOutboundMessage(t, msgBus)

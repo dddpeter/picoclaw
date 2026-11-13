@@ -12,21 +12,21 @@
 模型（turn 中调用工具）
   │ messages: A2UI v0.9 消息数组（+可选 summary 兜底文本）
   ▼
-render_ui 工具  pkg/tools/render_ui.go:87 Execute
-  │ 门1 json.Valid → 门2 封包（version 前缀 v0.9 + createSurface 非空，
-  │   renderUIEnvelopeViolation :169）→ 门3 序列化批次 ≤256KB（:21）
-  │ 兜底文本推导 renderUITextSummary :226（summary 参数 → 组件树摘要 → 计数行）
+render_ui 工具  pkg/tools/render_ui.go:115 Execute
+  │ 门1 json.Valid → 门2 分帧（每条 version 前缀 v0.9 + 恰好一个非空 union 分支，
+  │   批内至少一条 createSurface，renderUIEnvelopeViolation :203）→ 门3 序列化批次 ≤256KB（:21）
+  │ 兜底文本推导 renderUITextSummary :281（summary 参数 → 分帧摘要 → 计数行）
   │ 5s 超时 PublishOutbound（fire-and-forget，无拦截器、无状态机）
   ▼
 bus.OutboundMessage{ Content: 兜底文本, UI: &UIMeta{Messages: 原样 JSON} }
   │            pkg/bus/types.go:110（字段）、:146（UIMeta 定义，json.RawMessage 透传）
   ▼
-pico 通道序列化  pkg/channels/pico/pico.go:490 SendMessage
+pico 通道序列化  pkg/channels/pico/pico.go:490 Send（行 490 是其中的 UI payload 挂载处）
   │ payload[PayloadKeyA2UI("a2ui")] = 反序列化后的消息数组（protocol.go:59 常量）
   │ message.create 广播；不打 progress_note mark（TUI 兼容，理由见侦察分析 2.2）
   ▼
 web 前端（live）
-  │ protocol.ts:159 parseA2uiFromPayload（数组且非空才挂，形状不对忽略键）
+  │ features/chat/protocol.ts:159 parseA2uiFromPayload（数组且非空才挂，形状不对忽略键）
   │   → store/chat.ts:74 ChatMessage.ui / :111 A2uiInfo
   │   → chat-pi/turns.ts:352 buildTurns push {type:"a2ui"} block（text 块之后）
   │   → chat-pi/pi-message.tsx:192 case "a2ui" → <A2uiCard/>
@@ -35,7 +35,7 @@ web 前端（live）
 web 前端（刷新/重进——历史回放，无 marker 方案）
   session JSONL 里持久化的 ToolCalls[].Function.Arguments（pipeline 原样写入，不截断）
   │ web/backend/api/session.go:845 visibleAssistantToolMessages 识别 render_ui 调用
-  │   → tools.RenderUIHistoryMessages（render_ui.go:195）用与 live 相同的门校验参数
+  │   → tools.RenderUIHistoryMessages（render_ui.go:246）用与 live 相同的门校验参数
   │   → sessionChatMessage{A2UI, Content: 同款兜底}（session.go:87）
   │ 前端 features/chat/history.ts:68 复用 parseA2uiFromPayload 映射回 ChatMessage.ui
   │   → 与 live 同一条 turns/block/A2uiCard 渲染路径
@@ -50,12 +50,16 @@ msgBus 类型断言注入）；任务 3 = 前端解析三层；
 
 ### 2.1 工具侧：三道门 + 兜底 + 静默成功
 
-- **校验只做廉价防线**：`json.Valid` → 每条消息 `version` 以 `"v0.9"` 开头（覆盖 v0.9.1）且 `createSurface`
-  为非空对象 → 序列化批次 ≤256KB。Go 侧不解析 A2UI 结构（侦察分析 D3），schema 权威校验在前端 zod 层。
+- **校验只做廉价防线**：`json.Valid` → 每条消息 `version` 以 `"v0.9"` 开头（覆盖 v0.9.1）且**恰好一个**
+  非空 union 分支（createSurface/updateComponents/updateDataModel/deleteSurface），批内至少一条
+  `createSurface` 封包（分帧门，§3.1 修复后与真实 schema 一致；旧内联形态不预拒，由前端 zod 兜底）
+  → 序列化批次 ≤256KB。Go 侧不解析 A2UI 结构（侦察分析 D3），schema 权威校验在前端 zod 层。
 - **成功即静默**：执行成功返回 `ToolResult{ForLLM:"UI rendered: …", Silent:true}`——工具反馈流里不显示
   成功噪音（`render_ui_test.go` TestRenderUIToolValidBatchPublishesUI 锁定）。
 - **降级零新代码**：非 pico 渠道（飞书/TUI）看到的 `OutboundMessage.Content` 就是兜底文本
-  （summary 参数优先，缺省由组件树生成"组件类型 + 文本属性"逐行摘要），现有渠道逻辑直接显示。
+  （summary 参数优先，缺省由**分帧**生成摘要——`surface <id>` 头行 + updateComponents 的
+  "- 组件类型: 文本" 逐行 + updateDataModel 字符串叶子行；`createSurface.components` 内联
+  仅作预修复历史批次的兼容读取），现有渠道逻辑直接显示。
 - **发布 5s 超时**（`renderUIPublishTimeout`）：bus 拥塞时不无限占用工具执行。
 
 ### 2.2 传输侧：原样透传
@@ -165,7 +169,7 @@ assistant 消息。弃 B 的实证理由：刷新后连文本兜底都不在—�
 | catalog 初始化位置 | index.html 或入口 | `main.tsx:16` 调 `initA2uiBasicCatalog()`（a2ui-card.tsx 导出） | 幂等；入口一次 |
 | 工具成功反馈 | 未提 | `Silent: true` | 成功不进工具反馈流，避免噪音 |
 | i18n | 未提 | `chat.a2uiTitle`/`chat.a2uiRenderFailed` 五语言（zh/en/bn-in/cs/pt-br） | 卡片标题与错误占位 |
-| 兜底 Content | 未提推导细节 | summary 参数 → 组件树逐行摘要 → `Interactive UI (N message(s))` | live 与历史回放同一路推导，逐字节一致 |
+| 兜底 Content | 未提推导细节 | summary 参数 → 分帧摘要（surface 头行 + updateComponents 组件行 + updateDataModel 字符串叶子；内联仅历史兼容）→ `Interactive UI (N message(s))` | live 与历史回放同一路推导，逐字节一致 |
 | 封包示例 | 全局约束给的是内联形态 | 实际 schema 只收分帧形态 | 曾致 §3.1 缺陷，fix round 1 已按分帧修复 |
 
 ## 5. 测试与验证状态
