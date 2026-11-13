@@ -69,7 +69,7 @@ export type PiBlock =
 	| {
 			type: "a2ui";
 			id: string;
-			/** A2UI 渲染载荷（render_ui 工具；渲染组件由后续任务接入）。 */
+			/** A2UI 渲染载荷（render_ui 工具产出，A2uiCard 组件渲染）。 */
 			ui: A2uiInfo;
 	  }
 	| { type: "thinking"; id: string; thinking: string; live: boolean }

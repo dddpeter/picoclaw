@@ -178,6 +178,25 @@ describe("buildTurns a2ui block", () => {
 			{ type: "text", id: "a1", text: "hello", live: false },
 		]);
 	});
+
+	it("emits one a2ui block per message, even with colliding surfaceIds", () => {
+		// 计划审查重点 4 字面用例：同一 turn 内两次 render_ui（surfaceId
+		// 撞车）→ 两条消息各自成块，block id 按消息 id 派生不冲突。
+		const turns = buildTurns(
+			[
+				user("u1"),
+				assistant("a1", "", { ui: { messages: [{ surfaceId: "dup" }] } }),
+				assistant("a2", "", { ui: { messages: [{ surfaceId: "dup" }] } }),
+			],
+			ALL,
+		);
+
+		const blocks = turns[0].assistant?.blocks ?? [];
+		expect(blocks.filter((block) => block.type === "a2ui")).toEqual([
+			{ type: "a2ui", id: "a1#a2ui", ui: { messages: [{ surfaceId: "dup" }] } },
+			{ type: "a2ui", id: "a2#a2ui", ui: { messages: [{ surfaceId: "dup" }] } },
+		]);
+	});
 });
 
 describe("streaming state", () => {

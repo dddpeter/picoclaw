@@ -149,7 +149,7 @@
     "askExpand": "查看",
     "askDoneSummary": "已完成",
     "a2uiTitle": "交互视图",
-    "a2uiRenderFailed": "交互视图渲染失败（消息未通过校验）。",
+    "a2uiRenderFailed": "无法显示此交互视图。",
     "stopGeneration": "停止生成",
     "renameSession": "重命名会话",
     "sessionHistory": "会话历史"
