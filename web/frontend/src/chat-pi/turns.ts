@@ -14,6 +14,7 @@ import {
 	type AssistantDetailVisibility,
 } from "@/features/chat/detail-visibility";
 import type {
+	A2uiInfo,
 	ApprovalInfo,
 	ApprovalSeal,
 	AskInfo,
@@ -64,6 +65,12 @@ export type PiBlock =
 		seal?: AskSeal;
 		timestamp: number;
 		latest?: boolean;
+	  }
+	| {
+			type: "a2ui";
+			id: string;
+			/** A2UI 渲染载荷（render_ui 工具；渲染组件由后续任务接入）。 */
+			ui: A2uiInfo;
 	  }
 	| { type: "thinking"; id: string; thinking: string; live: boolean }
 	| {
@@ -339,6 +346,14 @@ export function buildTurns(
 				id: message.id,
 				text: message.content,
 				live: messageLive,
+			});
+		}
+		// A2UI 渲染块：跟在 text 块之后（无文本时单独成块）。
+		if (message.ui) {
+			assistant.blocks.push({
+				type: "a2ui",
+				id: `${message.id}#a2ui`,
+				ui: message.ui,
 			});
 		}
 		assistant.blocks.push(...attachmentBlocks(message.id, message.attachments));

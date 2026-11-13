@@ -17,6 +17,7 @@ import {
 } from "@/features/chat/assistant-message-state"
 import { normalizeUnixTimestamp } from "@/features/chat/state"
 import {
+  type A2uiInfo,
   type ChatAttachment,
   type ContextUsage,
   type TurnStats,
@@ -153,6 +154,18 @@ export function parseTurnStats(
   }
 }
 
+/** payload.a2ui → A2uiInfo（A2UI Web 渲染）。最小形状检查：数组且非空；
+ * 形状不对忽略该键（不挂 ui），消息按普通 markdown 渲染。导出供单测驱动。 */
+export function parseA2uiFromPayload(
+  payload: Record<string, unknown>,
+): A2uiInfo | undefined {
+  const raw = payload.a2ui
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return undefined
+  }
+  return { messages: raw }
+}
+
 export function handlePicoMessage(
   message: PicoMessage,
   expectedSessionId: string,
@@ -189,6 +202,8 @@ export function handlePicoMessage(
         ? (parseApprovalFromPayload(payload) ?? parseApprovalFromText(content))
         : undefined
       const ask = !isPlaceholder ? parseAskFromPayload(payload) : undefined
+      // A2UI 渲染载荷：payload 显式携带 a2ui 键且形状合法时才挂（照抄 ask 模式）。
+      const ui = !isPlaceholder ? parseA2uiFromPayload(payload) : undefined
       // 问询回执：封存最近未封 ask 卡（与审批回执同模式）。
       const askReceipt = !isPlaceholder ? matchAskReceipt(content) : undefined
       // 审批回执：封存最近未封卡并抑制回执文本本身；无配对目标按普通文本。
@@ -251,6 +266,7 @@ export function handlePicoMessage(
               ...(toolCalls ? { toolCalls } : {}),
               ...(approval ? { approval } : {}),
               ...(ask ? { ask } : {}),
+              ...(ui ? { ui } : {}),
               attachments,
               timestamp,
             },

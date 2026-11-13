@@ -70,6 +70,8 @@ export interface ChatMessage {
   approval?: ApprovalInfo
   ask?: AskInfo
   askSeal?: AskSeal
+  /** A2UI 渲染载荷 → 渲染为 a2ui block（render_ui 工具产出）。 */
+  ui?: A2uiInfo
   /** 审批卡的封存结论；未封存 = 待操作。 */
   approvalSeal?: ApprovalSeal
   /** User message queued as steering for the active turn (client-side flag). */
@@ -103,6 +105,11 @@ export interface AskInfo {
 export interface AskSeal {
   verdict: "answered" | "skipped" | "done"
   at: number
+}
+
+/** A2UI 渲染载荷（payload.a2ui）：后端反序列化后的消息数组，原样透传给渲染层。 */
+export interface A2uiInfo {
+  messages: unknown[]
 }
 
 export interface ContextUsage {

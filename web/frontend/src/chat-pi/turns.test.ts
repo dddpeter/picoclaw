@@ -145,6 +145,41 @@ describe("buildTurns", () => {
 	});
 });
 
+describe("buildTurns a2ui block", () => {
+	const uiMessages = [{ type: "container", id: "c1" }];
+
+	it("emits an a2ui block after the text block for messages carrying ui", () => {
+		const turns = buildTurns(
+			[user("u1"), assistant("a1", "这是渲染结果", { ui: { messages: uiMessages } })],
+			ALL,
+		);
+
+		expect(turns[0].assistant?.blocks).toEqual([
+			{ type: "text", id: "a1", text: "这是渲染结果", live: false },
+			{ type: "a2ui", id: "a1#a2ui", ui: { messages: uiMessages } },
+		]);
+	});
+
+	it("emits an a2ui block alone when the message has no text", () => {
+		const turns = buildTurns(
+			[user("u1"), assistant("a1", "", { ui: { messages: uiMessages } })],
+			ALL,
+		);
+
+		expect(turns[0].assistant?.blocks).toEqual([
+			{ type: "a2ui", id: "a1#a2ui", ui: { messages: uiMessages } },
+		]);
+	});
+
+	it("leaves messages without ui untouched (regression)", () => {
+		const turns = buildTurns([user("u1"), assistant("a1", "hello")], ALL);
+
+		expect(turns[0].assistant?.blocks).toEqual([
+			{ type: "text", id: "a1", text: "hello", live: false },
+		]);
+	});
+});
+
 describe("streaming state", () => {
 	it("adds a pending assistant card while the turn is typing", () => {
 		const turns = buildTurns([user("u1")], { isTyping: true, detail: "all", now: 42 });

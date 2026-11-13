@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest"
 
-import { parseContextUsage, parseTurnStats } from "@/features/chat/protocol"
+import {
+  parseA2uiFromPayload,
+  parseContextUsage,
+  parseTurnStats,
+} from "@/features/chat/protocol"
 
 // 分段解析（octop 借鉴 §五，评审 P3-8）：context_usage.segments 的 wire 解析
 // 是 web 环分段堆叠条的数据源——畸形条目必须被丢弃而非炸掉整个环。
@@ -88,6 +92,22 @@ describe("parseContextUsage segments", () => {
     expect(
       parseContextUsage(wrap({ used_tokens: Number.NaN, total_tokens: 2 })),
     ).toBeUndefined()
+  })
+})
+
+// a2ui 载荷（A2UI Web 渲染）：最小形状检查——数组且非空才挂 ui，形状不对
+// 忽略该键让消息按普通 markdown 渲染，畸形 payload 不能炸掉聊天流。
+describe("parseA2uiFromPayload", () => {
+  it("attaches ui for a non-empty a2ui array, passing messages through", () => {
+    const messages = [{ type: "container", id: "c1" }]
+    expect(parseA2uiFromPayload({ a2ui: messages })).toEqual({ messages })
+  })
+
+  it("ignores the key when absent, null, not an array, or empty", () => {
+    expect(parseA2uiFromPayload({})).toBeUndefined()
+    expect(parseA2uiFromPayload({ a2ui: null })).toBeUndefined()
+    expect(parseA2uiFromPayload({ a2ui: "no" })).toBeUndefined()
+    expect(parseA2uiFromPayload({ a2ui: [] })).toBeUndefined()
   })
 })
 
