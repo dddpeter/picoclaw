@@ -193,6 +193,35 @@ func TestRenderUIToolSummaryParamWinsAsFallbackContent(t *testing.T) {
 	}
 }
 
+// TestRenderUIToolNonStringSummaryFallsBackToTree: a non-string summary
+// argument (the model emitting a number) misses the live string assertion
+// and silently downgrades to the tree-derived fallback — the card still
+// publishes. Pins the live side of the live/history parity locked in
+// TestRenderUIHistoryMessages ("non-string summary falls back to tree
+// derivation like live").
+func TestRenderUIToolNonStringSummaryFallsBackToTree(t *testing.T) {
+	tool, msgBus := newTestRenderUITool(t)
+	ctx := WithToolContext(context.Background(), "pico", "pico:sess-1")
+
+	result := tool.Execute(ctx, map[string]any{
+		"messages": renderUITestMessages(),
+		"summary":  123,
+	})
+	if result.IsError {
+		t.Fatalf("Execute() IsError = true (non-string summary must downgrade, not reject), ForLLM: %s", result.ForLLM)
+	}
+
+	msg := waitOutboundMessage(t, msgBus)
+	if msg.UI == nil {
+		t.Fatal("published message UI = nil, want UIMeta (card still publishes)")
+	}
+	for _, wantText := range []string{"季度体检人数", "2026 Q1: 128 人"} {
+		if !strings.Contains(msg.Content, wantText) {
+			t.Errorf("Content = %q, want tree-derived fallback containing %q", msg.Content, wantText)
+		}
+	}
+}
+
 // TestRenderUIToolInvalidBatchRejected: malformed batches fail with an
 // explanatory ForLLM and nothing is published.
 func TestRenderUIToolInvalidBatchRejected(t *testing.T) {
@@ -390,6 +419,26 @@ func TestRenderUIHistoryMessages(t *testing.T) {
 		for _, wantText := range []string{"季度体检人数", "2026 Q1: 128 人"} {
 			if !strings.Contains(fallback, wantText) {
 				t.Errorf("fallback = %q, want it to contain %q", fallback, wantText)
+			}
+		}
+	})
+	t.Run("non-string summary falls back to tree derivation like live", func(t *testing.T) {
+		// Live: the args["summary"].(string) assertion miss silently
+		// downgrades to the tree-derived fallback and the card still
+		// publishes. History must agree — a numeric summary must not fail
+		// the whole arguments decode and silently drop the card on replay.
+		argsJSON := `{"messages":` + marshalForTest(t, renderUITestMessages()) + `,"summary":123}`
+		messages, fallback, ok := RenderUIHistoryMessages(argsJSON)
+		if !ok {
+			t.Fatal("ok = false, want extraction to succeed (non-string summary downgrades, not rejects)")
+		}
+		want := marshalForTest(t, renderUITestMessages())
+		if string(messages) != want {
+			t.Errorf("messages = %s, want %s", messages, want)
+		}
+		for _, wantText := range []string{"季度体检人数", "2026 Q1: 128 人"} {
+			if !strings.Contains(fallback, wantText) {
+				t.Errorf("fallback = %q, want tree-derived fallback containing %q", fallback, wantText)
 			}
 		}
 	})

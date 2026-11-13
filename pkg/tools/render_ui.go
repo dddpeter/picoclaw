@@ -98,7 +98,7 @@ func (t *RenderUITool) Parameters() map[string]any {
 					`{"version":"v0.9","updateDataModel":{"surfaceId":"s1","path":"/","value":{"title":"hello"}}}] — ` +
 					`every message top level allows ONLY "version" plus exactly ONE of ` + renderUIBranchKeysDoc + `; ` +
 					`do NOT inline components or dataModel inside createSurface (the strict schema rejects them with Unrecognized key(s)). ` +
-					`components entries are {id, component, ...props, child|childIds?} and props are strict too: ` +
+					`components entries are {id, component, ...props, child|children?} and props are strict too: ` +
 					`Card{child}, List/Column/Row{children}, Text{text (string or {"path":"/field"} data binding)}; ` +
 					`available components: Text, Image, Icon, Video, AudioPlayer, Row, Column, List, Card, Tabs, Modal, Divider, Button, TextField, CheckBox, ChoicePicker, Slider, DateTimeInput.`,
 			},
@@ -242,31 +242,44 @@ func renderUIEnvelopeViolation(items []any) error {
 // applies the same gates as Execute (frame check, size cap) so history
 // only resurfaces batches that actually rendered live; ok=false otherwise.
 // fallback mirrors the live OutboundMessage Content derivation (summary
-// argument, else the generated batch text, else a count line).
+// argument, else the generated batch text, else a count line). The
+// arguments are decoded key-by-key so a non-string summary (e.g. a
+// number) downgrades to the tree-derived fallback exactly like the live
+// path's args["summary"].(string) assertion miss, instead of failing the
+// whole Unmarshal and silently dropping the card on replay.
 func RenderUIHistoryMessages(argsJSON string) (messages json.RawMessage, fallback string, ok bool) {
-	var args struct {
-		Messages []any  `json:"messages"`
-		Summary  string `json:"summary"`
-	}
-	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(argsJSON), &raw); err != nil {
 		return nil, "", false
 	}
-	if len(args.Messages) == 0 {
+	var items []any
+	if msgRaw, exists := raw["messages"]; exists {
+		if err := json.Unmarshal(msgRaw, &items); err != nil {
+			return nil, "", false
+		}
+	}
+	if len(items) == 0 {
 		return nil, "", false
 	}
-	if renderUIEnvelopeViolation(args.Messages) != nil {
+	if renderUIEnvelopeViolation(items) != nil {
 		return nil, "", false
 	}
-	payload, err := json.Marshal(args.Messages)
+	payload, err := json.Marshal(items)
 	if err != nil || len(payload) > renderUIMaxBytes {
 		return nil, "", false
 	}
-	fallback = strings.TrimSpace(args.Summary)
+	// summary 二次按字符串解码：类型不对（数字/布尔/对象）按空处理，
+	// 与 live 路径的静默降级对齐。
+	var summary string
+	if summaryRaw, exists := raw["summary"]; exists {
+		_ = json.Unmarshal(summaryRaw, &summary)
+	}
+	fallback = strings.TrimSpace(summary)
 	if fallback == "" {
-		fallback = renderUITextSummary(args.Messages)
+		fallback = renderUITextSummary(items)
 	}
 	if fallback == "" {
-		fallback = fmt.Sprintf("Interactive UI (%d A2UI message(s))", len(args.Messages))
+		fallback = fmt.Sprintf("Interactive UI (%d A2UI message(s))", len(items))
 	}
 	return payload, fallback, true
 }
