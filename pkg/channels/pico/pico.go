@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"mime"
 	"net/http"
@@ -583,6 +584,14 @@ func (c *PicoChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]stri
 		}
 	}
 	trackedMsgID, hasTrackedMsg := c.currentToolFeedbackMessage(msg.ChatID)
+	// NOTE: an A2UI card message counts as "finalizes tracked tool feedback"
+	// (it is a plain message), so a live tracked feedback would swallow it
+	// here — FinalizeToolFeedbackMessage edits the feedback message with
+	// content only and returns before the a2ui block below. Unreachable
+	// today: the agent never publishes pre-execution tool feedback on the
+	// pico channel (publishToolFeedback guards `ts.channel != "pico"`), so
+	// hasTrackedMsg is always false for pico sends; the tracker exists only
+	// for the shared animator interfaces.
 	if outboundMessageFinalizesTrackedToolFeedback(msg) {
 		if msgIDs, handled := c.FinalizeToolFeedbackMessage(ctx, msg); handled {
 			return msgIDs, nil
@@ -667,9 +676,7 @@ func (c *PicoChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]stri
 	// createSurface) targets a card this channel already broadcast — merge
 	// its frames into the registered card's accumulated frames and
 	// hot-update that exact message via message.update (the frontend swaps
-	// the card data in place) instead of orphaning a second card. An
-	// unknown surfaceId degrades to the create path below (which registers
-	// it) so the update is never lost as an orphan.
+	// the card data in place) instead of orphaning a second card.
 	if uiSurfaceID != "" && len(uiFrames) > 0 && !batchHasCreateSurface(uiFrames) {
 		if state, ok := c.a2uiSurfaces.lookup(msg.ChatID, uiSurfaceID); ok {
 			merged := mergeA2UIFrames(state.frames, uiFrames)
@@ -680,25 +687,54 @@ func (c *PicoChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]stri
 				PayloadKeyContent: state.content,
 				PayloadKeyA2UI:    merged,
 			}
-			if err := c.editMessagePayload(ctx, msg.ChatID, state.messageID, updatePayload, nil); err != nil {
+			if err := c.editMessagePayload(ctx, msg.ChatID, state.messageID, updatePayload, nil); err != nil && !errors.Is(err, errFrameRetainedNoDelivery) {
+				// Real failure — the frame never entered the session seq
+				// ring, so no client will ever receive it. Keep the
+				// pre-merge registry frames so the delta stays retryable
+				// instead of being absorbed invisibly.
 				return nil, err
 			}
-			// Commit only after a successful broadcast: a failed update
-			// leaves the registry holding the pre-merge frames so the
-			// delta can be retried instead of being absorbed invisibly.
+			// The frame is in the seq ring regardless of live delivery: a
+			// zero-connection send is replayed on reconnect (trae borrowing
+			// §一), so commit the merged frames to keep the registry and
+			// the replayed state in agreement.
 			c.a2uiSurfaces.record(msg.ChatID, uiSurfaceID, state.messageID, state.content, merged)
 			return []string{state.messageID}, nil
 		}
+		// Unknown surfaceId (registry miss — e.g. after a gateway restart
+		// cleared it): an orphan update-only batch can NOT become a card.
+		// The batch carries no createSurface frame, so the frontend A2UI
+		// message processor rejects every frame with "Surface not found"
+		// and renders a permanent error placeholder — and registering it
+		// would only chain further updates into that dead card. Align with
+		// the history-fold orphan semantics instead: publish the fallback
+		// text only (no a2ui key) and leave the surface unregistered, so a
+		// later create batch starts a clean card.
+		delete(payload, PayloadKeyA2UI)
 	}
 
 	outMsg := newMessage(TypeMessageCreate, payload)
 
 	if err := c.broadcastToSession(msg.ChatID, outMsg); err != nil {
-		return nil, err
+		retained := errors.Is(err, errFrameRetainedNoDelivery)
+		if !retained || uiSurfaceID == "" {
+			// Real failure (frame never entered the seq ring), or a
+			// non-A2UI message: surface the error unchanged.
+			return nil, err
+		}
+		// Ring-retained A2UI create: a reconnecting client replays the
+		// frame, so registration must commit to stay consistent with the
+		// replayed state — and Send reports success, because the publish
+		// did land (in the ring); reporting failure would make render_ui
+		// re-publish and duplicate the card.
 	}
-	// Register the surface after a successful create broadcast so a failed
-	// send never leaves an entry pointing at a message nobody received.
-	if uiSurfaceID != "" && len(uiFrames) > 0 {
+
+	// Register the surface once the create frame is committed to the seq
+	// ring (delivered live or retained for replay) so a never-sent frame
+	// never leaves an entry pointing at a message nobody received. Orphan
+	// update-only batches dropped the a2ui key above — they publish
+	// fallback text only and stay unregistered.
+	if uiSurfaceID != "" && len(uiFrames) > 0 && payload[PayloadKeyA2UI] != nil {
 		c.a2uiSurfaces.record(msg.ChatID, uiSurfaceID, msgID, content, uiFrames)
 	}
 	if isToolFeedback {
@@ -1326,6 +1362,16 @@ func (c *PicoChannel) broadcast(chatID string, msg PicoMessage) error {
 	return c.broadcastToSession(chatID, msg)
 }
 
+// errFrameRetainedNoDelivery reports that an outbound frame was retained in
+// the session seq ring (trae borrowing §一) but no live connection accepted
+// it at send time — a reconnecting client replays it from the ring. Callers
+// that keep follow-up state (the A2UI surface registry) must treat ring
+// retention as delivery: the replayed frame and the committed state have to
+// agree, so they commit against a retained frame just like a delivered one.
+// It always chains channels.ErrSendFailed so existing errors.Is checks keep
+// working.
+var errFrameRetainedNoDelivery = errors.New("frame retained in session seq ring")
+
 // broadcastToSession sends a message to all connections with a matching session.
 func (c *PicoChannel) broadcastToSession(chatID string, msg PicoMessage) error {
 	// chatID format: "pico:<sessionID>"
@@ -1353,7 +1399,7 @@ func (c *PicoChannel) broadcastToSession(chatID string, msg PicoMessage) error {
 	}
 
 	if !sent {
-		return fmt.Errorf("no active connections for session %s: %w", sessionID, channels.ErrSendFailed)
+		return fmt.Errorf("no active connections for session %s (%w): %w", sessionID, errFrameRetainedNoDelivery, channels.ErrSendFailed)
 	}
 	return nil
 }

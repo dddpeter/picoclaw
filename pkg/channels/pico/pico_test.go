@@ -1438,8 +1438,10 @@ func TestPicoA2UI_UpdateOnlyBatch_SessionIsolation(t *testing.T) {
 	}
 
 	// Session B sends an update-only batch for the SAME surfaceId string
-	// without having created it: it must NOT hot-update A's card — it
-	// degrades to a fresh message.create on B.
+	// without having created it: it must NOT hot-update A's card, and it
+	// must NOT become a dead card either — it degrades to a plain text
+	// message.create (fallback content, no a2ui key) and stays unregistered
+	// on B.
 	if _, err := ch.Send(context.Background(), bus.OutboundMessage{
 		ChatID:  "pico:sess-b",
 		Content: "🧩 orphan update",
@@ -1455,17 +1457,52 @@ func TestPicoA2UI_UpdateOnlyBatch_SessionIsolation(t *testing.T) {
 	select {
 	case msg := <-receivedB:
 		if msg.Type != TypeMessageCreate {
-			t.Fatalf("B orphan update broadcast as %q, want degraded %q", msg.Type, TypeMessageCreate)
+			t.Fatalf("B orphan update broadcast as %q, want plain-text %q", msg.Type, TypeMessageCreate)
+		}
+		if _, has := msg.Payload[PayloadKeyA2UI]; has {
+			t.Fatalf("B orphan update carries a2ui payload %#v, want none (dead card)", msg.Payload[PayloadKeyA2UI])
+		}
+		if got, _ := msg.Payload[PayloadKeyContent].(string); got == "" {
+			t.Fatal("B orphan update must publish non-empty fallback text")
 		}
 		if got := msg.Payload["message_id"]; got == aMsgID {
 			t.Fatal("B orphan update must not reuse A's message id")
 		}
 	case <-time.After(time.Second):
-		t.Fatal("expected degraded create on B")
+		t.Fatal("expected plain-text orphan create on B")
 	}
 
-	// The degraded create registered B's own surface: B's next update merges
-	// against B's card.
+	// B has no registration yet — its own create batch establishes one.
+	if _, err := ch.Send(context.Background(), bus.OutboundMessage{
+		ChatID:  "pico:sess-b",
+		Content: "🖥️ card B",
+		Context: bus.InboundContext{Channel: "pico", ChatID: "pico:sess-b"},
+		UI: &bus.UIMeta{
+			Messages:  json.RawMessage(testA2UICreateBatch),
+			SurfaceID: "s1",
+		},
+	}); err != nil {
+		t.Fatalf("Send(create on B) error = %v", err)
+	}
+
+	var bMsgID string
+	select {
+	case msg := <-receivedB:
+		if msg.Type != TypeMessageCreate {
+			t.Fatalf("B create type = %q, want %q", msg.Type, TypeMessageCreate)
+		}
+		if _, has := msg.Payload[PayloadKeyA2UI]; !has {
+			t.Fatal("B create must carry the a2ui payload")
+		}
+		bMsgID, _ = msg.Payload["message_id"].(string)
+		if bMsgID == "" {
+			t.Fatalf("B create payload missing message_id: %#v", msg.Payload)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected B create to be delivered")
+	}
+
+	// B's next update merges against B's own registration — never A's card.
 	if _, err := ch.Send(context.Background(), bus.OutboundMessage{
 		ChatID:  "pico:sess-b",
 		Context: bus.InboundContext{Channel: "pico", ChatID: "pico:sess-b"},
@@ -1480,10 +1517,10 @@ func TestPicoA2UI_UpdateOnlyBatch_SessionIsolation(t *testing.T) {
 	select {
 	case msg := <-receivedB:
 		if msg.Type != TypeMessageUpdate {
-			t.Fatalf("B second update type = %q, want %q", msg.Type, TypeMessageUpdate)
+			t.Fatalf("B update type = %q, want %q", msg.Type, TypeMessageUpdate)
 		}
-		if got := msg.Payload["message_id"]; got == aMsgID {
-			t.Fatal("B update must not hot-update A's card")
+		if got := msg.Payload["message_id"]; got != bMsgID {
+			t.Fatalf("B update message_id = %#v, want B's own %q (never A's %q)", got, bMsgID, aMsgID)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("expected B merged update")
@@ -1498,12 +1535,15 @@ func TestPicoA2UI_UpdateOnlyBatch_SessionIsolation(t *testing.T) {
 	}
 }
 
-// TestPicoA2UI_UnknownSurfaceUpdateDegradesToCreate pins the degradation
-// rule: an update-only batch whose (chatID, surfaceId) has no registered
-// create broadcasts a message.create new card instead of an orphan update
-// that no client could attach to (e.g. after a gateway restart cleared the
-// registry).
-func TestPicoA2UI_UnknownSurfaceUpdateDegradesToCreate(t *testing.T) {
+// TestPicoA2UI_OrphanUpdateFallsBackToPlainText pins the degradation rule
+// (review fix round 1): an update-only batch whose (chatID, surfaceId) has
+// no registered create publishes the fallback text as a plain message — no
+// a2ui key (the batch carries no createSurface frame, so a card built from
+// it would be a permanent "Surface not found" error placeholder on the
+// frontend) and no registration (nothing to merge into), matching the
+// history-fold orphan semantics. This is the accepted post-restart path:
+// updates for pre-restart surfaces surface as text lines, not dead cards.
+func TestPicoA2UI_OrphanUpdateFallsBackToPlainText(t *testing.T) {
 	ch := newTestPicoChannel(t)
 
 	if err := ch.Start(context.Background()); err != nil {
@@ -1515,10 +1555,12 @@ func TestPicoA2UI_UnknownSurfaceUpdateDegradesToCreate(t *testing.T) {
 	defer cleanup()
 	ch.addConnForTest(&picoConn{id: "conn-1", conn: clientConn, sessionID: "sess-1"})
 
+	chatID := "pico:sess-1"
+
 	if _, err := ch.Send(context.Background(), bus.OutboundMessage{
-		ChatID:  "pico:sess-1",
+		ChatID:  chatID,
 		Content: "🧩 orphan",
-		Context: bus.InboundContext{Channel: "pico", ChatID: "pico:sess-1"},
+		Context: bus.InboundContext{Channel: "pico", ChatID: chatID},
 		UI: &bus.UIMeta{
 			Messages:  json.RawMessage(testA2UIUpdateBatch1),
 			SurfaceID: "never-created",
@@ -1530,21 +1572,28 @@ func TestPicoA2UI_UnknownSurfaceUpdateDegradesToCreate(t *testing.T) {
 	select {
 	case msg := <-received:
 		if msg.Type != TypeMessageCreate {
-			t.Fatalf("message type = %q, want degraded %q", msg.Type, TypeMessageCreate)
+			t.Fatalf("message type = %q, want plain-text %q", msg.Type, TypeMessageCreate)
 		}
-		frames := a2uiBatchFramesOf(t, msg)
-		if len(frames) != len(jsonAnchoredFrames(t, testA2UIUpdateBatch1)) {
-			t.Fatalf("degraded card batch len = %d, want the update batch frames", len(frames))
+		if _, has := msg.Payload[PayloadKeyA2UI]; has {
+			t.Fatalf("orphan update carries a2ui payload %#v, want none (dead card)", msg.Payload[PayloadKeyA2UI])
+		}
+		if got, _ := msg.Payload[PayloadKeyContent].(string); got != "🧩 orphan" {
+			t.Fatalf("orphan content = %#v, want the fallback text", got)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("expected degraded create to be delivered")
+		t.Fatal("expected plain-text orphan create to be delivered")
 	}
 
-	// The degraded create registered the surface, so a follow-up update
-	// merges instead of creating yet another card.
+	if _, ok := ch.a2uiSurfaces.lookup(chatID, "never-created"); ok {
+		t.Fatal("orphan update must not register the surface (nothing to merge into)")
+	}
+
+	// A follow-up update for the same unknown surface stays text-only too —
+	// no dead-card chain of merged batches that can never render.
 	if _, err := ch.Send(context.Background(), bus.OutboundMessage{
-		ChatID:  "pico:sess-1",
-		Context: bus.InboundContext{Channel: "pico", ChatID: "pico:sess-1"},
+		ChatID:  chatID,
+		Content: "🧩 orphan 2",
+		Context: bus.InboundContext{Channel: "pico", ChatID: chatID},
 		UI: &bus.UIMeta{
 			Messages:  json.RawMessage(testA2UIUpdateBatch2),
 			SurfaceID: "never-created",
@@ -1555,31 +1604,108 @@ func TestPicoA2UI_UnknownSurfaceUpdateDegradesToCreate(t *testing.T) {
 
 	select {
 	case msg := <-received:
-		if msg.Type != TypeMessageUpdate {
-			t.Fatalf("follow-up type = %q, want %q", msg.Type, TypeMessageUpdate)
+		if msg.Type != TypeMessageCreate {
+			t.Fatalf("follow-up type = %q, want plain-text %q", msg.Type, TypeMessageCreate)
+		}
+		if _, has := msg.Payload[PayloadKeyA2UI]; has {
+			t.Fatal("follow-up orphan must not grow an a2ui payload")
 		}
 	case <-time.After(time.Second):
-		t.Fatal("expected follow-up merge after degraded registration")
+		t.Fatal("expected follow-up plain-text orphan")
+	}
+
+	if _, ok := ch.a2uiSurfaces.lookup(chatID, "never-created"); ok {
+		t.Fatal("follow-up orphan must still not register the surface")
 	}
 }
 
-// jsonAnchoredFrames decodes an A2UI batch JSON into frame objects (test
-// helper to compare expected batch lengths).
-func jsonAnchoredFrames(t *testing.T, batch string) []map[string]any {
-	t.Helper()
-	var raw []any
-	if err := json.Unmarshal([]byte(batch), &raw); err != nil {
-		t.Fatalf("json.Unmarshal(test batch) error = %v", err)
+// TestPicoA2UI_RingRetainedBroadcastStillCommitsRegistry pins the commit
+// point (review fix round 1): broadcastToSession retains every frame in the
+// session seq ring before delivery, so a zero-connection broadcast still
+// reaches reconnecting clients via replay. The registry must commit against
+// ring retention exactly like a live delivery — otherwise the replayed
+// merged card and the registry drift apart and later deltas lose content.
+func TestPicoA2UI_RingRetainedBroadcastStillCommitsRegistry(t *testing.T) {
+	ch := newTestPicoChannel(t)
+
+	if err := ch.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
 	}
-	frames := make([]map[string]any, 0, len(raw))
-	for _, frame := range raw {
-		obj, ok := frame.(map[string]any)
-		if !ok {
-			t.Fatalf("frame = %#v, want object", frame)
-		}
-		frames = append(frames, obj)
+	defer ch.Stop(context.Background())
+
+	// Session exists but no client is live: register a connection, then
+	// remove it — broadcasts retain frames in the seq ring with nobody to
+	// deliver to.
+	ch.addConnForTest(&picoConn{id: "conn-gone", sessionID: "sess-1"})
+	if ch.removeConnection("conn-gone") == nil {
+		t.Fatal("expected test connection to be removed")
 	}
-	return frames
+
+	chatID := "pico:sess-1"
+
+	msgIDs, err := ch.Send(context.Background(), bus.OutboundMessage{
+		ChatID:  chatID,
+		Content: "🖥️ card",
+		Context: bus.InboundContext{Channel: "pico", ChatID: chatID},
+		UI: &bus.UIMeta{
+			Messages:  json.RawMessage(testA2UICreateBatch),
+			SurfaceID: "s1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Send(create) with zero connections error = %v, want ring-retained success", err)
+	}
+	if len(msgIDs) != 1 || msgIDs[0] == "" {
+		t.Fatalf("Send(create) ids = %v, want the create message id", msgIDs)
+	}
+
+	state, ok := ch.a2uiSurfaces.lookup(chatID, "s1")
+	if !ok {
+		t.Fatal("ring-retained create must commit the registry")
+	}
+	if state.messageID != msgIDs[0] {
+		t.Fatalf("registry messageID = %q, want %q", state.messageID, msgIDs[0])
+	}
+
+	// The create frame is in the seq ring for reconnect replay.
+	replay := ch.seqs.replaySince("sess-1", 0)
+	if len(replay.frames) != 1 {
+		t.Fatalf("seq ring frames = %d, want the retained create", len(replay.frames))
+	}
+	if replay.frames[0].Type != TypeMessageCreate {
+		t.Fatalf("replayed frame type = %q, want %q", replay.frames[0].Type, TypeMessageCreate)
+	}
+
+	// The follow-up update also commits on ring retention — the replayed
+	// state (create + merged update) and the registry must agree.
+	if _, err := ch.Send(context.Background(), bus.OutboundMessage{
+		ChatID:  chatID,
+		Context: bus.InboundContext{Channel: "pico", ChatID: chatID},
+		UI: &bus.UIMeta{
+			Messages:  json.RawMessage(testA2UIUpdateBatch1),
+			SurfaceID: "s1",
+		},
+	}); err != nil {
+		t.Fatalf("Send(update) with zero connections error = %v, want ring-retained success", err)
+	}
+
+	state, ok = ch.a2uiSurfaces.lookup(chatID, "s1")
+	if !ok {
+		t.Fatal("registry entry vanished after ring-retained update")
+	}
+	if len(state.frames) != 3 {
+		t.Fatalf("registry frames len = %d, want 3 merged frames", len(state.frames))
+	}
+	replay = ch.seqs.replaySince("sess-1", 0)
+	if len(replay.frames) != 2 {
+		t.Fatalf("seq ring frames = %d, want create + retained update", len(replay.frames))
+	}
+	if replay.frames[1].Type != TypeMessageUpdate {
+		t.Fatalf("replayed update type = %q, want %q", replay.frames[1].Type, TypeMessageUpdate)
+	}
+	if got := replay.frames[1].Payload["message_id"]; got != state.messageID {
+		t.Fatalf("replayed update message_id = %#v, want %q", got, state.messageID)
+	}
 }
 
 // TestA2uiSurfaceRegistry_LRUCap pins the registry bound: at most
