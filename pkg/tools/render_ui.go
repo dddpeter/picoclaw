@@ -136,6 +136,7 @@ func (t *RenderUITool) Parameters() map[string]any {
 					`{"version":"v0.9","updateDataModel":{"surfaceId":"s1","path":"/","value":{"title":"hello"}}}] — ` +
 					`the TOP-LEVEL component's id MUST be "root": the renderer always renders the tree rooted at the component named "root" (any other root id renders an empty card), ` +
 					`every component must be reachable from "root" via child/children references (unreachable components never render), ` +
+					`components form a TREE — each id may appear in at most ONE parent's child/children list (listing an id in two parents renders it twice), ` +
 					`and component ids must be UNIQUE across the whole components array (a duplicate id makes the renderer reject the batch); ` +
 					`every message top level allows ONLY "version" plus exactly ONE of ` + renderUIBranchKeysDoc + `; ` +
 					`do NOT inline components or dataModel inside createSurface (the strict schema rejects them with Unrecognized key(s)). ` +
@@ -376,6 +377,38 @@ func renderUIRootViolation(items []any) error {
 			unreachable = append(unreachable[:5], fmt.Sprintf("… (+%d more)", len(unreachable)-5))
 		}
 		return fmt.Errorf("components not reachable from \"root\" never render: %s — wire them into a parent's child/children or remove them", strings.Join(unreachable, ", "))
+	}
+	return renderUIRefCountViolation(byID)
+}
+
+// renderUIRefCountViolation enforces the tree invariant: every component id
+// may be referenced by at most one parent (each reference renders the
+// component again). Observed live 2026-11-14: the model listed every Text in
+// BOTH the root Column's children AND its owning Row's children, so each
+// value rendered twice — once inside the row, once stacked below it.
+func renderUIRefCountViolation(byID map[string]map[string]any) error {
+	refCount := map[string]int{}
+	for _, comp := range byID {
+		if child, ok := comp["child"].(string); ok && child != "" {
+			refCount[child]++
+		}
+		if children, ok := comp["children"].([]any); ok {
+			for _, ch := range children {
+				if ref, ok := ch.(string); ok && ref != "" {
+					refCount[ref]++
+				}
+			}
+		}
+	}
+	var shared []string
+	for id, n := range refCount {
+		if n > 1 {
+			shared = append(shared, fmt.Sprintf("%q(x%d)", id, n))
+		}
+	}
+	if len(shared) > 0 {
+		sort.Strings(shared)
+		return fmt.Errorf("components referenced by more than one parent render once per reference: %s — A2UI components form a tree, each id may appear in at most one child/children list", strings.Join(shared, ", "))
 	}
 	return nil
 }

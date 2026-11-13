@@ -214,6 +214,20 @@ catalogId 写错（或缺失）= surface 无目录可解析的死卡；strict sc
   组件名白名单、id 缺失、根缺失、孤儿组件、id 重复、catalogId 错误、256KB 超限——
   剩余的 props 精度仍由 description 承担（防上游演进误拒）。
 
+### 3.5 第五次实测缺陷：组件被多个父引用 → 重复渲染（2026-11-14 三次重测）
+
+形状检查全过后模型批次渲染**成功**，但每个值显示两遍（Row 横排一遍 + 堆叠一遍）。
+会话实录：模型把全部 23 个组件都塞进根 Column 的 children，**同时**每个 Row 又引用自己的
+Text——12 个组件被两个父引用。A2UI 组件渲染语义是"每个引用渲染一次"，被引用两次 =
+显示两遍，恰好是截图里"横排+堆叠交错"的模式。这不是 zod 拒绝类错误（渲染成功），是
+**树不变量**错误：A2UI 组件必须是树，每个 id 至多被一个父引用。修复：
+- 门新增 `renderUIRefCountViolation`：引用计数（child/children 的字符串引用逐个计）>1
+  即报错，错误列出 `id(xN)` 与树不变量说明——模型可重试。
+- description 补"components form a TREE — each id may appear in at most ONE parent's
+  child/children list"。
+- 注意这类错误 zod 层不报（渲染成功、只是视觉垃圾），只有语义门能拦——廉价防线里
+  "语法门够不着、语义门兜住"的典型样本。
+
 ## 4. 实现与计划的偏差
 
 ### 4.1 任务 5：历史回放选了"无 marker 提取"（计划 A/B 的第三条路）

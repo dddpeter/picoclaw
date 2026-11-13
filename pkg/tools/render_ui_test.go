@@ -421,6 +421,29 @@ func TestRenderUIToolInvalidBatchRejected(t *testing.T) {
 			}}},
 			want: "registered catalog",
 		},
+		{
+			// Fourth live incident (2026-11-14, third retest): the model
+			// listed every Text in BOTH the root Column and its owning Row —
+			// each value rendered twice (row layout + stacked duplicate).
+			name: "component referenced by multiple parents",
+			args: map[string]any{"messages": []any{
+				map[string]any{
+					"version":       "v0.9",
+					"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+				},
+				map[string]any{
+					"version": "v0.9",
+					"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{
+						map[string]any{"id": "root", "component": "Card", "child": "col"},
+						map[string]any{"id": "col", "component": "Column", "children": []any{"row", "t1", "t2"}},
+						map[string]any{"id": "row", "component": "Row", "children": []any{"t1", "t2"}},
+						map[string]any{"id": "t1", "component": "Text", "text": "第一季度"},
+						map[string]any{"id": "t2", "component": "Text", "text": "1,280"},
+					}},
+				},
+			}},
+			want: "more than one parent",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -519,9 +542,11 @@ func TestRenderUIToolSchemaContract(t *testing.T) {
 		`id MUST be "root"`,
 		`reachable from "root"`,
 		// Uniqueness + exact-catalogId teaching locked after the third live
-		// incident (duplicate year ids killed the batch).
+		// incident (duplicate year ids killed the batch); tree-invariant
+		// teaching locked after the fourth (values rendered twice).
 		`UNIQUE across the whole components array`,
 		`catalogId must be EXACTLY`,
+		`at most ONE parent's child/children list`,
 	} {
 		if !strings.Contains(desc, want) {
 			t.Errorf("messages description missing %q: %s", want, desc)
