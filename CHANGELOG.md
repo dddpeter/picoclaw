@@ -7,6 +7,21 @@
 
 ## [Unreleased]
 
+## [0.5.7] - 2026-11-13
+
+### Added
+
+- **A2UI Web 渲染（展示型 MVP，设计 `docs/design/2026-11-13-a2ui-web-render.zh.md`）**：agent 在回复中途调用新工具 `render_ui` 产出 A2UI v0.9 JSON，pico web 聊天流里即时渲染结构化卡片（表格/分组数据/带标签字段），替代长篇纯文本堆砌。本版本只做展示（看、hover），交互回传与图表是二期：
+  - 工具侧三道门：`json.Valid` → v0.9 封包校验（`version` 前缀 + `createSurface` 必填）→ 256KB 批次上限；成功反馈静默（不刷工具流）；Go 侧不解析 A2UI 结构，`bus.UIMeta` 原样透传到 `message.create` 的 `payload["a2ui"]`，schema 权威校验在前端 zod 层
+  - 渲染：官方 `@a2ui/react@0.15` + `@a2ui/web_core@0.15` basicCatalog（Lit Web Components，light DOM）；每卡独立 MessageProcessor（surfaceId 撞车/一 turn 多卡天然隔离）；畸形封包双层兜底（zod 拒 → 错误占位卡，渲染期崩溃 → error boundary），任何情况不炸聊天流；basicCatalog Text 的 markdown 走 app 同一渲染管线
+  - 历史回放：刷新页面卡片原样重现——从 session JSONL 已持久化的 render_ui 工具调用参数提取（与 live 相同校验门 + 兜底推导），无需 marker 文件
+  - 非 pico 渠道（飞书/TUI）降级为零新代码：`OutboundMessage.Content` 携带纯文本兜底（summary 参数优先，缺省从组件树生成摘要），现有渠道逻辑直接显示
+  - 开关：注册走 `cfg.Tools.IsToolEnabled("render_ui")` 门（无独立配置键，默认分支放行 = 默认开启）
+
+### Known Issues
+
+- `render_ui` 工具的 LLM 参数描述示例仍是 components/dataModel 内联在 `createSurface` 的旧形态，会被 v0.9 strict zod 拒绝（前端显示错误占位卡而非崩）；模型自用分帧形态（createSurface → updateComponents → updateDataModel）则正常。修复面仅 `pkg/tools/render_ui.go` 的 description 字符串，详见设计文档 §3.1
+
 ## [0.5.6] - 2026-11-08
 
 ### Changed
