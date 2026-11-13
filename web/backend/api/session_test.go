@@ -2268,7 +2268,7 @@ func a2uiTestBatch() []any {
 			"updateComponents": map[string]any{
 				"surfaceId": "surface-1",
 				"components": []any{
-					map[string]any{"id": "c1", "component": "Card", "child": "c2"},
+					map[string]any{"id": "root", "component": "Card", "child": "c2"},
 					map[string]any{"id": "c2", "component": "Text", "text": "季度体检人数"},
 				},
 			},

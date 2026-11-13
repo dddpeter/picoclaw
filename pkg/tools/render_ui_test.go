@@ -55,9 +55,10 @@ func renderUITestMessages() []any {
 			"updateComponents": map[string]any{
 				"surfaceId": "surface-1",
 				"components": []any{
-					map[string]any{"id": "c1", "component": "Card", "child": "c2"},
-					map[string]any{"id": "c2", "component": "Text", "text": "季度体检人数"},
-					map[string]any{"id": "c3", "component": "Text", "text": map[string]any{"path": "/rows/0"}},
+					map[string]any{"id": "root", "component": "Card", "child": "col"},
+					map[string]any{"id": "col", "component": "Column", "children": []any{"t1", "t3"}},
+					map[string]any{"id": "t1", "component": "Text", "text": "季度体检人数"},
+					map[string]any{"id": "t3", "component": "Text", "text": map[string]any{"path": "/rows/0"}},
 				},
 			},
 		},
@@ -347,6 +348,48 @@ func TestRenderUIToolInvalidBatchRejected(t *testing.T) {
 			}},
 			want: "non-empty array",
 		},
+		{
+			// The live empty-card incident (2026-11-14): the renderer mounts
+			// the tree rooted at the component with id "root" — a batch whose
+			// root is named anything else delivers components that never
+			// render.
+			name: "no component named root",
+			args: map[string]any{"messages": []any{
+				map[string]any{
+					"version":       "v0.9",
+					"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+				},
+				map[string]any{
+					"version": "v0.9",
+					"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{
+						map[string]any{"id": "c1", "component": "Card", "child": "c2"},
+						map[string]any{"id": "c2", "component": "Text", "text": "hello"},
+					}},
+				},
+			}},
+			want: `id "root"`,
+		},
+		{
+			// Same incident, second layer: an empty Row left four Text
+			// components orphaned — they would never render even with a
+			// proper root.
+			name: "components unreachable from root",
+			args: map[string]any{"messages": []any{
+				map[string]any{
+					"version":       "v0.9",
+					"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+				},
+				map[string]any{
+					"version": "v0.9",
+					"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{
+						map[string]any{"id": "root", "component": "Card", "child": "c2"},
+						map[string]any{"id": "c2", "component": "Text", "text": "hello"},
+						map[string]any{"id": "orphan", "component": "Text", "text": "stranded"},
+					}},
+				},
+			}},
+			want: "not reachable",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -384,7 +427,7 @@ func TestRenderUIToolOversizedBatchRejected(t *testing.T) {
 			"updateComponents": map[string]any{
 				"surfaceId": "s1",
 				"components": []any{map[string]any{
-					"id": "c1", "component": "Text", "text": strings.Repeat("x", 256*1024),
+					"id": "root", "component": "Text", "text": strings.Repeat("x", 256*1024),
 				}},
 			},
 		},
@@ -440,6 +483,10 @@ func TestRenderUIToolSchemaContract(t *testing.T) {
 		`createSurface allows ONLY surfaceId + catalogId`,
 		`NO styling props`,
 		`unknown prop, unknown component name, or missing id`,
+		// Root-rule teaching locked after the live empty-card incident: the
+		// renderer mounts the tree at the component with id "root".
+		`id MUST be "root"`,
+		`reachable from "root"`,
 	} {
 		if !strings.Contains(desc, want) {
 			t.Errorf("messages description missing %q: %s", want, desc)

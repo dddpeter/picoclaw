@@ -112,7 +112,7 @@ MessageProcessor 实测（2026-11-13，node 直跑验证）。
     "createSurface": { "surfaceId": "report-2026q", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json" } },
   { "version": "v0.9",
     "updateComponents": { "surfaceId": "report-2026q", "components": [
-      { "id": "card", "component": "Card", "child": "list" },
+      { "id": "root", "component": "Card", "child": "list" },
       { "id": "list", "component": "List", "children": ["t1", "t2"] },
       { "id": "t1",   "component": "Text", "text": { "path": "/rows/0" } },
       { "id": "t2",   "component": "Text", "text": { "path": "/rows/1" } }
@@ -121,6 +121,11 @@ MessageProcessor 实测（2026-11-13，node 直跑验证）。
     "updateDataModel": { "surfaceId": "report-2026q", "path": "/", "value": { "rows": ["2026 Q1：128 人", "2026 Q2：157 人"] } } }
 ]
 ```
+
+**根节点规则（实测踩坑，见 §3.3）**：渲染器恒从 id 为字面 `"root"` 的组件挂载
+（`SurfaceModel.rootId` 默认 `"root"`，v0.9 adapter 的 createSurface 没有 root 字段可改）——
+顶层组件 id 叫别的名字时组件全部送达但渲染为空卡；且从 root 经 child/children 不可达的组件
+永不渲染。
 
 组件 props 也是 strict 的（实测：Card 带 `label` 被拒 `Unrecognized key(s)`）。常用组件的
 **真实** props（从 basicCatalog 运行时 schema 读出，非文档臆测）：`Card{child}`（单子引用）、
@@ -168,6 +173,28 @@ Button/TextField/CheckBox/ChoicePicker/Slider/DateTimeInput（无 Chart，图表
   Text 的 variant（h1-h5/caption/body）与 weight、"NO styling props——标题用 Text variant"警告。
   组件 props 枚举值全部经运行时 schema 实测（.tmp-a2ui-props*.mjs）。
 - 摘要生成器移除 createSurface.components 兼容读取（内联被门拒后成死代码）。
+
+### 3.3 第三次实测缺陷：根节点 id 不是 "root" → 空卡（2026-11-14）
+
+门加严 + description 教全后重测：不再报错，但卡片是**空的**（"交互视图"标题下无内容）。
+会话 JSONL 实录：模型产出的批次形状全对（分帧、无多余键、props 全合法、24 个组件全部送达
+componentsModel）——但顶层组件 id 是 `"c1"`。实测 web_core：`SurfaceModel.rootId` 构造默认
+字面 `"root"`，且 v0.9 adapter 的 createSurface op **没有 root 字段**（`op.rootId ?? 'root'`
+恒走默认）——渲染器只从 id 为 `"root"` 的组件挂载，根叫别的名字 = 空卡。同批次还有第二层：
+一个空 `Row{children:[]}` 使 c9-c12 四个 Text 成为孤儿（任何父都不引用，永不渲染）。
+
+潜伏路径复盘：任务 4 的前端 fixture 恰好用 `id:"root"`（渲染测试真验证过）；而 Go 侧 fixture、
+设计文档 §3 示例的根都叫 `"card"/"c1"`（processMessages 通过、surface 创建成功——但从未验证
+DOM 渲染），三种载体两对错，说明"fixture 对"不等于"规则被理解"。
+
+修复（12dbc1a2 之后的第二批）：
+- 门新增 `renderUIRootViolation`（批级）：updateComponents 的全部组件里必须有 id 为 `"root"` 的
+  组件，否则报错并提示改名；从 `"root"` 沿 child/children（字符串引用；path 绑定视为不透明跳过）
+  做 BFS 可达性检查，不可达组件在错误中点名——模型可自行重试。
+- description 加根节点规则（"TOP-LEVEL component's id MUST be root"）+ 示例改用 `"root"`；
+  设计文档 §3 示例同步修正（此前示例根叫 `"card"`，其实渲染为空）。
+- 两处 Go fixture 的根改 `"root"`，render_ui 测试 fixture 顺带修掉潜伏的孤儿 Text（c3 原本
+  不在任何父的 children 里）。
 
 ## 4. 实现与计划的偏差
 

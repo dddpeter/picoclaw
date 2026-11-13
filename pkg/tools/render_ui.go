@@ -123,8 +123,10 @@ func (t *RenderUITool) Parameters() map[string]any {
 					`{"version":"v0.9","updateComponents":{"surfaceId":"<id>","components":[...]}}, and optionally ` +
 					`{"version":"v0.9","updateDataModel":{"surfaceId":"<id>","path":"/","value":{...}}}. ` +
 					`Example: [{"version":"v0.9","createSurface":{"surfaceId":"s1","catalogId":"https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"}},` +
-					`{"version":"v0.9","updateComponents":{"surfaceId":"s1","components":[{"id":"c1","component":"Card","child":"c2"},{"id":"c2","component":"Text","text":"hello"}]}},` +
+					`{"version":"v0.9","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Card","child":"c2"},{"id":"c2","component":"Text","text":"hello"}]}},` +
 					`{"version":"v0.9","updateDataModel":{"surfaceId":"s1","path":"/","value":{"title":"hello"}}}] — ` +
+					`the TOP-LEVEL component's id MUST be "root": the renderer always renders the tree rooted at the component named "root" (any other root id renders an empty card), ` +
+					`and every component must be reachable from "root" via child/children references (unreachable components never render); ` +
 					`every message top level allows ONLY "version" plus exactly ONE of ` + renderUIBranchKeysDoc + `; ` +
 					`do NOT inline components or dataModel inside createSurface (the strict schema rejects them with Unrecognized key(s)). ` +
 					`components entries are {id, component, ...props}; props are STRICT and per-component: ` +
@@ -277,6 +279,86 @@ func renderUIEnvelopeViolation(items []any) error {
 	}
 	if !hasCreateSurface {
 		return fmt.Errorf("batch must contain at least one \"createSurface\" envelope message")
+	}
+	return renderUIRootViolation(items)
+}
+
+// renderUIRootViolation checks the batch's component forest: at least one
+// component with id "root" must exist, and every component must be
+// reachable from it via child/children references. The renderer always
+// mounts SurfaceModel.rootId — which the v0.9 adapter pins to the literal
+// "root" (createSurface carries no root field) — so any other root id
+// renders an empty card no matter how many components were delivered
+// (observed live 2026-11-14: 24 components, root named "c1", empty card),
+// and components orphaned from the tree never render at all. Path-bound
+// children ({"path":...}) are opaque here and skipped, not traversed.
+func renderUIRootViolation(items []any) error {
+	byID := map[string]map[string]any{}
+	var order []string
+	for _, item := range items {
+		msg, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		uc, ok := msg["updateComponents"].(map[string]any)
+		if !ok {
+			continue
+		}
+		comps, ok := uc["components"].([]any)
+		if !ok {
+			continue
+		}
+		for _, c := range comps {
+			comp, ok := c.(map[string]any)
+			if !ok {
+				continue
+			}
+			id, _ := comp["id"].(string)
+			if id == "" {
+				continue // 缺 id 已由 renderUIComponentsViolation 拦截
+			}
+			if _, seen := byID[id]; !seen {
+				order = append(order, id)
+			}
+			byID[id] = comp
+		}
+	}
+	if _, ok := byID["root"]; !ok {
+		return fmt.Errorf(`batch must include a component with id "root" — the renderer renders the tree rooted at the component named "root"; rename the top-level component's id to "root"`)
+	}
+	visited := map[string]bool{"root": true}
+	queue := []string{"root"}
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		comp := byID[id]
+		if comp == nil {
+			continue
+		}
+		if child, ok := comp["child"].(string); ok && child != "" && !visited[child] {
+			visited[child] = true
+			queue = append(queue, child)
+		}
+		if children, ok := comp["children"].([]any); ok {
+			for _, ch := range children {
+				if ref, ok := ch.(string); ok && ref != "" && !visited[ref] {
+					visited[ref] = true
+					queue = append(queue, ref)
+				}
+			}
+		}
+	}
+	var unreachable []string
+	for _, id := range order {
+		if !visited[id] {
+			unreachable = append(unreachable, id)
+		}
+	}
+	if len(unreachable) > 0 {
+		if len(unreachable) > 5 {
+			unreachable = append(unreachable[:5], fmt.Sprintf("… (+%d more)", len(unreachable)-5))
+		}
+		return fmt.Errorf("components not reachable from \"root\" never render: %s — wire them into a parent's child/children or remove them", strings.Join(unreachable, ", "))
 	}
 	return nil
 }
