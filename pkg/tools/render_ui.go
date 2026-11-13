@@ -273,19 +273,20 @@ func (t *RenderUITool) Execute(ctx context.Context, args map[string]any) *ToolRe
 // entries reference known basicCatalog components with unique ids, and every
 // branch payload targets the same non-empty surfaceId. A batch carrying a
 // createSurface envelope additionally passes the tree gates (root existence,
-// reachability, multi-parent refs); a batch WITHOUT one is an update-only
-// delta (task 4 streamed increments): its frames patch a surface that
-// already rendered live, so the tree gates have no delta to walk and are
+// reachability); a batch WITHOUT one is an update-only delta (task 4
+// streamed increments): its frames patch a surface that already rendered
+// live, so root existence and reachability have no delta to walk and are
 // skipped — a delta never carries the whole tree (a BFS inside it would flag
 // every component "orphan"). The delta-local checks (version / branch count
 // / key subsets / component names / component ids / intra-batch duplicate
-// ids / single surfaceId) still apply, and the frontend processor
-// re-validates the merged tree when applying the delta. The legacy inline
-// shape (components inside createSurface) is rejected by the key-subset
-// check: nothing published that shape before the frame-shape fix, so
-// tolerance would only mask model mistakes the model could otherwise retry
-// out of. Shared with history replay (RenderUIHistoryMessages /
-// RenderUIHistoryFold) so history replay applies the exact live gates.
+// ids / batch-internal multi-parent references / single surfaceId) still
+// apply, and the frontend processor re-validates the merged tree when
+// applying the delta. The legacy inline shape (components inside
+// createSurface) is rejected by the key-subset check: nothing published that
+// shape before the frame-shape fix, so tolerance would only mask model
+// mistakes the model could otherwise retry out of. Shared with history
+// replay (RenderUIHistoryMessages / RenderUIHistoryFold) so history replay
+// applies the exact live gates.
 func renderUIEnvelopeViolation(items []any) error {
 	hasCreateSurface := false
 	for i, item := range items {
@@ -345,11 +346,19 @@ func renderUIEnvelopeViolation(items []any) error {
 		return err
 	}
 	if !hasCreateSurface {
-		// Update-only delta: root existence, reachability and multi-parent
-		// refs only make sense against the full merged tree, which lives on
-		// the frontend — skipped on purpose (accepted limitation: a bad
-		// delta the frontend rejects on merge gets no retry feedback).
-		return nil
+		// Update-only delta: batch-internal multi-parent references remain
+		// delta-local checkable (the fourth live incident's pattern — two
+		// parents INSIDE the delta referencing the same id render it once
+		// per reference — retryable), so they are rejected here on the
+		// delta's own byID; references crossing the delta boundary are not
+		// (the referenced tree lives on the frontend, outside this batch).
+		// Root existence and reachability only make sense against the full
+		// merged tree, which a delta never carries (a BFS inside the delta
+		// would flag every component "orphan") — skipped on purpose
+		// (accepted limitation: a bad delta the frontend rejects on merge
+		// gets no retry feedback).
+		byID, _ := renderUIComponentsByID(items)
+		return renderUIRefCountViolation(byID)
 	}
 	return renderUIRootViolation(items)
 }
@@ -407,9 +416,8 @@ func renderUISurfaceID(items []any) (string, error) {
 // set that defines the same component id twice (the renderer throws
 // "Duplicate component ID"; observed live 2026-11-14 second batch: year ids
 // used for both a Column and its inner Row). Split out of the tree gates so
-// update-only deltas — which skip root/reachability/multi-parent — still
-// enforce it: the duplicate lives inside the delta itself and collides in
-// the merged tree.
+// update-only deltas — which skip root/reachability — still enforce it: the
+// duplicate lives inside the delta itself and collides in the merged tree.
 func renderUIDuplicateComponentIDViolation(items []any) error {
 	seen := map[string]bool{}
 	for _, item := range items {
@@ -443,22 +451,14 @@ func renderUIDuplicateComponentIDViolation(items []any) error {
 	return nil
 }
 
-// renderUIRootViolation checks the batch's component forest: at least one
-// component with id "root" must exist, and every component must be
-// reachable from it via child/children references. The renderer always
-// mounts SurfaceModel.rootId — which the v0.9 adapter pins to the literal
-// "root" (createSurface carries no root field) — so any other root id
-// renders an empty card no matter how many components were delivered
-// (observed live 2026-11-14: 24 components, root named "c1", empty card),
-// and components orphaned from the tree never render at all. Duplicate ids
-// are checked separately (renderUIDuplicateComponentIDViolation) so
-// update-only deltas — which skip this tree check — still enforce them.
-// Only meaningful for batches carrying a createSurface envelope; the
-// envelope gate routes update-only deltas around it. Path-bound children
-// ({"path":...}) are opaque here and skipped, not traversed.
-func renderUIRootViolation(items []any) error {
-	byID := map[string]map[string]any{}
-	var order []string
+// renderUIComponentsByID collects the batch's updateComponents frames into
+// an id → component map (order carries the same ids in frame order for
+// deterministic reporting). Components without a string id are skipped —
+// already rejected by renderUIComponentsViolation. Shared by the tree gates
+// (full-batch byID for createSurface batches) and the update-only delta path
+// (delta-local byID for the batch-internal multi-parent check).
+func renderUIComponentsByID(items []any) (byID map[string]map[string]any, order []string) {
+	byID = map[string]map[string]any{}
 	for _, item := range items {
 		msg, ok := item.(map[string]any)
 		if !ok {
@@ -485,6 +485,25 @@ func renderUIRootViolation(items []any) error {
 			byID[id] = comp
 		}
 	}
+	return byID, order
+}
+
+// renderUIRootViolation checks the batch's component forest: at least one
+// component with id "root" must exist, and every component must be
+// reachable from it via child/children references. The renderer always
+// mounts SurfaceModel.rootId — which the v0.9 adapter pins to the literal
+// "root" (createSurface carries no root field) — so any other root id
+// renders an empty card no matter how many components were delivered
+// (observed live 2026-11-14: 24 components, root named "c1", empty card),
+// and components orphaned from the tree never render at all. Duplicate ids
+// are checked separately (renderUIDuplicateComponentIDViolation) so
+// update-only deltas — which skip this tree check — still enforce them.
+// Only meaningful for batches carrying a createSurface envelope; the
+// envelope gate routes update-only deltas around it (deltas run only the
+// batch-internal multi-parent check on their own byID). Path-bound children
+// ({"path":...}) are opaque here and skipped, not traversed.
+func renderUIRootViolation(items []any) error {
+	byID, order := renderUIComponentsByID(items)
 	if _, ok := byID["root"]; !ok {
 		return fmt.Errorf(`batch must include a component with id "root" — the renderer renders the tree rooted at the component named "root"; rename the top-level component's id to "root"`)
 	}
@@ -529,7 +548,12 @@ func renderUIRootViolation(items []any) error {
 // may be referenced by at most one parent (each reference renders the
 // component again). Observed live 2026-11-14: the model listed every Text in
 // BOTH the root Column's children AND its owning Row's children, so each
-// value rendered twice — once inside the row, once stacked below it.
+// value rendered twice — once inside the row, once stacked below it. Runs on
+// the full batch's byID for createSurface batches, and on the delta's own
+// byID for update-only batches (controller ruling, fix round 1: batch-
+// internal multi-parent references are delta-local checkable — only
+// references crossing the delta boundary, whose other end lives in the
+// already-rendered tree, are invisible here).
 func renderUIRefCountViolation(byID map[string]map[string]any) error {
 	refCount := map[string]int{}
 	for _, comp := range byID {
@@ -701,8 +725,12 @@ type RenderUIHistoryItem struct {
 // createSurface for the same surfaceId replaces the card with the last one
 // (discarding the previous card and any updates merged into it), and an
 // update-only batch with no matching card stays text-only (its fallback
-// surfaces, no card). Calls the live gates reject (frame check, size cap)
-// contribute nothing — history never resurfaces batches that never rendered.
+// surfaces, no card). Calls the current gates reject (frame check, size cap,
+// delta-local checks) contribute nothing — history never resurfaces batches
+// the current gates reject. Update-only attempts the PHASE-1 hasCreateSurface
+// gate rejected live (pre-task-4 sessions) pass the current gates now: they
+// resurface as orphan text when no matching createSurface call exists in the
+// transcript, and merge into the card when one does.
 // The result is parallel to the input: one item per call, in call order.
 func RenderUIHistoryFold(argsJSONList []string) []RenderUIHistoryItem {
 	items := make([]RenderUIHistoryItem, len(argsJSONList))

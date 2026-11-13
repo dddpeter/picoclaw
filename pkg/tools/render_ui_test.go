@@ -872,9 +872,10 @@ func TestRenderUIToolUpdateOnlyDataModelOnlyBatchPublishesUI(t *testing.T) {
 
 // TestRenderUIToolUpdateOnlyDeltaStillGated: the delta-local checks still
 // apply to update-only batches — version / branch count / key subsets /
-// component names / component ids / intra-batch duplicate ids / single
-// surfaceId / size cap. Only the tree gates (root existence, reachability,
-// multi-parent refs) are skipped.
+// component names / component ids / intra-batch duplicate ids / batch-
+// internal multi-parent references / single surfaceId / size cap. Only root
+// existence and reachability are skipped (and the cross-delta side of
+// multi-parent references — see TestRenderUIToolUpdateOnlyDeltaSkipsTreeGates).
 func TestRenderUIToolUpdateOnlyDeltaStillGated(t *testing.T) {
 	comp := func(id string) map[string]any {
 		return map[string]any{"id": id, "component": "Text", "text": "x"}
@@ -940,6 +941,25 @@ func TestRenderUIToolUpdateOnlyDeltaStillGated(t *testing.T) {
 				}},
 			}},
 			want: "duplicate component id",
+		},
+		{
+			// Fix round 1 (controller ruling): batch-internal multi-parent
+			// references are delta-local checkable — two parents INSIDE the
+			// delta referencing the same id render it once per reference
+			// (the fourth live incident's pattern) — and must be rejected as
+			// a retryable error. Only references crossing the delta boundary
+			// are invisible to the gate.
+			name: "delta component referenced by two parents inside the delta",
+			messages: []any{map[string]any{
+				"version": "v0.9",
+				"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{
+					map[string]any{"id": "row", "component": "Row", "children": []any{"t1", "t2"}},
+					map[string]any{"id": "col", "component": "Column", "children": []any{"t1"}},
+					map[string]any{"id": "t1", "component": "Text", "text": "shared"},
+					map[string]any{"id": "t2", "component": "Text", "text": "x"},
+				}},
+			}},
+			want: "more than one parent",
 		},
 		{
 			name: "delta mixes two surfaceIds",
@@ -1160,12 +1180,17 @@ func TestRenderUIHistoryFold(t *testing.T) {
 }
 
 // TestRenderUIToolUpdateOnlyDeltaSkipsTreeGates pins the controller
-// correction: root existence, reachability and the multi-parent invariant
-// are meaningless inside a delta (the delta components hang off the tree
-// that already lives on the frontend — a BFS inside the delta would flag
-// every component "orphan"), so deltas carrying orphaned or
-// doubly-referenced components still publish. The frontend processor
-// re-validates the merged tree when applying the delta (accepted limitation).
+// correction: root existence and reachability are meaningless inside a delta
+// (the delta components hang off the tree that already lives on the frontend
+// — a BFS inside the delta would flag every component "orphan"), so deltas
+// carrying unrooted or unattached components still publish. Cross-delta
+// references do not trigger the multi-parent check either: a delta component
+// pointing at an id that lives in the already-rendered tree is invisible to
+// the gate (that id is not in the delta's byID). Batch-INTERNAL multi-parent
+// references are a different matter — they are delta-local checkable and
+// rejected (TestRenderUIToolUpdateOnlyDeltaStillGated, fix round 1). The
+// frontend processor re-validates the merged tree when applying the delta
+// (accepted limitation).
 func TestRenderUIToolUpdateOnlyDeltaSkipsTreeGates(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -1183,12 +1208,14 @@ func TestRenderUIToolUpdateOnlyDeltaSkipsTreeGates(t *testing.T) {
 			},
 		},
 		{
-			name: "delta component referenced by two parents inside the delta",
+			// Fix round 1 (controller ruling): the multi-parent check runs on
+			// the delta's own byID, so a child/children reference to an id
+			// outside the delta cannot double-render inside the delta and
+			// must not be flagged.
+			name: "delta component referencing an id outside the delta",
 			components: []any{
-				map[string]any{"id": "row", "component": "Row", "children": []any{"t1", "t2"}},
-				map[string]any{"id": "col", "component": "Column", "children": []any{"t1"}},
-				map[string]any{"id": "t1", "component": "Text", "text": "shared"},
-				map[string]any{"id": "t2", "component": "Text", "text": "x"},
+				map[string]any{"id": "wrap", "component": "Column", "children": []any{"existing-node", "t2"}},
+				map[string]any{"id": "t2", "component": "Text", "text": "new"},
 			},
 		},
 	}
