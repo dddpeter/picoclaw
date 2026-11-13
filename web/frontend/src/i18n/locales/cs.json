@@ -155,6 +155,7 @@
     "askTitle": "Potřebuji vaši odpověď",
     "a2uiTitle": "Interaktivní zobrazení",
     "a2uiRenderFailed": "Toto interaktivní zobrazení nebylo možné zobrazit.",
+    "a2uiChartFailed": "Graf se nepodařilo zobrazit.",
     "stopGeneration": "Zastavit generování",
     "renameSession": "Přejmenovat relaci",
     "sessionHistory": "Historie relací"

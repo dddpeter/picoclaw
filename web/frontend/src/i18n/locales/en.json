@@ -150,6 +150,7 @@
     "askDoneSummary": "Done",
     "a2uiTitle": "Interactive view",
     "a2uiRenderFailed": "This interactive view could not be displayed.",
+    "a2uiChartFailed": "Chart unavailable.",
     "stopGeneration": "Stop generating",
     "renameSession": "Rename session",
     "sessionHistory": "Session history"

@@ -156,6 +156,7 @@
     "askTitle": "আপনার উত্তর প্রয়োজন",
     "a2uiTitle": "ইন্টারঅ্যাকটিভ ভিউ",
     "a2uiRenderFailed": "এই ইন্টারঅ্যাকটিভ ভিউটি দেখানো যায়নি।",
+    "a2uiChartFailed": "চার্টটি দেখানো যায়নি।",
     "stopGeneration": "তৈরি করা বন্ধ করুন",
     "renameSession": "সেশনের নাম পরিবর্তন করুন",
     "sessionHistory": "সেশন ইতিহাস"

@@ -157,6 +157,7 @@
     "askTitle": "Preciso da sua resposta",
     "a2uiTitle": "Visual interativo",
     "a2uiRenderFailed": "Não foi possível exibir esta visualização interativa.",
+    "a2uiChartFailed": "Não foi possível exibir o gráfico.",
     "stopGeneration": "Parar geração",
     "renameSession": "Renomear sessão",
     "sessionHistory": "Histórico de sessões"

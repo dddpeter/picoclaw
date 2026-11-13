@@ -1,4 +1,8 @@
-import { A2uiSurface, MarkdownComponentContext } from "@a2ui/react/v0_9"
+import {
+  A2uiSurface,
+  MarkdownComponentContext,
+  type ReactCatalogComponent,
+} from "@a2ui/react/v0_9"
 import {
   type ActionPayload,
   MessageProcessor,
@@ -8,10 +12,7 @@ import {
   basicCatalog,
   injectBasicCatalogStyles,
 } from "@a2ui/web_core/v0_9/basic_catalog"
-import {
-  type WebComponentImplementation,
-  registerUniversalElement,
-} from "@a2ui/web_core/v0_9/universal"
+import { registerUniversalElement } from "@a2ui/web_core/v0_9/universal"
 import { IconLayoutGrid } from "@tabler/icons-react"
 import { Component, type ReactNode, useEffect, useMemo } from "react"
 import { useTranslation } from "react-i18next"
@@ -19,6 +20,8 @@ import { useTranslation } from "react-i18next"
 import { Markdown } from "@/chat-pi/markdown"
 import { sendChatMessage } from "@/features/chat/controller"
 import type { A2uiInfo } from "@/store/chat"
+
+import { catalogWithVegaChart } from "./a2ui-vega"
 
 /**
  * A2UI 渲染卡（D5 设计）：聊天流内渲染 agent 经 render_ui 工具产出的
@@ -33,7 +36,8 @@ import type { A2uiInfo } from "@/store/chat"
  * - 交互回传：卡片按钮/表单动作经 MessageProcessor 第二参 actionHandler
  *   组装成 `[A2UI 交互]` 前缀的用户消息，走既有聊天发送路径（ask-card
  *   同款 sendChatMessage）上行；turn 活跃时由既有 steering 队列承接。
- *   图表（VegaChart）不在本任务范围。
+ *   VegaChart（vega-lite 图表，二期任务 6）在 catalogWithVegaChart（
+ *   basicCatalog 经 Catalog.derive 混入，catalogId 不变）中注册。
  */
 
 /**
@@ -114,8 +118,8 @@ export function A2uiCard({ ui }: { ui: A2uiInfo }) {
   // message-processor.dispose() 仅调 rpc.dispose()），已取出的 surface
   // 模型不受影响，因此卸载时 dispose 与 StrictMode 重挂载安全。
   const { surfaces, processor, failed } = useMemo(() => {
-    const p = new MessageProcessor<WebComponentImplementation>(
-      [basicCatalog],
+    const p = new MessageProcessor<ReactCatalogComponent>(
+      [catalogWithVegaChart],
       handleA2uiAction,
       { version: "v0.9" },
     )

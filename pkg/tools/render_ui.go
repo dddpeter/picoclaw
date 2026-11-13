@@ -69,7 +69,10 @@ var renderUIBranchAllowedKeys = map[string]map[string]bool{
 const renderUIBasicCatalogID = "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"
 
 // renderUIBasicCatalogComponents is the closed component-name whitelist of
-// the v0.9 basicCatalog. The renderer fails a batch whose component falls
+// the frontend catalog: the v0.9 basicCatalog mixed with the self-built
+// VegaChart component (web/frontend/src/components/chat/a2ui-vega.tsx —
+// Catalog.derive keeps the basic catalog id, so the wire catalogId and this
+// gate stay unchanged). The renderer fails a batch whose component falls
 // outside this set (catalog-level lookup); catching it here is a cheap
 // string-set check that converts an unrenderable card into a retryable
 // error naming the valid components.
@@ -78,6 +81,7 @@ var renderUIBasicCatalogComponents = map[string]bool{
 	"Row": true, "Column": true, "List": true, "Card": true, "Tabs": true,
 	"Modal": true, "Divider": true, "Button": true, "TextField": true,
 	"CheckBox": true, "ChoicePicker": true, "Slider": true, "DateTimeInput": true,
+	"VegaChart": true,
 }
 
 // RenderUITool publishes A2UI v0.9 messages into the chat stream (A2UI web
@@ -155,7 +159,9 @@ func (t *RenderUITool) Parameters() map[string]any {
 					`text values accept a plain string or a data binding {"path":"/field"}; ` +
 					`there are NO styling props — never send style/colors/fontSize/title on components (basicCatalog has no per-component styling; a heading is a Text with variant h1-h5); ` +
 					`any unknown prop, unknown component name, or missing id makes the WHOLE batch fail to render. ` +
-					`interactive components bind their value into the surface dataModel with a {"path"} binding on the value prop ` +
+						`VegaChart{spec} renders a vega-lite chart; spec is the vega-lite JSON — an inline object or a {"path":"..."} data binding to a spec stored in the dataModel ` +
+						`(e.g. {"id":"c","component":"VegaChart","spec":{"mark":"bar","encoding":{"x":{"field":"cat","type":"nominal"},"y":{"field":"v","type":"quantitative"}},"data":{"values":[{"cat":"A","v":28}]}}} — write the full vega-lite view spec, its props are ONLY "spec": no weight/accessibility/style); ` +
+						`interactive components bind their value into the surface dataModel with a {"path"} binding on the value prop ` +
 					`(TextField/CheckBox/ChoicePicker/Slider/DateTimeInput, e.g. {"id":"f","component":"TextField","label":"Name","value":{"path":"/form/name"}} — user edits are written to that dataModel path immediately); ` +
 					`Button fires an action: {"id":"b","component":"Button","child":"bl","action":{"event":{"name":"submit","context":{"name":{"path":"/form/name"}}}}} — ` +
 					`at click time each event.context entry holding a {"path"} binding is resolved from the CURRENT dataModel value (this is how form values ride along; plain string entries pass through verbatim); ` +
@@ -166,7 +172,7 @@ func (t *RenderUITool) Parameters() map[string]any {
 					`{"version":"v0.9","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Card","child":"col"},{"id":"col","component":"Column","children":["nameField","submitBtn"]},{"id":"nameField","component":"TextField","label":"Name","value":{"path":"/form/name"}},{"id":"submitBtn","component":"Button","child":"btnLabel","action":{"event":{"name":"submit","context":{"name":{"path":"/form/name"}}}}},{"id":"btnLabel","component":"Text","text":"Submit"}]}},` +
 					`{"version":"v0.9","updateDataModel":{"surfaceId":"s1","path":"/","value":{"form":{"name":""}}}}] ` +
 					`(the button click sends you: [A2UI 交互] surface="s1" action="submit" source="submitBtn" context={"name":"<user input>"}). ` +
-					`available components: Text, Image, Icon, Video, AudioPlayer, Row, Column, List, Card, Tabs, Modal, Divider, Button, TextField, CheckBox, ChoicePicker, Slider, DateTimeInput.`,
+						`available components: Text, Image, Icon, Video, AudioPlayer, Row, Column, List, Card, Tabs, Modal, Divider, Button, TextField, CheckBox, ChoicePicker, Slider, DateTimeInput, VegaChart.`,
 			},
 			"summary": map[string]any{
 				"type":        "string",
