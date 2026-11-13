@@ -107,28 +107,8 @@ func (t *RenderUITool) Execute(ctx context.Context, args map[string]any) *ToolRe
 	}
 
 	// Gate 2: each message must be a v0.9 envelope carrying createSurface.
-	for i, item := range items {
-		msg, ok := item.(map[string]any)
-		if !ok {
-			return &ToolResult{
-				ForLLM:  fmt.Sprintf("messages[%d] must be an object", i),
-				IsError: true,
-			}
-		}
-		version, _ := msg["version"].(string)
-		if !strings.HasPrefix(version, renderUIVersionPrefix) {
-			return &ToolResult{
-				ForLLM:  fmt.Sprintf("messages[%d]: \"version\" must be a string starting with %q", i, renderUIVersionPrefix),
-				IsError: true,
-			}
-		}
-		surface, ok := msg["createSurface"].(map[string]any)
-		if !ok || len(surface) == 0 {
-			return &ToolResult{
-				ForLLM:  fmt.Sprintf("messages[%d]: \"createSurface\" object is required", i),
-				IsError: true,
-			}
-		}
+	if violation := renderUIEnvelopeViolation(items); violation != nil {
+		return &ToolResult{ForLLM: violation.Error(), IsError: true}
 	}
 
 	// Gate 3: size cap on the serialized batch.
@@ -180,6 +160,64 @@ func (t *RenderUITool) Execute(ctx context.Context, args map[string]any) *ToolRe
 		ForLLM: fmt.Sprintf("UI rendered: %d A2UI message(s) delivered to %s:%s", len(items), channel, chatID),
 		Silent: true,
 	}
+}
+
+// renderUIEnvelopeViolation returns the first v0.9 envelope violation in the
+// batch (Execute gate 2), or nil when every item is a message object with a
+// compatible version and a createSurface payload. Shared with
+// RenderUIHistoryMessages so history replay applies the exact live gates.
+func renderUIEnvelopeViolation(items []any) error {
+	for i, item := range items {
+		msg, ok := item.(map[string]any)
+		if !ok {
+			return fmt.Errorf("messages[%d] must be an object", i)
+		}
+		version, _ := msg["version"].(string)
+		if !strings.HasPrefix(version, renderUIVersionPrefix) {
+			return fmt.Errorf("messages[%d]: \"version\" must be a string starting with %q", i, renderUIVersionPrefix)
+		}
+		surface, ok := msg["createSurface"].(map[string]any)
+		if !ok || len(surface) == 0 {
+			return fmt.Errorf("messages[%d]: \"createSurface\" object is required", i)
+		}
+	}
+	return nil
+}
+
+// RenderUIHistoryMessages extracts the validated A2UI batch and its
+// plain-text fallback from a persisted render_ui tool-call arguments JSON
+// (the full arguments string the pipeline stores verbatim in
+// ToolCalls[].Function.Arguments — A2UI web render history replay). It
+// applies the same gates as Execute (envelope check, size cap) so history
+// only resurfaces batches that actually rendered live; ok=false otherwise.
+// fallback mirrors the live OutboundMessage Content derivation (summary
+// argument, else the generated components-tree text, else a count line).
+func RenderUIHistoryMessages(argsJSON string) (messages json.RawMessage, fallback string, ok bool) {
+	var args struct {
+		Messages []any  `json:"messages"`
+		Summary  string `json:"summary"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return nil, "", false
+	}
+	if len(args.Messages) == 0 {
+		return nil, "", false
+	}
+	if renderUIEnvelopeViolation(args.Messages) != nil {
+		return nil, "", false
+	}
+	payload, err := json.Marshal(args.Messages)
+	if err != nil || len(payload) > renderUIMaxBytes {
+		return nil, "", false
+	}
+	fallback = strings.TrimSpace(args.Summary)
+	if fallback == "" {
+		fallback = renderUITextSummary(args.Messages)
+	}
+	if fallback == "" {
+		fallback = fmt.Sprintf("Interactive UI (%d A2UI message(s))", len(args.Messages))
+	}
+	return payload, fallback, true
 }
 
 // renderUITextSummary derives a plain-text fallback from the components

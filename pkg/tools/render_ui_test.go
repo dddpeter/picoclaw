@@ -241,3 +241,68 @@ func TestRenderUIToolSchemaContract(t *testing.T) {
 		t.Errorf("required = %#v, want [messages]", params["required"])
 	}
 }
+
+// TestRenderUIHistoryMessages pins the history-replay extraction (A2UI web
+// render task 5): valid persisted arguments yield the verbatim batch plus
+// the same fallback derivation as the live publish; anything the tool would
+// have rejected live yields ok=false so history never resurfaces cards that
+// never rendered.
+func TestRenderUIHistoryMessages(t *testing.T) {
+	t.Run("valid batch with summary param", func(t *testing.T) {
+		argsJSON := `{"messages":` + marshalForTest(t, renderUITestMessages()) + `,"summary":"季度体检人数表"}`
+		messages, fallback, ok := RenderUIHistoryMessages(argsJSON)
+		if !ok {
+			t.Fatal("ok = false, want extraction to succeed")
+		}
+		want := marshalForTest(t, renderUITestMessages())
+		if string(messages) != want {
+			t.Errorf("messages = %s, want %s", messages, want)
+		}
+		if fallback != "季度体检人数表" {
+			t.Errorf("fallback = %q, want summary param", fallback)
+		}
+	})
+	t.Run("valid batch without summary derives components-tree fallback", func(t *testing.T) {
+		argsJSON := `{"messages":` + marshalForTest(t, renderUITestMessages()) + `}`
+		messages, fallback, ok := RenderUIHistoryMessages(argsJSON)
+		if !ok {
+			t.Fatal("ok = false, want extraction to succeed")
+		}
+		if len(messages) == 0 {
+			t.Error("messages is empty")
+		}
+		if !strings.Contains(fallback, "2026 Q1: 128 人") {
+			t.Errorf("fallback = %q, want derived components text", fallback)
+		}
+	})
+	t.Run("rejected live stays rejected", func(t *testing.T) {
+		for name, argsJSON := range map[string]string{
+			"invalid json":        `{not json`,
+			"empty messages":      `{"messages":[]}`,
+			"messages not array":  `{"messages":"nope"}`,
+			"missing messages":    `{"summary":"x"}`,
+			"bad version":         `{"messages":[{"version":"v1.0","createSurface":{"surfaceId":"s"}}]}`,
+			"missing surface":     `{"messages":[{"version":"v0.9"}]}`,
+			"oversized batch": func() string {
+				big := map[string]any{
+					"version":      "v0.9",
+					"createSurface": map[string]any{"surfaceId": "s", "components": []any{map[string]any{"id": "c", "component": "Text", "text": strings.Repeat("x", 256*1024)}}},
+				}
+				return `{"messages":` + marshalForTest(t, []any{big}) + `}`
+			}(),
+		} {
+			if _, _, ok := RenderUIHistoryMessages(argsJSON); ok {
+				t.Errorf("%s: ok = true, want rejection", name)
+			}
+		}
+	})
+}
+
+func marshalForTest(t *testing.T, value any) string {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return string(encoded)
+}

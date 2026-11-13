@@ -44,6 +44,9 @@ export interface SessionDetail {
     created_at?: string
     kind?: "normal" | "thought" | "tool_calls"
     model_name?: string
+    /** A2UI 渲染载荷（render_ui 工具的历史回放）：后端从持久化的工具调用
+     * 参数里还原的消息数组，形状与 live message.create 的 payload.a2ui 相同。 */
+    a2ui?: unknown[]
     media?: string[]
     attachments?: {
       type?: "image" | "audio" | "video" | "file"

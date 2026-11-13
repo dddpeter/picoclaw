@@ -19,6 +19,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/providers/messageutil"
 	"github.com/sipeed/picoclaw/pkg/session"
+	"github.com/sipeed/picoclaw/pkg/tools"
 	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
@@ -79,6 +80,11 @@ type sessionChatMessage struct {
 	Media       []string                `json:"media,omitempty"`
 	Attachments []sessionChatAttachment `json:"attachments,omitempty"`
 	ToolCalls   []utils.VisibleToolCall `json:"tool_calls,omitempty"`
+	// A2UI carries the validated render_ui A2UI batch (A2UI web render
+	// history replay): extracted from the render_ui tool-call arguments the
+	// pipeline persists verbatim, so a page refresh re-renders the card the
+	// user saw live instead of degrading to a truncated args dump.
+	A2UI json.RawMessage `json:"a2ui,omitempty"`
 }
 
 type sessionChatAttachment struct {
@@ -836,6 +842,25 @@ func visibleAssistantToolMessages(
 	messages := make([]sessionChatMessage, 0, len(toolCalls))
 	for _, tc := range toolCalls {
 		name, argsJSON := utils.VisibleToolCallNameAndArguments(tc)
+		if name == "render_ui" {
+			// A2UI history replay (A2UI web render): the live card rides an
+			// unpersisted OutboundMessage, but its payload is stored verbatim
+			// in the tool-call arguments — re-extract it (same validation
+			// gates + fallback derivation as the live publish) so the
+			// transcript resurfaces the card after a page refresh.
+			a2uiMessages, fallback, ok := tools.RenderUIHistoryMessages(argsJSON)
+			if !ok {
+				continue
+			}
+			messages = append(messages, sessionChatMessage{
+				Role:      "assistant",
+				Content:   fallback,
+				ModelName: modelName,
+				CreatedAt: createdAt,
+				A2UI:      a2uiMessages,
+			})
+			continue
+		}
 		if name != "message" {
 			continue
 		}

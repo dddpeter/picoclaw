@@ -2249,3 +2249,212 @@ func TestHandleGetSession_TurnActiveFromTurnMarker(t *testing.T) {
 		t.Fatal("a corrupt ask marker must be removed (self-heal)")
 	}
 }
+
+// a2uiTestBatch is a minimal valid A2UI v0.9 message batch (same shape the
+// render_ui tool validates before publishing).
+func a2uiTestBatch() []any {
+	return []any{
+		map[string]any{
+			"version": "v0.9",
+			"createSurface": map[string]any{
+				"surfaceId": "surface-1",
+				"catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json",
+				"components": []any{
+					map[string]any{"id": "c1", "component": "Card", "label": "季度体检人数"},
+					map[string]any{"id": "c2", "component": "Text", "text": "2026 Q1: 128 人"},
+				},
+			},
+		},
+	}
+}
+
+// marshalRenderUIArgs mirrors what the pipeline persists for a render_ui
+// call: the full arguments JSON (messages batch + optional summary) stored
+// verbatim inside ToolCalls[].Function.Arguments.
+func marshalRenderUIArgs(t *testing.T, messages []any, summary string) string {
+	t.Helper()
+	args := map[string]any{"messages": messages}
+	if summary != "" {
+		args["summary"] = summary
+	}
+	encoded, err := json.Marshal(args)
+	if err != nil {
+		t.Fatalf("marshal render_ui args: %v", err)
+	}
+	return string(encoded)
+}
+
+// TestSessionA2UIHistoryReplay pins the A2UI history-replay passthrough
+// (A2UI web render, task 5): a page refresh rebuilds the chat from this
+// transcript, so a render_ui execution that rendered live must resurface as
+// a transcript message carrying the A2UI batch (`a2ui`) plus the non-empty
+// plain-text fallback — not vanish into a truncated tool-call args dump.
+func TestSessionA2UIHistoryReplay(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	dir := sessionsTestDir(t, configPath)
+	store, err := memory.NewJSONLStore(dir)
+	if err != nil {
+		t.Fatalf("NewJSONLStore() error = %v", err)
+	}
+
+	sessionKey := legacyPicoSessionPrefix + "a2ui-replay"
+	for _, msg := range []providers.Message{
+		{Role: "user", Content: "给我一张季度卡"},
+		{
+			Role:    "assistant",
+			Content: "",
+			ToolCalls: []providers.ToolCall{{
+				ID:   "call_a2ui_1",
+				Type: "function",
+				Function: &providers.FunctionCall{
+					Name:      "render_ui",
+					Arguments: marshalRenderUIArgs(t, a2uiTestBatch(), "季度体检人数表"),
+				},
+			}},
+		},
+		// The render_ui tool result is persisted with role "tool" and must
+		// stay invisible in the transcript.
+		{Role: "tool", Content: "UI rendered: 1 A2UI message(s) delivered to pico:pico:a2ui-replay", ToolCallID: "call_a2ui_1"},
+		{Role: "assistant", Content: "以上是季度人数卡。"},
+	} {
+		if err := store.AddFullMessage(nil, sessionKey, msg); err != nil {
+			t.Fatalf("AddFullMessage() error = %v", err)
+		}
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/a2ui-replay", nil)
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var resp struct {
+		Messages []struct {
+			Role    string          `json:"role"`
+			Kind    string          `json:"kind"`
+			Content string          `json:"content"`
+			A2UI    json.RawMessage `json:"a2ui"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+
+	// Exactly one message carries the A2UI batch…
+	a2uiCount := 0
+	var a2uiContent string
+	for _, msg := range resp.Messages {
+		if len(msg.A2UI) == 0 {
+			continue
+		}
+		a2uiCount++
+		a2uiContent = msg.Content
+		if msg.Role != "assistant" {
+			t.Errorf("a2ui message role = %q, want assistant", msg.Role)
+		}
+		var batch []any
+		if err := json.Unmarshal(msg.A2UI, &batch); err != nil {
+			t.Fatalf("a2ui field is not a JSON array: %v (%s)", err, msg.A2UI)
+		}
+		want, err := json.Marshal(a2uiTestBatch())
+		if err != nil {
+			t.Fatalf("marshal want batch: %v", err)
+		}
+		got, _ := json.Marshal(batch)
+		if string(got) != string(want) {
+			t.Errorf("a2ui = %s, want %s", got, want)
+		}
+	}
+	if a2uiCount != 1 {
+		t.Fatalf("messages carrying a2ui = %d, want 1 (resp=%s)", a2uiCount, rec.Body.String())
+	}
+	// …and that message keeps a non-empty plain-text fallback (the live
+	// OutboundMessage Content), so non-rendering clients still see a summary.
+	if strings.TrimSpace(a2uiContent) == "" {
+		t.Errorf("a2ui message content is empty, want the summary fallback")
+	}
+	if a2uiContent != "季度体检人数表" {
+		t.Errorf("a2ui message content = %q, want summary param as fallback", a2uiContent)
+	}
+
+	// The tool result ("UI rendered: …") must not leak as its own message.
+	for _, msg := range resp.Messages {
+		if strings.Contains(msg.Content, "UI rendered:") {
+			t.Errorf("tool-role result leaked into transcript: %q", msg.Content)
+		}
+	}
+}
+
+// TestSessionA2UIHistoryReplayInvalidBatchNotResurfaced: batches the tool
+// rejected live (bad version envelope) must not become a2ui messages in the
+// transcript — history only resurfaces cards that actually rendered.
+func TestSessionA2UIHistoryReplayInvalidBatchNotResurfaced(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	dir := sessionsTestDir(t, configPath)
+	store, err := memory.NewJSONLStore(dir)
+	if err != nil {
+		t.Fatalf("NewJSONLStore() error = %v", err)
+	}
+
+	invalidBatch := []any{
+		map[string]any{
+			"version":      "v1.0", // wrong envelope family: rejected live
+			"createSurface": map[string]any{"surfaceId": "s", "components": []any{}},
+		},
+	}
+	sessionKey := legacyPicoSessionPrefix + "a2ui-invalid"
+	for _, msg := range []providers.Message{
+		{Role: "user", Content: "画个图"},
+		{
+			Role: "assistant",
+			ToolCalls: []providers.ToolCall{{
+				ID:   "call_bad",
+				Type: "function",
+				Function: &providers.FunctionCall{
+					Name:      "render_ui",
+					Arguments: marshalRenderUIArgs(t, invalidBatch, ""),
+				},
+			}},
+		},
+		{Role: "tool", Content: "messages[0]: \"version\" must be a string starting with \"v0.9\"", ToolCallID: "call_bad"},
+	} {
+		if err := store.AddFullMessage(nil, sessionKey, msg); err != nil {
+			t.Fatalf("AddFullMessage() error = %v", err)
+		}
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/a2ui-invalid", nil)
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var resp struct {
+		Messages []struct {
+			Content string          `json:"content"`
+			A2UI    json.RawMessage `json:"a2ui"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	for _, msg := range resp.Messages {
+		if len(msg.A2UI) != 0 {
+			t.Fatalf("invalid batch resurfaced as a2ui message: %s", msg.A2UI)
+		}
+	}
+}

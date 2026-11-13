@@ -1,6 +1,7 @@
 import { getSessionHistory } from "@/api/sessions"
 import { pairApprovalHistory } from "@/features/chat/approval"
 import { parseAskQuestions } from "@/features/chat/ask"
+import { parseA2uiFromPayload } from "@/features/chat/protocol"
 import { normalizeUnixTimestamp } from "@/features/chat/state"
 import {
   parseToolCallsValue,
@@ -61,6 +62,12 @@ export async function loadSessionMessages(
     toolCalls:
       message.role === "assistant"
         ? parseToolCallsValue(message.tool_calls)
+        : undefined,
+    // A2UI 历史回放（A2UI web render）：transcript 消息的 a2ui 键与 live
+    // message.create 的 payload.a2ui 同形状，复用同一解析（形状不对忽略）。
+    ui:
+      message.role === "assistant"
+        ? parseA2uiFromPayload({ a2ui: message.a2ui })
         : undefined,
     attachments: toChatAttachments({
       media: message.media,
