@@ -281,6 +281,14 @@ func registerSharedTools(
 			})
 			agent.Tools.Register(messageTool)
 		}
+
+		// render_ui (A2UI web render): fire-and-forget A2UI batch publish
+		// through the bus, CronTool-style direct msgBus injection.
+		if cfg.Tools.IsToolEnabled("render_ui") {
+			if renderUIBus, ok := msgBus.(*bus.MessageBus); ok {
+				agent.Tools.Register(tools.NewRenderUITool(renderUIBus))
+			}
+		}
 		if cfg.Tools.IsToolEnabled("reaction") {
 			reactionTool := tools.NewReactionTool()
 			reactionTool.SetReactionCallback(func(ctx context.Context, channel, chatID, messageID string) error {
