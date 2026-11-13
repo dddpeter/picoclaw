@@ -142,9 +142,12 @@ type AskOption struct {
 
 // UIMeta carries an A2UI message batch (A2UI web render). Messages stays
 // raw JSON so the Go side never interprets the A2UI structure; the frontend
-// zod layer absorbs schema evolution.
+// zod layer absorbs schema evolution. SurfaceID is the single surface id the
+// batch targets (the render_ui gates enforce one non-empty id per batch);
+// the pico layer keys its streamed-update merge registry on it.
 type UIMeta struct {
-	Messages json.RawMessage `json:"messages"`
+	Messages  json.RawMessage `json:"messages"`
+	SurfaceID string          `json:"surfaceId,omitempty"`
 }
 
 // MediaPart describes a single media attachment to send.

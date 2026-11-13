@@ -130,6 +130,12 @@ func TestRenderUIToolValidBatchPublishesUI(t *testing.T) {
 	if string(msg.UI.Messages) != string(want) {
 		t.Errorf("UI.Messages = %s, want %s", msg.UI.Messages, want)
 	}
+	// Streamed-update merge (phase 2): the pico layer keys its (session,
+	// surfaceId) registry on UIMeta.SurfaceID — it must carry the batch's
+	// single surface id.
+	if msg.UI.SurfaceID != "surface-1" {
+		t.Errorf("UI.SurfaceID = %q, want %q (the batch's single surface id)", msg.UI.SurfaceID, "surface-1")
+	}
 	if strings.TrimSpace(msg.Content) == "" {
 		t.Error("published Content is empty, want plain-text fallback summary")
 	}
@@ -146,6 +152,50 @@ func TestRenderUIToolValidBatchPublishesUI(t *testing.T) {
 	if msg.AgentID != "agent-1" || msg.SessionKey != "session-key-1" {
 		t.Errorf("AgentID/SessionKey = %q/%q, want agent-1/session-key-1", msg.AgentID, msg.SessionKey)
 	}
+}
+
+// renderUIMixedSurfaceMessages returns an otherwise-valid batch whose frames
+// target two different surfaces (createSurface on surface-a,
+// updateComponents on surface-b): streamed-update merge (phase 2) attributes
+// a batch to one card by (session, surfaceId), so a mixed batch cannot be
+// attributed and must be rejected.
+func renderUIMixedSurfaceMessages() []any {
+	return []any{
+		map[string]any{
+			"version":       "v0.9",
+			"createSurface": map[string]any{"surfaceId": "surface-a", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+		},
+		map[string]any{
+			"version": "v0.9",
+			"updateComponents": map[string]any{
+				"surfaceId": "surface-b",
+				"components": []any{
+					map[string]any{"id": "root", "component": "Card", "child": "t1"},
+					map[string]any{"id": "t1", "component": "Text", "text": "x"},
+				},
+			},
+		},
+	}
+}
+
+// TestRenderUIToolMixedSurfaceIDRejected: every branch payload in the batch
+// must carry the same non-empty surfaceId — the pico merge registry keys on
+// it, so a batch mixing two ids fails as a retryable tool error listing the
+// conflicting ids, and nothing publishes.
+func TestRenderUIToolMixedSurfaceIDRejected(t *testing.T) {
+	tool, msgBus := newTestRenderUITool(t)
+	ctx := WithToolContext(context.Background(), "pico", "pico:sess-1")
+
+	result := tool.Execute(ctx, map[string]any{"messages": renderUIMixedSurfaceMessages()})
+	if !result.IsError {
+		t.Fatalf("Execute() IsError = false, want mixed-surfaceId rejection, ForLLM: %s", result.ForLLM)
+	}
+	for _, want := range []string{"surface-a", "surface-b"} {
+		if !strings.Contains(result.ForLLM, want) {
+			t.Errorf("ForLLM = %q, want it to list the conflicting id %q", result.ForLLM, want)
+		}
+	}
+	assertNoOutboundMessage(t, msgBus)
 }
 
 // TestRenderUIToolLegacyInlineBatchRejected: the inline shape (taught by the
@@ -422,6 +472,33 @@ func TestRenderUIToolInvalidBatchRejected(t *testing.T) {
 			want: "registered catalog",
 		},
 		{
+			// Streamed-update merge (phase 2) attributes each batch to one
+			// (session, surfaceId) card: a frame whose surfaceId is missing
+			// or empty cannot be attributed and is rejected.
+			name: "branch payload with empty surfaceId",
+			args: map[string]any{"messages": []any{
+				map[string]any{
+					"version":       "v0.9",
+					"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+				},
+				map[string]any{
+					"version": "v0.9",
+					"updateComponents": map[string]any{"surfaceId": "", "components": []any{
+						map[string]any{"id": "root", "component": "Text", "text": "x"},
+					}},
+				},
+			}},
+			want: "non-empty",
+		},
+		{
+			name: "createSurface without surfaceId",
+			args: map[string]any{"messages": []any{map[string]any{
+				"version":       "v0.9",
+				"createSurface": map[string]any{"catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+			}}},
+			want: "non-empty",
+		},
+		{
 			// Fourth live incident (2026-11-14, third retest): the model
 			// listed every Text in BOTH the root Column and its owning Row —
 			// each value rendered twice (row layout + stacked duplicate).
@@ -630,6 +707,15 @@ func TestRenderUIHistoryMessages(t *testing.T) {
 		_, _, ok := RenderUIHistoryMessages(argsJSON)
 		if ok {
 			t.Fatal("ok = true, want legacy inline batch to stay rejected")
+		}
+	})
+	t.Run("mixed surfaceId batch stays rejected like live", func(t *testing.T) {
+		// The single-surfaceId gate rides the shared envelope gate, so
+		// history replay rejects a batch the live tool would refuse — an
+		// otherwise-valid mixed batch must be the ONLY reason it fails.
+		argsJSON := `{"messages":` + marshalForTest(t, renderUIMixedSurfaceMessages()) + `}`
+		if _, _, ok := RenderUIHistoryMessages(argsJSON); ok {
+			t.Fatal("ok = true, want mixed-surfaceId batch to stay rejected")
 		}
 	})
 	t.Run("rejected live stays rejected", func(t *testing.T) {

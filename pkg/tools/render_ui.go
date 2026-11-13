@@ -201,6 +201,14 @@ func (t *RenderUITool) Execute(ctx context.Context, args map[string]any) *ToolRe
 		return &ToolResult{ForLLM: violation.Error(), IsError: true}
 	}
 
+	// The envelope gate already enforced the single-surfaceId rule; re-derive
+	// the id to pin it on the published UIMeta (the pico layer keys its
+	// streamed-update merge registry on it).
+	surfaceID, err := renderUISurfaceID(items)
+	if err != nil { // defensive: unreachable after the envelope gate passed
+		return &ToolResult{ForLLM: err.Error(), IsError: true}
+	}
+
 	// Gate 3: size cap on the serialized batch.
 	if len(payload) > renderUIMaxBytes {
 		return &ToolResult{
@@ -237,7 +245,7 @@ func (t *RenderUITool) Execute(ctx context.Context, args map[string]any) *ToolRe
 		AgentID:    ToolAgentID(ctx),
 		SessionKey: ToolSessionKey(ctx),
 		Content:    fallback,
-		UI:         &bus.UIMeta{Messages: json.RawMessage(payload)},
+		UI:         &bus.UIMeta{Messages: json.RawMessage(payload), SurfaceID: surfaceID},
 	}); err != nil {
 		return &ToolResult{
 			ForLLM:  fmt.Sprintf("failed to publish UI message: %v", err),
@@ -256,8 +264,9 @@ func (t *RenderUITool) Execute(ctx context.Context, args map[string]any) *ToolRe
 // batch (Execute gate 2), or nil when every message is an object with a
 // compatible version carrying exactly one non-empty union branch payload,
 // every branch payload stays within its strict key subset, updateComponents
-// entries reference known basicCatalog components with ids, and the batch
-// contains at least one createSurface envelope. The legacy inline shape
+// entries reference known basicCatalog components with ids, every branch
+// payload targets the same non-empty surfaceId, and the batch contains at
+// least one createSurface envelope. The legacy inline shape
 // (components inside createSurface) is rejected by the key-subset check:
 // nothing published that shape before the frame-shape fix, so tolerance
 // would only mask model mistakes the model could otherwise retry out of.
@@ -309,7 +318,63 @@ func renderUIEnvelopeViolation(items []any) error {
 	if !hasCreateSurface {
 		return fmt.Errorf("batch must contain at least one \"createSurface\" envelope message")
 	}
+	// Single-surfaceId gate: the pico layer merges streamed updates by
+	// (session, surfaceId), so a batch mixing two ids — or missing one —
+	// cannot be attributed to a single card. Shared with history replay
+	// through this envelope gate.
+	if _, err := renderUISurfaceID(items); err != nil {
+		return err
+	}
 	return renderUIRootViolation(items)
+}
+
+// renderUISurfaceID validates that every branch payload in the batch carries
+// a non-empty surfaceId and that they all agree, returning that id. The
+// pico layer attributes each published batch to one card by its surfaceId
+// (streamed-update merge registry keyed on (session, surfaceId)), so a batch
+// mixing two ids — or one missing the id entirely — has no single card to
+// attach to and is rejected as a retryable tool error listing the
+// conflicting ids. Callers invoke it only after the frame checks in
+// renderUIEnvelopeViolation, so non-object frames are skipped (already
+// rejected there).
+func renderUISurfaceID(items []any) (string, error) {
+	surfaceID := ""
+	distinct := map[string]bool{}
+	var order []string
+	for i, item := range items {
+		msg, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, key := range renderUIBranchKeys {
+			payload, ok := msg[key].(map[string]any)
+			if !ok {
+				continue
+			}
+			id, _ := payload["surfaceId"].(string)
+			if id == "" {
+				return "", fmt.Errorf("messages[%d]: %s.surfaceId must be a non-empty string — one render_ui call renders exactly one surface", i, key)
+			}
+			if surfaceID == "" {
+				surfaceID = id
+			}
+			if !distinct[id] {
+				distinct[id] = true
+				order = append(order, id)
+			}
+		}
+	}
+	if len(order) > 1 {
+		quoted := make([]string, len(order))
+		for j, id := range order {
+			quoted[j] = fmt.Sprintf("%q", id)
+		}
+		return "", fmt.Errorf("batch mixes %d different surfaceIds (%s) — one render_ui call renders exactly one surface; split each surface into its own render_ui call", len(order), strings.Join(quoted, ", "))
+	}
+	if surfaceID == "" {
+		return "", fmt.Errorf("batch carries no surfaceId — every frame must target the same non-empty surfaceId")
+	}
+	return surfaceID, nil
 }
 
 // renderUIRootViolation checks the batch's component forest: component ids
