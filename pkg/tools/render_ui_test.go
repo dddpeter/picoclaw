@@ -74,8 +74,10 @@ func renderUITestMessages() []any {
 
 // renderUILegacyInlineMessages returns the legacy inline shape the original
 // (buggy) tool description taught: components embedded inside createSurface.
-// The strict zod adapter rejects it (Unrecognized key(s)); the tool itself
-// must NOT pre-reject — the frontend renders its error placeholder instead.
+// Nothing published that shape before the frame-shape fix ever shipped, so
+// the tool gates now reject it (invalid createSurface key) — the model gets
+// a retryable error instead of a card the frontend renders as a dead
+// placeholder.
 func renderUILegacyInlineMessages() []any {
 	return []any{
 		map[string]any{
@@ -145,32 +147,24 @@ func TestRenderUIToolValidBatchPublishesUI(t *testing.T) {
 	}
 }
 
-// TestRenderUIToolLegacyInlineBatchStillPublishes: the inline shape (taught
-// by the original buggy description) is not pre-rejected by the tool gates —
-// the frontend zod layer is the schema authority and renders its error
-// placeholder. Keeps publishing verbatim so the fallback Content stays
-// readable (also the shape of pre-fix persisted history batches).
-func TestRenderUIToolLegacyInlineBatchStillPublishes(t *testing.T) {
+// TestRenderUIToolLegacyInlineBatchRejected: the inline shape (taught by the
+// original buggy description) carries components inside createSurface — an
+// invalid key the strict v0.9 schema rejects. The tool gates now reject it
+// so the model gets a retryable error instead of shipping a card the
+// frontend renders as a dead placeholder (no pre-fix batch ever shipped, so
+// legacy tolerance would only mask model mistakes).
+func TestRenderUIToolLegacyInlineBatchRejected(t *testing.T) {
 	tool, msgBus := newTestRenderUITool(t)
 	ctx := WithToolContext(context.Background(), "pico", "pico:sess-1")
 
-	messages := renderUILegacyInlineMessages()
-	result := tool.Execute(ctx, map[string]any{"messages": messages})
-	if result.IsError {
-		t.Fatalf("Execute() IsError = true (inline shape must not be pre-rejected), ForLLM: %s", result.ForLLM)
+	result := tool.Execute(ctx, map[string]any{"messages": renderUILegacyInlineMessages()})
+	if !result.IsError {
+		t.Fatalf("Execute() IsError = false, want inline-shape rejection, ForLLM: %s", result.ForLLM)
 	}
-
-	msg := waitOutboundMessage(t, msgBus)
-	want, err := json.Marshal(messages)
-	if err != nil {
-		t.Fatalf("marshal test messages: %v", err)
+	if !strings.Contains(result.ForLLM, "invalid key") {
+		t.Errorf("ForLLM = %q, want invalid-key explanation", result.ForLLM)
 	}
-	if string(msg.UI.Messages) != string(want) {
-		t.Errorf("UI.Messages = %s, want %s", msg.UI.Messages, want)
-	}
-	if !strings.Contains(msg.Content, "旧内联批次") {
-		t.Errorf("Content = %q, want legacy inline component text in fallback", msg.Content)
-	}
+	assertNoOutboundMessage(t, msgBus)
 }
 
 // TestRenderUIToolSummaryParamWinsAsFallbackContent: the optional summary
@@ -253,17 +247,19 @@ func TestRenderUIToolInvalidBatchRejected(t *testing.T) {
 		{
 			name: "message carries two branch payloads",
 			args: map[string]any{"messages": []any{map[string]any{
-				"version":          "v0.9",
-				"createSurface":    map[string]any{"surfaceId": "s1"},
-				"updateComponents": map[string]any{"surfaceId": "s1"},
+				"version":       "v0.9",
+				"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+				"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{
+					map[string]any{"id": "c1", "component": "Text", "text": "x"},
+				}},
 			}}},
 			want: "exactly one of",
 		},
 		{
 			name: "batch without any createSurface envelope",
 			args: map[string]any{"messages": []any{map[string]any{
-				"version":          "v0.9",
-				"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{}},
+				"version":         "v0.9",
+				"updateDataModel": map[string]any{"surfaceId": "s1", "path": "/", "value": map[string]any{}},
 			}}},
 			want: "createSurface",
 		},
@@ -274,6 +270,82 @@ func TestRenderUIToolInvalidBatchRejected(t *testing.T) {
 				"createSurface": map[string]any{"surfaceId": "s1"},
 			}}},
 			want: "v0.9",
+		},
+		{
+			// The live incident (2026-11-13): the model added a title to
+			// createSurface — an unknown key the strict schema rejects, which
+			// used to publish a batch the frontend rendered as a dead
+			// placeholder. The gate must turn it into a retryable error.
+			name: "createSurface carries an extra title key",
+			args: map[string]any{"messages": []any{map[string]any{
+				"version": "v0.9",
+				"createSurface": map[string]any{
+					"surfaceId": "s1",
+					"catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json",
+					"title":     "体检表",
+				},
+			}}},
+			want: "invalid key",
+		},
+		{
+			name: "updateComponents carries an unknown key",
+			args: map[string]any{"messages": []any{
+				map[string]any{
+					"version":       "v0.9",
+					"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+				},
+				map[string]any{
+					"version":          "v0.9",
+					"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{}, "title": "x"},
+				},
+			}},
+			want: "invalid key",
+		},
+		{
+			name: "unknown component name",
+			args: map[string]any{"messages": []any{
+				map[string]any{
+					"version":       "v0.9",
+					"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+				},
+				map[string]any{
+					"version": "v0.9",
+					"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{
+						map[string]any{"id": "t1", "component": "Table", "children": []any{"x"}},
+					}},
+				},
+			}},
+			want: "unknown component",
+		},
+		{
+			name: "component missing id",
+			args: map[string]any{"messages": []any{
+				map[string]any{
+					"version":       "v0.9",
+					"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+				},
+				map[string]any{
+					"version": "v0.9",
+					"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{
+						map[string]any{"component": "Text", "text": "hello"},
+					}},
+				},
+			}},
+			want: `"id"`,
+		},
+		{
+			name: "updateComponents with empty components array",
+			args: map[string]any{"messages": []any{
+				map[string]any{
+					"version":       "v0.9",
+					"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+				},
+				map[string]any{
+					"version":          "v0.9",
+					"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{}},
+				},
+			}},
+			want: "non-empty array",
 		},
 	}
 	for _, tc := range cases {
@@ -362,19 +434,15 @@ func TestRenderUIToolSchemaContract(t *testing.T) {
 		`"updateComponents"`,
 		`"updateDataModel"`,
 		"https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json",
+		// Strict-schema teaching locked after the live title-in-createSurface
+		// incident: the envelope key subset, the per-component strict props,
+		// and the no-styling warning.
+		`createSurface allows ONLY surfaceId + catalogId`,
+		`NO styling props`,
+		`unknown prop, unknown component name, or missing id`,
 	} {
 		if !strings.Contains(desc, want) {
 			t.Errorf("messages description missing %q: %s", want, desc)
-		}
-	}
-	// The old description taught components/dataModel inlined after
-	// catalogId inside createSurface — that exact inline example must be gone.
-	for _, banned := range []string{
-		`catalog.json","components"`,
-		`catalog.json","dataModel"`,
-	} {
-		if strings.Contains(desc, banned) {
-			t.Errorf("messages description still teaches the inline shape (%q): %s", banned, desc)
 		}
 	}
 	summary, ok := props["summary"].(map[string]any)
@@ -442,19 +510,14 @@ func TestRenderUIHistoryMessages(t *testing.T) {
 			}
 		}
 	})
-	t.Run("legacy inline batch still extracts with readable fallback", func(t *testing.T) {
-		// Pre-fix persisted batches used the inline shape; replay keeps
-		// deriving a readable fallback from the inline components.
+	t.Run("legacy inline batch stays rejected like live", func(t *testing.T) {
+		// The inline shape is rejected live (invalid createSurface key) and
+		// never shipped, so history replay must reject it the same way —
+		// the shared envelope gate enforces that for free.
 		argsJSON := `{"messages":` + marshalForTest(t, renderUILegacyInlineMessages()) + `}`
-		messages, fallback, ok := RenderUIHistoryMessages(argsJSON)
-		if !ok {
-			t.Fatal("ok = false, want legacy inline extraction to succeed")
-		}
-		if len(messages) == 0 {
-			t.Error("messages is empty")
-		}
-		if !strings.Contains(fallback, "旧内联批次") {
-			t.Errorf("fallback = %q, want legacy inline component text", fallback)
+		_, _, ok := RenderUIHistoryMessages(argsJSON)
+		if ok {
+			t.Fatal("ok = true, want legacy inline batch to stay rejected")
 		}
 	})
 	t.Run("rejected live stays rejected", func(t *testing.T) {

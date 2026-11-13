@@ -14,8 +14,9 @@
   ▼
 render_ui 工具  pkg/tools/render_ui.go:115 Execute
   │ 门1 json.Valid → 门2 分帧（每条 version 前缀 v0.9 + 恰好一个非空 union 分支，
-  │   批内至少一条 createSurface，renderUIEnvelopeViolation :203）→ 门3 序列化批次 ≤256KB（:21）
-  │ 兜底文本推导 renderUITextSummary :281（summary 参数 → 分帧摘要 → 计数行）
+  │   分支载荷键集严格校验 + updateComponents 组件名白名单/id 必查，
+  │   批内至少一条 createSurface，renderUIEnvelopeViolation）→ 门3 序列化批次 ≤256KB
+  │ 兜底文本推导 renderUITextSummary（summary 参数 → 分帧摘要 → 计数行）
   │ 5s 超时 PublishOutbound（fire-and-forget，无拦截器、无状态机）
   ▼
 bus.OutboundMessage{ Content: 兜底文本, UI: &UIMeta{Messages: 原样 JSON} }
@@ -141,11 +142,32 @@ Button/TextField/CheckBox/ChoicePicker/Slider/DateTimeInput（无 Chart，图表
   `TestRenderUIToolSchemaContract` 锁定新描述关键内容，并断言旧内联示例已从描述中消失。
 - 校验门放宽为与真实 schema 一致：每条消息 `version` 前缀 + **恰好一个**非空 union 分支
   （createSurface/updateComponents/updateDataModel/deleteSurface），批内至少一条 createSurface 封包；
-  旧内联形态不再被工具预拒（前端 zod 是 schema 权威、错误占位卡兜底）——
-  `TestRenderUIToolLegacyInlineBatchStillPublishes` 锁定，预修复持久化批次的历史回放因此保持一致语义。
-- 兜底摘要改读分帧：updateComponents 的组件 + updateDataModel 的字符串叶子（path 绑定文本也进兜底），
-  `createSurface.components` 仅作历史内联批次的兼容读取。
+  ~~旧内联形态不再被工具预拒~~（后见 3.2：次日实测后改为拒绝）。
+- 兜底摘要改读分帧：updateComponents 的组件 + updateDataModel 的字符串叶子（path 绑定文本也进兜底）。
 根因：任务 2 先落地时抄了计划全局约束里的（不准确）内联示例，任务 4 TDD 发现真实 schema 时未回改工具侧。
+
+### 3.2 第二次实测缺陷：模型幻觉 props / createSurface 多键（2026-11-13 部署后首测）
+
+首次真实模型调用即踩中两层 strict schema 拒绝（会话 JSONL 实录）：模型第一次把 messages 编成
+字符串（工具正确报错，模型自行重试——重试闭环工作正常）；第二次产出**正确的分帧形态**但
+① `createSurface` 里多了 `"title"` 键（strict schema 只收 surfaceId/catalogId/theme?/sendDataModel?），
+② `Card{style, title}`、`Text{style}` 等 React 风格 props（basicCatalog 组件 schema 同样 strict，
+**没有任何 style/颜色/标题类 props**——实测 Card 仅收 `child`/`weight`/`accessibility`）。
+工具侧门当时不查分支载荷键与组件名 → 批次发布 → 前端 zod 拒 → 死的"无法显示此交互视图"占位卡。
+修复（门加严 + description 教全）：
+
+- 门 2 增加两类廉价检查（`renderUIBranchAllowedKeys` + `renderUIBasicCatalogComponents`）：
+  每个分支载荷的键必须 ⊆ 该分支的 strict 键集；updateComponents 的每个组件必须有 string `id` 且
+  `component` 名在 18 组件白名单内。错误信息列出合法键集/组件名——模型可自行重试。
+  **组件 props 不做 Go 侧校验**（只查名字与 id）：per-prop zod 表会在上游 catalog 演进时误拒合法
+  批次，props 精度由 description 承担。
+- **旧内联形态改为拒绝**（推翻 3.1 的"不预拒"裁决）：该裁决的前提是存在预修复历史批次需要回放，
+  实际功能随修复版一同上线、生产无内联批次；容忍只会让模型照抄旧形态拿死卡。
+  `TestRenderUIToolLegacyInlineBatchRejected` + 历史提取同名语义锁定。
+- description 补全教学：createSurface 键集、Row/Column 的 justify/align、List 的 direction、
+  Text 的 variant（h1-h5/caption/body）与 weight、"NO styling props——标题用 Text variant"警告。
+  组件 props 枚举值全部经运行时 schema 实测（.tmp-a2ui-props*.mjs）。
+- 摘要生成器移除 createSurface.components 兼容读取（内联被门拒后成死代码）。
 
 ## 4. 实现与计划的偏差
 

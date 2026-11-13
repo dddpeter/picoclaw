@@ -44,6 +44,34 @@ var renderUIBranchKeysDoc = func() string {
 	return strings.Join(quoted, "/")
 }()
 
+// renderUIBranchAllowedKeys mirrors the v0.9 strict per-branch schemas
+// (@a2ui/web_core v0_9 adapter): every branch payload is a strict zod
+// object, so an extra key — a "title" inside createSurface being the
+// observed live failure — makes the frontend reject the whole batch with
+// "Unrecognized key(s)". Enforcing the subsets here turns that dead card
+// into a retryable tool error. Legacy inline batches (components/dataModel
+// inside createSurface) are rejected on purpose: nothing published those
+// before the frame-shape fix (5bfe894d) ever shipped, so there is no
+// history to replay and tolerance would only mask model mistakes.
+var renderUIBranchAllowedKeys = map[string]map[string]bool{
+	"createSurface":    {"surfaceId": true, "catalogId": true, "theme": true, "sendDataModel": true},
+	"updateComponents": {"surfaceId": true, "components": true},
+	"updateDataModel":  {"surfaceId": true, "path": true, "value": true},
+	"deleteSurface":    {"surfaceId": true},
+}
+
+// renderUIBasicCatalogComponents is the closed component-name whitelist of
+// the v0.9 basicCatalog. The renderer fails a batch whose component falls
+// outside this set (catalog-level lookup); catching it here is a cheap
+// string-set check that converts an unrenderable card into a retryable
+// error naming the valid components.
+var renderUIBasicCatalogComponents = map[string]bool{
+	"Text": true, "Image": true, "Icon": true, "Video": true, "AudioPlayer": true,
+	"Row": true, "Column": true, "List": true, "Card": true, "Tabs": true,
+	"Modal": true, "Divider": true, "Button": true, "TextField": true,
+	"CheckBox": true, "ChoicePicker": true, "Slider": true, "DateTimeInput": true,
+}
+
 // RenderUITool publishes A2UI v0.9 messages into the chat stream (A2UI web
 // render). The model calls render_ui mid-turn with a message batch; the tool
 // applies cheap validation (json.Valid → frame check → size cap) and pushes
@@ -90,7 +118,8 @@ func (t *RenderUITool) Parameters() map[string]any {
 				},
 				"description": `Array of A2UI v0.9 messages in FRAME shape (the renderer schema is strict). ` +
 					`First message creates the surface: {"version":"v0.9","createSurface":{"surfaceId":"<unique-id>","catalogId":"https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"}} ` +
-					`(optional theme/sendDataModel keys). Then one message per update, reusing the SAME surfaceId: ` +
+					`— createSurface allows ONLY surfaceId + catalogId (plus optional theme/sendDataModel); do NOT add "title" or any other key (unknown keys reject the whole batch). ` +
+					`Then one message per update, reusing the SAME surfaceId: ` +
 					`{"version":"v0.9","updateComponents":{"surfaceId":"<id>","components":[...]}}, and optionally ` +
 					`{"version":"v0.9","updateDataModel":{"surfaceId":"<id>","path":"/","value":{...}}}. ` +
 					`Example: [{"version":"v0.9","createSurface":{"surfaceId":"s1","catalogId":"https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"}},` +
@@ -98,8 +127,12 @@ func (t *RenderUITool) Parameters() map[string]any {
 					`{"version":"v0.9","updateDataModel":{"surfaceId":"s1","path":"/","value":{"title":"hello"}}}] — ` +
 					`every message top level allows ONLY "version" plus exactly ONE of ` + renderUIBranchKeysDoc + `; ` +
 					`do NOT inline components or dataModel inside createSurface (the strict schema rejects them with Unrecognized key(s)). ` +
-					`components entries are {id, component, ...props, child|children?} and props are strict too: ` +
-					`Card{child}, List/Column/Row{children}, Text{text (string or {"path":"/field"} data binding)}; ` +
+					`components entries are {id, component, ...props}; props are STRICT and per-component: ` +
+					`Card{child}, Row/Column{children, justify?: start|center|end|spaceAround|spaceBetween, align?: start|center|end|stretch}, ` +
+					`List{children, direction?: vertical|horizontal}, Text{text, variant?: h1|h2|h3|h4|h5|caption|body, weight?: number}; ` +
+					`text values accept a plain string or a data binding {"path":"/field"}; ` +
+					`there are NO styling props — never send style/colors/fontSize/title on components (basicCatalog has no per-component styling; a heading is a Text with variant h1-h5); ` +
+					`any unknown prop, unknown component name, or missing id makes the WHOLE batch fail to render. ` +
 					`available components: Text, Image, Icon, Video, AudioPlayer, Row, Column, List, Card, Tabs, Modal, Divider, Button, TextField, CheckBox, ChoicePicker, Slider, DateTimeInput.`,
 			},
 			"summary": map[string]any{
@@ -193,11 +226,13 @@ func (t *RenderUITool) Execute(ctx context.Context, args map[string]any) *ToolRe
 
 // renderUIEnvelopeViolation returns the first v0.9 frame violation in the
 // batch (Execute gate 2), or nil when every message is an object with a
-// compatible version carrying exactly one non-empty union branch payload
-// and the batch contains at least one createSurface envelope. The legacy
-// inline shape (components inside createSurface) passes on purpose: the
-// frontend zod layer is the schema authority and renders its error
-// placeholder — the tool only guards against obviously broken batches.
+// compatible version carrying exactly one non-empty union branch payload,
+// every branch payload stays within its strict key subset, updateComponents
+// entries reference known basicCatalog components with ids, and the batch
+// contains at least one createSurface envelope. The legacy inline shape
+// (components inside createSurface) is rejected by the key-subset check:
+// nothing published that shape before the frame-shape fix, so tolerance
+// would only mask model mistakes the model could otherwise retry out of.
 // Shared with RenderUIHistoryMessages so history replay applies the exact
 // live gates.
 func renderUIEnvelopeViolation(items []any) error {
@@ -220,6 +255,17 @@ func renderUIEnvelopeViolation(items []any) error {
 			if len(payload) == 0 {
 				return fmt.Errorf("messages[%d]: exactly one of %s is required (non-empty object)", i, renderUIBranchKeysDoc)
 			}
+			for k := range payload {
+				if !renderUIBranchAllowedKeys[key][k] {
+					return fmt.Errorf("messages[%d]: %s has invalid key %q (allowed: %s) — unknown keys make the renderer reject the whole batch",
+						i, key, k, renderUIAllowedKeysDoc(key))
+				}
+			}
+			if key == "updateComponents" {
+				if err := renderUIComponentsViolation(i, payload["components"]); err != nil {
+					return err
+				}
+			}
 			branches++
 			if key == "createSurface" {
 				hasCreateSurface = true
@@ -233,6 +279,54 @@ func renderUIEnvelopeViolation(items []any) error {
 		return fmt.Errorf("batch must contain at least one \"createSurface\" envelope message")
 	}
 	return nil
+}
+
+// renderUIAllowedKeysDoc renders the allowed key set of one branch payload
+// for error messages.
+func renderUIAllowedKeysDoc(branch string) string {
+	allowed := renderUIBranchAllowedKeys[branch]
+	quoted := make([]string, 0, len(allowed))
+	for k := range allowed {
+		quoted = append(quoted, fmt.Sprintf("%q", k))
+	}
+	sort.Strings(quoted)
+	return strings.Join(quoted, ", ")
+}
+
+// renderUIComponentsViolation checks one updateComponents payload's
+// components array: entries must be objects carrying a string id and a
+// component name from the basicCatalog whitelist.
+func renderUIComponentsViolation(msgIdx int, components any) error {
+	comps, ok := components.([]any)
+	if !ok || len(comps) == 0 {
+		return fmt.Errorf("messages[%d]: updateComponents.components must be a non-empty array", msgIdx)
+	}
+	for j, c := range comps {
+		comp, ok := c.(map[string]any)
+		if !ok {
+			return fmt.Errorf("messages[%d].components[%d] must be an object", msgIdx, j)
+		}
+		if id, _ := comp["id"].(string); id == "" {
+			return fmt.Errorf("messages[%d].components[%d]: \"id\" (non-empty string) is required", msgIdx, j)
+		}
+		name, _ := comp["component"].(string)
+		if !renderUIBasicCatalogComponents[name] {
+			return fmt.Errorf("messages[%d].components[%d]: unknown component %q — basicCatalog components are: %s",
+				msgIdx, j, name, renderUIComponentNamesDoc())
+		}
+	}
+	return nil
+}
+
+// renderUIComponentNamesDoc renders the sorted basicCatalog component name
+// list for error messages.
+func renderUIComponentNamesDoc() string {
+	names := make([]string, 0, len(renderUIBasicCatalogComponents))
+	for name := range renderUIBasicCatalogComponents {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
 }
 
 // RenderUIHistoryMessages extracts the validated A2UI batch and its
@@ -286,11 +380,9 @@ func RenderUIHistoryMessages(argsJSON string) (messages json.RawMessage, fallbac
 
 // renderUITextSummary derives a plain-text fallback from the batch: a
 // "surface <id>" header per createSurface envelope, one line per component
-// from updateComponents frames — and, for the legacy inline shape the
-// pre-fix tool description produced, from createSurface.components — plus
-// the string leaves of updateDataModel values so path-bound component text
-// still surfaces. Keys are walked in sorted order so the output is
-// deterministic.
+// from updateComponents frames, plus the string leaves of updateDataModel
+// values so path-bound component text still surfaces. Keys are walked in
+// sorted order so the output is deterministic.
 func renderUITextSummary(messages []any) string {
 	var lines []string
 	for _, raw := range messages {
@@ -302,7 +394,6 @@ func renderUITextSummary(messages []any) string {
 			if id, _ := surface["surfaceId"].(string); id != "" {
 				lines = append(lines, fmt.Sprintf("surface %s", id))
 			}
-			appendComponentLines(&lines, surface["components"])
 		}
 		if update, ok := msg["updateComponents"].(map[string]any); ok {
 			appendComponentLines(&lines, update["components"])
