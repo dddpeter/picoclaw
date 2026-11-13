@@ -103,10 +103,11 @@ func (t *RenderUITool) Name() string {
 
 // Description returns the tool description.
 func (t *RenderUITool) Description() string {
-	return "Render an interactive structured UI (A2UI v0.9 surface: cards, columns, lists, text) " +
-		"directly into the chat stream. Use it to present structured results (tables, grouped data, " +
-		"summaries with labeled fields) instead of long plain-text dumps. Display-only in this " +
-		"version: no form input comes back to you."
+	return "Render an interactive structured UI (A2UI v0.9 surface: cards, columns, lists, text, " +
+		"buttons, form inputs) directly into the chat stream. Use it to present structured results " +
+		"(tables, grouped data, summaries with labeled fields) instead of long plain-text dumps. " +
+		"Interactive components work: when the user clicks a button or submits a form, the action " +
+		"and its form values reach you as a user message prefixed with \"[A2UI 交互]\"."
 }
 
 // Parameters returns the tool parameters schema. The messages description
@@ -114,7 +115,10 @@ func (t *RenderUITool) Description() string {
 // createSurface envelope first, then one message per update
 // (updateComponents / updateDataModel). Inlining components or dataModel
 // inside createSurface is rejected by the renderer — the original inline
-// wording here was a verified defect and is deliberately gone.
+// wording here was a verified defect and is deliberately gone. It also
+// teaches the interaction uplink contract: Button event.context {path}
+// bindings collect form values from the dataModel at click time, and the
+// user's interaction arrives as a "[A2UI 交互]"-prefixed user message.
 func (t *RenderUITool) Parameters() map[string]any {
 	return map[string]any{
 		"type": "object",
@@ -146,6 +150,17 @@ func (t *RenderUITool) Parameters() map[string]any {
 					`text values accept a plain string or a data binding {"path":"/field"}; ` +
 					`there are NO styling props — never send style/colors/fontSize/title on components (basicCatalog has no per-component styling; a heading is a Text with variant h1-h5); ` +
 					`any unknown prop, unknown component name, or missing id makes the WHOLE batch fail to render. ` +
+					`interactive components bind their value into the surface dataModel with a {"path"} binding on the value prop ` +
+					`(TextField/CheckBox/ChoicePicker/Slider/DateTimeInput, e.g. {"id":"f","component":"TextField","label":"Name","value":{"path":"/form/name"}} — user edits are written to that dataModel path immediately); ` +
+					`Button fires an action: {"id":"b","component":"Button","child":"bl","action":{"event":{"name":"submit","context":{"name":{"path":"/form/name"}}}}} — ` +
+					`at click time each event.context entry holding a {"path"} binding is resolved from the CURRENT dataModel value (this is how form values ride along; plain string entries pass through verbatim); ` +
+					`the user's interaction reaches you as a plain user message prefixed "[A2UI 交互]" in the exact shape ` +
+					`[A2UI 交互] surface="<surfaceId>" action="<name>" source="<componentId>" context=<json> — the context= segment is omitted when the resolved context is empty — parse it to read the action name and the collected form values; ` +
+					`complete returnable form example (TextField bound to /form/name plus a submit Button whose event.context collects it): ` +
+					`[{"version":"v0.9","createSurface":{"surfaceId":"s1","catalogId":"https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"}},` +
+					`{"version":"v0.9","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Card","child":"col"},{"id":"col","component":"Column","children":["nameField","submitBtn"]},{"id":"nameField","component":"TextField","label":"Name","value":{"path":"/form/name"}},{"id":"submitBtn","component":"Button","child":"btnLabel","action":{"event":{"name":"submit","context":{"name":{"path":"/form/name"}}}}},{"id":"btnLabel","component":"Text","text":"Submit"}]}},` +
+					`{"version":"v0.9","updateDataModel":{"surfaceId":"s1","path":"/","value":{"form":{"name":""}}}}] ` +
+					`(the button click sends you: [A2UI 交互] surface="s1" action="submit" source="submitBtn" context={"name":"<user input>"}). ` +
 					`available components: Text, Image, Icon, Video, AudioPlayer, Row, Column, List, Card, Tabs, Modal, Divider, Button, TextField, CheckBox, ChoicePicker, Slider, DateTimeInput.`,
 			},
 			"summary": map[string]any{

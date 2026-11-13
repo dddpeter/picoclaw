@@ -1,18 +1,23 @@
 import { A2uiSurface, MarkdownComponentContext } from "@a2ui/react/v0_9"
-import { type ProcessableMessage, MessageProcessor } from "@a2ui/web_core/v0_9"
+import {
+  type ActionPayload,
+  MessageProcessor,
+  type ProcessableMessage,
+} from "@a2ui/web_core/v0_9"
 import {
   basicCatalog,
   injectBasicCatalogStyles,
 } from "@a2ui/web_core/v0_9/basic_catalog"
 import {
-  registerUniversalElement,
   type WebComponentImplementation,
+  registerUniversalElement,
 } from "@a2ui/web_core/v0_9/universal"
 import { IconLayoutGrid } from "@tabler/icons-react"
 import { Component, type ReactNode, useEffect, useMemo } from "react"
 import { useTranslation } from "react-i18next"
 
 import { Markdown } from "@/chat-pi/markdown"
+import { sendChatMessage } from "@/features/chat/controller"
 import type { A2uiInfo } from "@/store/chat"
 
 /**
@@ -25,8 +30,39 @@ import type { A2uiInfo } from "@/store/chat"
  * - processMessages 自带 zod 校验（v0.9 封包是 strict 的）：畸形消息在
  *   校验层抛错 → 就地降级为错误占位文案，绝不炸聊天流；渲染期异常由
  *   error boundary 兜底。
- * - 交互回传（action → agent）/图表不在本任务范围（明确非目标）。
+ * - 交互回传：卡片按钮/表单动作经 MessageProcessor 第二参 actionHandler
+ *   组装成 `[A2UI 交互]` 前缀的用户消息，走既有聊天发送路径（ask-card
+ *   同款 sendChatMessage）上行；turn 活跃时由既有 steering 队列承接。
+ *   图表（VegaChart）不在本任务范围。
  */
+
+/**
+ * 动作 → 用户消息（A2UI 二期任务 1 契约，逐字）：`[A2UI 交互]
+ * surface="<surfaceId>" action="<name>" source="<componentId>"`，context
+ * 非空时追加 ` context=<紧凑 JSON>`（event.context 的 {path} 绑定在点击
+ * 瞬间由 generic-binder 从 dataModel 收集的表单值）。
+ *
+ * 前缀是给 agent 解析的协议文本（render_ui description 教了同一形状），
+ * 五语言一致、刻意不做 i18n 键——本地化会破坏逐字契约。
+ */
+function buildActionMessage(action: ActionPayload): string {
+  let message = `[A2UI 交互] surface="${action.surfaceId}" action="${action.name}" source="${action.sourceComponentId}"`
+  if (action.context && Object.keys(action.context).length > 0) {
+    message += ` context=${JSON.stringify(action.context)}`
+  }
+  return message
+}
+
+/**
+ * 交互回传处理器（MessageProcessor 构造第二参，全局兜底覆盖所有
+ * surface）：动作组装成用户消息后走既有聊天发送路径上行（ask-card
+ * 同一条 sendChatMessage——普通 message.send，无专用 WS 消息类型）。
+ * 发送失败（WS 未连接）静默忽略：整条聊天链路不可用时无处可报，
+ * sendChatMessage 内部已告警。
+ */
+function handleA2uiAction(action: ActionPayload): void {
+  sendChatMessage({ content: buildActionMessage(action), attachments: [] })
+}
 
 /** 入口一次性初始化（幂等）：注册 basicCatalog 的 universal（Lit Web
  * Component）custom elements 并注入全局样式。漏注册只会渲染空标签；
@@ -80,7 +116,7 @@ export function A2uiCard({ ui }: { ui: A2uiInfo }) {
   const { surfaces, processor, failed } = useMemo(() => {
     const p = new MessageProcessor<WebComponentImplementation>(
       [basicCatalog],
-      undefined,
+      handleA2uiAction,
       { version: "v0.9" },
     )
     try {

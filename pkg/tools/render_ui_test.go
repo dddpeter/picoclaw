@@ -547,6 +547,11 @@ func TestRenderUIToolSchemaContract(t *testing.T) {
 		`UNIQUE across the whole components array`,
 		`catalogId must be EXACTLY`,
 		`at most ONE parent's child/children list`,
+		// Interaction teaching locked with the action-uplink task: Button
+		// event.context path bindings collect form values at click time and
+		// the user's interaction arrives as a prefixed user message.
+		`event.context`,
+		`A2UI 交互`,
 	} {
 		if !strings.Contains(desc, want) {
 			t.Errorf("messages description missing %q: %s", want, desc)
