@@ -2,6 +2,7 @@ package pico
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -1142,6 +1143,61 @@ func TestSend_AskMessageCarriesAskPayload(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("no message received")
+	}
+}
+
+// TestPicoA2UI_SendCarriesA2UIPayload pins the A2UI transport contract
+// (A2UI web render): bus.UIMeta.Messages rides message.create raw as
+// payload["a2ui"] — the Go side never interprets the structure; the
+// frontend zod layer absorbs schema evolution.
+func TestPicoA2UI_SendCarriesA2UIPayload(t *testing.T) {
+	ch := newTestPicoChannel(t)
+
+	if err := ch.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer ch.Stop(context.Background())
+
+	clientConn, received, cleanup := newTestPicoWebSocket(t)
+	defer cleanup()
+	ch.addConnForTest(&picoConn{id: "conn-1", conn: clientConn, sessionID: "sess-1"})
+
+	if _, err := ch.Send(context.Background(), bus.OutboundMessage{
+		ChatID:  "pico:sess-1",
+		Content: "🖥️ 已生成交互界面",
+		Context: bus.InboundContext{Channel: "pico", ChatID: "pico:sess-1"},
+		UI: &bus.UIMeta{
+			Messages: json.RawMessage(`[{"version":"v0.9","createSurface":{"surfaceId":"s1","catalogId":"basic","components":[]}}]`),
+		},
+	}); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+
+	select {
+	case msg := <-received:
+		if msg.Type != TypeMessageCreate {
+			t.Fatalf("message type = %q, want %q", msg.Type, TypeMessageCreate)
+		}
+		messages, ok := msg.Payload[PayloadKeyA2UI].([]any)
+		if !ok {
+			t.Fatalf("payload[%q] = %#v, want array", PayloadKeyA2UI, msg.Payload[PayloadKeyA2UI])
+		}
+		if len(messages) != 1 {
+			t.Fatalf("payload[%q] len = %d, want 1", PayloadKeyA2UI, len(messages))
+		}
+		entry, ok := messages[0].(map[string]any)
+		if !ok {
+			t.Fatalf("payload[%q][0] = %#v, want object", PayloadKeyA2UI, messages[0])
+		}
+		surface, ok := entry["createSurface"].(map[string]any)
+		if !ok {
+			t.Fatalf("createSurface = %#v, want object", entry["createSurface"])
+		}
+		if surface["surfaceId"] != "s1" {
+			t.Errorf("createSurface.surfaceId = %#v, want s1", surface["surfaceId"])
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected a2ui message to be delivered")
 	}
 }
 

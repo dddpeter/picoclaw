@@ -54,6 +54,9 @@ const (
 	PayloadKeyUsage       = "usage"
 	PayloadKeyApproval    = "approval"
 	PayloadKeyAsk         = "ask"
+	// PayloadKeyA2UI carries an A2UI message batch (A2UI web render) raw on
+	// message.create; the Go side passes it through without parsing.
+	PayloadKeyA2UI = "a2ui"
 
 	MessageKindThought   = "thought"
 	MessageKindToolCalls = "tool_calls"

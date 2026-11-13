@@ -487,6 +487,16 @@ func (c *PicoChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]stri
 			"timeout_ms": msg.Ask.TimeoutMs,
 		}
 	}
+	if msg.UI != nil {
+		// A2UI pass-through (A2UI web render): the payload map is
+		// map[string]any, so decode the raw message array into a generic
+		// value first. The Go side never interprets the structure; the
+		// frontend zod layer absorbs schema evolution.
+		var uiMessages any
+		if err := json.Unmarshal(msg.UI.Messages, &uiMessages); err == nil {
+			payload[PayloadKeyA2UI] = uiMessages
+		}
+	}
 	setContextUsagePayload(payload, msg.ContextUsage)
 	outMsg := newMessage(TypeMessageCreate, payload)
 

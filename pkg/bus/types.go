@@ -1,5 +1,7 @@
 package bus
 
+import "encoding/json"
+
 // SenderInfo provides structured sender identity information.
 type SenderInfo struct {
 	Platform    string `json:"platform,omitempty"`     // "telegram", "discord", "slack", ...
@@ -101,6 +103,11 @@ type OutboundMessage struct {
 	// Ask carries a pending ask_user question set (octop borrowing §三);
 	// channels surface it as an interactive card (pico payload "ask").
 	Ask *AskRequestMeta `json:"ask,omitempty"`
+	// UI carries an A2UI message batch (A2UI web render): raw JSON the pico
+	// payload forwards as the "a2ui" field so the web UI renders interactive
+	// surfaces. The Go side never parses the structure; the frontend zod
+	// layer absorbs schema evolution.
+	UI *UIMeta `json:"ui,omitempty"`
 }
 
 // ApprovalRequestMeta describes one pending approval question.
@@ -131,6 +138,13 @@ type AskQuestion struct {
 type AskOption struct {
 	Label       string `json:"label"`
 	Description string `json:"description,omitempty"`
+}
+
+// UIMeta carries an A2UI message batch (A2UI web render). Messages stays
+// raw JSON so the Go side never interprets the A2UI structure; the frontend
+// zod layer absorbs schema evolution.
+type UIMeta struct {
+	Messages json.RawMessage `json:"messages"`
 }
 
 // MediaPart describes a single media attachment to send.
