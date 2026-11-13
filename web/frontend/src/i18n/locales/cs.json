@@ -153,6 +153,8 @@
     "askSubmit": "Odeslat odpovědi",
     "askTextPlaceholder": "Zadejte odpověď…",
     "askTitle": "Potřebuji vaši odpověď",
+    "a2uiTitle": "Interaktivní zobrazení",
+    "a2uiRenderFailed": "Toto interaktivní zobrazení nebylo možné zobrazit.",
     "stopGeneration": "Zastavit generování",
     "renameSession": "Přejmenovat relaci",
     "sessionHistory": "Historie relací"

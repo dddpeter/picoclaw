@@ -148,6 +148,8 @@
     "askDismissedSummary": "Skipped",
     "askExpand": "View",
     "askDoneSummary": "Done",
+    "a2uiTitle": "Interactive view",
+    "a2uiRenderFailed": "This interactive view could not be displayed.",
     "stopGeneration": "Stop generating",
     "renameSession": "Rename session",
     "sessionHistory": "Session history"

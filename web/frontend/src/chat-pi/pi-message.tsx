@@ -16,6 +16,7 @@ import { StreamMarkdown } from "./stream-markdown";
 import { ThinkingBlock } from "./thinking-block";
 import { ToolCallBlock, type PiToolView } from "./tool-call-block";
 import type { PiBlock, PiTurn, PiUserPart } from "./turns";
+import { A2uiCard } from "@/components/chat/a2ui-card";
 import { ApprovalCard } from "@/components/chat/approval-card";
 import { AskCard } from "@/components/chat/ask-card";
 import "./pi-chat.css";
@@ -188,6 +189,8 @@ function PiBlockView({ block, active }: { block: PiBlock; active: boolean }) {
 				seal={block.seal}
 				latest={block.latest}
 			/>;
+		case "a2ui":
+			return <A2uiCard ui={block.ui} />;
 		case "thinking":
 			return (
 				<ThinkingBlock thinking={block.thinking} streaming={block.live && active} />
