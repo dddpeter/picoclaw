@@ -280,6 +280,10 @@ cgo 构建失败）——差集为空，**无回归**。前端 vitest 75/75 通�
 
 ## 6. 二期范围（本 MVP 明确不做）
 
+> 2026-11-14 更新：以上范围已于二期全部落地（交互回传 / 流式增量热更新 / VegaChart 图表，
+> 表单提交经 Button `event.context` 绑定一并交付），落地形态与已知局限见
+> `docs/design/2026-11-14-a2ui-phase2.zh.md`（二期 as-built）。
+
 - **交互回传**：`sendDataModel` / `onAction` → 组件事件组装成新消息 → agent 上下文的闭环
   （Button/TextField/CheckBox 等交互组件当前渲染但点击无回路）。
 - **VegaChart 图表**：`@a2ui/catalog-vegachart` 未发 npm（侦察实测 404），需自建 React catalog

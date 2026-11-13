@@ -7,6 +7,23 @@
 
 ## [Unreleased]
 
+## [0.5.8] - 2026-11-14
+
+### Added
+
+- **A2UI 二期：交互回传 + 流式增量 + VegaChart（as-built 设计 `docs/design/2026-11-14-a2ui-phase2.zh.md`，侦察 `docs/design/a2ui/2026-11-14-a2ui-phase2-recon.zh.md`）**——一期展示型卡片补齐"能用"的三件事：
+  - **交互回传**：卡片按钮/表单动作组装逐字契约消息 `[A2UI 交互] surface="…" action="…" source="…" context=<json>` 走既有聊天发送路径（ask 答复同款 `message.send`，无新 WS 消息类型；turn 活跃时既有 steering 队列承接）。表单值收集靠 Button `event.context` 的 `{path}` 绑定——点击瞬间 generic-binder 从 dataModel 取当前值随动作上行；render_ui description 教完整契约与可回传表单示例（`TestRenderUIToolSchemaContract` 锁定）
+  - **流式增量（卡片热更新）**：render_ui 放开 update-only 批次（同 surfaceId、无 createSurface 的 delta 帧）——delta-local 门照查 version/分支/键集/组件白名单/id/批内重复 id/批内多父引用/**单 surfaceId**（新门，混 id 或缺 id 拒绝；`UIMeta` 新增 `SurfaceID` 透传），仅跳过对增量无意义的 root 存在性/可达性；pico 层 surface 注册表（(session, surfaceId) 键控、LRU 64）把 delta 合并进累计帧后经 `message.update` 广播，前端 `message.update` 分支消费 `payload.a2ui` 就地替换卡片 ui（畸形形状忽略，既有 5 字段更新语义零扰动）——卡片原地热更新不产生第二张卡；历史回放按 surfaceId 折叠（create 批次立卡、update-only 帧并入、同 surfaceId 二次 create 取最后一张、孤儿 update 纯文本）
+  - **VegaChart 图表**：自建 catalog 组件（`createComponentImplementation` + `Catalog.derive` 显式保留 basicCatalog id——实测 derive 不自动保留，Go 门 catalogId 校验零调整）在卡片内渲染 vega-lite 图表；react-vega 动态 import 落独立 vite chunk（主 bundle 零 vega 引入，构建产物 grep 实证）；spec 支持内联对象与 `{path}` 数据绑定；失败三层（spec 未就绪/编译渲染失败/chunk 加载被拒）全部组件内降级占位，不炸卡不炸聊天流
+
+### Fixed
+
+- **delta 批内多父引用改为拒绝（任务 4 修复轮裁决）**：原语义"多父引用跳过"收窄——跨 delta 引用（另一端在已渲染树上，delta-local 不可检）仍放行，但两个父都在 delta 内的批内多父引用是可检不变量，现按 delta 自身组件集拒绝并报 `id(xN)`——放行只能靠前端无反馈兜底，与一期第四次实战事故同模式；create 路径行为零变化
+- **孤儿 update 降级纯文本不建死卡（任务 5 修复轮裁决）**：surface 注册表未命中的 update-only 批次（重启清空/LRU 淘汰/跨会话乱序）原降级为携带 update-only 批的 `message.create`——会被前端 processor 抛 `Surface not found` 变成永久占位死卡且注册表被死卡污染；现改为删掉 a2ui 键发纯文本、不注册——与历史折叠的孤儿纯文本语义一致，后续 create 正常开新卡
+- **A2UI 帧入 seq ring 即提交注册表（任务 5 修复轮裁决）**：`broadcastToSession` 零连接时返回 error 但帧已入断线重放 ring——"失败但已入 ring"会被重连回放而注册表未提交，下次合并缺 delta 视觉丢失；提交点改为入 ring 成功即提交（无论有无连接），回放状态与注册表一致；真失败（帧未入 ring）保持 pre-merge 状态可重试
+- **VegaChart chunk 加载失败降级组件内占位（任务 6 修复轮）**：chunk rejection 原会冒泡到卡级 error boundary 把整卡打成占位且无重试路径——改在图表组件内边界（Suspense 外侧）就地拦截，只废图表槽位；spec 变化时重建 lazy 实例实现真重试（rejected 的 React.lazy 会缓存拒绝，复用实例不会重试）
+- 前端 `messageSignature` 补 ui 维度（修一期延后项）：历史与现存消息合并去重时卡片变化参与签名
+
 ## [0.5.7] - 2026-11-13
 
 ### Added
