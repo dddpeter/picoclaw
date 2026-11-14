@@ -1843,3 +1843,92 @@ div.chead[role="button"]:focus-visible,
 		transition: none;
 	}
 }
+
+/* ==== A2UI 美化第二轮（2026-11-14：美观/简洁/酷炫/动感）==== */
+
+/* 玻璃质感：半透明卡面 + 背景模糊，融入聊天页的 aurora 渐变氛围 */
+.a2ui-surface {
+	background: color-mix(in oklab, var(--card) 86%, transparent);
+	backdrop-filter: blur(10px);
+	-webkit-backdrop-filter: blur(10px);
+	position: relative;
+}
+
+/* 顶部主色渐变光线（装饰线，不挡交互） */
+.a2ui-surface::before {
+	content: "";
+	position: absolute;
+	inset: 0 0 auto 0;
+	height: 2px;
+	background: linear-gradient(
+		90deg,
+		transparent,
+		color-mix(in oklab, var(--primary) 70%, transparent) 30%,
+		var(--primary) 50%,
+		color-mix(in oklab, var(--primary) 70%, transparent) 70%,
+		transparent
+	);
+	opacity: 0.6;
+	pointer-events: none;
+}
+
+/* 标题流光：主色渐变文字缓慢横扫（h1/h2；h3 维持上轮静态混色） */
+@keyframes a2ui-shimmer {
+	to {
+		background-position: 200% center;
+	}
+}
+
+.a2ui-surface a2ui-basic-text.a2ui-text-h1,
+.a2ui-surface a2ui-basic-text.a2ui-text-h2 {
+	background: linear-gradient(
+		90deg,
+		var(--primary),
+		color-mix(in oklab, var(--primary) 55%, var(--foreground)) 45%,
+		var(--primary)
+	);
+	background-size: 200% auto;
+	-webkit-background-clip: text;
+	background-clip: text;
+	color: transparent;
+	animation: a2ui-shimmer 5s linear infinite;
+}
+
+/* 行弹簧入场：轻微缩放 + 回弹曲线（覆盖上轮纯位移版本） */
+@keyframes a2ui-row-in {
+	from {
+		opacity: 0;
+		transform: translateX(-8px) scale(0.985);
+	}
+}
+
+.a2ui-surface a2ui-basic-row {
+	animation: a2ui-row-in 0.38s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+
+/* 行悬停：左侧主色竖条 + 增亮（既有 bg 规则继续生效） */
+.a2ui-surface a2ui-basic-row:hover {
+	box-shadow: inset 2px 0 0 var(--primary);
+}
+
+/* 按钮主色光晕 + 按压回弹 */
+.a2ui-surface a2ui-basic-button:hover {
+	box-shadow: 0 2px 12px color-mix(in oklab, var(--primary) 40%, transparent);
+}
+
+.a2ui-surface a2ui-basic-button:active {
+	transform: translateY(0) scale(0.97);
+}
+
+/* 输入框聚焦主色光环 */
+.a2ui-surface a2ui-basic-textfield:focus-within {
+	box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 35%, transparent);
+	border-radius: var(--a2ui-textfield-border-radius, 8px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.a2ui-surface a2ui-basic-text.a2ui-text-h1,
+	.a2ui-surface a2ui-basic-text.a2ui-text-h2 {
+		animation: none;
+	}
+}
