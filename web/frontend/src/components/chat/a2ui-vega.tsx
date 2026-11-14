@@ -42,6 +42,7 @@ import {
   Suspense,
   lazy,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react"
@@ -66,33 +67,61 @@ function createLazyVegaEmbed() {
  * 深比较，恒定引用避免多余的 re-embed。 */
 const VegaEmbedOptions: EmbedOptions = { renderer: "svg", actions: false }
 
-/** chunk 加载/编译渲染失败的组件内占位：与卡级错误占位同款虚线视觉，
- * 但失败被限制在图表槽位内。 */
-function VegaChartPlaceholder() {
-  const { t } = useTranslation()
-  return (
-    <div
-      data-vegachart-placeholder=""
-      className="border-border/60 bg-muted/30 text-muted-foreground flex min-h-16 w-full items-center justify-center gap-2 rounded-lg border border-dashed px-3 py-4 text-[13px]"
-    >
-      <IconChartBarOff className="size-4 shrink-0" />
-      {t("chat.a2uiChartFailed")}
-    </div>
-  )
+/** 主题友好的 vega 默认配置：透明背景融入卡片、轴/标题/图例文字用
+ * currentColor 随主题、网格低透明度、单序列标记色用主题主色（运行时读
+ * CSS 变量，主题切换后下一次 spec 解析自动取新值）。模型 spec 的显式
+ * config/mark 颜色按键优先——这里只补默认，不覆盖模型意图。 */
+function themeVegaDefaults(): Record<string, unknown> {
+  const styles = getComputedStyle(document.documentElement)
+  const primary = styles.getPropertyValue("--primary").trim() || "currentColor"
+  return {
+    background: "transparent",
+    mark: { color: primary },
+    axis: {
+      domainColor: "currentColor",
+      labelColor: "currentColor",
+      tickColor: "currentColor",
+      titleColor: "currentColor",
+      gridColor: "currentColor",
+      gridOpacity: 0.12,
+    },
+    legend: { labelColor: "currentColor", titleColor: "currentColor" },
+    title: { color: "currentColor" },
+  }
 }
 
-/** chunk 加载中的中性占位：只用加载图标不用文案（chunk 通常亚秒完成，
- * 为一瞬间的回退补五语言 loading 文案不值——中性符号免 i18n）。 */
-function VegaChartLoadingPlaceholder() {
-  return (
-    <div
-      data-vegachart-loading=""
-      aria-label="loading chart"
-      className="border-border/60 bg-muted/30 text-muted-foreground flex min-h-16 w-full items-center justify-center rounded-lg border border-dashed px-3 py-4"
-    >
-      <IconLoader2 className="size-4 animate-spin" />
-    </div>
-  )
+/** spec 归一化（用户反馈 2026-11-14：白底窄图与主题不搭）：宽度自适应
+ * 宿主（宿主可测宽时注入数值 width——"container" 依赖布局环境，jsdom 为
+ * 0 宽会让图表塌陷）、透明背景、主题 config。两层合并：vega-lite 顶层
+ * view 键 + config 内按段（axis/title/...）合并，模型显式值逐键胜出。
+ * spec 非对象时原样返回（占位路径自己处理）。 */
+function normalizeVegaSpec(
+  spec: unknown,
+  hostWidth: number,
+): VisualizationSpec {
+  if (typeof spec !== "object" || spec === null || "path" in (spec as object)) {
+    return spec as VisualizationSpec
+  }
+  const s = { ...(spec as Record<string, unknown>) }
+  if (s.width === undefined && hostWidth > 60) {
+    s.width = Math.floor(hostWidth)
+  }
+  const modelConfig = (typeof s.config === "object" && s.config !== null
+    ? s.config
+    : {}) as Record<string, Record<string, unknown>>
+  const defaults = themeVegaDefaults()
+  const mergedConfig: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(defaults)) {
+    mergedConfig[key] =
+      key === "background"
+        ? value
+        : { ...(value as object), ...(modelConfig[key] ?? {}) }
+  }
+  // background 在 vega-lite 顶层是 view 属性不是 config 段：模型显式
+  // background 优先于默认透明。
+  if (s.background === undefined) s.background = defaults.background
+  s.config = { ...modelConfig, ...mergedConfig }
+  return s as VisualizationSpec
 }
 
 /**
@@ -147,26 +176,77 @@ function VegaChartView({ props }: ReactA2uiComponentProps<{ spec: unknown }>) {
     setFailed(false)
     setLazyVegaEmbed(createLazyVegaEmbed())
   }, [spec])
-  const usable = typeof spec === "object" && spec !== null && !("path" in spec)
+  // 宿主宽度测量（spec 归一化用）：ResizeObserver 初始即回调一次，此后
+  // 容器宽度变化（侧栏开关等）驱动图表重嵌。jsdom 无 ResizeObserver 时
+  // 宽度恒 0 → 归一化不注入 width → 测试走 vega-lite 默认宽度。
+  const hostRef = useRef<HTMLDivElement>(null)
+  const [hostWidth, setHostWidth] = useState(0)
+  useEffect(() => {
+    const el = hostRef.current
+    if (!el || typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width ?? 0
+      setHostWidth((prev) => (Math.abs(prev - width) > 1 ? width : prev))
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
   const handleError = (error: unknown) => {
     console.warn("[VegaChart] chart failed to render/load:", error)
     failedRef.current = true
     setFailed(true)
   }
+  const usable = typeof spec === "object" && spec !== null && !("path" in spec)
+  // 归一化按 spec + 宿主宽度记忆化：宽度和主题 config 都在这里注入。
+  const normalized = useMemo(
+    () => normalizeVegaSpec(spec, hostWidth),
+    [spec, hostWidth],
+  )
   if (!usable || failed) return <VegaChartPlaceholder />
   return (
-    // 边界在 Suspense 外侧：Suspense 只兜 pending，rejection 抛给它上方
-    // 最近的错误边界——正是本边界。
-    <VegaChartChunkBoundary onError={handleError}>
-      <Suspense fallback={<VegaChartLoadingPlaceholder />}>
-        <LazyVegaEmbed
-          spec={spec as VisualizationSpec}
-          options={VegaEmbedOptions}
-          onError={handleError}
-          className="w-full [&_svg]:mx-auto [&_svg]:max-w-full"
-        />
-      </Suspense>
-    </VegaChartChunkBoundary>
+    <div ref={hostRef} className="w-full">
+      {/* 边界在 Suspense 外侧：Suspense 只兜 pending，rejection 抛给它上方
+      最近的错误边界——正是本边界。 */}
+      <VegaChartChunkBoundary onError={handleError}>
+        <Suspense fallback={<VegaChartLoadingPlaceholder />}>
+          <LazyVegaEmbed
+            spec={normalized}
+            options={VegaEmbedOptions}
+            onError={handleError}
+            className="w-full [&_svg]:mx-auto [&_svg]:max-w-full"
+          />
+        </Suspense>
+      </VegaChartChunkBoundary>
+    </div>
+  )
+}
+
+/** chunk 加载/编译渲染失败的组件内占位：与卡级错误占位同款虚线视觉，
+ * 但失败被限制在图表槽位内。 */
+function VegaChartPlaceholder() {
+  const { t } = useTranslation()
+  return (
+    <div
+      data-vegachart-placeholder=""
+      className="border-border/60 bg-muted/30 text-muted-foreground flex min-h-16 w-full items-center justify-center gap-2 rounded-lg border border-dashed px-3 py-4 text-[13px]"
+    >
+      <IconChartBarOff className="size-4 shrink-0" />
+      {t("chat.a2uiChartFailed")}
+    </div>
+  )
+}
+
+/** chunk 加载中的中性占位：只用加载图标不用文案（chunk 通常亚秒完成，
+ * 为一瞬间的回退补五语言 loading 文案不值——中性符号免 i18n）。 */
+function VegaChartLoadingPlaceholder() {
+  return (
+    <div
+      data-vegachart-loading=""
+      aria-label="loading chart"
+      className="border-border/60 bg-muted/30 text-muted-foreground flex min-h-16 w-full items-center justify-center rounded-lg border border-dashed px-3 py-4"
+    >
+      <IconLoader2 className="size-4 animate-spin" />
+    </div>
   )
 }
 

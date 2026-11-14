@@ -160,7 +160,9 @@ func (t *RenderUITool) Parameters() map[string]any {
 					`there are NO styling props — never send style/colors/fontSize/title on components (basicCatalog has no per-component styling; a heading is a Text with variant h1-h5); ` +
 					`any unknown prop, unknown component name, or missing id makes the WHOLE batch fail to render. ` +
 					`VegaChart{spec} renders a vega-lite chart; spec is the vega-lite JSON — an inline object or a {"path":"..."} data binding to a spec stored in the dataModel ` +
-					`(e.g. {"id":"c","component":"VegaChart","spec":{"mark":"bar","encoding":{"x":{"field":"cat","type":"nominal"},"y":{"field":"v","type":"quantitative"}},"data":{"values":[{"cat":"A","v":28}]}}} — write the full vega-lite view spec, its props are ONLY "spec": no weight/accessibility/style); ` +
+					`(e.g. {"id":"c","component":"VegaChart","spec":{"mark":"bar","encoding":{"x":{"field":"cat","type":"nominal"},"y":{"field":"v","type":"quantitative"}},"data":{"values":[{"cat":"A","v":28}]}}} — write the full vega-lite view spec, its props are ONLY "spec": no weight/accessibility/style; ` +
+					`the card themes charts automatically (transparent background, width sized to the chat column, app accent color for single-series marks) — omit spec.width/background and do NOT send color configs unless the design requires them; ` +
+					`multi-series color: add an encoding.color with a field, or config.range.scheme); ` +
 					`interactive components bind their value into the surface dataModel with a {"path"} binding on the value prop ` +
 					`(TextField/CheckBox/ChoicePicker/Slider/DateTimeInput, e.g. {"id":"f","component":"TextField","label":"Name","value":{"path":"/form/name"}} — user edits are written to that dataModel path immediately); ` +
 					`Button fires an action: {"id":"b","component":"Button","child":"bl","action":{"event":{"name":"submit","context":{"name":{"path":"/form/name"}}}}} — ` +

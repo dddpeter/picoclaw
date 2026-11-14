@@ -1719,3 +1719,23 @@ div.chead[role="button"]:focus-visible,
 		padding: 6px 0 12px;
 	}
 }
+
+/* ==== A2UI 卡片主题适配（basicCatalog 元素消费 --a2ui-color-* 变量，注入
+   时 :where() 零特异性、变量随 DOM 级联）：映射到 app 主题 token，内层
+   元素不再用注入默认的灰黑底/#17e 蓝配色；hover/light/dark 变体经
+   color-mix(var(...)) 自动跟随主变量派生。表面设透明——surface 由卡片
+   容器（bg-card）提供，避免卡中卡的层叠观感。 ==== */
+.a2ui-surface {
+	--a2ui-color-background: transparent;
+	--a2ui-color-on-background: var(--foreground);
+	--a2ui-color-surface: transparent;
+	--a2ui-color-on-surface: var(--card-foreground);
+	--a2ui-color-primary: var(--primary);
+	--a2ui-color-on-primary: var(--primary-foreground);
+	--a2ui-color-secondary: var(--secondary);
+	--a2ui-color-on-secondary: var(--secondary-foreground);
+	--a2ui-color-border: var(--border);
+	--a2ui-border: 1px solid var(--border);
+	--a2ui-color-error: var(--destructive);
+	color: var(--card-foreground);
+}

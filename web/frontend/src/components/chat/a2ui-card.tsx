@@ -89,7 +89,7 @@ const A2uiMarkdown = ({ markdown }: { markdown: string }) => (
 function A2uiErrorPlaceholder() {
   const { t } = useTranslation()
   return (
-    <div className="border-border/60 bg-muted/30 text-muted-foreground my-2 flex w-full max-w-2xl items-center gap-2 rounded-xl border px-3 py-2 text-[13px]">
+    <div className="border-border/60 bg-muted/30 text-muted-foreground my-2 flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-[13px]">
       <IconLayoutGrid className="size-4 shrink-0" />
       {t("chat.a2uiRenderFailed")}
     </div>
@@ -111,8 +111,6 @@ class A2uiRenderBoundary extends Component<
 }
 
 export function A2uiCard({ ui }: { ui: A2uiInfo }) {
-  const { t } = useTranslation()
-
   // processMessages 同步消费消息并产出 surface 模型；畸形消息（strict
   // zod）在此抛错 → 转错误占位。dispose 只清 RPC（实测
   // message-processor.dispose() 仅调 rpc.dispose()），已取出的 surface
@@ -147,15 +145,12 @@ export function A2uiCard({ ui }: { ui: A2uiInfo }) {
   return (
     <A2uiRenderBoundary fallback={<A2uiErrorPlaceholder />}>
       <MarkdownComponentContext.Provider value={A2uiMarkdown}>
-        {/* 容器视觉参照 ask-card：最大宽度 + 卡片边框，融入聊天流。 */}
-        <div className="border-border/60 bg-card my-2 w-full max-w-2xl overflow-hidden rounded-xl border shadow-sm">
-          <div className="flex items-center gap-2 px-3.5 pt-3 pb-1">
-            <IconLayoutGrid className="size-4 shrink-0 text-sky-500" />
-            <span className="text-[13px] font-semibold">
-              {t("chat.a2uiTitle")}
-            </span>
-          </div>
-          <div className="px-3.5 pt-1.5 pb-3">
+        {/* 容器自适应聊天流宽度（无 max-w 上限，与相邻消息等宽）；a2ui-surface
+            class 在 pi-chat.css 把 basicCatalog 的 --a2ui-color-* 变量映射到
+            app 主题 token——内层元素不再用注入默认的灰黑/蓝配色。头部标题
+            行（图标+"交互视图"）已移除：卡片自解释，用户反馈为噪音。 */}
+        <div className="a2ui-surface border-border/60 bg-card my-2 w-full overflow-hidden rounded-xl border shadow-sm">
+          <div className="px-3.5 py-3">
             {surfaces.map((surface) => (
               <A2uiSurface key={surface.id} surface={surface} />
             ))}
