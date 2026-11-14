@@ -151,6 +151,8 @@
     "a2uiTitle": "交互视图",
     "a2uiRenderFailed": "无法显示此交互视图。",
     "a2uiChartFailed": "图表无法显示。",
+    "a2uiSendFailed": "发送失败：连接不可用，请稍后重试。",
+    "a2uiStaleCard": "这是历史版本的卡片，请使用最新的交互视图操作。",
     "stopGeneration": "停止生成",
     "renameSession": "重命名会话",
     "sessionHistory": "会话历史"

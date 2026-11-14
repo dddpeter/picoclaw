@@ -151,6 +151,8 @@
     "a2uiTitle": "Interactive view",
     "a2uiRenderFailed": "This interactive view could not be displayed.",
     "a2uiChartFailed": "Chart unavailable.",
+    "a2uiSendFailed": "Send failed: connection unavailable. Please try again.",
+    "a2uiStaleCard": "This card is outdated. Use the latest interactive view to interact.",
     "stopGeneration": "Stop generating",
     "renameSession": "Rename session",
     "sessionHistory": "Session history"

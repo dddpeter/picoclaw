@@ -190,7 +190,9 @@ function PiBlockView({ block, active }: { block: PiBlock; active: boolean }) {
 				latest={block.latest}
 			/>;
 		case "a2ui":
-			return <A2uiCard ui={block.ui} />;
+			// 只有最近一张 a2ui 块被 buildTurns 标 latest；未标记的块是历史
+			// 版本（A2uiCard 拦截其动作回传并提示，防错位）。
+			return <A2uiCard ui={block.ui} latest={block.latest === true} />;
 		case "thinking":
 			return (
 				<ThinkingBlock thinking={block.thinking} streaming={block.live && active} />

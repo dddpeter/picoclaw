@@ -156,7 +156,7 @@ describe("buildTurns a2ui block", () => {
 
 		expect(turns[0].assistant?.blocks).toEqual([
 			{ type: "text", id: "a1", text: "这是渲染结果", live: false },
-			{ type: "a2ui", id: "a1#a2ui", ui: { messages: uiMessages } },
+			{ type: "a2ui", id: "a1#a2ui", ui: { messages: uiMessages }, latest: true },
 		]);
 	});
 
@@ -167,7 +167,7 @@ describe("buildTurns a2ui block", () => {
 		);
 
 		expect(turns[0].assistant?.blocks).toEqual([
-			{ type: "a2ui", id: "a1#a2ui", ui: { messages: uiMessages } },
+			{ type: "a2ui", id: "a1#a2ui", ui: { messages: uiMessages }, latest: true },
 		]);
 	});
 
@@ -194,7 +194,7 @@ describe("buildTurns a2ui block", () => {
 		const blocks = turns[0].assistant?.blocks ?? [];
 		expect(blocks.filter((block) => block.type === "a2ui")).toEqual([
 			{ type: "a2ui", id: "a1#a2ui", ui: { messages: [{ surfaceId: "dup" }] } },
-			{ type: "a2ui", id: "a2#a2ui", ui: { messages: [{ surfaceId: "dup" }] } },
+			{ type: "a2ui", id: "a2#a2ui", ui: { messages: [{ surfaceId: "dup" }] }, latest: true },
 		]);
 	});
 });
@@ -331,5 +331,23 @@ describe("buildTurns 卡片 latest 门控", () => {
 		const askBlocks = turns.flatMap((t) => t.assistant?.blocks ?? []).filter((b) => b.type === "ask");
 		expect(askBlocks[0].latest).toBeUndefined();
 		expect(askBlocks[1].latest).toBe(true);
+	});
+
+	it("marks only the newest a2ui block as latest (三期任务 2 防错位)", () => {
+		// a2ui 无 seal（动作回传没有服务端回执可封存）：回传会带旧
+		// surfaceId/旧 dataModel 值，同样只放行最近一张卡。
+		const turns = buildTurns(
+			[
+				user("u1"),
+				assistant("a1", "", { ui: { messages: [{ surfaceId: "s1" }] } }),
+				assistant("a2", "", { ui: { messages: [{ surfaceId: "s2" }] } }),
+			],
+			ALL,
+		);
+		const a2uiBlocks = turns
+			.flatMap((t) => t.assistant?.blocks ?? [])
+			.filter((b) => b.type === "a2ui");
+		expect(a2uiBlocks[0].latest).toBeUndefined();
+		expect(a2uiBlocks[1].latest).toBe(true);
 	});
 });

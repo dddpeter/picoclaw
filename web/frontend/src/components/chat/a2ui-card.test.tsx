@@ -17,7 +17,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { sendChatMessage } from "@/features/chat/controller"
 import i18n from "@/i18n"
 
-import { A2uiCard, initA2uiBasicCatalog } from "./a2ui-card"
+import { A2uiCard, buildActionMessage, initA2uiBasicCatalog } from "./a2ui-card"
 
 // 动作回传走普通聊天消息（ask-card 同一条 sendChatMessage 路径）：mock
 // 发送函数断言消息文本。importOriginal 保留模块其余导出，controller 的
@@ -526,5 +526,172 @@ describe("A2uiCard", () => {
     } finally {
       unmount()
     }
+  })
+
+  // 三期任务 2（发送失败反馈）：WS 未连接时 sendChatMessage 返回 false →
+  // 卡内出现失败提示（成功路径零噪音），消息不上行。
+  it("shows a failure notice when sendChatMessage returns false", async () => {
+    vi.mocked(sendChatMessage).mockReturnValueOnce(false)
+    const { container, unmount } = mount(
+      <StrictMode>
+        <A2uiCard ui={{ messages: interactiveMessages }} />
+      </StrictMode>,
+    )
+    try {
+      await act(async () => {
+        await waitFor(() => {
+          expect(
+            container.querySelectorAll("a2ui-basic-button button").length,
+          ).toBe(2)
+        })
+      })
+      const submit = container.querySelectorAll<HTMLButtonElement>(
+        "a2ui-basic-button button",
+      )[0]
+      act(() => {
+        submit.click()
+      })
+      // 提示出现（en 固定语言）；mock 返回 false = 消息未发出（上行无副作用）。
+      await act(async () => {
+        await waitFor(() => {
+          expect(container.textContent).toContain("Send failed")
+        })
+      })
+      expect(vi.mocked(sendChatMessage)).toHaveBeenCalledTimes(1)
+    } finally {
+      unmount()
+    }
+  })
+
+  // 三期任务 2（瞬时禁用）：失败冷却窗口内 handler 直接拒绝重试（不上行），
+  // 窗口过后恢复可点（ask-card submitting 30s 恢复同构，窗口 3s）。
+  it("refuses retries during the failure cooldown and recovers afterwards", async () => {
+    vi.mocked(sendChatMessage).mockReturnValueOnce(false)
+    const { container, unmount } = mount(
+      <StrictMode>
+        <A2uiCard ui={{ messages: interactiveMessages }} />
+      </StrictMode>,
+    )
+    try {
+      await act(async () => {
+        await waitFor(() => {
+          expect(
+            container.querySelectorAll("a2ui-basic-button button").length,
+          ).toBe(2)
+        })
+      })
+      const submit = container.querySelectorAll<HTMLButtonElement>(
+        "a2ui-basic-button button",
+      )[0]
+      // 点击前冻结时钟：提示计时器必须是 fake 的，advanceTimersByTime 才
+      // 推得动（真实时钟下排定的 timer 不受 fake 时钟管辖）。Lit 渲染已在
+      // 真实时钟下完成、点击是同步路径——窗口内禁用 waitFor（其轮询用
+      // setTimeout，fake 下会死锁），全部用同步断言。
+      vi.useFakeTimers()
+      try {
+        act(() => {
+          submit.click()
+        })
+        expect(container.textContent).toContain("Send failed")
+        expect(vi.mocked(sendChatMessage)).toHaveBeenCalledTimes(1)
+
+        // 冷却窗口内再点：被 handler 拒绝，不再触发第二次 sendChatMessage。
+        // （Once(false) 已消耗；若拒绝失效，这次点击会返回 true → 上行 →
+        // 调用数变 2，断言失败。）
+        act(() => {
+          submit.click()
+        })
+        expect(vi.mocked(sendChatMessage)).toHaveBeenCalledTimes(1)
+        expect(container.textContent).toContain("Send failed")
+
+        // 推进 3s 窗口：提示消失、恢复可点。
+        act(() => {
+          vi.advanceTimersByTime(3000)
+        })
+        expect(container.textContent).not.toContain("Send failed")
+      } finally {
+        vi.useRealTimers()
+      }
+      act(() => {
+        submit.click()
+      })
+      await act(async () => {
+        await waitFor(() => {
+          expect(vi.mocked(sendChatMessage)).toHaveBeenCalledTimes(2)
+        })
+      })
+    } finally {
+      unmount()
+    }
+  })
+
+  // 三期任务 2（过期卡防错位）：非 latest（历史）卡的动作被 handler 拦截
+  // ——不发送（回传会带旧 surfaceId/旧 dataModel 值），并提示用最新卡。
+  it("blocks the action and hints on a non-latest (stale) card", async () => {
+    const { container, unmount } = mount(
+      <StrictMode>
+        <A2uiCard ui={{ messages: interactiveMessages }} latest={false} />
+      </StrictMode>,
+    )
+    try {
+      await act(async () => {
+        await waitFor(() => {
+          expect(
+            container.querySelectorAll("a2ui-basic-button button").length,
+          ).toBe(2)
+        })
+      })
+      const submit = container.querySelectorAll<HTMLButtonElement>(
+        "a2ui-basic-button button",
+      )[0]
+      act(() => {
+        submit.click()
+      })
+      await act(async () => {
+        await waitFor(() => {
+          expect(container.textContent).toContain("outdated")
+        })
+      })
+      expect(vi.mocked(sendChatMessage)).not.toHaveBeenCalled()
+    } finally {
+      unmount()
+    }
+  })
+})
+
+// 三期任务 2 顺手项：消息组装的三个插值字段（surfaceId/name/
+// sourceComponentId）是 agent 侧可控字符串，裸拼进单行协议文本时引号会
+// 提前闭合字段、换行直接破坏单行性。JSON.stringify 转义后正常 id 与旧
+// 格式逐字节一致（回归锁定），异常字符成为 \" \n 等单行转义序列。
+describe("buildActionMessage 插值转义", () => {
+  const base = {
+    timestamp: "2026-11-14T00:00:00.000Z",
+    context: {},
+  }
+
+  it("keeps the wire format byte-identical for plain identifiers", () => {
+    expect(
+      buildActionMessage({
+        ...base,
+        surfaceId: "form-test",
+        name: "submit",
+        sourceComponentId: "submitBtn",
+      }),
+    ).toBe('[A2UI 交互] surface="form-test" action="submit" source="submitBtn"')
+  })
+
+  it("escapes quotes and newlines so the protocol line is never broken", () => {
+    const message = buildActionMessage({
+      ...base,
+      surfaceId: 'sur"face',
+      name: "act\nion",
+      sourceComponentId: "src\r\ncomp",
+      context: { name: "张三" },
+    })
+    // 单行性：不含裸 CR/LF。
+    expect(message).not.toMatch(/[\r\n]/)
+    expect(message).toBe(
+      '[A2UI 交互] surface="sur\\"face" action="act\\nion" source="src\\r\\ncomp" context={"name":"张三"}',
+    )
   })
 })

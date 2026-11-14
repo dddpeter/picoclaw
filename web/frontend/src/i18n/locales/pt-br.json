@@ -158,6 +158,8 @@
     "a2uiTitle": "Visual interativo",
     "a2uiRenderFailed": "Não foi possível exibir esta visualização interativa.",
     "a2uiChartFailed": "Não foi possível exibir o gráfico.",
+    "a2uiSendFailed": "Falha ao enviar: conexão indisponível. Tente novamente.",
+    "a2uiStaleCard": "Este cartão está desatualizado. Use a visualização interativa mais recente para interagir.",
     "stopGeneration": "Parar geração",
     "renameSession": "Renomear sessão",
     "sessionHistory": "Histórico de sessões"

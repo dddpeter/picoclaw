@@ -156,6 +156,8 @@
     "a2uiTitle": "Interaktivní zobrazení",
     "a2uiRenderFailed": "Toto interaktivní zobrazení nebylo možné zobrazit.",
     "a2uiChartFailed": "Graf se nepodařilo zobrazit.",
+    "a2uiSendFailed": "Odeslání se nezdařilo: připojení není k dispozici. Zkuste to prosím znovu.",
+    "a2uiStaleCard": "Tato karta je zastaralá. K interakci použijte nejnovější interaktivní zobrazení.",
     "stopGeneration": "Zastavit generování",
     "renameSession": "Přejmenovat relaci",
     "sessionHistory": "Historie relací"

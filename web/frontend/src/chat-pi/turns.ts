@@ -71,6 +71,11 @@ export type PiBlock =
 			id: string;
 			/** A2UI 渲染载荷（render_ui 工具产出，A2uiCard 组件渲染）。 */
 			ui: A2uiInfo;
+			/** 最近一张 a2ui 块 = true（可交互）；其余块为历史版本——动作
+			 * 回传会带旧 surfaceId/旧 dataModel 值，A2uiCard 拦截并提示
+			 * （三期任务 2 防错位）。a2ui 无 seal（动作消息没有服务端回执
+			 * 可封存），被新 render_ui 取代即历史。 */
+			latest?: boolean;
 	  }
 	| { type: "thinking"; id: string; thinking: string; live: boolean }
 	| {
@@ -387,22 +392,24 @@ export function buildTurns(
 		});
 	}
 
-	// 审批/问询卡可操作性：每类只把最近一张未封存卡标为 latest，其余
-	// 未封存卡保持 undefined（组件默认 false → 按钮禁用）。服务端每会话
+	// 审批/问询/A2UI 卡可操作性：每类只把最近一张未封存卡标为 latest，其余
+	// 未封存卡保持 undefined（组件侧禁用/拦截）。审批/问询：服务端每会话
 	// 同类只有一个 waiter，旧 pending 卡的提交会错位作用于最新 waiter
-	// （超时幽灵卡 + 新卡并存是最常见的错位场景）。
-	for (const blockType of ["approval", "ask"] as const) {
+	// （超时幽灵卡 + 新卡并存是最常见的错位场景）。a2ui：回传带旧
+	// surfaceId/旧 dataModel 值（三期任务 2 防错位）。
+	for (const blockType of ["approval", "ask", "a2ui"] as const) {
 		let latestMarked = false;
 		for (let t = turns.length - 1; t >= 0 && !latestMarked; t--) {
 			const blocks = turns[t].assistant?.blocks;
 			if (!blocks) continue;
 			for (let b = blocks.length - 1; b >= 0; b--) {
 				const block = blocks[b];
-				if (block.type === blockType && !block.seal) {
-					block.latest = true;
-					latestMarked = true;
-					break;
-				}
+				if (block.type !== blockType) continue;
+				// a2ui 无 seal（动作消息没有服务端回执）——永远"未封存"。
+				if ("seal" in block && block.seal) continue;
+				block.latest = true;
+				latestMarked = true;
+				break;
 			}
 		}
 	}
