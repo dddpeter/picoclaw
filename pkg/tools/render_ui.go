@@ -163,8 +163,9 @@ func (t *RenderUITool) Parameters() map[string]any {
 					`(e.g. {"id":"c","component":"VegaChart","spec":{"mark":"bar","encoding":{"x":{"field":"cat","type":"nominal"},"y":{"field":"v","type":"quantitative"}},"data":{"values":[{"cat":"A","v":28}]}}} — write the full vega-lite view spec, its props are ONLY "spec": no weight/accessibility/style; ` +
 					`the card themes charts automatically (transparent background, width sized to the chat column, app accent color for single-series marks) — omit spec.width/background and do NOT send color configs unless the design requires them; ` +
 					`multi-series color: add an encoding.color with a field, or config.range.scheme); ` +
-					`interactive components bind their value into the surface dataModel with a {"path"} binding on the value prop ` +
-					`(TextField/CheckBox/ChoicePicker/Slider/DateTimeInput, e.g. {"id":"f","component":"TextField","label":"Name","value":{"path":"/form/name"}} — user edits are written to that dataModel path immediately); ` +
+					`interactive components (props are strict): TextField{label, value}, CheckBox{label, value}, Slider{label, min, max, value}, DateTimeInput{label, value}, ChoicePicker{label, options, value} — ` +
+					`all bind their value into the surface dataModel with a {"path"} binding on the value prop (user edits are written to that dataModel path immediately); ` +
+					`ChoicePicker options MUST be objects with string label+value, NEVER plain strings: {"id":"l","component":"ChoicePicker","label":"Language","options":[{"label":"中文","value":"zh"},{"label":"English","value":"en"}],"value":{"path":"/prefs/lang"}} — plain strings in options are rejected; ` +
 					`Button fires an action: {"id":"b","component":"Button","child":"bl","action":{"event":{"name":"submit","context":{"name":{"path":"/form/name"}}}}} — ` +
 					`at click time each event.context entry holding a {"path"} binding is resolved from the CURRENT dataModel value (this is how form values ride along; plain string entries pass through verbatim); ` +
 					`the user's interaction reaches you as a plain user message prefixed "[A2UI 交互]" in the exact shape ` +
@@ -621,6 +622,41 @@ func renderUIComponentsViolation(msgIdx int, components any) error {
 		if !renderUIBasicCatalogComponents[name] {
 			return fmt.Errorf("messages[%d].components[%d]: unknown component %q — basicCatalog components are: %s",
 				msgIdx, j, name, renderUIComponentNamesDoc())
+		}
+		if err := renderUIChoicePickerOptionsViolation(msgIdx, j, comp); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// renderUIChoicePickerOptionsViolation checks ChoicePicker options shape:
+// the renderer's strict schema requires an array of {label: string,
+// value: string} objects — plain strings (the observed live failure, when
+// the model passed ["中文","English"]) die at the frontend zod layer with
+// no feedback to the model. Empty options is valid (filled later).
+func renderUIChoicePickerOptionsViolation(msgIdx, compIdx int, comp map[string]any) error {
+	name, _ := comp["component"].(string)
+	if name != "ChoicePicker" {
+		return nil
+	}
+	opts, present := comp["options"]
+	if !present {
+		return nil
+	}
+	arr, ok := opts.([]any)
+	if !ok {
+		return fmt.Errorf("messages[%d].components[%d]: ChoicePicker options must be an array of {\"label\": string, \"value\": string} objects", msgIdx, compIdx)
+	}
+	for k, o := range arr {
+		om, ok := o.(map[string]any)
+		if !ok {
+			return fmt.Errorf("messages[%d].components[%d]: ChoicePicker options[%d] must be a {\"label\": string, \"value\": string} object (plain strings are not accepted)", msgIdx, compIdx, k)
+		}
+		lbl, _ := om["label"].(string)
+		val, _ := om["value"].(string)
+		if lbl == "" || val == "" {
+			return fmt.Errorf("messages[%d].components[%d]: ChoicePicker options[%d] needs string \"label\" and \"value\" keys", msgIdx, compIdx, k)
 		}
 	}
 	return nil

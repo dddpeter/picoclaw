@@ -464,6 +464,44 @@ func TestRenderUIToolInvalidBatchRejected(t *testing.T) {
 			want: "registered catalog",
 		},
 		{
+			// Live kimi-webbridge real-test incident (2026-11-14): the model
+			// passed ChoicePicker options as plain strings — the strict
+			// schema wants {label, value} objects, and the failure was
+			// invisible to the model (frontend placeholder only).
+			name: "ChoicePicker options are plain strings",
+			args: map[string]any{"messages": []any{
+				map[string]any{
+					"version":       "v0.9",
+					"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+				},
+				map[string]any{
+					"version": "v0.9",
+					"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{
+						map[string]any{"id": "root", "component": "Card", "child": "l"},
+						map[string]any{"id": "l", "component": "ChoicePicker", "label": "语言", "options": []any{"中文", "English"}, "value": map[string]any{"path": "/p"}},
+					}},
+				},
+			}},
+			want: "ChoicePicker options",
+		},
+		{
+			name: "ChoicePicker option missing label",
+			args: map[string]any{"messages": []any{
+				map[string]any{
+					"version":       "v0.9",
+					"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+				},
+				map[string]any{
+					"version": "v0.9",
+					"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{
+						map[string]any{"id": "root", "component": "Card", "child": "l"},
+						map[string]any{"id": "l", "component": "ChoicePicker", "label": "语言", "options": []any{map[string]any{"value": "zh"}}, "value": map[string]any{"path": "/p"}},
+					}},
+				},
+			}},
+			want: `"label" and "value"`,
+		},
+		{
 			// Streamed-update merge (phase 2) attributes each batch to one
 			// (session, surfaceId) card: a frame whose surfaceId is missing
 			// or empty cannot be attributed and is rejected.
@@ -614,6 +652,10 @@ func TestRenderUIToolSchemaContract(t *testing.T) {
 		// incident (duplicate year ids killed the batch); tree-invariant
 		// teaching locked after the fourth (values rendered twice).
 		`UNIQUE across the whole components array`,
+		// Interactive-component teaching locked after the live ChoicePicker
+		// incident (plain-string options died at the frontend silently).
+		`options MUST be objects`,
+		`TextField{label, value}`,
 		`catalogId must be EXACTLY`,
 		`at most ONE parent's child/children list`,
 		// Interaction teaching locked with the action-uplink task: Button
