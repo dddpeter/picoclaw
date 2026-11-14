@@ -1829,9 +1829,9 @@ div.chead[role="button"]:focus-visible,
 
 /* 文字层次：标题往主色方向渲染（color-mix 而非纯 primary，避免过艳），
    正文/caption 维持前景/muted 双层。 */
-.a2ui-surface a2ui-basic-text.a2ui-text-h1,
-.a2ui-surface a2ui-basic-text.a2ui-text-h2,
-.a2ui-surface a2ui-basic-text.a2ui-text-h3 {
+.a2ui-surface a2ui-basic-text .a2ui-text-h1,
+.a2ui-surface a2ui-basic-text .a2ui-text-h2,
+.a2ui-surface a2ui-basic-text .a2ui-text-h3 {
 	color: color-mix(in oklab, var(--primary) 72%, var(--foreground));
 }
 
@@ -1879,8 +1879,9 @@ div.chead[role="button"]:focus-visible,
 	}
 }
 
-.a2ui-surface a2ui-basic-text.a2ui-text-h1,
-.a2ui-surface a2ui-basic-text.a2ui-text-h2 {
+.a2ui-surface a2ui-basic-text .a2ui-text-h1,
+.a2ui-surface a2ui-basic-text .a2ui-text-h2 {
+	display: block;
 	background: linear-gradient(
 		90deg,
 		var(--primary),
@@ -1927,8 +1928,8 @@ div.chead[role="button"]:focus-visible,
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.a2ui-surface a2ui-basic-text.a2ui-text-h1,
-	.a2ui-surface a2ui-basic-text.a2ui-text-h2 {
+	.a2ui-surface a2ui-basic-text .a2ui-text-h1,
+	.a2ui-surface a2ui-basic-text .a2ui-text-h2 {
 		animation: none;
 	}
 }
