@@ -1828,11 +1828,11 @@ div.chead[role="button"]:focus-visible,
 .a2ui-surface a2ui-basic-row:nth-child(7 of a2ui-basic-row) { animation-delay: 0.26s; }
 .a2ui-surface a2ui-basic-row:nth-child(8 of a2ui-basic-row) { animation-delay: 0.3s; }
 
-.a2ui-surface a2ui-basic-button {
-	transition: filter 0.15s ease, transform 0.12s ease;
+.a2ui-surface .a2ui-button {
+	transition: filter 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
 }
 
-.a2ui-surface a2ui-basic-button:hover {
+.a2ui-surface .a2ui-button:hover {
 	filter: brightness(1.1);
 	transform: translateY(-1px);
 }
@@ -1933,11 +1933,11 @@ div.chead[role="button"]:focus-visible,
 }
 
 /* 按钮主色光晕 + 按压回弹 */
-.a2ui-surface a2ui-basic-button:hover {
+.a2ui-surface .a2ui-button:hover {
 	box-shadow: 0 2px 12px color-mix(in oklab, var(--primary) 40%, transparent);
 }
 
-.a2ui-surface a2ui-basic-button:active {
+.a2ui-surface .a2ui-button:active {
 	transform: translateY(0) scale(0.97);
 }
 
