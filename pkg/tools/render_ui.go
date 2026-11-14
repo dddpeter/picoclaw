@@ -167,7 +167,8 @@ func (t *RenderUITool) Parameters() map[string]any {
 					`interactive components (props are strict): TextField{label, value}, CheckBox{label, value}, Slider{label, min, max, value}, DateTimeInput{label, value}, ChoicePicker{label, options, value} — ` +
 					`all bind their value into the surface dataModel with a {"path"} binding on the value prop (user edits are written to that dataModel path immediately); ` +
 					`ChoicePicker options MUST be objects with string label+value, NEVER plain strings: {"id":"l","component":"ChoicePicker","label":"Language","options":[{"label":"中文","value":"zh"},{"label":"English","value":"en"}],"value":{"path":"/prefs/lang"}} — plain strings in options are rejected; ` +
-					`Button fires an action: {"id":"b","component":"Button","child":"bl","action":{"event":{"name":"submit","context":{"name":{"path":"/form/name"}}}}} — ` +
+					`Button fires an action: {"id":"b","component":"Button","variant":"primary","child":"bl","action":{"event":{"name":"submit","context":{"name":{"path":"/form/name"}}}}} — ` +
+					`variant accepts "primary" (main call-to-action, accent-styled) or "borderless" (link-like); omit it for the default style; ` +
 					`at click time each event.context entry holding a {"path"} binding is resolved from the CURRENT dataModel value (this is how form values ride along; plain string entries pass through verbatim); ` +
 					`the user's interaction reaches you as a plain user message prefixed "[A2UI 交互]" in the exact shape ` +
 					`[A2UI 交互] surface="<surfaceId>" action="<name>" source="<componentId>" context=<json> — the context= segment is omitted when the resolved context is empty — parse it to read the action name and the collected form values; ` +
