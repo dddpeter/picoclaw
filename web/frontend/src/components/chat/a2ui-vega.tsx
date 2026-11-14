@@ -87,6 +87,9 @@ function themeVegaDefaults(): Record<string, unknown> {
     },
     legend: { labelColor: "currentColor", titleColor: "currentColor" },
     title: { color: "currentColor" },
+    // 数据点标签（text mark）默认黑色填充，深色卡面上不可读——注入
+    // currentColor 随主题；模型 encoding.color/mark.color 显式值优先。
+    text: { color: "currentColor" },
     // 柱子粗细（用户反馈 2026-11-14：少类目柱状图默认占满 band 变胖柱）：
     // 离散轴每根柱只占 band 的 60%（其余留白），连续轴同样收细。
     bar: { discreteBandSize: { band: 0.6 }, continuousBandSize: 42 },
