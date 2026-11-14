@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -528,5 +529,39 @@ func TestToolFeedbackDefaultExpandedFoldable(t *testing.T) {
 	}
 	if !strings.Contains(out, "exec") {
 		t.Fatalf("folded feedback keeps the tool title:\n%s", out)
+	}
+}
+
+func TestState_DeletionMaintainsCommitBoundary(t *testing.T) {
+	for _, eventType := range []string{"message.delete", "error"} {
+		for _, committed := range []int{0, 1, 3} {
+			t.Run(fmt.Sprintf("%s/committed_%d", eventType, committed), func(t *testing.T) {
+				s := NewState()
+				s.Items = []Item{
+					{Kind: ItemUser, ID: "removed", Content: "old"},
+					{Kind: ItemAnswer, ID: "remaining", Content: "remaining"},
+					{Kind: ItemAction, Content: "tail"},
+				}
+				s.CommitIndex = committed
+				s.Apply(picoclient.Event{Type: eventType, MessageID: "removed", RequestID: "removed", ErrMessage: "rejected"})
+				want := max(0, committed-1)
+				if s.CommitIndex != want {
+					t.Fatalf("CommitIndex = %d, want %d after deleting the first item", s.CommitIndex, want)
+				}
+				if s.Items[0].ID != "remaining" {
+					t.Fatalf("remaining timeline reordered: %+v", s.Items)
+				}
+			})
+		}
+	}
+}
+
+func TestState_ApplyHistoryResetsCommitBoundary(t *testing.T) {
+	s := NewState()
+	s.AddAction("already printed")
+	s.CommitIndex = 1
+	s.ApplyHistory("history", []Item{{Kind: ItemUser, Content: "older message"}})
+	if s.CommitIndex != 0 {
+		t.Fatalf("prepended history needs a fresh commit boundary, got %d", s.CommitIndex)
 	}
 }

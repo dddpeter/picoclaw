@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -260,5 +262,96 @@ func TestFooterModelAlwaysShown(t *testing.T) {
 	v = m.View()
 	if !strings.Contains(v.Content, "kimi-k2") {
 		t.Fatalf("generating footer must keep the model next to the spinner:\n%s", v.Content)
+	}
+}
+
+func TestViewMainScreenDeleteAfterTurnStop(t *testing.T) {
+	for _, fullscreen := range []bool{false, true} {
+		t.Run(strconv.FormatBool(fullscreen), func(t *testing.T) {
+			m := newTestApp(t)
+			m.setFullscreen(fullscreen)
+			m.state.AddUser("user")
+			m.Update(eventMsg{Type: "typing.start"})
+			m.Update(eventMsg{Type: "message.create", MessageID: "answer", Content: "answer"})
+			m.state.AddAction("⏹ 已请求停止当前回合")
+			m.Update(eventMsg{Type: "typing.stop"})
+			defer func() {
+				if err := recover(); err != nil {
+					t.Errorf("late stream deletion panicked: %v", err)
+				}
+			}()
+			m.Update(eventMsg{Type: "message.delete", MessageID: "answer"})
+			m.View()
+			if m.state.CommitIndex > len(m.state.Items) {
+				t.Fatalf("invalid boundary: %d > %d", m.state.CommitIndex, len(m.state.Items))
+			}
+		})
+	}
+}
+
+func TestViewDeletionDoesNotHideUncommittedTail(t *testing.T) {
+	m := newTestApp(t)
+	m.state.Items = []Item{
+		{Kind: ItemAnswer, ID: "old", Content: "committed"},
+		{Kind: ItemUser, Content: "UNCOMMITTED"},
+		{Kind: ItemAnswer, Content: "stream", Streaming: true},
+	}
+	m.state.CommitIndex = 1
+	m.state.Apply(picoclient.Event{Type: "message.delete", MessageID: "old"})
+	if !strings.Contains(strings.Join(m.liveLines(), "\n"), "UNCOMMITTED") {
+		t.Fatal("deleting a committed item hid the next uncommitted item")
+	}
+}
+
+func TestViewCommitAllStopsAtStreamingItem(t *testing.T) {
+	m := newTestApp(t)
+	m.state.Items = []Item{
+		{Kind: ItemUser, Content: "history"},
+		{Kind: ItemAnswer, Content: "live answer", Streaming: true},
+		{Kind: ItemAction, Content: "pending"},
+	}
+	if m.commitAll() == nil {
+		t.Fatal("stable prefix should be committed")
+	}
+	if m.state.CommitIndex != 1 {
+		t.Fatalf("CommitIndex = %d, want 1 (only the printed prefix)", m.state.CommitIndex)
+	}
+	if !strings.Contains(strings.Join(m.liveLines(), "\n"), "live answer") {
+		t.Fatal("streaming answer disappeared from the live region")
+	}
+}
+
+func TestViewMainScreenInvalidBoundaryIsSafe(t *testing.T) {
+	for _, index := range []int{-1, 4} {
+		t.Run(strconv.Itoa(index), func(t *testing.T) {
+			m := newTestApp(t)
+			m.state.AddAction("only item")
+			m.state.CommitIndex = index
+			defer func() {
+				if err := recover(); err != nil {
+					t.Errorf("invalid boundary panicked: %v", err)
+				}
+			}()
+			m.itemHeights()
+			m.liveLines()
+			m.flushCommits()
+			m.commitAll()
+			m.View()
+		})
+	}
+}
+
+func TestViewLateHistoryRebuildsCommittedScreen(t *testing.T) {
+	m := newTestApp(t)
+	m.state.AddAction("already printed")
+	m.state.CommitIndex = 1
+	_, cmd := m.Update(historyMsg{
+		sessionID: m.client.SessionID(),
+		history: SessionHistory{Found: true, Items: []Item{
+			{Kind: ItemUser, Content: "older message"},
+		}},
+	})
+	if cmd == nil || !strings.Contains(fmt.Sprintf("%T", cmd()), "sequenceMsg") {
+		t.Fatal("late history must clear/rebuild an already committed screen before reprinting")
 	}
 }

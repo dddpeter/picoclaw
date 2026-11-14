@@ -34,7 +34,7 @@ func (m *appModel) liveBudget() int {
 // itemHeights returns rendered line heights for the uncommitted tail
 // (spacer included, matching renderTimeline's rhythm).
 func (m *appModel) itemHeights() (live []int, total int) {
-	items := m.state.Items[m.state.CommitIndex:]
+	items := m.state.Items[m.state.commitBoundary():]
 	out := make([]int, len(items))
 	for i := range items {
 		if items[i].Kind == ItemUser && i > 0 && items[i-1].Kind != ItemUser {
@@ -62,7 +62,7 @@ func (m *appModel) flushCommits() tea.Cmd {
 
 	var b strings.Builder
 	committed := 0
-	base := m.state.CommitIndex
+	base := m.state.commitBoundary()
 	for i := 0; i < len(live); i++ {
 		if !ItemTerminal(&m.state.Items[base+i]) {
 			break
@@ -87,7 +87,7 @@ func (m *appModel) flushCommits() tea.Cmd {
 		return nil
 	}
 	m.state.CommitIndex = base + committed
-	return tea.Println(strings.TrimSuffix(b.String(), "\n"))
+	return m.printLine(strings.TrimSuffix(b.String(), "\n"))
 }
 
 // commitAll force-commits every terminal item（切会话重建后整段历史入
@@ -98,7 +98,7 @@ func (m *appModel) commitAll() tea.Cmd {
 	}
 	var b strings.Builder
 	committed := 0
-	base := m.state.CommitIndex
+	base := m.state.commitBoundary()
 	for i := base; i < len(m.state.Items); i++ {
 		if !ItemTerminal(&m.state.Items[i]) {
 			break // 与 flushCommits 同语义：不跳过进行中内容
@@ -113,13 +113,13 @@ func (m *appModel) commitAll() tea.Cmd {
 	if committed == 0 {
 		return nil
 	}
-	m.state.CommitIndex = len(m.state.Items)
-	return tea.Println(strings.TrimSuffix(b.String(), "\n"))
+	m.state.CommitIndex = base + committed
+	return m.printLine(strings.TrimSuffix(b.String(), "\n"))
 }
 
 // liveLines renders the uncommitted timeline tail for the live region.
 func (m *appModel) liveLines() []string {
-	items := m.state.Items[m.state.CommitIndex:]
+	items := m.state.Items[m.state.commitBoundary():]
 	if len(items) == 0 {
 		return nil
 	}
@@ -147,16 +147,16 @@ func renderStartupHeader(version, gatewayURL string) string {
 	}
 	b.WriteString(stBrand.Render(brand))
 	if gatewayURL != "" {
-		b.WriteString("  " + stHint.Render(gatewayURL))
+		b.WriteString("  " + stLink.Render(gatewayURL))
 	}
 	b.WriteString("\n")
-	b.WriteString(stDim.Render("Esc") + stMuted.Render(" 打断 · ") +
-		stDim.Render("Ctrl+C") + stMuted.Render(" 清空 · ") +
-		stDim.Render("Ctrl+D") + stMuted.Render(" 退出 · ") +
-		stDim.Render("/") + stMuted.Render(" 命令 · ") +
-		stDim.Render("?") + stMuted.Render(" 帮助 · ") +
-		stDim.Render("Ctrl+S") + stMuted.Render(" 会话 · ") +
-		stDim.Render("Ctrl+G") + stMuted.Render(" 编辑器"))
+	b.WriteString(stShortcut.Render("Esc") + stMuted.Render(" 打断 · ") +
+		stShortcut.Render("Ctrl+C") + stMuted.Render(" 清空 · ") +
+		stShortcut.Render("Ctrl+D") + stMuted.Render(" 退出 · ") +
+		stShortcut.Render("/") + stMuted.Render(" 命令 · ") +
+		stShortcut.Render("?") + stMuted.Render(" 帮助 · ") +
+		stShortcut.Render("Ctrl+S") + stMuted.Render(" 会话 · ") +
+		stShortcut.Render("Ctrl+G") + stMuted.Render(" 编辑器"))
 	return b.String()
 }
 
@@ -169,7 +169,7 @@ func renderFooterPi(m *appModel) string {
 	var l1 strings.Builder
 	l1.WriteString(stDim.Render(m.gatewayHostLabel()))
 	if t := strings.TrimSpace(m.state.Title); t != "" {
-		l1.WriteString(stDim.Render(" · " + truncateRunes(t, 24)))
+		l1.WriteString(stDim.Render(" · ") + stSession.Render(truncateRunes(t, 24)))
 	}
 	l1.WriteString(dotSt.Render(" · " + dot + " " + m.connState.String()))
 	if m.connState != picoclient.StateConnected {
@@ -184,11 +184,12 @@ func renderFooterPi(m *appModel) string {
 	// L2：↑in ↓out + ctx%（左）+ model / spinner（右）。
 	var stats strings.Builder
 	if u := m.state.Usage; u != nil && u.InputTokens+u.OutputTokens > 0 {
-		stats.WriteString("↑" + formatTokens(u.InputTokens) + " ↓" + formatTokens(u.OutputTokens) + " ")
+		stats.WriteString(stTokenIn.Render("↑" + formatTokens(u.InputTokens)))
+		stats.WriteString(" " + stTokenOut.Render("↓"+formatTokens(u.OutputTokens)) + " ")
 	}
 	if u := m.state.CtxUsage; u != nil && u.TotalTokens > 0 {
 		pct := u.UsedPercent
-		pctSt := stDim
+		pctSt := stContext
 		switch {
 		case pct >= 90:
 			pctSt = stError
@@ -198,19 +199,19 @@ func renderFooterPi(m *appModel) string {
 		stats.WriteString(pctSt.Render(
 			trimTrailingDotZero(fmt.Sprintf("%.1f", pct)) + "%/" + formatTokens(u.TotalTokens)))
 	}
-	right := m.state.ModelName
-	if right == "" {
-		right = m.defaultModel // 启动种子：config 默认模型（P4 修订②）
+	model := m.state.ModelName
+	if model == "" {
+		model = m.defaultModel
 	}
+	right := stModel.Render(model)
 	if m.state.Generating {
 		frame := spinnerFrames[m.spinnerIdx%len(spinnerFrames)]
-		elapsedLabel := string(frame) + " " + elapsed(m.state.GeneratingSince)
-		if right != "" {
-			elapsedLabel += " · " + right
+		right = stWarning.Render(string(frame) + " " + elapsed(m.state.GeneratingSince))
+		if model != "" {
+			right += stDim.Render(" · ") + stModel.Render(model)
 		}
-		right = elapsedLabel
 	}
-	l2 := joinLeftRight(stDim.Render(stats.String()), stMuted.Render(right), m.width)
+	l2 := joinLeftRight(stats.String(), right, m.width)
 
 	return clipLine(l1.String(), m.width) + "\n" + clipLine(l2, m.width)
 }

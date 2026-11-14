@@ -15,6 +15,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/google/uuid"
 
+	"github.com/sipeed/picoclaw/pkg/fileutil"
 	"github.com/sipeed/picoclaw/pkg/picoclient"
 )
 
@@ -68,6 +69,7 @@ type appModel struct {
 	// P4：fullscreen=true 保留 P1–P3 的 alt-screen 全屏路径；默认主屏滚动
 	//（docs/design/2026-11-07-tui-p4-pi-layout-design.zh.md）。
 	fullscreen bool
+	noColor    bool
 	pendingCmd tea.Cmd // localCommand 等单返回值路径的延迟命令
 
 	// defaultModel：config 默认模型，footer 模型位的首选回退（P4 修订②）。
@@ -85,6 +87,7 @@ func newAppModel(client *picoclient.Client, sessionFile, gatewayURL, version str
 	return &appModel{
 		client:        client,
 		state:         NewState(),
+		noColor:       envColorDisabled(),
 		composer:      ta,
 		viewport:      viewport.New(),
 		sessionFile:   sessionFile,
@@ -173,7 +176,7 @@ func (m *appModel) Init() tea.Cmd {
 		return m.initCmd
 	}
 	// 主屏模式（P4）：启动头一次性打印进 scrollback。
-	return tea.Batch(m.initCmd, tea.Println(renderStartupHeader(m.version, m.gatewayURL)))
+	return tea.Batch(m.initCmd, m.printLine(renderStartupHeader(m.version, m.gatewayURL)))
 }
 
 func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -235,6 +238,11 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state.Usage = st.Usage
 				m.state.InputHistory = st.InputHistory
 				m.state.HistoryStale = false
+				reset = m.resetMainScreen()
+			}
+			if len(msg.history.Items) > 0 && m.state.CommitIndex > 0 {
+				// Disk history arrived after live items were printed. Rebuild in
+				// chronological order rather than skipping the prepended prefix.
 				reset = m.resetMainScreen()
 			}
 			m.state.ApplyHistory(msg.history.Title, msg.history.Items)
@@ -470,6 +478,12 @@ func (m *appModel) handleCompletionKey(k tea.Key) (bool, tea.Model, tea.Cmd) {
 
 	case k.Code == tea.KeyEnter:
 		if repl := m.completion.accept(); repl != "" {
+			if repl == m.composer.Value() {
+				// 输入已与选中项一致：这次 Enter 就是"执行"而非"选定"，
+				// 放行给主路由直接发送（否则完整命令 :sessions 要按两次
+				// Enter，第一次被空转的"选定"吞掉、界面无任何反馈）。
+				return false, m, nil
+			}
 			m.composer.SetValue(repl)
 			m.composer.CursorEnd()
 			m.syncComposerHeight()
@@ -793,13 +807,25 @@ func (m *appModel) copyLastAnswer(n int) (tea.Model, tea.Cmd) {
 // sendCurrent ships the composer content: ":" local commands are handled
 // in-process, everything else goes to the gateway as message.send.
 func (m *appModel) sendCurrent() tea.Cmd {
+	content := strings.TrimSpace(m.composer.Value())
+	if content == "" {
+		return nil
+	}
+	// ":" 本地命令是本地 UI 行为，先于只读拦截——只读会话（非 pico 渠道
+	// 视图）下 :sessions/:help/:q 等仍须可用，被"发送已禁用"拦掉会让用户
+	// 无路可走（Enter 提示只让用 Ctrl+S，历史回溯仍能填回命令字面量）。
+	if strings.HasPrefix(content, ":") {
+		m.composer.Reset()
+		m.completion.reset()
+		m.histIdx = -1
+		m.histDraft = ""
+		m.syncComposerHeight()
+		return m.localCommand(content)
+	}
+
 	if m.state.ReadOnly {
 		m.state.AddActionDeduped("只读会话（" + m.state.ReadOnlyChannel + " 渠道）：发送已禁用，Ctrl+S 切换会话")
 		m.syncViewport()
-		return nil
-	}
-	content := strings.TrimSpace(m.composer.Value())
-	if content == "" {
 		return nil
 	}
 	m.composer.Reset()
@@ -807,10 +833,6 @@ func (m *appModel) sendCurrent() tea.Cmd {
 	m.histIdx = -1
 	m.histDraft = ""
 	m.syncComposerHeight()
-
-	if strings.HasPrefix(content, ":") {
-		return m.localCommand(content)
-	}
 
 	m.state.PushInputHistory(content)
 	m.state.AddUser(content)
@@ -1027,14 +1049,16 @@ func (m *appModel) resetMainScreen() tea.Cmd {
 	if m.fullscreen {
 		return nil
 	}
-	return tea.Sequence(tea.ClearScreen, tea.Println(renderStartupHeader(m.version, m.gatewayURL)))
+	return tea.Sequence(tea.ClearScreen, m.printLine(renderStartupHeader(m.version, m.gatewayURL)))
 }
 
 func (m *appModel) persistSession(id string) {
 	if m.sessionFile == "" {
 		return
 	}
-	_ = os.WriteFile(m.sessionFile, []byte(id), 0o600)
+	if err := fileutil.WriteFileAtomic(m.sessionFile, []byte(id), 0o600); err != nil {
+		m.state.AddLocalError("无法保存会话 ID，下次启动可能无法自动恢复：" + err.Error())
+	}
 }
 
 // relayout recomputes viewport bounds from the terminal size.
@@ -1094,10 +1118,14 @@ func (m *appModel) View() tea.View {
 		return tea.NewView("正在启动 Limulus TUI…")
 	}
 
-	if !m.fullscreen {
-		return m.viewMain()
+	var v tea.View
+	if m.fullscreen {
+		v = m.viewFullscreen()
+	} else {
+		v = m.viewMain()
 	}
-	return m.viewFullscreen()
+	v.Content = m.outputText(v.Content)
+	return v
 }
 
 // viewMain 主屏滚动模式（P4 §1）：活区 = 未提交尾部（裁到预算）+ progress

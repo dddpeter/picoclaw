@@ -229,10 +229,9 @@ func TestClient_LastDialErrorOnRefused(t *testing.T) {
 }
 
 func TestClient_Reconnect(t *testing.T) {
-	var conns int
+	var conns atomic.Int32
 	fs := newFakePicoServer(t, false, func(t *testing.T, conn *websocket.Conn, _ *http.Request) {
-		conns++
-		if conns == 1 {
+		if conns.Add(1) == 1 {
 			// First connection: server drops it immediately.
 			_ = conn.Close()
 			return

@@ -40,6 +40,18 @@ const (
 	// P4 修订③：色彩丰富化——思考紫罗兰（italic 保留）、工具名青色。
 	colThink = "176" // thinking 紫（okhsl 午夜紫系，与 accent 同族但更柔）
 	colTool  = "80"  // 工具名/工具标题 青（cyan）
+
+	// 语义色板：低饱和前景区分信息角色，正文仍保持中性高对比。
+	colUserText = "153" // 用户输入：冰蓝，与深蓝消息底色配对
+	colModel    = "117" // 模型名：天蓝
+	colSession  = "180" // 会话标题：暖沙色
+	colTokenIn  = "110" // 输入 token：钢蓝
+	colTokenOut = "151" // 输出 token：鼠尾草绿
+	colContext  = "150" // 健康上下文：黄绿；警戒仍走 amber/red
+	colArgs     = "146" // 工具参数：灰紫蓝，与青色工具名区分
+	colAction   = "109" // 本地操作：灰青
+	colLink     = "75"  // 地址/附件：湖蓝
+	colShortcut = "147" // 快捷键：淡薰衣草紫
 )
 
 var (
@@ -66,6 +78,17 @@ var (
 	// P4 修订③：思考紫（italic）、工具青（bold）
 	stThink = lipgloss.NewStyle().Foreground(lipgloss.Color(colThink)).Italic(true)
 	stTool  = lipgloss.NewStyle().Foreground(lipgloss.Color(colTool)).Bold(true)
+
+	stUser     = lipgloss.NewStyle().Foreground(lipgloss.Color(colUserText))
+	stModel    = lipgloss.NewStyle().Foreground(lipgloss.Color(colModel))
+	stSession  = lipgloss.NewStyle().Foreground(lipgloss.Color(colSession))
+	stTokenIn  = lipgloss.NewStyle().Foreground(lipgloss.Color(colTokenIn))
+	stTokenOut = lipgloss.NewStyle().Foreground(lipgloss.Color(colTokenOut))
+	stContext  = lipgloss.NewStyle().Foreground(lipgloss.Color(colContext))
+	stArgs     = lipgloss.NewStyle().Foreground(lipgloss.Color(colArgs))
+	stAction   = lipgloss.NewStyle().Foreground(lipgloss.Color(colAction))
+	stLink     = lipgloss.NewStyle().Foreground(lipgloss.Color(colLink))
+	stShortcut = lipgloss.NewStyle().Foreground(lipgloss.Color(colShortcut))
 
 	stBrand    = lipgloss.NewStyle().Foreground(cAccent).Bold(true)
 	stHead     = lipgloss.NewStyle().Foreground(cHead)

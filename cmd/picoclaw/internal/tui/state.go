@@ -6,6 +6,7 @@ package tui
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -116,6 +117,8 @@ func (s *State) ApplyHistory(title string, items []Item) {
 		return
 	}
 	s.Items = append(items, s.Items...)
+	// Prepending changes the meaning of every index; the app rebuilds scrollback.
+	s.CommittedItemsReset()
 }
 
 // AddActionDeduped appends an action line unless the previous item is the
@@ -197,6 +200,23 @@ func ItemTerminal(it *Item) bool {
 // CommittedItemsReset resets the commit boundary（:clear / 切会话 / 历史重建
 // 时配合 tea.ClearScreen 使用，P4 §1.2）。
 func (s *State) CommittedItemsReset() { s.CommitIndex = 0 }
+
+// commitBoundary keeps rendering safe even while rebuilding a timeline. Mutation
+// paths must still maintain the boundary: clamping alone can hide live items.
+func (s *State) commitBoundary() int {
+	s.CommitIndex = min(max(s.CommitIndex, 0), len(s.Items))
+	return s.CommitIndex
+}
+
+// removeItem preserves the identity of the first uncommitted item when a
+// delayed cancellation/rejection deletes an item already printed to scrollback.
+func (s *State) removeItem(i int) {
+	boundary := s.commitBoundary()
+	s.Items = slices.Delete(s.Items, i, i+1)
+	if i < boundary {
+		s.CommitIndex--
+	}
+}
 
 // ToggleLastThought flips the fold of the most recent thought item and
 // reports whether anything changed.
@@ -307,7 +327,7 @@ func (s *State) Apply(ev picoclient.Event) bool {
 	case "message.delete":
 		for i, it := range s.Items {
 			if it.ID == ev.MessageID {
-				s.Items = append(s.Items[:i], s.Items[i+1:]...)
+				s.removeItem(i)
 				return true
 			}
 		}
@@ -317,7 +337,7 @@ func (s *State) Apply(ev picoclient.Event) bool {
 		if ev.RequestID != "" {
 			for i, it := range s.Items {
 				if it.Kind == ItemUser && it.ID == ev.RequestID {
-					s.Items = append(s.Items[:i], s.Items[i+1:]...)
+					s.removeItem(i)
 					break
 				}
 			}

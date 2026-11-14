@@ -56,24 +56,18 @@ func runTUI(ctx context.Context, cmd *cobra.Command, opts *tuiOptions) error {
 	token := opts.Token
 	gatewayURL := opts.GatewayURL
 
-	// Loaded lazily; nil when both --gateway-url and --token are explicit
-	// (history loading then has no workspace to read from).
-	var cfg *config.Config
-	if token == "" || gatewayURL == "" {
-		loaded, cfgErr := internal.LoadConfig()
-		if cfgErr != nil {
-			return fmt.Errorf("读取配置失败（%v）；可改用 --gateway-url 与 --token 显式指定", cfgErr)
-		}
-		cfg = loaded
+	cfg, err := loadTUIConfig(opts)
+	if err != nil {
+		return err
+	}
+	if token == "" {
+		token = picoTokenFromConfig(cfg)
 		if token == "" {
-			token = picoTokenFromConfig(cfg)
-			if token == "" {
-				return errors.New("未找到 pico 渠道 token：请检查 config.json 的 channels.pico.token，或用 --token 指定")
-			}
+			return errors.New("未找到 pico 渠道 token：请检查 config.json 的 channels.pico.token，或用 --token 指定")
 		}
-		if gatewayURL == "" {
-			gatewayURL = gatewayURLFromConfig(cfg)
-		}
+	}
+	if gatewayURL == "" {
+		gatewayURL = gatewayURLFromConfig(cfg)
 	}
 	if strings.HasPrefix(gatewayURL, "ws://") && !isLocalhostURL(gatewayURL) {
 		fmt.Fprintln(cmd.ErrOrStderr(), "⚠ --gateway-url 使用明文 ws:// 连接非本机地址，token 将明文传输；生产环境建议 wss://")
@@ -94,6 +88,7 @@ func runTUI(ctx context.Context, cmd *cobra.Command, opts *tuiOptions) error {
 		SessionID: sessionID,
 	})
 	client.Start(ctx)
+	defer client.Stop()
 
 	// Session history is read from the same workspace the gateway writes to
 	// (same machine); best-effort — misses just leave an empty timeline.
@@ -105,16 +100,30 @@ func runTUI(ctx context.Context, cmd *cobra.Command, opts *tuiOptions) error {
 	}
 	model := newAppModel(client, sessionFile, gatewayURL, config.FormatVersion(), historyLoad)
 	model.setFullscreen(opts.Fullscreen)
+	model.noColor = tuiColorDisabled(cmd)
+	model.persistSession(sessionID)
 	if cfg != nil {
 		model.setDefaultModel(cfg.Agents.Defaults.ModelName)
 	}
 	program := bubbletea.NewProgram(model, bubbletea.WithContext(ctx))
 	if _, runErr := program.Run(); runErr != nil {
-		client.Stop()
 		return fmt.Errorf("tui 运行失败: %w", runErr)
 	}
-	client.Stop()
 	return nil
+}
+
+// loadTUIConfig also loads local history configuration when connection settings
+// are explicit. A missing/broken config must not prevent a fully explicit
+// connection to a remote gateway.
+func loadTUIConfig(opts *tuiOptions) (*config.Config, error) {
+	cfg, err := internal.LoadConfig()
+	if err != nil {
+		if opts.Token != "" && opts.GatewayURL != "" {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("读取配置失败（%v）；可改用 --gateway-url 与 --token 显式指定", err)
+	}
+	return cfg, nil
 }
 
 // configModels collects the model ids the :model picker offers: the default

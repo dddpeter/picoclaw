@@ -116,7 +116,7 @@ func (s *State) invalidateRenderCache() {
 func renderItem(b *strings.Builder, s *State, it *Item, width int, md *markdownRenderer) {
 	switch it.Kind {
 	case ItemUser:
-		line := stText.Render(it.Content)
+		line := stUser.Render(it.Content)
 		if it.Steering {
 			line += "  " + stDim.Render("↩ 并入当前回合")
 		}
@@ -129,7 +129,7 @@ func renderItem(b *strings.Builder, s *State, it *Item, width int, md *markdownR
 	case ItemToolCalls:
 		line := stTool.Render(it.ToolName)
 		if args := firstLine(it.ToolArgs); args != "" {
-			line += " " + stDim.Render(truncateRunes(args, max(8, width-lipgloss.Width(line)-4)))
+			line += " " + stArgs.Render(truncateRunes(args, max(8, width-lipgloss.Width(line)-4)))
 		}
 		b.WriteString(stText.MaxWidth(width).Render(line))
 
@@ -171,7 +171,7 @@ func renderItem(b *strings.Builder, s *State, it *Item, width int, md *markdownR
 		b.WriteString(stError.Width(width).Render(line + it.ErrMessage))
 
 	case ItemAction:
-		b.WriteString(stAccent.Render("· ") + stMuted.Width(width).Render(it.Content))
+		b.WriteString(stAction.Render("· ") + stAction.Width(width).Render(it.Content))
 
 	case ItemMedia:
 		names := make([]string, 0, len(it.Attachments))
@@ -182,7 +182,7 @@ func renderItem(b *strings.Builder, s *State, it *Item, width int, md *markdownR
 			}
 			names = append(names, name)
 		}
-		b.WriteString(stAccent.Render("📎 ") + stMuted.Width(width).Render(strings.Join(names, ", ")))
+		b.WriteString(stLink.Render("📎 ") + stLink.Width(width).Render(strings.Join(names, ", ")))
 	}
 }
 
@@ -388,7 +388,7 @@ func renderWelcome(m *appModel, width int) string {
 	dot, dotSt := connIndicator(m.connState)
 	line := dotSt.Render(dot + " " + m.connState.String())
 	if m.gatewayURL != "" {
-		line += " " + stHint.Render(m.gatewayURL)
+		line += " " + stLink.Render(m.gatewayURL)
 	}
 	b.WriteString(clipLine(line, width))
 
