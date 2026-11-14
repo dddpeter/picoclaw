@@ -87,6 +87,10 @@ function themeVegaDefaults(): Record<string, unknown> {
     },
     legend: { labelColor: "currentColor", titleColor: "currentColor" },
     title: { color: "currentColor" },
+    // 柱子粗细（用户反馈 2026-11-14：少类目柱状图默认占满 band 变胖柱）：
+    // 离散轴每根柱只占 band 的 60%（其余留白），连续轴同样收细。
+    bar: { discreteBandSize: { band: 0.6 }, continuousBandSize: 42 },
+    scale: { bandPaddingInner: 0.3 },
   }
 }
 
@@ -104,9 +108,9 @@ function normalizeVegaSpec(
   }
   const s = { ...(spec as Record<string, unknown>) }
   if (s.width === undefined && hostWidth > 60) {
-    // 全宽会把少类目图表的柱子撑肥（5 根柱 × 250px）；上限 560px 配合
-    // svg mx-auto 居中，宽表/折线在 760 内也够读。下限保护窄屏。
-    s.width = Math.min(Math.max(Math.floor(hostWidth), 240), 560)
+    // 显示范围保持宿主全宽（用户反馈 2026-11-14：收画布是错的，该瘦的是
+    // 里面的系列——柱子粗细走 config.bar/scale 注入，见 themeVegaDefaults）。
+    s.width = Math.floor(hostWidth)
   }
   const modelConfig = (typeof s.config === "object" && s.config !== null
     ? s.config
