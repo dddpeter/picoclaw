@@ -9,7 +9,7 @@ import {
   MarkdownComponentContext,
   type ReactCatalogComponent,
 } from "@a2ui/react/v0_9"
-import { MessageProcessor, type ProcessableMessage } from "@a2ui/web_core/v0_9"
+import { MessageProcessor } from "@a2ui/web_core/v0_9"
 import { basicCatalog } from "@a2ui/web_core/v0_9/basic_catalog"
 import { type ReactElement, act } from "react"
 import { type Root, createRoot } from "react-dom/client"
