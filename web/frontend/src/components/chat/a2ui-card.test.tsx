@@ -5,7 +5,10 @@
 //     容器内出现 basicCatalog 的 custom element（实测渲染进 light DOM），
 //     且 Lit 异步渲染链走完后数据模型文本真正出现（非"空标签"）；
 //  2) 畸形 messages（v0.9 封包是 strict 的，多余顶层键被 zod 拒）→
-//     渲染错误占位文案，而非抛异常炸聊天流。
+//     渲染错误占位文案，而非抛异常炸聊天流；
+//  3) 三期任务 1 增量 processor：流式追加 updateDataModel 帧（不含输入
+//     path）→ 同一 input 元素实例保留未提交输入且新文本渲染；追加含
+//     createSurface 帧 → processor 全量重建，重 create 接管渲染新内容。
 import { basicCatalog } from "@a2ui/web_core/v0_9/basic_catalog"
 import { type ReactElement, StrictMode, act } from "react"
 import { type Root, createRoot } from "react-dom/client"
@@ -56,16 +59,22 @@ const validMessages = [
   },
 ]
 
-/** createRoot + act 渲染（仓库无 @testing-library，按最小依赖自建）。 */
+/** createRoot + act 渲染（仓库无 @testing-library，按最小依赖自建）。
+ * render 供流式更新用例重渲染（store 广播语义 = 每次 ui.messages 都是
+ * 新数组引用，act 内同步冲刷 layout effect + setState）。 */
 function mount(ui: ReactElement) {
   const container = document.createElement("div")
   document.body.appendChild(container)
   const root: Root = createRoot(container)
-  act(() => {
-    root.render(ui)
-  })
+  const render = (element: ReactElement) => {
+    act(() => {
+      root.render(element)
+    })
+  }
+  render(ui)
   return {
     container,
+    render,
     unmount() {
       act(() => {
         root.unmount()
@@ -150,6 +159,54 @@ const interactiveMessages = [
     },
   },
 ]
+
+/** 本地态保留实证批次（三期任务 1）：Text 绑 /title（追加帧改写它，产生
+ * "新文本渲染"断言点），TextField 绑 /form/name（fill 后追加帧不含该
+ * path——旧实现整卡重建会以 wire 批次里的 "张三" 重挂输入，输入丢失）。
+ * clone() 供各用例取独副本：真实链路里 store 每次广播都是全新
+ * JSON.parse 的帧对象，测试间共享帧引用会让 signal/binder 层的对象身份
+ * 缓存跨测试串味（实测教训）。 */
+const streamingMessages = [
+  {
+    version: "v0.9",
+    createSurface: {
+      surfaceId: "stream-test",
+      catalogId: basicCatalog.id,
+    },
+  },
+  {
+    version: "v0.9",
+    updateComponents: {
+      surfaceId: "stream-test",
+      components: [
+        { id: "root", component: "Card", child: "col" },
+        { id: "col", component: "Column", children: ["titleText", "nameField"] },
+        { id: "titleText", component: "Text", text: { path: "/title" } },
+        {
+          id: "nameField",
+          component: "TextField",
+          label: "Name",
+          value: { path: "/form/name" },
+        },
+      ],
+    },
+  },
+  {
+    version: "v0.9",
+    updateDataModel: {
+      surfaceId: "stream-test",
+      path: "/",
+      value: { title: "Hello A2UI", form: { name: "张三" } },
+    },
+  },
+]
+
+/** 每用例独占的批次副本（wire 语义：store 每次广播都是全新 JSON.parse 的
+ * 帧对象）。测试间共享帧对象会让 signal/binder 层按对象身份缓存的状态跨
+ * 测试串味（实测：前例的 /title 增量值渗入后例首屏）。 */
+function freshStreamingBatch(): unknown[] {
+  return JSON.parse(JSON.stringify(streamingMessages)) as unknown[]
+}
 
 describe("A2uiCard", () => {
   beforeEach(async () => {
@@ -279,6 +336,193 @@ describe("A2uiCard", () => {
       expect(vi.mocked(sendChatMessage).mock.calls[0][0].content).toBe(
         '[A2UI 交互] surface="form-test" action="noop" source="noopBtn"',
       )
+    } finally {
+      unmount()
+    }
+  })
+
+  // 三期任务 1 红线（本地态保留实证）：流式追加一帧 updateDataModel（不含
+  // 输入的 path）→ 增量喂帧，同一 input 元素实例保留未提交输入，同时新
+  // 文本渲染。旧实现（useMemo 整卡重建）下 input 被重挂、值回落到 wire
+  // 批次里的 "张三" —— 本用例在旧实现下必然失败。
+  it("preserves uncommitted form input across a streamed incremental update", async () => {
+    const initial = freshStreamingBatch()
+    const { container, render, unmount } = mount(
+      <StrictMode>
+        <A2uiCard ui={{ messages: initial }} />
+      </StrictMode>,
+    )
+    try {
+      await act(async () => {
+        await waitFor(() => {
+          expect(
+            container.querySelector("a2ui-basic-textfield input"),
+          ).not.toBeNull()
+        })
+      })
+      const inputBefore = container.querySelector<HTMLInputElement>(
+        "a2ui-basic-textfield input",
+      )!
+      // fill：双向往 dataModel /form/name 写值（Lit @input → setValue）。
+      act(() => {
+        inputBefore.value = "用户未提交的输入"
+        inputBefore.dispatchEvent(new Event("input", { bubbles: true }))
+      })
+
+      // 流式增量（pico 合并广播语义）：累计批 append 尾部，message.update
+      // 携全新数组引用换卡数据（protocol.ts parseA2uiFromPayload）。
+      const updated = [
+        ...initial,
+        {
+          version: "v0.9",
+          updateDataModel: {
+            surfaceId: "stream-test",
+            path: "/title",
+            value: "流式更新后的标题",
+          },
+        },
+      ]
+      act(() => {
+        render(
+          <StrictMode>
+            <A2uiCard ui={{ messages: updated }} />
+          </StrictMode>,
+        )
+      })
+      await act(async () => {
+        await waitFor(() => {
+          expect(container.textContent).toContain("流式更新后的标题")
+        })
+      })
+
+      // 同一 input 元素实例（未重挂）+ 未提交输入仍在 DOM。
+      const inputAfter = container.querySelector<HTMLInputElement>(
+        "a2ui-basic-textfield input",
+      )
+      expect(inputAfter).toBe(inputBefore)
+      expect(inputAfter?.value).toBe("用户未提交的输入")
+    } finally {
+      unmount()
+    }
+  })
+
+  // pico 合并语义（pico_test.go:1355 钉住）：同 path 的 updateDataModel
+  // 帧被原地覆盖（last value wins），累计批长度不变、前缀内容变化。只看
+  // 尾部追加的增量会漏掉这次更新（卡面停留旧值）——逐帧指纹比对从首个
+  // 分歧帧起重播，与整批重播收敛到同一最终状态。
+  it("applies an in-place overwritten updateDataModel frame when the batch length is unchanged", async () => {
+    const initial = freshStreamingBatch()
+    const { container, render, unmount } = mount(
+      <StrictMode>
+        <A2uiCard ui={{ messages: initial }} />
+      </StrictMode>,
+    )
+    try {
+      await act(async () => {
+        await waitFor(() => {
+          expect(container.textContent).toContain("Hello A2UI")
+        })
+      })
+
+      // 长度不变、最后一帧（path "/"）整值覆盖——pico 合并的 last-value-wins
+      // （未变帧保持同一引用，覆盖帧是全新对象，与 mergeA2UIFrames 的
+      // copy-in-place 语义一致）。
+      const overwritten = [
+        initial[0],
+        initial[1],
+        {
+          version: "v0.9",
+          updateDataModel: {
+            surfaceId: "stream-test",
+            path: "/",
+            value: { title: "覆盖后的标题", form: { name: "张三" } },
+          },
+        },
+      ]
+      act(() => {
+        render(
+          <StrictMode>
+            <A2uiCard ui={{ messages: overwritten }} />
+          </StrictMode>,
+        )
+      })
+      await act(async () => {
+        await waitFor(() => {
+          expect(container.textContent).toContain("覆盖后的标题")
+        })
+      })
+      expect(container.textContent).not.toContain("Hello A2UI")
+    } finally {
+      unmount()
+    }
+  })
+
+  // 三期任务 1 红线（重 create 接管）：追加含 createSurface 帧的批次 →
+  // processor 全量重建（同 surfaceId 重 create 按 RenderUIHistoryFold 语义
+  // 取最后一张卡），新内容渲染、旧内容消亡。旧实现下累计批含两个
+  // createSurface，整批重播被 processor "already exists" 拒 → 错误占位，
+  // 本用例在旧实现下必然失败。
+  it("rebuilds the processor when a re-arriving createSurface takes over the surface", async () => {
+    const initial = freshStreamingBatch()
+    const { container, render, unmount } = mount(
+      <StrictMode>
+        <A2uiCard ui={{ messages: initial }} />
+      </StrictMode>,
+    )
+    try {
+      await act(async () => {
+        await waitFor(() => {
+          expect(
+            container.querySelector("a2ui-basic-textfield input"),
+          ).not.toBeNull()
+        })
+      })
+
+      // 重 create 接管批次：同 surfaceId 再 create + 新组件树 + 新数据。
+      const updated = [
+        ...initial,
+        {
+          version: "v0.9",
+          createSurface: {
+            surfaceId: "stream-test",
+            catalogId: basicCatalog.id,
+          },
+        },
+        {
+          version: "v0.9",
+          updateComponents: {
+            surfaceId: "stream-test",
+            components: [
+              { id: "root", component: "Card", child: "note" },
+              { id: "note", component: "Text", text: "重建后的卡片" },
+            ],
+          },
+        },
+        {
+          version: "v0.9",
+          updateDataModel: {
+            surfaceId: "stream-test",
+            path: "/",
+            value: {},
+          },
+        },
+      ]
+      act(() => {
+        render(
+          <StrictMode>
+            <A2uiCard ui={{ messages: updated }} />
+          </StrictMode>,
+        )
+      })
+      await act(async () => {
+        await waitFor(() => {
+          expect(container.textContent).toContain("重建后的卡片")
+        })
+      })
+
+      // 旧 incarnation 被丢弃（fold 取最后一张卡）：旧文本与旧输入不在。
+      expect(container.textContent).not.toContain("Hello A2UI")
+      expect(container.querySelector("a2ui-basic-textfield")).toBeNull()
     } finally {
       unmount()
     }
