@@ -1574,6 +1574,11 @@ type ToolsConfig struct {
 	// as enabled — the same nil=on convention as loop_detection. Explicit
 	// false disables the guard entirely (not recommended).
 	ProtectSystemPaths *bool `json:"protect_system_paths,omitzero" yaml:"-" env:"PICOCLAW_TOOLS_PROTECT_SYSTEM_PATHS"`
+	// RenderUI enables the render_ui tool (A2UI web render, fork feature).
+	// nil counts as enabled — the same nil=on convention as
+	// protect_system_paths/loop_detection. Explicit false removes the tool
+	// from the agent registry entirely.
+	RenderUI *bool `json:"render_ui,omitzero" yaml:"-" env:"PICOCLAW_TOOLS_RENDER_UI"`
 	// FilterSensitiveData controls whether to filter sensitive values (API keys,
 	// tokens, secrets) from tool results before sending to the LLM.
 	// Default: true (enabled)
@@ -2502,6 +2507,8 @@ func (t *ToolsConfig) IsToolEnabled(name string) bool {
 		return t.LoadImage.Enabled
 	case "message":
 		return t.Message.Enabled
+	case "render_ui":
+		return t.RenderUI == nil || *t.RenderUI
 	case "read_file":
 		return t.ReadFile.Enabled
 	case "serial":

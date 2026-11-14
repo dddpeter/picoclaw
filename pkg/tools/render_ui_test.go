@@ -697,6 +697,12 @@ func TestRenderUIToolSchemaContract(t *testing.T) {
 			t.Errorf("messages description missing %q: %s", want, desc)
 		}
 	}
+	// 三期压缩上限：description 每 turn 携带进模型上下文，超过 3200 字节
+	// 即视为回胀（三期压缩前是 7035 字节，压缩后 ~3066）。所有 SchemaContract
+	// 教学短语必须语义保留——超限说明有人往回堆内容。
+	if len(desc) > 3200 {
+		t.Errorf("messages description = %d bytes, want <= 3200 (phase-3 compression cap)", len(desc))
+	}
 	summary, ok := props["summary"].(map[string]any)
 	if !ok || summary["type"] != "string" {
 		t.Errorf("properties[summary] = %#v, want optional string schema", props["summary"])

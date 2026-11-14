@@ -135,49 +135,14 @@ func (t *RenderUITool) Parameters() map[string]any {
 				"items": map[string]any{
 					"type": "object",
 				},
-				"description": `Array of A2UI v0.9 messages in FRAME shape (the renderer schema is strict). ` +
-					`First message creates the surface: {"version":"v0.9","createSurface":{"surfaceId":"<unique-id>","catalogId":"https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"}} ` +
-					`— createSurface allows ONLY surfaceId + catalogId (plus optional theme/sendDataModel); do NOT add "title" or any other key (unknown keys reject the whole batch); ` +
-					`catalogId must be EXACTLY "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json" (the only registered catalog — no other id resolves). ` +
-					`Then one message per update, reusing the SAME surfaceId: ` +
-					`{"version":"v0.9","updateComponents":{"surfaceId":"<id>","components":[...]}}, and optionally ` +
-					`{"version":"v0.9","updateDataModel":{"surfaceId":"<id>","path":"/","value":{...}}}. ` +
-					`To update an existing surface in place, call render_ui again with updateComponents/updateDataModel frames only ` +
-					`(same surfaceId, no createSurface) — the streamed delta merges into that card. ` +
-					`Example: [{"version":"v0.9","createSurface":{"surfaceId":"s1","catalogId":"https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"}},` +
-					`{"version":"v0.9","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Card","child":"c2"},{"id":"c2","component":"Text","text":"hello"}]}},` +
-					`{"version":"v0.9","updateDataModel":{"surfaceId":"s1","path":"/","value":{"title":"hello"}}}] — ` +
-					`the TOP-LEVEL component's id MUST be "root": the renderer always renders the tree rooted at the component named "root" (any other root id renders an empty card), ` +
-					`every component must be reachable from "root" via child/children references (unreachable components never render), ` +
-					`components form a TREE — each id may appear in at most ONE parent's child/children list (listing an id in two parents renders it twice), ` +
-					`and component ids must be UNIQUE across the whole components array (a duplicate id makes the renderer reject the batch); ` +
-					`every message top level allows ONLY "version" plus exactly ONE of ` + renderUIBranchKeysDoc + `; ` +
-					`do NOT inline components or dataModel inside createSurface (the strict schema rejects them with Unrecognized key(s)). ` +
-					`components entries are {id, component, ...props}; props are STRICT and per-component: ` +
-					`Card{child}, Row/Column{children, justify?: start|center|end|spaceAround|spaceBetween, align?: start|center|end|stretch}, ` +
-					`List{children, direction?: vertical|horizontal}, Text{text, variant?: h1|h2|h3|h4|h5|caption|body, weight?: number}; ` +
-					`text values accept a plain string or a data binding {"path":"/field"}; ` +
-					`there are NO styling props — never send style/colors/fontSize/title on components (basicCatalog has no per-component styling; a heading is a Text with variant h1-h5); ` +
-					`container props are exact: Tabs{tabs:[{title, child}]} (each child is a component id), Image{url, description?, fit?, variant?} — the prop is "url" NOT "src", Icon{name} (a Material icon name like "star"), Modal{trigger, content} (both component ids — the trigger Button still needs its own "action" object, e.g. {"event":{"name":"open"}}; clicking it opens the modal AND arrives as a normal interaction message), List{children, direction?, align?}, Divider{axis?}; ` +
-					`any unknown prop, unknown component name, or missing id makes the WHOLE batch fail to render. ` +
-					`VegaChart{spec} renders a vega-lite chart; spec is the vega-lite JSON — an inline object or a {"path":"..."} data binding to a spec stored in the dataModel ` +
-					`(e.g. {"id":"c","component":"VegaChart","spec":{"mark":"bar","encoding":{"x":{"field":"cat","type":"nominal"},"y":{"field":"v","type":"quantitative"}},"data":{"values":[{"cat":"A","v":28}]}}} — write the full vega-lite view spec, its props are ONLY "spec": no weight/accessibility/style; ` +
-					`the card themes charts automatically (transparent background, width sized to the chat column, app accent color for single-series marks) — omit spec.width/background and do NOT send color configs unless the design requires them; ` +
-					`multi-series color: add an encoding.color with a field, or config.range.scheme); ` +
-					`interactive components (props are strict): TextField{label, value}, CheckBox{label, value}, Slider{label, min, max, value}, DateTimeInput{label, value}, ChoicePicker{label, options, value} — ` +
-					`all bind their value into the surface dataModel with a {"path"} binding on the value prop (user edits are written to that dataModel path immediately); ` +
-					`ChoicePicker options MUST be objects with string label+value, NEVER plain strings: {"id":"l","component":"ChoicePicker","label":"Language","options":[{"label":"中文","value":"zh"},{"label":"English","value":"en"}],"value":{"path":"/prefs/lang"}} — plain strings in options are rejected; ` +
-					`Button fires an action: {"id":"b","component":"Button","variant":"primary","child":"bl","action":{"event":{"name":"submit","context":{"name":{"path":"/form/name"}}}}} — ` +
-					`variant accepts "primary" (main call-to-action, accent-styled) or "borderless" (link-like); omit it for the default style; ` +
-					`at click time each event.context entry holding a {"path"} binding is resolved from the CURRENT dataModel value (this is how form values ride along; plain string entries pass through verbatim); ` +
-					`the user's interaction reaches you as a plain user message prefixed "[A2UI 交互]" in the exact shape ` +
-					`[A2UI 交互] surface="<surfaceId>" action="<name>" source="<componentId>" context=<json> — the context= segment is omitted when the resolved context is empty — parse it to read the action name and the collected form values; ` +
-					`complete returnable form example (TextField bound to /form/name plus a submit Button whose event.context collects it): ` +
-					`[{"version":"v0.9","createSurface":{"surfaceId":"s1","catalogId":"https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"}},` +
-					`{"version":"v0.9","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Card","child":"col"},{"id":"col","component":"Column","children":["nameField","submitBtn"]},{"id":"nameField","component":"TextField","label":"Name","value":{"path":"/form/name"}},{"id":"submitBtn","component":"Button","child":"btnLabel","action":{"event":{"name":"submit","context":{"name":{"path":"/form/name"}}}}},{"id":"btnLabel","component":"Text","text":"Submit"}]}},` +
-					`{"version":"v0.9","updateDataModel":{"surfaceId":"s1","path":"/","value":{"form":{"name":""}}}}] ` +
-					`(the button click sends you: [A2UI 交互] surface="s1" action="submit" source="submitBtn" context={"name":"<user input>"}). ` +
-					`available components: Text, Image, Icon, Video, AudioPlayer, Row, Column, List, Card, Tabs, Modal, Divider, Button, TextField, CheckBox, ChoicePicker, Slider, DateTimeInput, VegaChart.`,
+				"description": `Array of A2UI v0.9 messages in FRAME shape (renderer schema is strict). First message: {"version":"v0.9","createSurface":{"surfaceId":"<unique-id>","catalogId":"https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"}} — createSurface allows ONLY surfaceId + catalogId (plus optional theme/sendDataModel); no other key. catalogId must be EXACTLY the URL above (the only registered catalog). Then per update, SAME surfaceId: {"version":"v0.9","updateComponents":{"surfaceId":"<id>","components":[...]}} and/or {"version":"v0.9","updateDataModel":{"surfaceId":"<id>","path":"/","value":{...}}}. To update an existing surface in place, call render_ui again with updateComponents/updateDataModel frames only (same surfaceId, no createSurface) — the delta merges into that card. ` +
+					`Every message top level allows ONLY "version" plus exactly ONE of createSurface/updateComponents/updateDataModel/deleteSurface. Batch rules (violations reject the WHOLE batch): TOP-LEVEL component id MUST be "root" (renderer mounts there); everything reachable from "root"; components form a tree — each id in at most ONE parent's child/children list; ids UNIQUE across the whole components array; any unknown prop, unknown component name, or missing id fails too. ` +
+					`Props are STRICT and per-component: Card{child}, Row/Column{children, justify?: start|center|end|spaceAround|spaceBetween, align?: start|center|end|stretch}, List{children, direction?: vertical|horizontal}, Text{text, variant?: h1|h2|h3|h4|h5|caption|body, weight?: number}, Divider{axis?}, Tabs{tabs:[{title, child}]}, Image{url, description?, fit?, variant?} (prop is "url" NOT "src"), Icon{name: Material icon}, Modal{trigger, content} (component ids; the trigger Button still needs its own action), Button{child, action, variant?: "primary"|"borderless"}; there are NO styling props (a heading is a Text with variant h1-h5). Text values accept a string or {"path"} binding. ` +
+					`Interactive components bind their value into the dataModel via {"path"} on value: TextField{label, value}, CheckBox{label, value}, Slider{label, min, max, value}, DateTimeInput{label, value}, ChoicePicker{label, options, value} — options MUST be objects with string label+value, NEVER plain strings. ` +
+					`Button fires an action; at click time each event.context {"path"} binding resolves from the CURRENT dataModel (how form values ride along). The interaction reaches you as a user message: [A2UI 交互] surface="<surfaceId>" action="<name>" source="<componentId>" context=<json> (context= omitted when empty). ` +
+					`Minimal example: [createSurface s1 (envelope as above), {"version":"v0.9","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Card","child":"t1"},{"id":"t1","component":"Text","text":"hello"}]}}, updateDataModel s1 {"title":"hello"}] ` +
+					`VegaChart{spec} renders a vega-lite chart (inline spec or {"path"} binding; props ONLY "spec") — themed automatically: omit spec.width/background, no color configs; multi-series color via encoding.color.`,
+
 			},
 			"summary": map[string]any{
 				"type":        "string",

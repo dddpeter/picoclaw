@@ -3377,3 +3377,27 @@ func TestEvolutionConfig_MarshalKeepsLifecycleDays(t *testing.T) {
 		t.Fatalf("lifecycle days lost in round-trip: %+v", back.Evolution)
 	}
 }
+
+func TestDefaultConfig_RenderUIEnabled(t *testing.T) {
+	cfg := DefaultConfig()
+	if !cfg.Tools.IsToolEnabled("render_ui") {
+		t.Fatal("DefaultConfig().Tools.IsToolEnabled(render_ui) should be true (nil=on convention)")
+	}
+}
+
+func TestLoadConfig_RenderUICanBeDisabled(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	raw := "{\n  \"version\": 2,\n  \"tools\": {\n    \"render_ui\": false\n  }\n}\n"
+	if err := os.WriteFile(configPath, []byte(raw), 0o600); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error: %v", err)
+	}
+	if cfg.Tools.IsToolEnabled("render_ui") {
+		t.Fatal("LoadConfig().Tools.IsToolEnabled(render_ui) should be false when explicitly disabled")
+	}
+}
