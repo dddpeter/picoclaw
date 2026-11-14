@@ -158,6 +158,7 @@ func (t *RenderUITool) Parameters() map[string]any {
 					`List{children, direction?: vertical|horizontal}, Text{text, variant?: h1|h2|h3|h4|h5|caption|body, weight?: number}; ` +
 					`text values accept a plain string or a data binding {"path":"/field"}; ` +
 					`there are NO styling props — never send style/colors/fontSize/title on components (basicCatalog has no per-component styling; a heading is a Text with variant h1-h5); ` +
+					`container props are exact: Tabs{tabs:[{title, child}]} (each child is a component id), Image{url, description?, fit?, variant?} — the prop is "url" NOT "src", Icon{name} (a Material icon name like "star"), Modal{trigger, content} (both component ids), List{children, direction?, align?}, Divider{axis?}; ` +
 					`any unknown prop, unknown component name, or missing id makes the WHOLE batch fail to render. ` +
 					`VegaChart{spec} renders a vega-lite chart; spec is the vega-lite JSON — an inline object or a {"path":"..."} data binding to a spec stored in the dataModel ` +
 					`(e.g. {"id":"c","component":"VegaChart","spec":{"mark":"bar","encoding":{"x":{"field":"cat","type":"nominal"},"y":{"field":"v","type":"quantitative"}},"data":{"values":[{"cat":"A","v":28}]}}} — write the full vega-lite view spec, its props are ONLY "spec": no weight/accessibility/style; ` +
@@ -525,16 +526,10 @@ func renderUIRootViolation(items []any) error {
 		if comp == nil {
 			continue
 		}
-		if child, ok := comp["child"].(string); ok && child != "" && !visited[child] {
-			visited[child] = true
-			queue = append(queue, child)
-		}
-		if children, ok := comp["children"].([]any); ok {
-			for _, ch := range children {
-				if ref, ok := ch.(string); ok && ref != "" && !visited[ref] {
-					visited[ref] = true
-					queue = append(queue, ref)
-				}
+		for _, ref := range renderUIComponentRefs(comp) {
+			if !visited[ref] {
+				visited[ref] = true
+				queue = append(queue, ref)
 			}
 		}
 	}
@@ -553,6 +548,51 @@ func renderUIRootViolation(items []any) error {
 	return renderUIRefCountViolation(byID)
 }
 
+// renderUIComponentRefs extracts the component ids a component references:
+// child (Card/Button), children (Row/Column/List), trigger and content
+// (Modal), and each tabs[].child (Tabs). These are the reference-bearing
+// keys of the basicCatalog container components — the reachability BFS and
+// the multi-parent count must both traverse the same edge set, or container
+// references get false-flagged as unreachable (observed live 2026-11-14:
+// a Tabs-only card died because tabs[].child wasn't followed).
+func renderUIComponentRefs(comp map[string]any) []string {
+	var refs []string
+	if child, ok := comp["child"].(string); ok && child != "" {
+		refs = append(refs, child)
+	}
+	if children, ok := comp["children"].([]any); ok {
+		for _, ch := range children {
+			if ref, ok := ch.(string); ok && ref != "" {
+				refs = append(refs, ref)
+			}
+		}
+	}
+	for _, key := range []string{"trigger", "content"} {
+		switch v := comp[key].(type) {
+		case string:
+			if v != "" {
+				refs = append(refs, v)
+			}
+		case []any:
+			for _, item := range v {
+				if ref, ok := item.(string); ok && ref != "" {
+					refs = append(refs, ref)
+				}
+			}
+		}
+	}
+	if tabs, ok := comp["tabs"].([]any); ok {
+		for _, tab := range tabs {
+			if tabObj, ok := tab.(map[string]any); ok {
+				if child, ok := tabObj["child"].(string); ok && child != "" {
+					refs = append(refs, child)
+				}
+			}
+		}
+	}
+	return refs
+}
+
 // renderUIRefCountViolation enforces the tree invariant: every component id
 // may be referenced by at most one parent (each reference renders the
 // component again). Observed live 2026-11-14: the model listed every Text in
@@ -566,15 +606,8 @@ func renderUIRootViolation(items []any) error {
 func renderUIRefCountViolation(byID map[string]map[string]any) error {
 	refCount := map[string]int{}
 	for _, comp := range byID {
-		if child, ok := comp["child"].(string); ok && child != "" {
-			refCount[child]++
-		}
-		if children, ok := comp["children"].([]any); ok {
-			for _, ch := range children {
-				if ref, ok := ch.(string); ok && ref != "" {
-					refCount[ref]++
-				}
-			}
+		for _, ref := range renderUIComponentRefs(comp) {
+			refCount[ref]++
 		}
 	}
 	var shared []string

@@ -852,6 +852,40 @@ func renderUIUpdateOnlyMessages() []any {
 // pico layer (phase 2) merges it into the live card keyed by
 // UIMeta.SurfaceID. Delta-local gates apply; the tree gates
 // (root/reachability/multi-parent) do not.
+// TestRenderUIToolTabsChildrenReachable: tabs[].child is a reference edge
+// the reachability BFS must follow (observed live 2026-11-14 — a Tabs-only
+// showcase card was false-killed as "components not reachable from root"
+// because the check only traversed child/children). Modal trigger/content
+// share the same traversal.
+func TestRenderUIToolTabsChildrenReachable(t *testing.T) {
+	tool, msgBus := newTestRenderUITool(t)
+	ctx := WithToolContext(context.Background(), "pico", "pico:sess-1")
+
+	messages := []any{
+		map[string]any{
+			"version":       "v0.9",
+			"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+		},
+		map[string]any{
+			"version": "v0.9",
+			"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{
+				map[string]any{"id": "root", "component": "Card", "child": "tabs"},
+				map[string]any{"id": "tabs", "component": "Tabs", "tabs": []any{
+					map[string]any{"title": "概要", "child": "s"},
+					map[string]any{"title": "明细", "child": "d"},
+				}},
+				map[string]any{"id": "s", "component": "Text", "text": "概要内容"},
+				map[string]any{"id": "d", "component": "Text", "text": "明细内容"},
+			}},
+		},
+	}
+	result := tool.Execute(ctx, map[string]any{"messages": messages})
+	if result.IsError {
+		t.Fatalf("Execute() IsError = true (tabs[].child must count as a reference edge), ForLLM: %s", result.ForLLM)
+	}
+	waitOutboundMessage(t, msgBus)
+}
+
 func TestRenderUIToolUpdateOnlyBatchPublishesUI(t *testing.T) {
 	tool, msgBus := newTestRenderUITool(t)
 	ctx := WithToolSessionContext(
