@@ -1770,3 +1770,76 @@ div.chead[role="button"]:focus-visible,
 .a2ui-surface a2ui-basic-divider {
 	opacity: 0.7;
 }
+
+/* ==== A2UI 动效与文字层次（2026-11-14 用户反馈）：卡片入场淡入上浮、
+   行错峰滑入、行悬停增亮、按钮微抬；标题用主题主色渲染出层次。
+   prefers-reduced-motion 用户全部动效降级为直出。 ==== */
+@keyframes a2ui-card-in {
+	from {
+		opacity: 0;
+		transform: translateY(10px);
+	}
+}
+
+@keyframes a2ui-row-in {
+	from {
+		opacity: 0;
+		transform: translateX(-8px);
+	}
+}
+
+.a2ui-surface {
+	animation: a2ui-card-in 0.3s ease-out both;
+	transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.a2ui-surface:hover {
+	border-color: color-mix(in oklab, var(--primary) 35%, var(--border));
+	box-shadow: 0 4px 16px color-mix(in oklab, var(--primary) 12%, transparent);
+}
+
+.a2ui-surface a2ui-basic-row {
+	animation: a2ui-row-in 0.32s ease-out backwards;
+	transition: background-color 0.15s ease;
+}
+
+.a2ui-surface a2ui-basic-row:hover {
+	background: color-mix(in oklab, var(--muted) 85%, transparent);
+}
+
+/* 行错峰滑入：nth-child(of) 现代选择器（Chrome 111+），旧浏览器忽略
+   延迟规则 → 整批同拍，优雅降级。 */
+.a2ui-surface a2ui-basic-row:nth-child(1 of a2ui-basic-row) { animation-delay: 0.02s; }
+.a2ui-surface a2ui-basic-row:nth-child(2 of a2ui-basic-row) { animation-delay: 0.06s; }
+.a2ui-surface a2ui-basic-row:nth-child(3 of a2ui-basic-row) { animation-delay: 0.1s; }
+.a2ui-surface a2ui-basic-row:nth-child(4 of a2ui-basic-row) { animation-delay: 0.14s; }
+.a2ui-surface a2ui-basic-row:nth-child(5 of a2ui-basic-row) { animation-delay: 0.18s; }
+.a2ui-surface a2ui-basic-row:nth-child(6 of a2ui-basic-row) { animation-delay: 0.22s; }
+.a2ui-surface a2ui-basic-row:nth-child(7 of a2ui-basic-row) { animation-delay: 0.26s; }
+.a2ui-surface a2ui-basic-row:nth-child(8 of a2ui-basic-row) { animation-delay: 0.3s; }
+
+.a2ui-surface a2ui-basic-button {
+	transition: filter 0.15s ease, transform 0.12s ease;
+}
+
+.a2ui-surface a2ui-basic-button:hover {
+	filter: brightness(1.1);
+	transform: translateY(-1px);
+}
+
+/* 文字层次：标题往主色方向渲染（color-mix 而非纯 primary，避免过艳），
+   正文/caption 维持前景/muted 双层。 */
+.a2ui-surface a2ui-basic-text.a2ui-text-h1,
+.a2ui-surface a2ui-basic-text.a2ui-text-h2,
+.a2ui-surface a2ui-basic-text.a2ui-text-h3 {
+	color: color-mix(in oklab, var(--primary) 72%, var(--foreground));
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.a2ui-surface,
+	.a2ui-surface a2ui-basic-row,
+	.a2ui-surface a2ui-basic-button {
+		animation: none;
+		transition: none;
+	}
+}

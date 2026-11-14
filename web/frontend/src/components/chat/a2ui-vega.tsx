@@ -104,9 +104,9 @@ function normalizeVegaSpec(
   }
   const s = { ...(spec as Record<string, unknown>) }
   if (s.width === undefined && hostWidth > 60) {
-    // 全宽会把少类目图表的柱子撑肥（5 根柱 × 250px）；上限 760px 配合
+    // 全宽会把少类目图表的柱子撑肥（5 根柱 × 250px）；上限 560px 配合
     // svg mx-auto 居中，宽表/折线在 760 内也够读。下限保护窄屏。
-    s.width = Math.min(Math.max(Math.floor(hostWidth), 240), 760)
+    s.width = Math.min(Math.max(Math.floor(hostWidth), 240), 560)
   }
   const modelConfig = (typeof s.config === "object" && s.config !== null
     ? s.config
