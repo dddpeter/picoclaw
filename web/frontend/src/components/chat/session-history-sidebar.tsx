@@ -162,7 +162,7 @@ export function SessionHistorySidebar({
                   }
                 }}
                 className={cn(
-                  "group relative cursor-pointer rounded-xl border px-3 py-2 transition-all select-none",
+                  "group relative min-w-0 cursor-pointer rounded-xl border px-3 py-2 transition-all select-none",
                   active
                     ? "border-primary/40 from-primary/20 to-primary/[0.05] bg-gradient-to-r shadow-sm"
                     : "hover:bg-accent border-border/40 hover:border-border",
@@ -184,7 +184,7 @@ export function SessionHistorySidebar({
                   )}
                   <span
                     className={cn(
-                      "line-clamp-1 text-[13px] font-medium",
+                      "line-clamp-1 [overflow-wrap:anywhere] text-[13px] font-medium",
                       active
                         ? "text-foreground"
                         : "text-foreground/85 group-hover:text-foreground",
@@ -196,7 +196,7 @@ export function SessionHistorySidebar({
                 {session.preview &&
                   session.preview !== "(empty)" &&
                   session.preview !== session.title && (
-                    <div className="text-muted-foreground/70 mt-0.5 line-clamp-1 pl-3.5 text-[11px]">
+                    <div className="text-muted-foreground/70 mt-0.5 line-clamp-1 [overflow-wrap:anywhere] pl-3.5 text-[11px]">
                       {session.preview}
                     </div>
                   )}
