@@ -1789,7 +1789,12 @@ div.chead[role="button"]:focus-visible,
 }
 
 .a2ui-surface {
-	animation: a2ui-card-in 0.3s ease-out both;
+	/* fill-mode 刻意用 backwards 而非 both：forwards 会在动画结束后永久
+	   残留 identity transform（matrix(1,0,0,1,0,0)，实测把 Modal 的
+	   position:fixed 全屏遮罩困进卡片包含块——弹窗"开了但看不见"，
+	   overlay y=-988）。backwards 在无 delay 的入场动画下行为一致，
+	   结束后 transform 回到 none，fixed 遮罩正常逃逸到视口。 */
+	animation: a2ui-card-in 0.3s ease-out backwards;
 	transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
