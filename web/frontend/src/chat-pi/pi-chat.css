@@ -1933,3 +1933,175 @@ div.chead[role="button"]:focus-visible,
 		animation: none;
 	}
 }
+
+/* ==== A2UI 美化第三轮（2026-11-14：表单/交互控件精修）==== */
+
+/* 输入框：圆角 + muted 底 + 聚焦主色光环 */
+.a2ui-surface .a2ui-textfield {
+	width: 100%;
+	padding: 0.5rem 0.75rem;
+	border-radius: 10px;
+	border: 1px solid var(--border);
+	background: color-mix(in oklab, var(--muted) 45%, transparent);
+	color: var(--foreground);
+	font-size: 13.5px;
+	outline: none;
+	transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.a2ui-surface .a2ui-textfield:focus {
+	border-color: var(--ring);
+	box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 25%, transparent);
+	background: color-mix(in oklab, var(--background) 55%, transparent);
+}
+
+.a2ui-surface .a2ui-textfield::placeholder {
+	color: var(--muted-foreground);
+}
+
+/* 标签统一小字重灰 */
+.a2ui-surface a2ui-basic-textfield > label,
+.a2ui-surface .a2ui-slider-label,
+.a2ui-surface .a2ui-choice-picker > label {
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--muted-foreground);
+	letter-spacing: 0.01em;
+}
+
+/* 按钮：主变体主色渐变、默认变体描边；悬停上浮、按压回弹 */
+.a2ui-surface .a2ui-button {
+	padding: 0.45rem 1.1rem;
+	border-radius: 10px;
+	font-size: 13px;
+	font-weight: 600;
+	cursor: pointer;
+	border: 1px solid transparent;
+	transition: transform 0.12s ease, box-shadow 0.15s ease, filter 0.15s ease,
+		background 0.15s ease, border-color 0.15s ease;
+}
+
+.a2ui-surface .a2ui-button-default {
+	background: color-mix(in oklab, var(--secondary) 70%, transparent);
+	color: var(--secondary-foreground);
+	border-color: var(--border);
+}
+
+.a2ui-surface .a2ui-button-default:hover {
+	background: color-mix(in oklab, var(--accent) 80%, transparent);
+	border-color: var(--ring);
+}
+
+.a2ui-surface .a2ui-button-primary {
+	background: linear-gradient(
+		135deg,
+		var(--primary),
+		color-mix(in oklab, var(--primary) 78%, var(--primary-foreground))
+	);
+	color: var(--primary-foreground);
+	box-shadow: 0 1px 6px color-mix(in oklab, var(--primary) 35%, transparent);
+}
+
+.a2ui-surface .a2ui-button-primary:hover {
+	box-shadow: 0 3px 14px color-mix(in oklab, var(--primary) 45%, transparent);
+}
+
+.a2ui-surface .a2ui-button:hover {
+	transform: translateY(-1px);
+}
+
+.a2ui-surface .a2ui-button:active {
+	transform: translateY(0) scale(0.97);
+}
+
+/* 复选框：主色 accent */
+.a2ui-surface .a2ui-checkbox-container input[type="checkbox"] {
+	accent-color: var(--primary);
+	width: 15px;
+	height: 15px;
+	cursor: pointer;
+}
+
+/* ChoicePicker：选项行 hover、radio 主色、chips 形态同样覆盖 */
+.a2ui-surface .a2ui-option-label {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.4rem 0.75rem;
+	border-radius: 9px;
+	cursor: pointer;
+	transition: background 0.15s ease;
+}
+
+.a2ui-surface .a2ui-option-label:hover {
+	background: color-mix(in oklab, var(--muted) 60%, transparent);
+}
+
+.a2ui-surface .a2ui-option-input,
+.a2ui-surface .a2ui-chips-group input[type="radio"],
+.a2ui-surface input[type="radio"] {
+	accent-color: var(--primary);
+	cursor: pointer;
+}
+
+.a2ui-surface .a2ui-chip {
+	border-radius: 999px;
+	padding: 0.35rem 0.9rem;
+	font-size: 13px;
+	cursor: pointer;
+	transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.a2ui-surface .a2ui-chip:hover {
+	background: color-mix(in oklab, var(--muted) 60%, transparent);
+}
+
+/* 滑块：主色 accent，数值徽标 */
+.a2ui-surface .a2ui-slider {
+	accent-color: var(--primary);
+	width: 100%;
+	cursor: pointer;
+}
+
+.a2ui-surface .a2ui-slider-value {
+	color: var(--primary);
+	font-weight: 700;
+	font-variant-numeric: tabular-nums;
+}
+
+/* Tabs 页签：pill 形态替代下划线 */
+.a2ui-surface .a2ui-tab-bar {
+	display: flex;
+	gap: 0.35rem;
+	border-bottom: 1px solid var(--border);
+	padding-bottom: 0.5rem;
+	margin-bottom: 0.75rem;
+}
+
+.a2ui-surface .a2ui-tab-button {
+	padding: 0.35rem 1rem;
+	border-radius: 999px;
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--muted-foreground);
+	background: transparent;
+	border: none;
+	cursor: pointer;
+	transition: color 0.15s ease, background 0.15s ease;
+}
+
+.a2ui-surface .a2ui-tab-button:hover {
+	color: var(--foreground);
+	background: color-mix(in oklab, var(--muted) 55%, transparent);
+}
+
+.a2ui-surface .a2ui-tab-button-active {
+	color: var(--primary);
+	background: color-mix(in oklab, var(--primary) 14%, transparent);
+}
+
+/* List 列表标记用主色点 */
+.a2ui-surface a2ui-basic-list::marker,
+.a2ui-surface a2ui-basic-list li::marker {
+	color: var(--primary);
+}
