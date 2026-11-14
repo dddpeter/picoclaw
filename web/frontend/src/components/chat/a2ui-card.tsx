@@ -23,6 +23,11 @@ import type { A2uiInfo } from "@/store/chat"
 
 import { catalogWithVegaChart } from "./a2ui-vega"
 
+// basicCatalog Icon 用 'Material Icons' 字体 ligature 渲染图标名（无字体时
+// 退化成原文，2026-11-14 用户截图实证）——本地打包字体，不依赖 Google CDN。
+// 只在此模块导入：字体随聊天路由 chunk 加载，主 bundle 不背。
+import "material-icons/iconfont/material-icons.css"
+
 /**
  * A2UI 渲染卡（D5 设计）：聊天流内渲染 agent 经 render_ui 工具产出的
  * A2UI v0.9 surface。前序链路：payload["a2ui"] → protocol.ts →
