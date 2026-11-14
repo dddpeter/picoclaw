@@ -1756,7 +1756,10 @@ div.chead[role="button"]:focus-visible,
 	--a2ui-text-caption-color: var(--muted-foreground);
 }
 
-.a2ui-surface a2ui-basic-row {
+.a2ui-surface a2ui-basic-row:not(:has(a2ui-basic-button)) {
+	/* 行 chip 容器化只作用于数据/内容行——含按钮的行不套底色
+	   （按钮自带 hover/外观，行底色会包出一圈空壳，用户反馈
+	   2026-11-14 截图）。布局仍由 Row 自身的 display:flex 提供。 */
 	background: color-mix(in oklab, var(--muted) 55%, transparent);
 	border-radius: 10px;
 	padding: 0.5rem 0.875rem;
