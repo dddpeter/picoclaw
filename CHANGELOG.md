@@ -7,7 +7,10 @@
 
 ## [Unreleased]
 
-## [0.5.9] - 2026-11-14
+## [0.6.0] - 2026-11-14
+
+> 本版本合并了 v0.5.6 之后的全部变更（A2UI 一期/二期/三期 + 全部修复）。
+
 
 ### Added
 
@@ -27,8 +30,6 @@
 - **可达性 BFS 补 tabs[].child/trigger/content 引用边**——Tabs/Modal-only 卡不再被误杀
 - **description 补 updateDataModel 子树覆盖语义**：写到最深路径保兄弟键（模型路径粒度教训）
 
-## [0.5.8] - 2026-11-14
-
 ### Added
 
 - **A2UI 二期：交互回传 + 流式增量 + VegaChart（as-built 设计 `docs/design/2026-11-14-a2ui-phase2.zh.md`，侦察 `docs/design/a2ui/2026-11-14-a2ui-phase2-recon.zh.md`）**——一期展示型卡片补齐"能用"的三件事：
@@ -43,8 +44,6 @@
 - **A2UI 帧入 seq ring 即提交注册表（任务 5 修复轮裁决）**：`broadcastToSession` 零连接时返回 error 但帧已入断线重放 ring——"失败但已入 ring"会被重连回放而注册表未提交，下次合并缺 delta 视觉丢失；提交点改为入 ring 成功即提交（无论有无连接），回放状态与注册表一致；真失败（帧未入 ring）保持 pre-merge 状态可重试
 - **VegaChart chunk 加载失败降级组件内占位（任务 6 修复轮）**：chunk rejection 原会冒泡到卡级 error boundary 把整卡打成占位且无重试路径——改在图表组件内边界（Suspense 外侧）就地拦截，只废图表槽位；spec 变化时重建 lazy 实例实现真重试（rejected 的 React.lazy 会缓存拒绝，复用实例不会重试）
 - 前端 `messageSignature` 补 ui 维度（修一期延后项）：历史与现存消息合并去重时卡片变化参与签名
-
-## [0.5.7] - 2026-11-13
 
 ### Added
 
@@ -304,5 +303,6 @@
 - 11 commits 自 v0.3.2
 - 对应 tag：`v0.3.3`
 
-[Unreleased]: https://github.com/dddpeter/picoclaw/compare/v0.5.6...HEAD
+[Unreleased]: https://github.com/dddpeter/picoclaw/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/dddpeter/picoclaw/compare/v0.5.6...v0.6.0
 [0.5.6]: https://github.com/dddpeter/picoclaw/compare/v0.5.5...v0.5.6

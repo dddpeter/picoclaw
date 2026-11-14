@@ -20,7 +20,7 @@
 
 **中文** | [日本語](README.ja.md) | [한국어](README.ko.md) | [Português](README.pt-br.md) | [Tiếng Việt](README.vi.md) | [Français](README.fr.md) | [Italiano](README.it.md) | [Bahasa Indonesia](README.id.md) | [Malay](README.ms.md) | [English](../../README.md)
 
-> **关于本 fork（v0.5.6）** — 本仓库是 [sipeed/picoclaw](https://github.com/sipeed/picoclaw) 的个人分支，在上游基础上大幅增强：
+> **关于本 fork（v0.6.0）** — 本仓库是 [sipeed/picoclaw](https://github.com/sipeed/picoclaw) 的个人分支，在上游基础上大幅增强：
 >
 > - **HITL 审批门禁**——高危命令/工具先问后执行（超时 fail-closed、默认启用），web/飞书消息流内嵌审批卡，会话策略三档 `/approve always`/`/approve all`/`/approve off`（随时撤销），`/deny` 带理由，群聊答案钉住触发用户
 > - **ask_user 结构化问询**——agent 被用户决策卡住时发起 1-5 题选择题并阻塞等待（步进式 web 问询卡、刷新恢复；作答永不进模型上下文）

@@ -20,7 +20,7 @@
 
 [中文](docs/project/README.zh.md) | [日本語](docs/project/README.ja.md) | [한국어](docs/project/README.ko.md) | [Português](docs/project/README.pt-br.md) | [Tiếng Việt](docs/project/README.vi.md) | [Français](docs/project/README.fr.md) | [Italiano](docs/project/README.it.md) | [Bahasa Indonesia](docs/project/README.id.md) | [Malay](docs/project/README.ms.md) | **English**
 
-> **About this fork (v0.5.6)** — this repository is a personal fork of [sipeed/picoclaw](https://github.com/sipeed/picoclaw) with substantial additions on top of upstream:
+> **About this fork (v0.6.0)** — this repository is a personal fork of [sipeed/picoclaw](https://github.com/sipeed/picoclaw) with substantial additions on top of upstream:
 >
 > - **HITL approval gate** — gated commands/tools ask before running (fail-closed on timeout; enabled by default), with in-chat approval cards on web and Feishu, session tiers `/approve always` / `/approve all` / `/approve off`, `/deny <reason>`, and group-chat answers pinned to the triggering user
 > - **Structured ask_user questions** — the agent asks the user 1-5 multiple-choice questions and blocks for the answer (stepped web ask card with refresh recovery; answers never enter the model context)
