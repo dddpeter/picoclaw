@@ -158,7 +158,7 @@ func (t *RenderUITool) Parameters() map[string]any {
 					`List{children, direction?: vertical|horizontal}, Text{text, variant?: h1|h2|h3|h4|h5|caption|body, weight?: number}; ` +
 					`text values accept a plain string or a data binding {"path":"/field"}; ` +
 					`there are NO styling props — never send style/colors/fontSize/title on components (basicCatalog has no per-component styling; a heading is a Text with variant h1-h5); ` +
-					`container props are exact: Tabs{tabs:[{title, child}]} (each child is a component id), Image{url, description?, fit?, variant?} — the prop is "url" NOT "src", Icon{name} (a Material icon name like "star"), Modal{trigger, content} (both component ids), List{children, direction?, align?}, Divider{axis?}; ` +
+					`container props are exact: Tabs{tabs:[{title, child}]} (each child is a component id), Image{url, description?, fit?, variant?} — the prop is "url" NOT "src", Icon{name} (a Material icon name like "star"), Modal{trigger, content} (both component ids — the trigger Button still needs its own "action" object, e.g. {"event":{"name":"open"}}; clicking it opens the modal AND arrives as a normal interaction message), List{children, direction?, align?}, Divider{axis?}; ` +
 					`any unknown prop, unknown component name, or missing id makes the WHOLE batch fail to render. ` +
 					`VegaChart{spec} renders a vega-lite chart; spec is the vega-lite JSON — an inline object or a {"path":"..."} data binding to a spec stored in the dataModel ` +
 					`(e.g. {"id":"c","component":"VegaChart","spec":{"mark":"bar","encoding":{"x":{"field":"cat","type":"nominal"},"y":{"field":"v","type":"quantitative"}},"data":{"values":[{"cat":"A","v":28}]}}} — write the full vega-lite view spec, its props are ONLY "spec": no weight/accessibility/style; ` +
@@ -660,6 +660,31 @@ func renderUIComponentsViolation(msgIdx int, components any) error {
 		if err := renderUIChoicePickerOptionsViolation(msgIdx, j, comp); err != nil {
 			return err
 		}
+		if err := renderUIButtonActionViolation(msgIdx, j, comp); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// renderUIButtonActionViolation checks that Button carries an action object:
+// the renderer's strict schema requires it (observed live 2026-11-14 — a
+// Modal trigger button without action died at the frontend zod layer, the
+// Modal's own click wrapper does not lift that requirement). The action
+// still fires the interaction handler even when the button serves as a
+// Modal trigger.
+func renderUIButtonActionViolation(msgIdx, compIdx int, comp map[string]any) error {
+	name, _ := comp["component"].(string)
+	if name != "Button" {
+		return nil
+	}
+	action, present := comp["action"]
+	if !present {
+		return fmt.Errorf("messages[%d].components[%d]: Button needs an \"action\" object — e.g. \"action\":{\"event\":{\"name\":\"open\"}}} (required even when the button is a Modal trigger)", msgIdx, compIdx)
+	}
+	_, isObj := action.(map[string]any)
+	if !isObj {
+		return fmt.Errorf("messages[%d].components[%d]: Button \"action\" must be an object like {\"event\":{\"name\":\"...\"}}", msgIdx, compIdx)
 	}
 	return nil
 }

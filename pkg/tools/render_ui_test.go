@@ -502,6 +502,29 @@ func TestRenderUIToolInvalidBatchRejected(t *testing.T) {
 			want: `"label" and "value"`,
 		},
 		{
+			// Live kimi-webbridge real-test incident (2026-11-14): a Modal
+			// trigger Button without "action" died at the frontend zod layer
+			// — the Modal's own click wrapper does not lift the requirement.
+			name: "Button missing action",
+			args: map[string]any{"messages": []any{
+				map[string]any{
+					"version":       "v0.9",
+					"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+				},
+				map[string]any{
+					"version": "v0.9",
+					"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{
+						map[string]any{"id": "root", "component": "Card", "child": "m"},
+						map[string]any{"id": "m", "component": "Modal", "trigger": "b", "content": "c"},
+						map[string]any{"id": "b", "component": "Button", "child": "bl"},
+						map[string]any{"id": "bl", "component": "Text", "text": "打开弹窗"},
+						map[string]any{"id": "c", "component": "Text", "text": "弹窗内容"},
+					}},
+				},
+			}},
+			want: `needs an "action" object`,
+		},
+		{
 			// Streamed-update merge (phase 2) attributes each batch to one
 			// (session, surfaceId) card: a frame whose surfaceId is missing
 			// or empty cannot be attributed and is rejected.
@@ -857,6 +880,38 @@ func renderUIUpdateOnlyMessages() []any {
 // showcase card was false-killed as "components not reachable from root"
 // because the check only traversed child/children). Modal trigger/content
 // share the same traversal.
+// TestRenderUIToolModalCardReachable: Modal trigger/content are reference
+// edges the reachability BFS must follow, and the trigger Button passes
+// once it carries an action object (live Modal-card incident regression).
+func TestRenderUIToolModalCardReachable(t *testing.T) {
+	tool, msgBus := newTestRenderUITool(t)
+	ctx := WithToolContext(context.Background(), "pico", "pico:sess-1")
+
+	messages := []any{
+		map[string]any{
+			"version":       "v0.9",
+			"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+		},
+		map[string]any{
+			"version": "v0.9",
+			"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{
+				map[string]any{"id": "root", "component": "Card", "child": "m"},
+				map[string]any{"id": "m", "component": "Modal", "trigger": "openBtn", "content": "mc"},
+				map[string]any{"id": "openBtn", "component": "Button", "variant": "primary", "child": "obl", "action": map[string]any{"event": map[string]any{"name": "open"}}},
+				map[string]any{"id": "obl", "component": "Text", "text": "打开弹窗"},
+				map[string]any{"id": "mc", "component": "Column", "children": []any{"mt", "mh"}},
+				map[string]any{"id": "mt", "component": "Text", "text": "弹窗内容"},
+				map[string]any{"id": "mh", "component": "Text", "text": "点外侧关闭", },
+			}},
+		},
+	}
+	result := tool.Execute(ctx, map[string]any{"messages": messages})
+	if result.IsError {
+		t.Fatalf("Execute() IsError = true (Modal trigger/content must count as reference edges), ForLLM: %s", result.ForLLM)
+	}
+	waitOutboundMessage(t, msgBus)
+}
+
 func TestRenderUIToolTabsChildrenReachable(t *testing.T) {
 	tool, msgBus := newTestRenderUITool(t)
 	ctx := WithToolContext(context.Background(), "pico", "pico:sess-1")
