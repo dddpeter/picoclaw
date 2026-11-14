@@ -1739,3 +1739,34 @@ div.chead[role="button"]:focus-visible,
 	--a2ui-color-error: var(--destructive);
 	color: var(--card-foreground);
 }
+
+/* ==== A2UI 表格美化（2026-11-14 用户反馈）：basicCatalog 元素样式全走
+   --a2ui-* 变量与少量全局标签样式，这里按聊天卡场景收紧。行容器化
+   （subtle chip 背景+圆角）让 Row 读作表格行；列间距收紧；内层 Card
+   去边框去内边距（外层容器是唯一框层，避免卡中卡）；分隔线与 caption
+   弱化到主题级灰。 ==== */
+.a2ui-surface {
+	--a2ui-column-gap: 0.375rem;
+	--a2ui-row-gap: 0.5rem;
+	--a2ui-card-padding: 0;
+	--a2ui-card-background: transparent;
+	--a2ui-card-border: none;
+	--a2ui-divider-spacing: 0.5rem 0;
+	--a2ui-divider-border: 1px solid var(--border);
+	--a2ui-text-caption-color: var(--muted-foreground);
+}
+
+.a2ui-surface a2ui-basic-row {
+	background: color-mix(in oklab, var(--muted) 55%, transparent);
+	border-radius: 10px;
+	padding: 0.5rem 0.875rem;
+}
+
+/* 行内文本基线对齐（表格式左右两列时数值列贴右） */
+.a2ui-surface a2ui-basic-row > a2ui-basic-text {
+	align-self: center;
+}
+
+.a2ui-surface a2ui-basic-divider {
+	opacity: 0.7;
+}
