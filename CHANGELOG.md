@@ -7,6 +7,26 @@
 
 ## [Unreleased]
 
+## [0.5.9] - 2026-11-14
+
+### Added
+
+- **A2UI 三期（设计 `docs/design/2026-11-14-a2ui-phase3.zh.md`）**：
+  - **卡片本地态保持**：A2uiCard 重构为 processor 常驻 + 增量喂帧（逐帧指纹 + 首分歧重播，兼容 pico 同 path 原地覆盖语义）——流式增量到达时控件实例保留，用户未提交的表单输入不再丢失；重 create 接管按 RenderUIHistoryFold 折叠语义全量重建
+  - **交互反馈**：WS 断连时卡片动作给卡内提示 + 3s 冷却（五语言）；过期卡片（非最新）动作被拦截并提示；动作消息插值字段转义
+  - **description 压缩**：render_ui description 7035→3139 字节（-55%，SchemaContract 18 条教学短语语义保留 + 3200 字节上限断言防回胀），每 turn token 开销显著下降
+  - **render_ui 可配置关闭**：`tools.render_ui`（*bool，nil=on 开放默认）——显式 false 从 agent 注册表移除
+  - **视觉进阶**：VegaChart 主题联动（html class 切换 → 防抖重归一化 → 图表颜色跟随主题）；卡面三层渐变深化
+
+### Fixed
+
+- **Modal 弹窗三连修复（真实浏览器测试发现）**：① 卡面 backdrop-filter 成为 fixed 遮罩的包含块致弹窗被卡片裁切（移除 blur 改渐变）；② `--a2ui-color-surface: transparent` 级联打穿弹窗内容（补 `--a2ui-modal-*` 变量组恢复不透明）；③ 卡片入场动画 fill-mode both 残留 identity transform 困住遮罩（overlay y=-988 在视口外，改 backwards）
+- **ChoicePicker options 必须为对象入门**：模型传字符串数组前端静默死占位——门校验 + description 教学（kimi-webbridge 真实测试发现）
+- **Button action 必填入门**：Modal trigger Button 缺 action 前端死占位——门校验 + Modal 触发模式教学
+- **VegaChart 数据标签/柱宽/主题**：text mark 黑填充不可读（注入 currentColor）；少类目柱宽 band 60%；主题切换后图表颜色联动
+- **可达性 BFS 补 tabs[].child/trigger/content 引用边**——Tabs/Modal-only 卡不再被误杀
+- **description 补 updateDataModel 子树覆盖语义**：写到最深路径保兄弟键（模型路径粒度教训）
+
 ## [0.5.8] - 2026-11-14
 
 ### Added
