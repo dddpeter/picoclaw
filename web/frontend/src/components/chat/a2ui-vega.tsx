@@ -200,16 +200,36 @@ function VegaChartView({ props }: ReactA2uiComponentProps<{ spec: unknown }>) {
     observer.observe(el)
     return () => observer.disconnect()
   }, [])
+  // 主题联动（三期任务 4）：html 根元素 class 切换（主题开关）→ 防抖
+  // 300ms → bump themeVersion → normalizeVegaSpec 重跑（重新读 --primary
+  // 主题色）→ 新 spec 对象 → VegaEmbed 重嵌，图表颜色跟随主题。
+  const [themeVersion, setThemeVersion] = useState(0)
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const observer = new MutationObserver(() => {
+      clearTimeout(timer)
+      timer = setTimeout(() => setThemeVersion((v) => v + 1), 300)
+    })
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    })
+    return () => {
+      observer.disconnect()
+      clearTimeout(timer)
+    }
+  }, [])
   const handleError = (error: unknown) => {
     console.warn("[VegaChart] chart failed to render/load:", error)
     failedRef.current = true
     setFailed(true)
   }
   const usable = typeof spec === "object" && spec !== null && !("path" in spec)
-  // 归一化按 spec + 宿主宽度记忆化：宽度和主题 config 都在这里注入。
+  // 归一化按 spec + 宿主宽度 + 主题版本记忆化：宽度/主题 config/主题色
+  // 都在这里注入（themeVersion 变化 = 主题色变了，重新读 --primary）。
   const normalized = useMemo(
     () => normalizeVegaSpec(spec, hostWidth),
-    [spec, hostWidth],
+    [spec, hostWidth, themeVersion],
   )
   if (!usable || failed) return <VegaChartPlaceholder />
   return (

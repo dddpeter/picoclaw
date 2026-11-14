@@ -1855,9 +1855,17 @@ div.chead[role="button"]:focus-visible,
    不用 backdrop-filter——它会成为 fixed 后代（Modal 的全屏遮罩）的
    包含块，弹窗会被 overflow-hidden 卡片裁切（2026-11-14 实测）。 */
 .a2ui-surface {
+	/* 三层渐变深化（三期任务 4）：主色顶光 + 对角次色呼吸 + 半透明卡面。
+	   只有 background —— 不引入 transform/filter/backdrop-filter
+	   （fill-mode 教训：任何这类属性都会困住 Modal 的 fixed 遮罩）。 */
 	background:
-		linear-gradient(180deg, color-mix(in oklab, var(--primary) 5%, transparent), transparent 32%),
-		color-mix(in oklab, var(--card) 86%, transparent);
+		linear-gradient(
+			160deg,
+			color-mix(in oklab, var(--primary) 9%, transparent),
+			transparent 38%,
+			color-mix(in oklab, var(--secondary) 6%, transparent) 82%
+		),
+		color-mix(in oklab, var(--card) 88%, transparent);
 	position: relative;
 }
 
