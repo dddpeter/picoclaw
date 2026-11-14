@@ -1808,7 +1808,9 @@ div.chead[role="button"]:focus-visible,
 	transition: background-color 0.15s ease;
 }
 
-.a2ui-surface a2ui-basic-row:hover {
+/* 行悬停增亮：含按钮的行不参与（:has() 排除——按钮自带 hover，
+   行级高亮会和按钮自身的悬停效果打架，用户反馈 2026-11-14） */
+.a2ui-surface a2ui-basic-row:not(:has(a2ui-basic-button)):hover {
 	background: color-mix(in oklab, var(--muted) 85%, transparent);
 }
 
@@ -1922,8 +1924,8 @@ div.chead[role="button"]:focus-visible,
 	animation: a2ui-row-in 0.38s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
 }
 
-/* 行悬停：左侧主色竖条 + 增亮（既有 bg 规则继续生效） */
-.a2ui-surface a2ui-basic-row:hover {
+/* 行悬停：左侧主色竖条（含按钮的行不参与，同上） */
+.a2ui-surface a2ui-basic-row:not(:has(a2ui-basic-button)):hover {
 	box-shadow: inset 2px 0 0 var(--primary);
 }
 
