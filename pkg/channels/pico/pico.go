@@ -438,6 +438,14 @@ type a2uiSurfaceState struct {
 // are in-memory only: a gateway restart clears the registry and later
 // update-only batches degrade to fresh message.create cards (accepted
 // boundary — the frontend shows a new card instead of a lost orphan).
+//
+// Concurrency contract: Send's caller (the manager worker) drains the
+// channel queue with a single goroutine, so Sends — and hence the
+// lookup→broadcast→record sequence around this registry — are serialized
+// per channel today. That sequence is deliberately NOT atomic (merge and
+// record run outside the registry lock): concurrentizing Send requires
+// moving the merge into the lock as an atomic commit, or interleaved
+// create/update batches can lose deltas.
 type a2uiSurfaceRegistry struct {
 	mu      sync.Mutex
 	entries map[a2uiSurfaceKey]*a2uiSurfaceState

@@ -14,8 +14,9 @@
  * ② vega-lite 编译/渲染失败 → VegaEmbed 内部 catch 经 onError → 占位；
  * ③ chunk 加载被拒（网络抖动/重部署后旧 hash 404）→ Suspense 只兜 pending
  * 不兜 rejection，VegaChartChunkBoundary 组件内捕获降级——绝不冒泡到卡级
- * A2uiRenderBoundary 把整卡打成占位。②③ 共用 failed 态，spec 变化时重置
- * 并重建 lazy 实例重试 chunk 加载。
+ * A2uiRenderBoundary 把整卡打成占位。②③ 共用 failed 态；spec 变化只重置
+ * 失败态，lazy 实例仅在上一轮失败过时重建——未失败时复用实例，流式 spec
+ * 更新不换组件类型（VegaEmbed 不重挂）。
  *
  * wire 兼容：Catalog.derive 不自动保留源 catalog id（实测省略 catalogId
  * 产生无 id catalog），因此显式传 basicCatalog.id——Go render_ui 门强制的
@@ -41,6 +42,7 @@ import {
   Suspense,
   lazy,
   useEffect,
+  useRef,
   useState,
 } from "react"
 import { useTranslation } from "react-i18next"
@@ -50,7 +52,7 @@ import { z } from "zod"
 /**
  * 生成一个全新的 React.lazy 实例。ES module registry 缓存让首次成功后的
  * import() 立即返回，但 rejected 的 React.lazy 会把拒绝缓存进实例——
- * 重试 chunk 加载必须换新实例（见 VegaChartView 的重置 effect）。
+ * 重试 chunk 加载必须换新实例（见 VegaChartView 的 spec 变化重建分支）。
  */
 function createLazyVegaEmbed() {
   return lazy(async () => {
@@ -126,19 +128,29 @@ class VegaChartChunkBoundary extends Component<
 function VegaChartView({ props }: ReactA2uiComponentProps<{ spec: unknown }>) {
   const spec = props.spec
   const [failed, setFailed] = useState(false)
+  // failed 的镜像 ref：spec 变化的 effect 读最新失败态（state 在 effect 闭包
+  // 里是旧值；把 failed 放进 deps 又会在失败态翻转时多跑一轮 effect）。
+  const failedRef = useRef(false)
   // lazy 实例持有在 state（创建发生在 initializer/updateUpdater，渲染期
   // 只消费）：rejected 的 React.lazy 会把拒绝缓存进实例，复用实例不会
   // 重试 chunk 加载——重置失败态时必须换新实例。
   const [LazyVegaEmbed, setLazyVegaEmbed] = useState(createLazyVegaEmbed)
-  // dataModel 更新产生新 spec 对象时重置失败态并重建 lazy 实例，让修好的
-  // spec / 恢复的网络真正重试。
+  // 流式场景 updateDataModel 频繁产生新 spec 对象引用（{path} 绑定每次解析
+  // 出新值）：spec 变化只重置失败态，lazy 实例仅在上一轮真失败过（实例可能
+  // 已缓存 rejection）时才重建——无条件重建会换组件类型 → VegaEmbed 卸载
+  // 重挂 → 图表闪烁。
+  // 生产构建下重试有效性依赖 bundler 的 import 失败缓存行为（vite
+  // __vitePreload 有 URL 级缓存），不可依赖；chunk 404 的标准解法是刷新页面。
   useEffect(() => {
+    if (!failedRef.current) return
+    failedRef.current = false
     setFailed(false)
     setLazyVegaEmbed(createLazyVegaEmbed())
   }, [spec])
   const usable = typeof spec === "object" && spec !== null && !("path" in spec)
   const handleError = (error: unknown) => {
     console.warn("[VegaChart] chart failed to render/load:", error)
+    failedRef.current = true
     setFailed(true)
   }
   if (!usable || failed) return <VegaChartPlaceholder />
