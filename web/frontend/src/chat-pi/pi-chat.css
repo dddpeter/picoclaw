@@ -1846,11 +1846,13 @@ div.chead[role="button"]:focus-visible,
 
 /* ==== A2UI 美化第二轮（2026-11-14：美观/简洁/酷炫/动感）==== */
 
-/* 玻璃质感：半透明卡面 + 背景模糊，融入聊天页的 aurora 渐变氛围 */
+/* 玻璃质感：半透明卡面融入聊天页的 aurora 渐变氛围。注意：这里刻意
+   不用 backdrop-filter——它会成为 fixed 后代（Modal 的全屏遮罩）的
+   包含块，弹窗会被 overflow-hidden 卡片裁切（2026-11-14 实测）。 */
 .a2ui-surface {
-	background: color-mix(in oklab, var(--card) 86%, transparent);
-	backdrop-filter: blur(10px);
-	-webkit-backdrop-filter: blur(10px);
+	background:
+		linear-gradient(180deg, color-mix(in oklab, var(--primary) 5%, transparent), transparent 32%),
+		color-mix(in oklab, var(--card) 86%, transparent);
 	position: relative;
 }
 
@@ -2104,4 +2106,14 @@ div.chead[role="button"]:focus-visible,
 .a2ui-surface a2ui-basic-list::marker,
 .a2ui-surface a2ui-basic-list li::marker {
 	color: var(--primary);
+}
+
+/* Modal 弹窗变量：surface 透明化会把弹窗内容一起打穿（同变量级联），
+   这里显式恢复不透明卡面；遮罩与阴影走主题。 */
+.a2ui-surface {
+	--a2ui-modal-backdrop-bg: color-mix(in oklab, black 55%, transparent);
+	--a2ui-modal-background: var(--card);
+	--a2ui-modal-padding: 1.25rem 1.5rem;
+	--a2ui-modal-border-radius: 14px;
+	--a2ui-modal-box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--border);
 }
