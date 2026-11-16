@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // 适配点：i18n 由 pi-web-ui 的 useT() 换成 react-i18next 的 useTranslation()。
 import { memo, useState } from "react";
-import { FiCheck, FiCopy } from "react-icons/fi";
+import { IconCheck, IconCopy } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
 import { copyText } from "@/lib/clipboard";
 
@@ -24,7 +24,7 @@ export const CopyButton = memo(function CopyButton({ text }: { text: string }) {
 				});
 			}}
 		>
-			{copied ? <FiCheck /> : <FiCopy />}
+			{copied ? <IconCheck /> : <IconCopy />}
 		</button>
 	);
 });

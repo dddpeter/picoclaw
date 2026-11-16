@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: MIT
 // 适配点：i18n 由 pi-web-ui 的 useT() 换成 react-i18next 的 useTranslation()。
 import { useState } from "react";
-import { FiCheckCircle, FiChevronDown, FiChevronRight, FiCopy, FiCpu } from "react-icons/fi";
+import {
+	IconChevronDown,
+	IconChevronRight,
+	IconCircleCheck,
+	IconCopy,
+	IconCpu,
+} from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
 
 /** 折叠预览纯函数：流式取实时尾巴，结束取开头一行。单测直引此处，禁止在测试里抄一份实现。 */
@@ -63,10 +69,10 @@ export function ThinkingBlock({ thinking, streaming, wrap = true }: ThinkingBloc
 						setOpen(!expanded);
 					}}
 				>
-					{shown ? <FiChevronDown /> : <FiChevronRight />}
+					{shown ? <IconChevronDown /> : <IconChevronRight />}
 				</button>
 				<span className="chead-icon thinking-icon">
-					<FiCpu />
+					<IconCpu />
 				</span>
 				<span className="chead-title thinking-label">
 					{streaming && shown ? (
@@ -90,7 +96,7 @@ export function ThinkingBlock({ thinking, streaming, wrap = true }: ThinkingBloc
 						copyThinking();
 					}}
 				>
-					{copied ? <FiCheckCircle /> : <FiCopy />}
+					{copied ? <IconCircleCheck /> : <IconCopy />}
 				</button>
 			</div>
 			{shown && <div className="thinking-body">{thinking}</div>}

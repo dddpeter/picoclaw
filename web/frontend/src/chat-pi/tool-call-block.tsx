@@ -8,19 +8,25 @@
 //      done     = 反馈已到且 turn 已结束；
 //      idle     = turn 结束但没等到反馈（中断等异常）。
 //  - 去掉 kill bash / liveOutput / delegate_task / present_files 分支。
-import { memo, useState } from "react";
+import { memo, useState, type ComponentType } from "react";
 import {
-	FiCheck,
-	FiCheckCircle,
-	FiChevronDown,
-	FiChevronRight,
-	FiClock,
-	FiCopy,
-	FiLoader,
-	FiMinus,
-	FiTerminal,
-	FiX,
-} from "react-icons/fi";
+	IconChevronDown,
+	IconChevronRight,
+	IconCircleCheck,
+	IconClock,
+	IconCompass,
+	IconCopy,
+	IconFilePencil,
+	IconFileText,
+	IconFolderOpen,
+	IconLoader2,
+	IconMinus,
+	IconPencil,
+	IconSearch,
+	IconTerminal2,
+	IconTool,
+	IconX,
+} from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
 import { shortenPath, toolArgHints } from "./tool-args";
 
@@ -36,18 +42,29 @@ export interface PiToolView {
 	durationMs?: number;
 }
 
-const TOOL_ICONS: Record<string, string> = {
-	bash: "$",
-	read: "📄",
-	write: "✍️",
-	edit: "✏️",
-	grep: "🔍",
-	find: "🧭",
-	ls: "📂",
+/** [REQ-008] 工具图标映射：去 emoji，统一 @tabler/icons-react。 */
+const TOOL_ICONS: Record<string, ComponentType<{ size?: number | string }>> = {
+	bash: IconTerminal2,
+	read: IconFileText,
+	write: IconFilePencil,
+	edit: IconPencil,
+	grep: IconSearch,
+	find: IconCompass,
+	ls: IconFolderOpen,
 };
 
-function toolIcon(name: string): string {
-	return TOOL_ICONS[name] ?? "🛠";
+// [REQ-008] 独立小组件承载图标选择；每个图标单独作为组件引用（label 为 React Compiler 要求的稳定组件引用），
+// 避免 react-hooks/static-components 报「render 期间创建组件」。
+function ToolIcon({ name }: { name: string }) {
+	const icon = TOOL_ICONS[name] ?? "IconTool";
+	if (icon === "IconTerminal2") return <IconTerminal2 label="terminal" size={14} />;
+	if (icon === "IconFileText") return <IconFileText label="file" size={14} />;
+	if (icon === "IconFilePencil") return <IconFilePencil label="file-pencil" size={14} />;
+	if (icon === "IconPencil") return <IconPencil label="pencil" size={14} />;
+	if (icon === "IconSearch") return <IconSearch label="search" size={14} />;
+	if (icon === "IconCompass") return <IconCompass label="compass" size={14} />;
+	if (icon === "IconFolderOpen") return <IconFolderOpen label="folder" size={14} />;
+	return <IconTool label="tool" size={14} />;
 }
 
 export const ToolCallBlock = memo(function ToolCallBlock({
@@ -134,12 +151,14 @@ export const ToolCallBlock = memo(function ToolCallBlock({
 						setOpen(!expanded);
 					}}
 				>
-					{shown ? <FiChevronDown /> : <FiChevronRight />}
+					{shown ? <IconChevronDown /> : <IconChevronRight />}
 				</button>
-				<span className="chead-icon toolcall-icon">{toolIcon(name)}</span>
+				<span className="chead-icon toolcall-icon">
+					<ToolIcon name={name} />
+				</span>
 				<span className="chead-title toolcall-name">{name}</span>
 				<span className="toolcall-status" title={statusLabel} aria-label={statusLabel}>
-					{isError ? <FiX /> : done ? <FiCheck /> : running ? <FiLoader /> : waitingModel ? <FiClock /> : <FiMinus />}
+					{isError ? <IconX /> : done ? <IconCircleCheck /> : running ? <IconLoader2 className="toolcall-spin" size={14} /> : waitingModel ? <IconClock /> : <IconMinus />}
 				</span>
 				{collapsedCmd && (
 					<span className="toolcall-cmd" title={bashCommand}>
@@ -162,7 +181,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({
 						copyArgs();
 					}}
 				>
-					{copied ? <FiCheckCircle /> : <FiCopy />}
+					{copied ? <IconCircleCheck /> : <IconCopy />}
 				</button>
 			</div>
 			{shown && (
@@ -201,7 +220,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({
 function TerminalCommand({ command }: { command: string }) {
 	return (
 		<div className="termline">
-			<FiTerminal className="termline-icon" />
+			<IconTerminal2 className="termline-icon" size={13} />
 			<code>{command}</code>
 		</div>
 	);

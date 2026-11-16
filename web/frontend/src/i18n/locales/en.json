@@ -1162,7 +1162,10 @@
     "done": "Done",
     "error": "Error",
     "toolDoneWaitingModel": "Done · waiting on model",
-    "toolQueued": "Queued"
+    "toolQueued": "Queued",
+    "actionsBar": "Message actions",
+    "regenerate": "Regenerate",
+    "moreActions": "More actions"
   },
   "tpl": {
     "hint": "Click a card to fill the input; ✏️ to edit or delete; add your own too",

@@ -870,7 +870,9 @@ span.msg-editor-hint svg {
 .toolcall.run .toolcall-status {
 	color: var(--amber);
 }
-.toolcall.run .toolcall-status > svg {
+/* [REQ-010] tabler 图标无内置自旋，spin 由 CSS 类驱动（svg 也可，组件加类透传）。 */
+.toolcall.run .toolcall-status > svg,
+.toolcall-status > svg.toolcall-spin {
 	animation: toolcall-spin 1s linear infinite;
 }
 .toolcall.ok .toolcall-status {
@@ -955,6 +957,9 @@ div.chead[role="button"]:focus-visible,
 .chead-copy:focus-visible {
 	outline: 2px solid var(--accent);
 	outline-offset: 1px;
+	/* focus-visible 命中时确保 C1 隐藏态下的复制键显形 */
+	opacity: 1;
+	pointer-events: auto;
 }
 /* 左折叠键 / 右复制键：同一 ghost 图标按钮（28px）。toggle 可能是 button
  *（思考/工具）或 span（附件/技能/摘要，整头可点、图标只做视觉指示）。 */
@@ -980,8 +985,10 @@ div.chead[role="button"]:focus-visible,
 	color: var(--text);
 	background: var(--bg-elev2);
 }
-/* 复制键：透明幽灵，平时半透明图标，悬浮整头/正文或按钮才不透明。
- * head 右键与正文复制键公用同一套（用户消息 / AI 回复统一）。 */
+/* 复制键：C1 hover-reveal（对齐 LobeHub）——默认隐藏，消息 hover / 键盘聚焦
+ * （focus-within / 自身 focus-visible）或触屏（hover:none）时显形；
+ * head 右键与正文复制键公用同一套（用户消息 / AI 回复统一）。
+ * [REQ-022] 过渡 0.2s ease-out。 */
 .chead-copy,
 .msg-text-copy {
 	display: inline-flex;
@@ -1000,24 +1007,37 @@ div.chead[role="button"]:focus-visible,
 	font-size: 14px;
 	line-height: 1;
 	cursor: pointer;
-	opacity: 0.35;
+	opacity: 0;
+	pointer-events: none;
 	transition:
-		opacity 0.15s ease,
+		opacity 0.2s ease-out,
 		color 0.15s ease,
 		background 0.15s ease;
 }
-.chead:hover .chead-copy,
-.msg-text:hover .msg-text-copy,
+:where(.msg):hover .chead-copy,
+:where(.chead):hover .chead-copy,
+:where(.msg-text):hover .msg-text-copy,
+:where(.msg):focus-within .chead-copy,
+:where(.msg):focus-within .msg-text-copy,
 .chead-copy:hover,
 .msg-text-copy:hover,
 .chead-copy:focus-visible,
 .msg-text-copy:focus-visible {
 	opacity: 1;
+	pointer-events: auto;
 }
 .chead-copy:hover,
 .msg-text-copy:hover {
 	color: var(--text);
 	background: transparent;
+}
+/* 触屏无 hover：常显（对齐 LobeHub 移动端行为）。 */
+@media (hover: none) {
+	.chead-copy,
+	.msg-text-copy {
+		opacity: 1;
+		pointer-events: auto;
+	}
 }
 .chead-toggle > svg,
 .msg-collapsed-action > svg {
@@ -1488,6 +1508,60 @@ div.chead[role="button"]:focus-visible,
 	.msg {
 		padding: 6px 0 12px;
 	}
+}
+
+/* ==== [REQ-020] MessageActionsBar 骨架：hover 底部操作条 ==== */
+.msg-actions-bar {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	margin-top: 6px;
+	/* C1 同款 hover-reveal：跟随消息 hover / focus-within 显形 */
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 0.2s ease-out;
+}
+:where(.msg):hover .msg-actions-bar,
+:where(.msg):focus-within .msg-actions-bar {
+	opacity: 1;
+	pointer-events: auto;
+}
+@media (hover: none) {
+	.msg-actions-bar {
+		opacity: 1;
+		pointer-events: auto;
+	}
+}
+.msg-actions-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--text-faint);
+	font-size: 14px;
+	line-height: 1;
+	cursor: pointer;
+	transition:
+		color 0.15s ease,
+		background 0.15s ease;
+}
+.msg-actions-btn:hover {
+	color: var(--text);
+	background: var(--lobe-fill-3);
+}
+.msg-actions-btn:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 1px;
+}
+.msg-actions-btn > svg {
+	width: 14px;
+	height: 14px;
+	flex: none;
 }
 
 /* ==== A2UI 卡片主题适配（basicCatalog 元素消费 --a2ui-color-* 变量，注入

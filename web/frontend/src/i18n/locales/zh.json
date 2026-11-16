@@ -1162,7 +1162,10 @@
     "done": "完成",
     "error": "出错",
     "toolDoneWaitingModel": "已结束 · 等模型",
-    "toolQueued": "排队中"
+    "toolQueued": "排队中",
+    "actionsBar": "消息操作",
+    "regenerate": "重新生成",
+    "moreActions": "更多操作"
   },
   "tpl": {
     "hint": "点击卡片直接填入输入框，✏️ 可编辑或删除 · 也能新增自己的模板",

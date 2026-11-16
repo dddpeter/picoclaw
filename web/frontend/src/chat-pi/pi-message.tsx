@@ -6,8 +6,10 @@
 //  - 编辑重问 / 右键菜单 / 问题导航 / 折叠行 / 消息操作条等外围功能不移植
 //    （设计文档 P0+P1 范围）；
 //  - i18n 走 react-i18next（piChat 命名空间），文案取 pi-web-ui 原文。
+//  - [REQ-010] 图标统一 @tabler/icons-react；[REQ-001] 消息卡挂 role/tabIndex
+//    供 C1 hover-reveal 键盘可达（focus-within）。
 import { memo, useState } from "react";
-import { FiCheckCircle, FiCopy } from "react-icons/fi";
+import { IconCircleCheck, IconCopy, IconPaperclip } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
 import { copyText } from "@/lib/clipboard";
 
@@ -46,7 +48,7 @@ export const PiTurnView = memo(function PiTurnView({ turn }: { turn: PiTurn }) {
 function UserCard({ user, label }: { user: PiUserPart; label: string }) {
 	const { t } = useTranslation();
 	return (
-		<div className="msg msg-user" data-role="user">
+		<div className="msg msg-user" data-role="user" role="group" tabIndex={-1}>
 			<div className="msg-meta">
 				<span className="msg-role">{label}</span>
 				{user.steering && <span className="msg-model">{t("piChat.steeringTag")}</span>}
@@ -81,7 +83,7 @@ function AssistantCard({ turn, label }: { turn: PiTurn; label: string }) {
 	// pi-web-ui 的 isEmptyStreaming：thinking-wait 而非看不见的空气泡。
 	const isEmptyStreaming = turn.active && assistant.blocks.length === 0;
 	return (
-		<div className="msg msg-assistant" data-role="assistant">
+		<div className="msg msg-assistant" data-role="assistant" role="group" tabIndex={-1}>
 			<div className="msg-meta">
 				<span className="msg-role">{label}</span>
 				{assistant.modelName && (
@@ -124,7 +126,7 @@ const TextBlock = memo(function TextBlock({
 			<Markdown text={text} />
 		);
 	return (
-		<div className={`msg-text${oneLiner ? " single" : ""}`}>
+		<div className={`msg-text${oneLiner ? " single" : ""}`} tabIndex={-1}>
 			{oneLiner ? <div className="msg-text-main">{body}</div> : body}
 			<button
 				type="button"
@@ -140,7 +142,7 @@ const TextBlock = memo(function TextBlock({
 					});
 				}}
 			>
-				{copied ? <FiCheckCircle /> : <FiCopy />}
+				{copied ? <IconCircleCheck /> : <IconCopy />}
 			</button>
 		</div>
 	);
@@ -164,7 +166,7 @@ function AttachmentView({
 	}
 	return (
 		<a className="msg-attach-chip" href={url} target="_blank" rel="noreferrer">
-			📎 {filename ?? url.split("/").pop() ?? "attachment"}
+			<IconPaperclip size={13} /> {filename ?? url.split("/").pop() ?? "attachment"}
 		</a>
 	);
 }
