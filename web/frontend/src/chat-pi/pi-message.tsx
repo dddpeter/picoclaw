@@ -16,10 +16,13 @@ import { StreamMarkdown } from "./stream-markdown";
 import { ThinkingBlock } from "./thinking-block";
 import { ToolCallBlock, type PiToolView } from "./tool-call-block";
 import type { PiBlock, PiTurn, PiUserPart } from "./turns";
+import { BubblesLoading } from "@/components/chat/bubbles-loading";
 import { A2uiCard } from "@/components/chat/a2ui-card";
 import { ApprovalCard } from "@/components/chat/approval-card";
 import { AskCard } from "@/components/chat/ask-card";
 import "./pi-chat.css";
+import "./tokens.css";
+import "./lobe-markdown.css";
 
 /** pi-web-ui Message.tsx formatTime：本地时间 HH:MM。 */
 function formatTime(ts: number): string {
@@ -72,7 +75,6 @@ function UserCard({ user, label }: { user: PiUserPart; label: string }) {
 }
 
 function AssistantCard({ turn, label }: { turn: PiTurn; label: string }) {
-	const { t } = useTranslation();
 	const assistant = turn.assistant;
 	if (!assistant) return null;
 	// 空流式占位：turn 活跃但一个可见块都没有（首 token 未到）——
@@ -91,12 +93,7 @@ function AssistantCard({ turn, label }: { turn: PiTurn; label: string }) {
 				{assistant.blocks.map((block) => (
 					<PiBlockView key={block.id} block={block} active={turn.active} />
 				))}
-				{isEmptyStreaming && (
-					<div className="thinking-wait">
-						{t("piChat.thinkingWait")}
-						<span className="dot" />
-					</div>
-				)}
+				{isEmptyStreaming && <BubblesLoading />}
 				{turn.active && !isEmptyStreaming && <span className="stream-cursor" />}
 			</div>
 		</div>

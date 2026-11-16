@@ -30,6 +30,7 @@ import { codeBlockWrapAtom } from "@/store/code-block"
 import {
   extractCodeBlockFromPreNode,
   extractCodeBlockRenderState,
+  isSingleLine,
   type MarkdownNode,
   splitCodeIntoLines,
   splitHighlightedHtmlIntoLines,
@@ -125,6 +126,36 @@ export function MessageCodeBlock({
           )
         : (highlightedLines ?? splitCodeIntoLines(code)))
   const lineNumberWidth = `${String(codeLines.length).length + 1}ch`
+
+  // REQ-007：单行短代码（≤1 行且 ≤32 字符）走 inline 徽章路线，
+  // 不渲染 header 折叠头与行号 gutter
+  if (isSingleLine(code)) {
+    const inlineCopyLabel = isCopied ? t("chat.copiedLabel") : t("chat.copyCode")
+    return (
+      <span
+        data-picoclaw-code-inline=""
+        className={cn(
+          "inline-flex max-w-full items-center gap-1.5 align-middle my-1 rounded-md border border-[#d0d7de] bg-[#f6f8fa] px-2 py-0.5 dark:border-[#30363d] dark:bg-[#0d1117]",
+          className,
+        )}
+      >
+        <code className="min-w-0 truncate font-mono text-[13px] text-inherit">
+          {code.trim()}
+        </code>
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          className="h-6 w-6 shrink-0 p-0 text-zinc-600 hover:bg-zinc-300/70 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+          onClick={() => void copy(code)}
+          aria-label={inlineCopyLabel}
+          title={inlineCopyLabel}
+        >
+          {isCopied ? <IconCheck className="text-green-500" /> : <IconCopy />}
+        </Button>
+      </span>
+    )
+  }
 
   return (
     <div

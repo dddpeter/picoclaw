@@ -336,3 +336,16 @@ export function splitRenderedCodeContentIntoLines(
 
   return lines
 }
+
+/**
+ * REQ-007：单行短代码判定（对齐 LobeHub inline 徽章路线）。
+ * 行数 ≤ 1 且去首尾空白后长度 ≤ 32 时视为「单行短代码」——渲染为
+ * 内联徽章而非带行号 gutter 的完整代码块。
+ */
+export function isSingleLine(code: string): boolean {
+  const trimmed = code.replace(/^\n+|\n+$/g, "")
+  if (trimmed.includes("\n")) {
+    return false
+  }
+  return trimmed.length > 0 && trimmed.length <= 32
+}

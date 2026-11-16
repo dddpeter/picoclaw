@@ -14,6 +14,7 @@ import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import { CopyButton } from "./copy-button";
 import { splitCodeLines } from "./code-lines";
+import { isSingleLine } from "@/components/chat/message-code-block.utils";
 
 interface MarkdownProps {
 	text: string;
@@ -83,6 +84,16 @@ function PlainCodeBlock({ children, ...props }: JSX.IntrinsicElements["pre"]) {
 		children && typeof children === "object" && "props" in children
 			? (children as { props?: { children?: ReactNode } }).props?.children
 			: children;
+	const raw = codeText(children);
+	// REQ-007：单行短代码（≤1 行且 ≤32 字符）走 inline 徽章路线，不出行号 gutter
+	if (isSingleLine(raw)) {
+		return (
+			<p className="lobe-inline-code-wrap">
+				<code className="lobe-inline-code">{raw.trim()}</code>
+				<CopyButton text={raw} />
+			</p>
+		);
+	}
 	const lines = splitCodeLines(inner);
 	const multi = lines.length > 1;
 	const numWidth = multi ? `${String(lines.length).length + 1}ch` : undefined;

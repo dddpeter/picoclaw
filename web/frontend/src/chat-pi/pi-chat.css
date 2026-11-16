@@ -568,262 +568,8 @@ span.msg-editor-hint svg {
 	color: var(--accent);
 	background: var(--bg-elev2);
 }
-.msg-text {
-	position: relative;
-	color: var(--text);
-	/* 用户粘贴编译输出/长路径/URL 等无空格长 token 时在气泡内断行，
-	 * 否则横向溢出撑破气泡。overflow-wrap 与 word-break 均可继承，
-	 * 故 p / a / 内联 code 全部覆盖。 */
-	min-width: 0;
-	overflow-wrap: anywhere;
-	word-break: break-word;
-}
+/* [REQ-006] Markdown 正文段（原 571-838）已迁移至 lobe-markdown.css（对齐 LobeHub 数值）。 */
 
-.msg-text p {
-	margin: 6px 0;
-}
-.msg-text p:first-child {
-	margin-top: 0;
-}
-.msg-text p:last-child {
-	margin-bottom: 0;
-}
-
-.msg-text ul,
-.msg-text ol {
-	padding-left: 22px;
-	margin: 6px 0;
-	/* Tailwind v4 preflight 把 ol/ul 的 list-style 重置为 none（序号/圆点消失，
-	 * 有序列表引用"1-3/4-7"时用户无从对号）；revert 回 UA 默认
-	 * （ul=disc、ol=decimal，嵌套层级照 UA 规则变化）。 */
-	list-style: revert;
-}
-.msg-text li {
-	margin: 2px 0;
-}
-/* GFM 任务清单（- [ ]）自带复选框，恢复标记后反而多出圆点——保持无标记。 */
-.msg-text .contains-task-list {
-	list-style: none;
-}
-.msg-text blockquote {
-	margin: 10px 0;
-	padding: 6px 14px;
-	border-left: 3px solid transparent;
-	border-image: linear-gradient(180deg, var(--primary), var(--primary-deep)) 1;
-	border-radius: 0 8px 8px 0;
-	background: color-mix(in srgb, var(--primary) 5%, transparent);
-	color: var(--text-dim);
-}
-.msg-text table {
-	border-collapse: collapse;
-	margin: 10px 0;
-	/* 宽表横向滚动而非撑破气泡（GitHub markdown-body 同款手法）。 */
-	display: block;
-	width: max-content;
-	max-width: 100%;
-	overflow-x: auto;
-	border: 1px solid var(--border);
-	border-radius: 10px;
-	background: color-mix(in srgb, var(--card) 55%, transparent);
-}
-.msg-text th,
-.msg-text td {
-	border: 1px solid var(--border-soft);
-	padding: 5px 12px;
-}
-.msg-text th {
-	background: var(--accent-soft);
-	font-weight: 600;
-	/* UA 把 th 居中，GFM 表数据列左对齐更自然 */
-	text-align: left;
-}
-.msg-text tbody tr:nth-child(even) td {
-	background: color-mix(in srgb, var(--primary) 5%, transparent);
-}
-
-/* —— 标题：preflight 打回 inherit 的层级恢复 + 渐变视觉层。扁平时间线里
- * 唯一的"炫"留给 h1/h2——主题渐变 token 做渐变文字（primary → primary-deep
- * 在五套主题明暗底上都保得住对比度，浅色底最浅端 ≈ 3.2:1，大号粗体达标；
- * 不支持 background-clip:text 的环境退回纯色 primary）。 —— */
-.msg-text h1,
-.msg-text h2,
-.msg-text h3,
-.msg-text h4,
-.msg-text h5,
-.msg-text h6 {
-	margin: 16px 0 8px;
-	font-weight: 700;
-	line-height: 1.35;
-	color: var(--text);
-}
-.msg-text h3,
-.msg-text h4,
-.msg-text h5,
-.msg-text h6 {
-	font-weight: 600;
-}
-.msg-text :is(h1, h2, h3, h4, h5, h6):first-child {
-	margin-top: 0;
-}
-.msg-text h1 {
-	font-size: 1.5em;
-}
-.msg-text h2 {
-	font-size: 1.3em;
-}
-.msg-text h3 {
-	font-size: 1.18em;
-}
-.msg-text h4 {
-	font-size: 1.08em;
-}
-.msg-text h5,
-.msg-text h6 {
-	font-size: 1em;
-}
-.msg-text h1,
-.msg-text h2 {
-	color: var(--primary);
-	background-image: linear-gradient(
-		120deg,
-		var(--primary),
-		var(--primary-deep)
-	);
-	-webkit-background-clip: text;
-	background-clip: text;
-	-webkit-text-fill-color: transparent;
-}
-/* -webkit-text-fill-color 会继承：标题内行内 code 自带底色会盖住渐变
- * 字形导致文字消失——补回实色填充。 */
-.msg-text h1 :where(code),
-.msg-text h2 :where(code) {
-	-webkit-text-fill-color: var(--text);
-}
-/* 浅色家族（light/sakura）主色偏浅（sakura 端 ≈3:1 临界），渐变起点压暗
- * 一档保可读性；暗色家族不受影响。 */
-:root .msg-text h1,
-:root .msg-text h2 {
-	background-image: linear-gradient(
-		120deg,
-		color-mix(in srgb, var(--primary) 88%, black),
-		var(--primary-deep)
-	);
-}
-/* 暗色家族（dark/ocean/forest）用三段渐变拉开层次：glow → primary → deep；
- * 浅色底上 glow 端对比度不够，走上面的压暗两段。 */
-.dark .msg-text h1,
-.dark .msg-text h2 {
-	background-image: linear-gradient(
-		120deg,
-		var(--primary-glow),
-		var(--primary) 45%,
-		var(--primary-deep)
-	);
-}
-.msg-text h2::after {
-	content: "";
-	display: block;
-	height: 2px;
-	margin-top: 6px;
-	border-radius: 2px;
-	background: linear-gradient(
-		90deg,
-		color-mix(in srgb, var(--primary) 68%, transparent),
-		transparent 90%
-	);
-}
-
-.msg-text hr {
-	margin: 14px 0;
-	border: none;
-	height: 1px;
-	background: linear-gradient(
-		90deg,
-		transparent,
-		color-mix(in srgb, var(--primary) 45%, transparent) 50%,
-		transparent
-	);
-}
-
-/* 正文内 markdown 图片与附件图（.msg-image img）同款观感。 */
-.msg-text img {
-	max-width: 100%;
-	max-height: 420px;
-	border-radius: 8px;
-	border: 1px solid var(--border);
-}
-
-/* GFM 任务清单复选框：preflight 抹掉 input 的 margin，文字会贴着框；
- * 且 disabled+checked 的原生复选框会被浏览器强制灰化（accent-color 失效），
- * 改为自绘盒子走主题色。 */
-.msg-text input[type="checkbox"] {
-	appearance: none;
-	-webkit-appearance: none;
-	width: 13px;
-	height: 13px;
-	margin-right: 6px;
-	vertical-align: -1.5px;
-	border: 1.5px solid color-mix(in srgb, var(--primary) 50%, var(--border));
-	border-radius: 3.5px;
-	background: transparent;
-	transition:
-		background-color 0.15s ease,
-		border-color 0.15s ease;
-}
-.msg-text input[type="checkbox"]:checked {
-	background-color: var(--primary);
-	border-color: var(--primary);
-	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 8'%3E%3Cpath d='M1 4.2 3.6 6.8 9 1.2' fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-	background-size: 9px 7px;
-	background-repeat: no-repeat;
-	background-position: center;
-}
-
-/* 列表标记染主色：聊天里大量"1-7 对号"式引用，序号醒目有实用价值 */
-.msg-text li::marker {
-	color: var(--primary);
-	font-weight: 600;
-	font-variant-numeric: tabular-nums;
-}
-
-/* 选中态染主题色——扁平时间线里的一点呼应 */
-.msg-text ::selection {
-	background: color-mix(in srgb, var(--primary) 26%, transparent);
-}
-.msg-text a {
-	color: var(--link);
-	/* GFM autolink 把长 URL 渲染成 <a>，同样要能断行（inline 继承父级
-	 * overflow-wrap，但显式声明以兼容个别浏览器的继承差异）。 */
-	overflow-wrap: anywhere;
-	/* preflight 把 a 的 text-decoration 归为 inherit(=none)：补回下划线并
-	 * 色阶化——平时 45% 透明度，悬停点亮 */
-	text-decoration: underline;
-	text-decoration-color: color-mix(in srgb, var(--link) 45%, transparent);
-	text-underline-offset: 2px;
-	transition: text-decoration-color 0.15s ease;
-}
-.msg-text a:hover {
-	text-decoration-color: var(--link);
-}
-.msg-text code {
-	font-family: var(--mono);
-	font-size: 12.5px;
-	background: var(--bg-elev2);
-	border: 1px solid color-mix(in srgb, var(--primary) 14%, var(--border-soft));
-	border-radius: 4px;
-	padding: 1px 5px;
-}
-/* KaTeX 公式（issue #116）：颜色继承气泡文字，深色主题无需覆盖；
- * 长公式横向滚动而非撑破气泡；行内公式字号与正文对齐。 */
-.msg-text .katex-display {
-	margin: 8px 0;
-	padding: 4px 2px;
-	overflow-x: auto;
-	overflow-y: hidden;
-}
-.msg-text .katex {
-	font-size: 1.05em;
-}
 
 .codeblock {
 	position: relative;
@@ -1033,24 +779,34 @@ span.msg-editor-hint svg {
 	}
 }
 
-/* Visible placeholder while the streaming bubble has no content yet
-   (first token hasn't arrived — otherwise the bubble is invisible). */
-.thinking-wait {
-	display: inline-flex;
-	align-items: center;
-	gap: 5px;
-	color: var(--text-dim);
-	font-size: 13px;
-	padding: 2px 0;
-}
+/* [REQ-004] 空流式占位视觉已迁移至 BubblesLoading 组件
+   (components/chat/bubbles-loading.tsx) + .lobe-bubbles-loading 规则，
+   组件逻辑（isEmptyStreaming）保留不变。 */
 
-.thinking-wait .dot {
+/* LobeHub BubblesLoading 对齐视觉：3 圆点 1.5s 波浪起伏，delay 0/0.3/0.6s，
+   仅动 opacity（避免 transform 抖动布局），fill 走次要文字色 token。 */
+.lobe-bubbles-loading {
 	display: inline-block;
-	width: 6px;
-	height: 6px;
-	border-radius: 50%;
-	background: var(--accent);
-	animation: stream-blink 1s steps(2, start) infinite;
+	vertical-align: middle;
+}
+.lobe-bubbles-dot {
+	fill: var(--lobe-text-2, var(--text-dim));
+	animation: lobe-bubble-wave 1.5s cubic-bezier(0.05, 0.2, 0.35, 1) infinite;
+}
+.lobe-bubbles-dot[data-delay="1"] {
+	animation-delay: 0.3s;
+}
+.lobe-bubbles-dot[data-delay="2"] {
+	animation-delay: 0.6s;
+}
+@keyframes lobe-bubble-wave {
+	0%,
+	100% {
+		opacity: 0.25;
+	}
+	40% {
+		opacity: 1;
+	}
 }
 
 /* Blinking caret shown while the assistant message is streaming. */
@@ -1644,10 +1400,24 @@ div.chead[role="button"]:focus-visible,
 }
 
 .msg-user .msg-body {
-	background: var(--accent-soft);
-	border: 1px solid rgba(139, 92, 246, 0.25);
-	border-radius: 12px;
+	/* [REQ-002] 气泡底色四态对齐 LobeHub：default fill-2 / hover fill-3 /
+	 * streaming fill-3 + 边框强调 / queued 虚线半透明（沿用下方规则）。
+	 * radius 12（--lobe-radius-lg）、padding 对齐 LobeHub 气泡密度。 */
+	background: var(--lobe-fill-2);
+	border: 1px solid var(--lobe-border-2);
+	border-radius: var(--lobe-radius-lg, 12px);
 	padding: 10px 14px;
+	/* [REQ-022] 动效值统一：0.2s ease-out（对齐 LobeHub 过渡时长/缓动） */
+	transition:
+		background-color 0.2s ease-out,
+		border-color 0.2s ease-out;
+}
+.msg-user:hover .msg-body {
+	background: var(--lobe-fill-3);
+}
+.msg-user.is-streaming .msg-body {
+	background: var(--lobe-fill-3);
+	border-color: color-mix(in srgb, var(--lobe-info) 35%, transparent);
 }
 
 .msg-error {
