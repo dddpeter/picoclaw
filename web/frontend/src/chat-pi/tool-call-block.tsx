@@ -8,7 +8,7 @@
 //      done     = 反馈已到且 turn 已结束；
 //      idle     = turn 结束但没等到反馈（中断等异常）。
 //  - 去掉 kill bash / liveOutput / delegate_task / present_files 分支。
-import { memo, useState, type ComponentType } from "react";
+import { memo, useState } from "react";
 import {
 	IconChevronDown,
 	IconChevronRight,
@@ -42,29 +42,27 @@ export interface PiToolView {
 	durationMs?: number;
 }
 
-/** [REQ-008] 工具图标映射：去 emoji，统一 @tabler/icons-react。 */
-const TOOL_ICONS: Record<string, ComponentType<{ size?: number | string }>> = {
-	bash: IconTerminal2,
-	read: IconFileText,
-	write: IconFilePencil,
-	edit: IconPencil,
-	grep: IconSearch,
-	find: IconCompass,
-	ls: IconFolderOpen,
-};
-
-// [REQ-008] 独立小组件承载图标选择；每个图标单独作为组件引用（label 为 React Compiler 要求的稳定组件引用），
-// 避免 react-hooks/static-components 报「render 期间创建组件」。
+// [REQ-008] 工具图标：去 emoji，统一 @tabler/icons-react；
+// switch 直接返回具体组件（不经过动态 ComponentType 引用，规避 react-hooks/static-components）。
 function ToolIcon({ name }: { name: string }) {
-	const icon = TOOL_ICONS[name] ?? "IconTool";
-	if (icon === "IconTerminal2") return <IconTerminal2 label="terminal" size={14} />;
-	if (icon === "IconFileText") return <IconFileText label="file" size={14} />;
-	if (icon === "IconFilePencil") return <IconFilePencil label="file-pencil" size={14} />;
-	if (icon === "IconPencil") return <IconPencil label="pencil" size={14} />;
-	if (icon === "IconSearch") return <IconSearch label="search" size={14} />;
-	if (icon === "IconCompass") return <IconCompass label="compass" size={14} />;
-	if (icon === "IconFolderOpen") return <IconFolderOpen label="folder" size={14} />;
-	return <IconTool label="tool" size={14} />;
+	switch (name) {
+		case "bash":
+			return <IconTerminal2 size={14} />;
+		case "read":
+			return <IconFileText size={14} />;
+		case "write":
+			return <IconFilePencil size={14} />;
+		case "edit":
+			return <IconPencil size={14} />;
+		case "grep":
+			return <IconSearch size={14} />;
+		case "find":
+			return <IconCompass size={14} />;
+		case "ls":
+			return <IconFolderOpen size={14} />;
+		default:
+			return <IconTool size={14} />;
+	}
 }
 
 export const ToolCallBlock = memo(function ToolCallBlock({
