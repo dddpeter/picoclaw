@@ -43,7 +43,7 @@
   --search-active-fg: var(--foreground);
 
   /* 单列时间线与 pi-web-ui 一致的排版密度 */
-  font-size: 14px;
+  font-size: var(--lobe-font-size, 14px);
   line-height: 1.5;
 }
 
@@ -193,9 +193,9 @@
   border-radius: 6px;
   opacity: 0;
   transition:
-    opacity 0.15s ease,
-    color 0.15s ease,
-    background 0.15s ease;
+    opacity var(--lobe-transition-fast),
+    color var(--lobe-transition-fast),
+    background var(--lobe-transition-fast);
 }
 .msg:hover .msg-action,
 .msg-action:focus-visible {
@@ -471,9 +471,9 @@ span.msg-editor-hint svg {
   text-align: left;
   cursor: pointer;
   transition:
-    border-color 0.15s ease,
-    background 0.15s ease,
-    color 0.15s ease;
+    border-color var(--lobe-transition-fast),
+    background var(--lobe-transition-fast),
+    color var(--lobe-transition-fast);
 }
 .msg-collapsed:hover {
   border-color: var(--border);
@@ -636,8 +636,8 @@ span.msg-editor-hint svg {
   cursor: pointer;
   opacity: 0;
   transition:
-    opacity 0.15s ease,
-    color 0.15s ease;
+    opacity var(--lobe-transition-fast),
+    color var(--lobe-transition-fast);
 }
 .codeblock:hover .copy-btn {
   opacity: 0.55;
@@ -721,8 +721,8 @@ span.msg-editor-hint svg {
   border-radius: var(--lobe-radius-md);
   background: var(--lobe-fill-4);
   transition:
-    background-color 0.2s ease-out,
-    border-color 0.2s ease-out;
+    background-color var(--lobe-transition),
+    border-color var(--lobe-transition);
 }
 
 .thinking-icon {
@@ -936,9 +936,9 @@ span.msg-editor-hint svg {
   border-radius: 9px;
   cursor: pointer;
   transition:
-    background 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background var(--lobe-transition-fast),
+    color var(--lobe-transition-fast),
+    border-color var(--lobe-transition-fast);
 }
 .toolcall-kill:hover {
   background: var(--red);
@@ -1007,7 +1007,7 @@ div.chead[role="button"]:focus-visible,
 }
 /* 复制键：C1 hover-reveal（对齐 LobeHub）——默认隐藏，消息 hover / 键盘聚焦
  * （focus-within / 自身 focus-visible）或触屏（hover:none）时显形。
- * [REQ-022] 过渡 0.2s ease-out。 */
+ * [REQ-022→024] 过渡统一走 --lobe-transition token。 */
 .chead-copy {
   display: inline-flex;
   align-items: center;
@@ -1028,9 +1028,9 @@ div.chead[role="button"]:focus-visible,
   opacity: 0;
   pointer-events: none;
   transition:
-    opacity 0.2s ease-out,
-    color 0.15s ease,
-    background 0.15s ease;
+    opacity var(--lobe-transition),
+    color var(--lobe-transition-fast),
+    background var(--lobe-transition-fast);
 }
 :where(.msg):hover .chead-copy,
 :where(.chead):hover .chead-copy,
@@ -1367,9 +1367,9 @@ div.chead[role="button"]:focus-visible,
   border-radius: 6px;
   opacity: 0.4;
   transition:
-    opacity 0.12s ease,
-    color 0.12s ease,
-    background 0.12s ease;
+    opacity var(--lobe-transition-fast),
+    color var(--lobe-transition-fast),
+    background var(--lobe-transition-fast);
 }
 .msg-queued-recall:hover,
 .msg-queued-recall:focus-visible {
@@ -1389,9 +1389,9 @@ div.chead[role="button"]:focus-visible,
   border-radius: 6px;
   opacity: 0.4;
   transition:
-    opacity 0.12s ease,
-    color 0.12s ease,
-    background 0.12s ease;
+    opacity var(--lobe-transition-fast),
+    color var(--lobe-transition-fast),
+    background var(--lobe-transition-fast);
 }
 .msg-queued-remove:hover,
 .msg-queued-remove:focus-visible {
@@ -1415,10 +1415,10 @@ div.chead[role="button"]:focus-visible,
   border: 1px solid var(--lobe-border-2);
   border-radius: var(--lobe-radius-lg, 12px);
   padding: 10px 14px;
-  /* [REQ-022] 动效值统一：0.2s ease-out（对齐 LobeHub 过渡时长/缓动） */
+  /* [REQ-022→024] 动效值统一走 --lobe-transition token（对齐 LobeHub） */
   transition:
-    background-color 0.2s ease-out,
-    border-color 0.2s ease-out;
+    background-color var(--lobe-transition),
+    border-color var(--lobe-transition);
 }
 .msg-user:hover .msg-body {
   background: var(--lobe-fill-3);
@@ -1491,10 +1491,24 @@ div.chead[role="button"]:focus-visible,
   border-color: var(--border);
 }
 
-/* ==== 响应式覆盖（pi-web-ui styles.css 原文，@media (max-width: 768px) 内的对话部分） ==== */
+/* ==== 响应式覆盖（pi-web-ui styles.css 原文，@media (max-width: 768px) 内的对话部分） ====
+ * [REQ-023] 断点体系（成文）：宽度断点沿用 Tailwind 默认体系，与
+ * chat-page 的响应式前缀一致——md=768 / lg=1024 / xl=1280；窄屏主断点
+ * ≤768（LobeHub mobile-first 口径）。交互媒体查询另有三类：
+ * hover:none（触屏常显操作）、pointer:coarse（触控目标加大，见下）、
+ * prefers-reduced-motion（无障碍降级，见文件尾）。平板档 769-1024
+ * 经审计无独立密度需求（列宽自适应 + markdown 层溢出处理已覆盖），
+ * 不另设规则。 */
 @media (max-width: 768px) {
   .msg {
     padding: 6px 0 12px;
+  }
+
+  /* [REQ-023] A2UI 卡片为 Agent 生成的任意内容，窄屏无宽度约束会横向溢出；
+   * markdown 层已有 overflow-x:auto，此处补齐卡片自身防御。 */
+  .a2ui-surface {
+    max-width: 100%;
+    overflow-x: auto;
   }
 }
 
@@ -1507,7 +1521,7 @@ div.chead[role="button"]:focus-visible,
   /* C1 同款 hover-reveal：跟随消息 hover / focus-within 显形 */
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.2s ease-out;
+  transition: opacity var(--lobe-transition);
 }
 :where(.msg):hover .msg-actions-bar,
 :where(.msg):focus-within .msg-actions-bar,
@@ -1538,8 +1552,8 @@ div.chead[role="button"]:focus-visible,
   line-height: 1;
   cursor: pointer;
   transition:
-    color 0.15s ease,
-    background 0.15s ease;
+    color var(--lobe-transition-fast),
+    background var(--lobe-transition-fast);
 }
 .msg-actions-btn:hover {
   color: var(--lobe-text);
@@ -1673,8 +1687,8 @@ div.chead[role="button"]:focus-visible,
 	   结束后 transform 回到 none，fixed 遮罩正常逃逸到视口。 */
   animation: a2ui-card-in 0.3s ease-out backwards;
   transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
+    border-color var(--lobe-transition),
+    box-shadow var(--lobe-transition);
 }
 
 .a2ui-surface:hover {
@@ -1683,8 +1697,8 @@ div.chead[role="button"]:focus-visible,
 }
 
 .a2ui-surface a2ui-basic-row {
-  animation: a2ui-row-in 0.32s ease-out backwards;
-  transition: background-color 0.15s ease;
+  animation: a2ui-row-in 0.3s ease-out backwards;
+  transition: background-color var(--lobe-transition-fast);
 }
 
 /* 行悬停增亮：含按钮的行不参与（:has() 排除——按钮自带 hover，
@@ -1722,9 +1736,9 @@ div.chead[role="button"]:focus-visible,
 
 .a2ui-surface .a2ui-button {
   transition:
-    filter 0.15s ease,
-    transform 0.12s ease,
-    box-shadow 0.15s ease;
+    filter var(--lobe-transition-fast),
+    transform var(--lobe-transition-fast),
+    box-shadow var(--lobe-transition-fast);
 }
 
 .a2ui-surface .a2ui-button:hover {
@@ -1862,9 +1876,9 @@ div.chead[role="button"]:focus-visible,
   font-size: 13.5px;
   outline: none;
   transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease,
-    background 0.15s ease;
+    border-color var(--lobe-transition-fast),
+    box-shadow var(--lobe-transition-fast),
+    background var(--lobe-transition-fast);
 }
 
 .a2ui-surface .a2ui-textfield:focus {
@@ -1896,11 +1910,11 @@ div.chead[role="button"]:focus-visible,
   cursor: pointer;
   border: 1px solid transparent;
   transition:
-    transform 0.12s ease,
-    box-shadow 0.15s ease,
-    filter 0.15s ease,
-    background 0.15s ease,
-    border-color 0.15s ease;
+    transform var(--lobe-transition-fast),
+    box-shadow var(--lobe-transition-fast),
+    filter var(--lobe-transition-fast),
+    background var(--lobe-transition-fast),
+    border-color var(--lobe-transition-fast);
 }
 
 .a2ui-surface .a2ui-button-default {
@@ -1952,7 +1966,7 @@ div.chead[role="button"]:focus-visible,
   padding: 0.4rem 0.75rem;
   border-radius: 9px;
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition: background var(--lobe-transition-fast);
 }
 
 .a2ui-surface .a2ui-option-label:hover {
@@ -1972,8 +1986,8 @@ div.chead[role="button"]:focus-visible,
   font-size: 13px;
   cursor: pointer;
   transition:
-    background 0.15s ease,
-    border-color 0.15s ease;
+    background var(--lobe-transition-fast),
+    border-color var(--lobe-transition-fast);
 }
 
 .a2ui-surface .a2ui-chip:hover {
@@ -2012,8 +2026,8 @@ div.chead[role="button"]:focus-visible,
   border: none;
   cursor: pointer;
   transition:
-    color 0.15s ease,
-    background 0.15s ease;
+    color var(--lobe-transition-fast),
+    background var(--lobe-transition-fast);
 }
 
 .a2ui-surface .a2ui-tab-button:hover {

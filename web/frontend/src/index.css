@@ -6,7 +6,11 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* [REQ-011] 全局字体基线：Inter 变量字体（已在头部 @fontsource-variable/inter
+ * 引入），Tailwind v4 的 --default-font-family 默认跟随 --font-sans，
+ * 定义于此即全局生效；消息正文字号基准见 tokens.css --lobe-font-size。 */
 @theme inline {
+  --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, sans-serif;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);

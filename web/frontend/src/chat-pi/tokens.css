@@ -36,4 +36,14 @@
   /* 圆角（对齐 LobeHub borderRadiusLG） */
   --lobe-radius-lg: 12px;
   --lobe-radius-md: 8px;
+
+  /* 字号（REQ-011：消息正文基准 14px，对齐 LobeHub fontSize） */
+  --lobe-font-size: 14px;
+
+  /*
+   * 动效（REQ-024：聊天区过渡统一为两档，对齐 REQ-022 裁定的
+   * 0.2s ease-out 基线；语义动画如 spinner/波浪/光标闪烁不在此列）。
+   */
+  --lobe-transition-fast: 0.15s ease-out;
+  --lobe-transition: 0.2s ease-out;
 }
