@@ -1145,6 +1145,7 @@
     "roleAssistant": "Limulus",
     "steeringTag": "Steering",
     "thinkingWait": "Thinking",
+    "loading": "Loading…",
     "thinking": "Thinking",
     "thinkingNow": "Thinking",
     "thinkingPreview": "Thinking: {{preview}}",

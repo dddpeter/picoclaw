@@ -1145,6 +1145,7 @@
     "roleAssistant": "Limulus",
     "steeringTag": "插问",
     "thinkingWait": "正在思考",
+    "loading": "加载中…",
     "thinking": "思考",
     "thinkingNow": "思考中",
     "thinkingPreview": "思考：{{preview}}",
