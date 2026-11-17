@@ -3,24 +3,24 @@ import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
 import {
+  type MCPServerPayload,
+  type MCPServerStatusEntry,
+  type MCPStatusResponse,
   getMCPConfig,
   getMCPStatus,
   putMCPConfig,
   testMCPServer,
-  type MCPServerPayload,
-  type MCPServerStatusEntry,
-  type MCPStatusResponse,
 } from "@/api/mcp"
-import { refreshGatewayState } from "@/store/gateway"
 import { showSaveSuccessOrRestartToast } from "@/lib/restart-required"
+import { refreshGatewayState } from "@/store/gateway"
 
 import {
+  type MCPConfigForm,
+  type MCPServerDraft,
   draftToServerPayload,
   emptyServerDraft,
   formToPayload,
   serverPayloadToDraft,
-  type MCPServerDraft,
-  type MCPConfigForm,
 } from "./types"
 
 export type MCPPageTab = "servers" | "settings"
@@ -41,7 +41,9 @@ export interface ServerTestState {
   error?: string
 }
 
-function formFromResponse(payload: Awaited<ReturnType<typeof getMCPConfig>>): MCPConfigForm {
+function formFromResponse(
+  payload: Awaited<ReturnType<typeof getMCPConfig>>,
+): MCPConfigForm {
   return {
     enabled: payload.enabled,
     maxInlineTextChars: String(payload.maxInlineTextChars || 16384),
@@ -63,7 +65,9 @@ export function useMCPPage() {
   const [status, setStatus] = useState<MCPStatusResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [testStates, setTestStates] = useState<Record<string, ServerTestState>>({})
+  const [testStates, setTestStates] = useState<Record<string, ServerTestState>>(
+    {},
+  )
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -104,22 +108,33 @@ export function useMCPPage() {
     [],
   )
 
-  const updateServer = useCallback((id: string, patch: Partial<MCPServerDraft>) => {
+  const updateServer = useCallback(
+    (id: string, patch: Partial<MCPServerDraft>) => {
+      setForm(
+        (prev) =>
+          prev && {
+            ...prev,
+            servers: prev.servers.map((s) =>
+              s.id === id ? { ...s, ...patch } : s,
+            ),
+          },
+      )
+    },
+    [],
+  )
+
+  const addServer = useCallback(() => {
     setForm(
       (prev) =>
-        prev && {
-          ...prev,
-          servers: prev.servers.map((s) => (s.id === id ? { ...s, ...patch } : s)),
-        },
+        prev && { ...prev, servers: [...prev.servers, emptyServerDraft()] },
     )
   }, [])
 
-  const addServer = useCallback(() => {
-    setForm((prev) => prev && { ...prev, servers: [...prev.servers, emptyServerDraft()] })
-  }, [])
-
   const removeServer = useCallback((id: string) => {
-    setForm((prev) => prev && { ...prev, servers: prev.servers.filter((s) => s.id !== id) })
+    setForm(
+      (prev) =>
+        prev && { ...prev, servers: prev.servers.filter((s) => s.id !== id) },
+    )
   }, [])
 
   const save = useCallback(async () => {
@@ -157,10 +172,16 @@ export function useMCPPage() {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       if (message.startsWith("INVALID_JSON:")) {
-        toast.error(t("pages.mcp.invalid_json", { field: message.slice("INVALID_JSON:".length) }))
+        toast.error(
+          t("pages.mcp.invalid_json", {
+            field: message.slice("INVALID_JSON:".length),
+          }),
+        )
       } else if (message.startsWith("INVALID_NUMBER:")) {
         toast.error(
-          t("pages.mcp.invalid_number", { field: message.slice("INVALID_NUMBER:".length) }),
+          t("pages.mcp.invalid_number", {
+            field: message.slice("INVALID_NUMBER:".length),
+          }),
         )
       } else {
         toast.error(t("pages.mcp.save_failed", { message }))
@@ -176,20 +197,32 @@ export function useMCPPage() {
       try {
         let payload: MCPServerPayload
         try {
-          payload = draftToServerPayload(draft, t("pages.mcp.invalid_json", { field: "headers" }))
+          payload = draftToServerPayload(
+            draft,
+            t("pages.mcp.invalid_json", { field: "headers" }),
+          )
         } catch {
           setTestStates((prev) => ({
             ...prev,
-            [draft.id]: { running: false, error: t("pages.mcp.invalid_json", { field: "headers" }) },
+            [draft.id]: {
+              running: false,
+              error: t("pages.mcp.invalid_json", { field: "headers" }),
+            },
           }))
           return
         }
         const res = await testMCPServer(payload)
-        setTestStates((prev) => ({ ...prev, [draft.id]: { running: false, ...res } }))
+        setTestStates((prev) => ({
+          ...prev,
+          [draft.id]: { running: false, ...res },
+        }))
       } catch (err) {
         setTestStates((prev) => ({
           ...prev,
-          [draft.id]: { running: false, error: err instanceof Error ? err.message : String(err) },
+          [draft.id]: {
+            running: false,
+            error: err instanceof Error ? err.message : String(err),
+          },
         }))
       }
     },
@@ -197,19 +230,38 @@ export function useMCPPage() {
   )
 
   const serverStatus = useCallback(
-    (name: string): { status: ServerRuntimeStatus; entry?: MCPServerStatusEntry } => {
+    (
+      name: string,
+    ): { status: ServerRuntimeStatus; entry?: MCPServerStatusEntry } => {
       if (!status || status.gateway === "offline") return { status: "offline" }
       if (!status.initialized) return { status: "not_initialized" }
       const entry = status.servers?.[name]
       if (!entry) return { status: "not_loaded" }
-      return entry.connected ? { status: "connected", entry } : { status: "error", entry }
+      return entry.connected
+        ? { status: "connected", entry }
+        : { status: "error", entry }
     },
     [status],
   )
 
   return {
-    tab, setTab, form, dirty, saving, loading, status, testStates,
-    updateGlobal, updateServer, addServer, removeServer, save, runTest,
-    fetchStatus, reload: load, serverStatus, t,
+    tab,
+    setTab,
+    form,
+    dirty,
+    saving,
+    loading,
+    status,
+    testStates,
+    updateGlobal,
+    updateServer,
+    addServer,
+    removeServer,
+    save,
+    runTest,
+    fetchStatus,
+    reload: load,
+    serverStatus,
+    t,
   }
 }

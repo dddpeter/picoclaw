@@ -75,7 +75,9 @@ export function useSessionHistory({
         for (const item of data) {
           byId.set(item.id, item)
         }
-        return [...byId.values()].sort((a, b) => (a.updated < b.updated ? 1 : -1))
+        return [...byId.values()].sort((a, b) =>
+          a.updated < b.updated ? 1 : -1,
+        )
       })
     } catch (err) {
       console.error("Failed to refresh session history:", err)

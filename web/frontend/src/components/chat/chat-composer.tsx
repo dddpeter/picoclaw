@@ -1,4 +1,9 @@
-import { IconArrowUp, IconPhotoPlus, IconSquare, IconX } from "@tabler/icons-react"
+import {
+  IconArrowUp,
+  IconPhotoPlus,
+  IconSquare,
+  IconX,
+} from "@tabler/icons-react"
 import {
   type ClipboardEvent as ReactClipboardEvent,
   type DragEvent as ReactDragEvent,
@@ -9,10 +14,9 @@ import { useTranslation } from "react-i18next"
 import TextareaAutosize from "react-textarea-autosize"
 
 import { ContextUsageRing } from "@/components/chat/context-usage-ring"
+import { TemplatePickerButton } from "@/components/chat/prompt-templates"
 import { TurnStatusBar } from "@/components/chat/turn-status-bar"
 import { Button } from "@/components/ui/button"
-
-import { TemplatePickerButton } from "@/components/chat/prompt-templates"
 import { cn } from "@/lib/utils"
 import type { ChatAttachment, ContextUsage } from "@/store/chat"
 
@@ -104,7 +108,7 @@ export function ChatComposer({
         <TurnStatusBar />
         <div
           className={cn(
-            "bg-card border-border/60 relative flex w-full flex-col rounded-2xl border p-3 shadow-sm transition-colors",
+            "bg-card border-border/60 relative flex w-full flex-col gap-2 rounded-2xl border px-3 pt-3 pb-4 shadow-sm transition-colors",
             isDragActive && "border-orange-400/70 bg-orange-500/5",
           )}
           onDragEnter={onDragEnter}
@@ -121,7 +125,7 @@ export function ChatComposer({
           )}
 
           {attachments.length > 0 && (
-            <div className="mb-3 flex flex-wrap gap-2 px-2">
+            <div className="flex flex-wrap gap-2 px-2">
               {attachments.map((attachment, index) => (
                 <div
                   key={`${attachment.url}-${index}`}
@@ -161,14 +165,14 @@ export function ChatComposer({
             disabled={!canInput}
             title={disabledMessage || undefined}
             className={cn(
-              "placeholder:text-muted-foreground/50 max-h-[200px] min-h-[64px] resize-none border-0 bg-transparent px-2 py-1 text-[15px] shadow-none transition-colors focus-visible:ring-0 focus-visible:outline-none dark:bg-transparent",
+              "placeholder:text-muted-foreground/50 max-h-[200px] min-h-[64px] resize-none border-0 bg-transparent px-2 py-1 text-[15px] leading-[1.5] shadow-none transition-colors focus-visible:ring-0 focus-visible:outline-none dark:bg-transparent",
               !canInput && "cursor-not-allowed",
             )}
             minRows={1}
             maxRows={8}
           />
 
-          <div className="mt-2 flex items-center justify-between px-1">
+          <div className="flex items-end justify-between px-1">
             <div className="flex items-center gap-1">
               <Button
                 type="button"
@@ -196,7 +200,7 @@ export function ChatComposer({
                 <Button
                   type="button"
                   size="icon"
-                  className="size-8 rounded-full bg-destructive text-white transition-transform hover:bg-destructive/90 active:scale-95"
+                  className="bg-destructive hover:bg-destructive/90 size-8 rounded-full text-white transition-transform active:scale-95"
                   onClick={onStop}
                   aria-label={t("chat.stopGeneration")}
                 >
@@ -223,7 +227,7 @@ export function ChatComposer({
         <div
           aria-hidden={!hasInput}
           className={cn(
-            "border-border/50 bg-muted/55 text-muted-foreground mt-2 inline-flex items-center rounded-md border px-3 py-1 text-[11px] shadow-sm transition-all duration-200 dark:bg-muted/45",
+            "border-border/50 bg-muted/55 text-muted-foreground dark:bg-muted/45 mt-2 inline-flex items-center rounded-md border px-3 py-1 text-[11px] shadow-sm transition-all duration-200",
             hasInput
               ? "translate-y-0 opacity-100"
               : "pointer-events-none -translate-y-1 opacity-0",

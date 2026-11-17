@@ -1145,6 +1145,7 @@
     "roleAssistant": "Limulus",
     "steeringTag": "Steering",
     "thinkingWait": "Thinking",
+    "loading": "Loading…",
     "thinking": "Thinking",
     "thinkingNow": "Thinking",
     "thinkingPreview": "Thinking: {{preview}}",
@@ -1162,7 +1163,12 @@
     "done": "Done",
     "error": "Error",
     "toolDoneWaitingModel": "Done · waiting on model",
-    "toolQueued": "Queued"
+    "toolQueued": "Queued",
+    "actionsBar": "Message actions",
+    "regenerate": "Regenerate",
+    "moreActions": "More actions",
+    "backToLatest": "Back to latest",
+    "copyFailed": "Copy failed, please retry"
   },
   "tpl": {
     "hint": "Click a card to fill the input; ✏️ to edit or delete; add your own too",

@@ -414,8 +414,11 @@ export async function switchChatSession(sessionId: string, channel?: string) {
   }
 
   try {
-    const { messages: historyMessages, channel: detailChannel, turnActive } =
-      await loadSessionMessages(sessionId, channel)
+    const {
+      messages: historyMessages,
+      channel: detailChannel,
+      turnActive,
+    } = await loadSessionMessages(sessionId, channel)
 
     disconnectChatInternal({ clearDesiredConnection: false })
     setActiveSessionId(sessionId)

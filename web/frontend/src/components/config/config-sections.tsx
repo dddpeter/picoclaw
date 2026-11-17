@@ -1044,11 +1044,7 @@ export function SecuritySection({
           layout="setting-row"
           controlClassName="md:max-w-sm"
         >
-          <Button
-            variant="outline"
-            disabled={disabled}
-            onClick={onRerunWizard}
-          >
+          <Button variant="outline" disabled={disabled} onClick={onRerunWizard}>
             {t("pages.config.rerun_wizard_button")}
           </Button>
         </Field>

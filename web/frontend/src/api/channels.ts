@@ -8,9 +8,10 @@ export type AppConfig = Record<string, unknown>
  * leniently (GET /api/config may respond with the config plus a
  * `config_warnings` array). Extract them and return a clean config object.
  */
-export function extractConfigWarnings(
-  config: AppConfig,
-): { clean: AppConfig; warnings: string[] } {
+export function extractConfigWarnings(config: AppConfig): {
+  clean: AppConfig
+  warnings: string[]
+} {
   if (!config || typeof config !== "object") {
     return { clean: config, warnings: [] }
   }

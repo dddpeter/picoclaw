@@ -57,7 +57,7 @@ export function ProviderSection({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="group/head hover:bg-accent/40 mb-3 flex w-full items-center gap-2.5 rounded-lg border border-border/50 bg-card px-3 py-2 text-left transition-colors"
+        className="group/head hover:bg-accent/40 border-border/50 bg-card mb-3 flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors"
         aria-expanded={open}
         style={{ borderColor: hairline }}
       >

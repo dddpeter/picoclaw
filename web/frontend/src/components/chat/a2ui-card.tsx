@@ -15,6 +15,10 @@ import {
 } from "@a2ui/web_core/v0_9/basic_catalog"
 import { registerUniversalElement } from "@a2ui/web_core/v0_9/universal"
 import { IconAlertTriangle, IconLayoutGrid } from "@tabler/icons-react"
+// basicCatalog Icon 用 'Material Icons' 字体 ligature 渲染图标名（无字体时
+// 退化成原文，2026-11-14 用户截图实证）——本地打包字体，不依赖 Google CDN。
+// 只在此模块导入：字体随聊天路由 chunk 加载，主 bundle 不背。
+import "material-icons/iconfont/material-icons.css"
 import {
   Component,
   type ReactNode,
@@ -30,11 +34,6 @@ import { sendChatMessage } from "@/features/chat/controller"
 import type { A2uiInfo } from "@/store/chat"
 
 import { catalogWithVegaChart } from "./a2ui-vega"
-
-// basicCatalog Icon 用 'Material Icons' 字体 ligature 渲染图标名（无字体时
-// 退化成原文，2026-11-14 用户截图实证）——本地打包字体，不依赖 Google CDN。
-// 只在此模块导入：字体随聊天路由 chunk 加载，主 bundle 不背。
-import "material-icons/iconfont/material-icons.css"
 
 /**
  * A2UI 渲染卡（D5 设计）：聊天流内渲染 agent 经 render_ui 工具产出的
@@ -122,7 +121,7 @@ function A2uiNoticeBar({ notice }: { notice: A2uiNotice }) {
       className={
         notice === "sendFailed"
           ? "border-destructive/40 bg-destructive/10 text-destructive relative z-20 mb-2 flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-[13px]"
-          : "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400 relative z-20 mb-2 flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-[13px]"
+          : "relative z-20 mb-2 flex w-full items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[13px] text-amber-700 dark:text-amber-400"
       }
     >
       <IconAlertTriangle className="size-4 shrink-0" />

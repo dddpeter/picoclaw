@@ -67,7 +67,10 @@ export function ServerCard({
             className="hover:bg-muted/40 flex w-full cursor-pointer items-center gap-3 px-3 py-2.5 text-left transition-colors"
           >
             <span
-              className={cn("size-2 shrink-0 rounded-full", STATUS_DOT[runtime.status])}
+              className={cn(
+                "size-2 shrink-0 rounded-full",
+                STATUS_DOT[runtime.status],
+              )}
               title={t(`pages.mcp.server.status_${runtime.status}`)}
             />
             <span className="text-sm font-medium">
@@ -76,7 +79,9 @@ export function ServerCard({
             <Badge variant="outline">{draft.type}</Badge>
             {runtime.status === "connected" && runtime.entry && (
               <span className="text-muted-foreground text-xs">
-                {t("pages.mcp.server.tools_count", { count: runtime.entry.toolCount })}
+                {t("pages.mcp.server.tools_count", {
+                  count: runtime.entry.toolCount,
+                })}
               </span>
             )}
             <span
@@ -98,8 +103,14 @@ export function ServerCard({
                   >
                     ×
                   </Button>
-                  <Button variant="destructive" size="sm" onClick={onConfirmRemove}>
-                    {t("pages.mcp.servers.remove_confirm", { name: draft.name.trim() })}
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={onConfirmRemove}
+                  >
+                    {t("pages.mcp.servers.remove_confirm", {
+                      name: draft.name.trim(),
+                    })}
                   </Button>
                 </span>
               ) : (
@@ -136,7 +147,9 @@ export function ServerCard({
               <Field label={t("pages.mcp.server.type")} layout="setting-row">
                 <Select
                   value={draft.type}
-                  onValueChange={(value) => onChange({ type: value as MCPServerType })}
+                  onValueChange={(value) =>
+                    onChange({ type: value as MCPServerType })
+                  }
                 >
                   <SelectTrigger aria-label={t("pages.mcp.server.type")}>
                     <SelectValue />
@@ -160,7 +173,9 @@ export function ServerCard({
             <Field label={t("pages.mcp.server.deferred")} layout="setting-row">
               <Select
                 value={draft.deferred}
-                onValueChange={(value) => onChange({ deferred: value as DeferredMode })}
+                onValueChange={(value) =>
+                  onChange({ deferred: value as DeferredMode })
+                }
               >
                 <SelectTrigger aria-label={t("pages.mcp.server.deferred")}>
                   <SelectValue />
@@ -202,7 +217,10 @@ export function ServerCard({
               </>
             ) : (
               <>
-                <Field label={t("pages.mcp.server.command")} layout="setting-row">
+                <Field
+                  label={t("pages.mcp.server.command")}
+                  layout="setting-row"
+                >
                   <Input
                     value={draft.command}
                     placeholder={t("pages.mcp.server.command_placeholder")}
@@ -223,7 +241,10 @@ export function ServerCard({
                     onChange={(e) => onChange({ envText: e.target.value })}
                   />
                 </Field>
-                <Field label={t("pages.mcp.server.env_file")} layout="setting-row">
+                <Field
+                  label={t("pages.mcp.server.env_file")}
+                  layout="setting-row"
+                >
                   <Input
                     value={draft.envFile}
                     placeholder={t("pages.mcp.server.env_file_placeholder")}
@@ -263,10 +284,13 @@ export function ServerCard({
                 onClick={onTest}
                 disabled={testState?.running}
               >
-                {testState?.running ? t("pages.mcp.test.running") : t("pages.mcp.test.run")}
+                {testState?.running
+                  ? t("pages.mcp.test.running")
+                  : t("pages.mcp.test.run")}
               </Button>
-              {testState && !testState.running && (
-                testState.ok ? (
+              {testState &&
+                !testState.running &&
+                (testState.ok ? (
                   <span className="text-sm text-emerald-600 dark:text-emerald-400">
                     {t("pages.mcp.test.success", {
                       latency: testState.latencyMs,
@@ -278,14 +302,18 @@ export function ServerCard({
                     {t("pages.mcp.test.failed")}
                     {testState.error ? `: ${testState.error}` : ""}
                   </span>
-                )
-              )}
+                ))}
             </div>
             {testState?.ok && (testState.tools?.length ?? 0) > 0 && (
               <div className="mt-1 flex flex-col gap-1">
                 {(testState.tools ?? []).map((tool) => (
-                  <div key={tool.name} className="text-muted-foreground truncate text-xs">
-                    <span className="text-foreground font-mono">{tool.name}</span>
+                  <div
+                    key={tool.name}
+                    className="text-muted-foreground truncate text-xs"
+                  >
+                    <span className="text-foreground font-mono">
+                      {tool.name}
+                    </span>
                     {tool.description ? ` — ${tool.description}` : ""}
                   </div>
                 ))}

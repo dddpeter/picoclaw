@@ -5,7 +5,11 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
-import { extractConfigWarnings, patchAppConfig, resetAppConfig } from "@/api/channels"
+import {
+  extractConfigWarnings,
+  patchAppConfig,
+  resetAppConfig,
+} from "@/api/channels"
 import { launcherFetch, parseResponseError } from "@/api/http"
 import { postLauncherDashboardSetup } from "@/api/launcher-auth"
 import {
@@ -16,8 +20,6 @@ import {
   setLauncherConfig as updateLauncherConfig,
 } from "@/api/system"
 import { ConfigChangeNotice } from "@/components/config-change-notice"
-import { SetupWizard } from "@/components/setup/setup-wizard"
-import { UnknownFieldsNotice } from "@/components/config/unknown-fields-notice"
 import {
   AgentDefaultsSection,
   CronSection,
@@ -25,8 +27,8 @@ import {
   EvolutionSection,
   ExecSection,
   LauncherSection,
-  SecuritySection,
   RuntimeSection,
+  SecuritySection,
 } from "@/components/config/config-sections"
 import {
   type CoreConfigForm,
@@ -40,7 +42,9 @@ import {
   parseIntField,
   parseMultilineList,
 } from "@/components/config/form-model"
+import { UnknownFieldsNotice } from "@/components/config/unknown-fields-notice"
 import { PageHeader } from "@/components/page-header"
+import { SetupWizard } from "@/components/setup/setup-wizard"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -109,7 +113,9 @@ export function ConfigPage() {
           signal: controller.signal,
         })
         if (!res.ok) {
-          throw new Error(await parseResponseError(res, "Failed to load config"))
+          throw new Error(
+            await parseResponseError(res, "Failed to load config"),
+          )
         }
         return res.json()
       } finally {
@@ -195,11 +201,11 @@ export function ConfigPage() {
         ? (rawGateway as Record<string, unknown>)
         : undefined
     const next =
-      gateway?.auto_start === undefined
-        ? true
-        : Boolean(gateway.auto_start)
+      gateway?.auto_start === undefined ? true : Boolean(gateway.auto_start)
     setLauncherForm((prev) =>
-      prev.gatewayAutoStart === next ? prev : { ...prev, gatewayAutoStart: next },
+      prev.gatewayAutoStart === next
+        ? prev
+        : { ...prev, gatewayAutoStart: next },
     )
     setLauncherBaseline((prev) =>
       prev.gatewayAutoStart === next
@@ -370,7 +376,6 @@ export function ConfigPage() {
           throw new Error("Session scope is required.")
         }
 
-
         const maxTokens = parseIntField(form.maxTokens, "Max tokens", {
           min: 1,
         })
@@ -421,7 +426,6 @@ export function ConfigPage() {
         const execConfigPatch: Record<string, unknown> = {
           enabled: form.execEnabled,
         }
-
 
         if (form.execEnabled) {
           execConfigPatch.allow_remote = form.allowRemote
@@ -512,7 +516,9 @@ export function ConfigPage() {
         )
         // gateway.auto_start lives in the app config file: persist it with a
         // dedicated merge-patch so other launcher fields above stay separate.
-        if (launcherForm.gatewayAutoStart !== launcherBaseline.gatewayAutoStart) {
+        if (
+          launcherForm.gatewayAutoStart !== launcherBaseline.gatewayAutoStart
+        ) {
           await patchAppConfig({
             gateway: {
               auto_start: launcherForm.gatewayAutoStart,

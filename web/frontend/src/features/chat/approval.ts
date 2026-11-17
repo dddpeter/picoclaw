@@ -36,7 +36,12 @@ export function parseGoDuration(text: string): number | undefined {
   let ms = 0
   let matched = false
   // 单位按长度降序匹配：ms 在 m 之前，避免 "500ms" 被吃成 "500m"。
-  const unitMs: Record<string, number> = { h: 3_600_000, ms: 1, m: 60_000, s: 1_000 }
+  const unitMs: Record<string, number> = {
+    h: 3_600_000,
+    ms: 1,
+    m: 60_000,
+    s: 1_000,
+  }
   for (const match of text.matchAll(/(\d+(?:\.\d+)?)(ms|[hms])/g)) {
     matched = true
     ms += Number(match[1]) * (unitMs[match[2]] ?? 0)
@@ -45,7 +50,9 @@ export function parseGoDuration(text: string): number | undefined {
 }
 
 /** v0：publishAsk 兜底文本 → ApprovalInfo。 */
-export function parseApprovalFromText(content: string): ApprovalInfo | undefined {
+export function parseApprovalFromText(
+  content: string,
+): ApprovalInfo | undefined {
   const lines = content.split("\n")
   const first = (lines[0] ?? "").trim()
   if (!first.startsWith(ASK_PREFIX)) {
@@ -55,10 +62,13 @@ export function parseApprovalFromText(content: string): ApprovalInfo | undefined
   if (!tool) {
     return undefined
   }
-  const replyIdx = lines.findIndex((line) => line.trim().startsWith(ASK_REPLY_PREFIX))
+  const replyIdx = lines.findIndex((line) =>
+    line.trim().startsWith(ASK_REPLY_PREFIX),
+  )
   const replyLine = replyIdx >= 0 ? lines[replyIdx].trim() : ""
-  const preview =
-    (replyIdx > 0 ? lines.slice(1, replyIdx) : lines.slice(1)).join("\n").trim()
+  const preview = (replyIdx > 0 ? lines.slice(1, replyIdx) : lines.slice(1))
+    .join("\n")
+    .trim()
   const timeoutMatch = /超过\s*([0-9hms.]+)\s*未回复/.exec(replyLine)
   const timeoutMs = timeoutMatch ? parseGoDuration(timeoutMatch[1]) : undefined
   return {
@@ -72,7 +82,9 @@ export type ApprovalReceiptVerdict = ApprovalSeal["verdict"]
 
 /** 回执文本特征 → 结论；非回执返回 undefined。孤儿回执配对成功时把悬空
  * pending 卡封存为 done（双端在线另一端已答复、或迟到点击）。 */
-export function matchApprovalReceipt(content: string): ApprovalReceiptVerdict | undefined {
+export function matchApprovalReceipt(
+  content: string,
+): ApprovalReceiptVerdict | undefined {
   const trimmed = content.trim()
   // allow_all（/approve all）与 always（规则提升）语义不同：前者让本会话
   // 所有审批自动放行。合并成 "always" 会把全局放行伪装成单规则放行，
@@ -108,7 +120,11 @@ export function sealLastApproval(
 ): ChatMessage[] | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i]
-    if (message.role === "assistant" && message.approval && !message.approvalSeal) {
+    if (
+      message.role === "assistant" &&
+      message.approval &&
+      !message.approvalSeal
+    ) {
       const copy = [...messages]
       copy[i] = { ...message, approvalSeal: { verdict, at } }
       return copy
@@ -127,7 +143,11 @@ export function pairApprovalHistory(messages: ChatMessage[]): ChatMessage[] {
     if (message.role === "assistant") {
       const verdict = matchApprovalReceipt(message.content)
       if (verdict) {
-        const sealed = sealLastApproval(out, verdict, typeof message.timestamp === "number" ? message.timestamp : 0)
+        const sealed = sealLastApproval(
+          out,
+          verdict,
+          typeof message.timestamp === "number" ? message.timestamp : 0,
+        )
         if (sealed) {
           out.length = 0
           out.push(...sealed)

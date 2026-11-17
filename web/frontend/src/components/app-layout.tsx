@@ -1,20 +1,20 @@
-import { useEffect, useState, type ReactNode } from "react"
 import { useQueryClient } from "@tanstack/react-query"
+import { type ReactNode, useEffect, useState } from "react"
 import { Toaster } from "sonner"
 
+import { getModels } from "@/api/models"
 import { AppHeader } from "@/components/app-header"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
+  SetupWizard,
+  type SetupWizardResult,
   getWizardDismissed,
   setWizardDismissed,
-  SetupWizard,
   shouldAutoOpenWizard,
-  type SetupWizardResult,
 } from "@/components/setup/setup-wizard"
 import { TourGuide } from "@/components/tour/tour-guide"
 import { SidebarProvider } from "@/components/ui/sidebar"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import { getModels } from "@/api/models"
 
 function SetupWizardHost() {
   const [open, setOpen] = useState(false)

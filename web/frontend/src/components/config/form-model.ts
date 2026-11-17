@@ -35,7 +35,6 @@ export interface CoreConfigForm {
   evolutionColdPathTimesText: string
 }
 
-
 export type TurnProfileMode = "default" | "off" | "custom"
 
 export interface TurnProfileForm {
@@ -47,7 +46,6 @@ export interface TurnProfileForm {
   toolsMode: TurnProfileMode
   toolsAllowText: string
 }
-
 
 export interface LauncherForm {
   port: string
@@ -169,7 +167,6 @@ function asNumberString(value: unknown, fallback: string): string {
   }
   return fallback
 }
-
 
 function toTurnProfileMode(value: unknown): TurnProfileMode {
   if (value === "off" || value === "custom") {

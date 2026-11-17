@@ -1,9 +1,4 @@
-import {
-  IconCheck,
-  IconChevronDown,
-  IconCopy,
-} from "@tabler/icons-react"
-import { useAtom } from "jotai"
+import { IconCheck, IconChevronDown, IconCopy } from "@tabler/icons-react"
 import hljs from "highlight.js/lib/core"
 import bash from "highlight.js/lib/languages/bash"
 import go from "highlight.js/lib/languages/go"
@@ -13,32 +8,33 @@ import json from "highlight.js/lib/languages/json"
 import python from "highlight.js/lib/languages/python"
 import sql from "highlight.js/lib/languages/sql"
 import typescript from "highlight.js/lib/languages/typescript"
-import yaml from "highlight.js/lib/languages/yaml"
 import xml from "highlight.js/lib/languages/xml"
+import yaml from "highlight.js/lib/languages/yaml"
+import { useAtom } from "jotai"
 import {
-  type ComponentProps,
   type CSSProperties,
+  type ComponentProps,
   type ReactNode,
   useState,
 } from "react"
 import { useTranslation } from "react-i18next"
 
+import { Button } from "@/components/ui/button"
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard"
 import { cn } from "@/lib/utils"
 import { codeBlockWrapAtom } from "@/store/code-block"
 
 import {
+  type MarkdownNode,
   extractCodeBlockFromPreNode,
   extractCodeBlockRenderState,
-  type MarkdownNode,
+  isSingleLine,
   splitCodeIntoLines,
   splitHighlightedHtmlIntoLines,
   splitRenderedCodeContentIntoLines,
   trimTrailingEmptyRenderedCodeLine,
   trimTrailingEmptyStringLine,
 } from "./message-code-block.utils"
-
-import { Button } from "@/components/ui/button"
 
 const CODE_LABEL_FONT_FAMILY =
   'ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", monospace'
@@ -114,17 +110,49 @@ export function MessageCodeBlock({
     ? splitHighlightedHtmlIntoLines(highlightedHtml)
     : null
   const codeLines = children
-    ? (trimTrailingEmptyLine
-        ? trimTrailingEmptyRenderedCodeLine(
-            splitRenderedCodeContentIntoLines(renderedCodeState.renderedContent),
-          )
-        : splitRenderedCodeContentIntoLines(renderedCodeState.renderedContent))
-    : (trimTrailingEmptyLine
-        ? trimTrailingEmptyStringLine(
-            highlightedLines ?? splitCodeIntoLines(code),
-          )
-        : (highlightedLines ?? splitCodeIntoLines(code)))
+    ? trimTrailingEmptyLine
+      ? trimTrailingEmptyRenderedCodeLine(
+          splitRenderedCodeContentIntoLines(renderedCodeState.renderedContent),
+        )
+      : splitRenderedCodeContentIntoLines(renderedCodeState.renderedContent)
+    : trimTrailingEmptyLine
+      ? trimTrailingEmptyStringLine(
+          highlightedLines ?? splitCodeIntoLines(code),
+        )
+      : (highlightedLines ?? splitCodeIntoLines(code))
   const lineNumberWidth = `${String(codeLines.length).length + 1}ch`
+
+  // REQ-007：单行短代码（≤1 行且 ≤32 字符）走 inline 徽章路线，
+  // 不渲染 header 折叠头与行号 gutter
+  if (isSingleLine(code)) {
+    const inlineCopyLabel = isCopied
+      ? t("chat.copiedLabel")
+      : t("chat.copyCode")
+    return (
+      <span
+        data-picoclaw-code-inline=""
+        className={cn(
+          "my-1 inline-flex max-w-full items-center gap-1.5 rounded-md border border-[#d0d7de] bg-[#f6f8fa] px-2 py-0.5 align-middle dark:border-[#30363d] dark:bg-[#0d1117]",
+          className,
+        )}
+      >
+        <code className="min-w-0 truncate font-mono text-[13px] text-inherit">
+          {code.trim()}
+        </code>
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          className="h-6 w-6 shrink-0 p-0 text-zinc-600 hover:bg-zinc-300/70 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+          onClick={() => void copy(code)}
+          aria-label={inlineCopyLabel}
+          title={inlineCopyLabel}
+        >
+          {isCopied ? <IconCheck className="text-green-500" /> : <IconCopy />}
+        </Button>
+      </span>
+    )
+  }
 
   return (
     <div
@@ -151,11 +179,7 @@ export function MessageCodeBlock({
             aria-label={copyLabel}
             title={copyLabel}
           >
-            {isCopied ? (
-              <IconCheck className="text-green-500" />
-            ) : (
-              <IconCopy />
-            )}
+            {isCopied ? <IconCheck className="text-green-500" /> : <IconCopy />}
             <span className="hidden sm:inline">{copyLabel}</span>
           </Button>
           <Button
@@ -181,7 +205,10 @@ export function MessageCodeBlock({
             title={expandLabel}
           >
             <IconChevronDown
-              className={cn("transition-transform duration-200", isExpanded && "rotate-180")}
+              className={cn(
+                "transition-transform duration-200",
+                isExpanded && "rotate-180",
+              )}
             />
             <span className="hidden sm:inline">{expandLabel}</span>
           </Button>
@@ -200,7 +227,10 @@ export function MessageCodeBlock({
               "block bg-transparent p-0 text-inherit",
               children
                 ? renderedCodeState.className
-                : cn(highlightedHtml && "hljs", language && `language-${language}`),
+                : cn(
+                    highlightedHtml && "hljs",
+                    language && `language-${language}`,
+                  ),
             )}
           >
             {codeLines.map((line, index) => (
@@ -213,7 +243,7 @@ export function MessageCodeBlock({
                   } as CSSProperties
                 }
               >
-                <span className="sticky left-0 z-1 select-none bg-[#f6f8fa] text-right text-zinc-500/80 dark:bg-[#0d1117] dark:text-zinc-500">
+                <span className="sticky left-0 z-1 bg-[#f6f8fa] text-right text-zinc-500/80 select-none dark:bg-[#0d1117] dark:text-zinc-500">
                   {index + 1}
                 </span>
                 {!children && highlightedLines ? (

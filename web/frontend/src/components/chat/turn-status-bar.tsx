@@ -42,7 +42,9 @@ export function TurnStatusBar() {
     turnStatus,
     contextUsage,
   } = useAtomValue(chatAtom)
-  const [now, setNow] = useState(Date.now())
+  // [react-hooks/purity] 惰性初始化：Date.now() 仅在挂载时求值一次，
+  // 不放 render 期直接调用；后续由下方 effect 的 interval 刷新。
+  const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
     if (!isTyping) return

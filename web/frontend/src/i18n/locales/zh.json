@@ -1145,6 +1145,7 @@
     "roleAssistant": "Limulus",
     "steeringTag": "插问",
     "thinkingWait": "正在思考",
+    "loading": "加载中…",
     "thinking": "思考",
     "thinkingNow": "思考中",
     "thinkingPreview": "思考：{{preview}}",
@@ -1162,7 +1163,12 @@
     "done": "完成",
     "error": "出错",
     "toolDoneWaitingModel": "已结束 · 等模型",
-    "toolQueued": "排队中"
+    "toolQueued": "排队中",
+    "actionsBar": "消息操作",
+    "regenerate": "重新生成",
+    "moreActions": "更多操作",
+    "backToLatest": "回到最新",
+    "copyFailed": "复制失败，请重试"
   },
   "tpl": {
     "hint": "点击卡片直接填入输入框，✏️ 可编辑或删除 · 也能新增自己的模板",

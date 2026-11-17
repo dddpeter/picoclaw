@@ -5,16 +5,59 @@ import {
   IconStar,
 } from "@tabler/icons-react"
 import { Link } from "@tanstack/react-router"
+import type { ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 
-import { Button } from "@/components/ui/button"
-
 import { EmptyTemplateCards } from "@/components/chat/prompt-templates"
+import { Button } from "@/components/ui/button"
 
 interface ChatEmptyStateProps {
   hasAvailableModels: boolean
   defaultModelName: string
   isConnected: boolean
+}
+
+function EmptyStateLayout({
+  icon,
+  title,
+  description,
+  tone = "warning",
+  hero = false,
+  children,
+}: {
+  icon: ReactNode
+  title: string
+  description: string
+  tone?: "warning" | "info" | "danger"
+  hero?: boolean
+  children?: ReactNode
+}) {
+  const toneClass = {
+    warning: "text-[var(--lobe-warning)]",
+    info: "text-[var(--lobe-info)]",
+    danger: "text-[var(--lobe-danger)]",
+  }[tone]
+
+  return (
+    <div className="flex min-h-[420px] flex-col items-center justify-center px-4 py-16 text-center">
+      <div
+        className={`mb-5 flex size-14 items-center justify-center rounded-2xl bg-[var(--lobe-fill-2)] ${toneClass}`}
+      >
+        {icon}
+      </div>
+      <h3
+        className={`font-semibold tracking-[-0.01em] text-[var(--lobe-text)] ${
+          hero ? "text-[28px] leading-[1.2]" : "text-[22px] leading-tight"
+        }`}
+      >
+        {title}
+      </h3>
+      <p className="mt-2 max-w-md text-sm leading-6 text-[var(--lobe-text-desc)]">
+        {description}
+      </p>
+      {children}
+    </div>
+  )
 }
 
 export function ChatEmptyState({
@@ -26,67 +69,52 @@ export function ChatEmptyState({
 
   if (!hasAvailableModels) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 opacity-70">
-        <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-500">
-          <IconRobotOff className="h-8 w-8" />
-        </div>
-        <h3 className="mb-2 text-xl font-medium">
-          {t("chat.empty.noConfiguredModel")}
-        </h3>
-        <p className="text-muted-foreground mb-4 text-center text-sm">
-          {t("chat.empty.noConfiguredModelDescription")}
-        </p>
-        <Button asChild variant="outline" size="sm" className="px-4">
+      <EmptyStateLayout
+        icon={<IconRobotOff className="size-6" aria-hidden />}
+        title={t("chat.empty.noConfiguredModel")}
+        description={t("chat.empty.noConfiguredModelDescription")}
+      >
+        <Button asChild variant="outline" size="sm" className="mt-6 px-4">
           <Link to="/models">{t("chat.empty.goToModels")}</Link>
         </Button>
-      </div>
+      </EmptyStateLayout>
     )
   }
 
   if (!defaultModelName) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 opacity-70">
-        <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-500">
-          <IconStar className="h-8 w-8" />
-        </div>
-        <h3 className="mb-2 text-xl font-medium">
-          {t("chat.empty.noSelectedModel")}
-        </h3>
-        <p className="text-muted-foreground mb-4 text-center text-sm">
-          {t("chat.empty.noSelectedModelDescription")}
-        </p>
-      </div>
+      <EmptyStateLayout
+        icon={<IconStar className="size-6" aria-hidden />}
+        title={t("chat.empty.noSelectedModel")}
+        description={t("chat.empty.noSelectedModelDescription")}
+      >
+        <Button asChild variant="outline" size="sm" className="mt-6 px-4">
+          <Link to="/models">{t("chat.empty.goToModels")}</Link>
+        </Button>
+      </EmptyStateLayout>
     )
   }
 
   if (!isConnected) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 opacity-70">
-        <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-500">
-          <IconPlugConnectedX className="h-8 w-8" />
-        </div>
-        <h3 className="mb-2 text-xl font-medium">
-          {t("chat.empty.notRunning")}
-        </h3>
-        <p className="text-muted-foreground mb-4 text-center text-sm">
-          {t("chat.empty.notRunningDescription")}
-        </p>
-      </div>
+      <EmptyStateLayout
+        icon={<IconPlugConnectedX className="size-6" aria-hidden />}
+        title={t("chat.empty.notRunning")}
+        description={t("chat.empty.notRunningDescription")}
+        tone="danger"
+      />
     )
   }
 
   return (
-    <div className="flex flex-col items-center justify-center py-20">
-      <div className="from-amber-500/20 to-rose-500/15 mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br text-orange-500 shadow-lg shadow-orange-500/20">
-        <IconRobot className="h-8 w-8" />
-      </div>
-      <h3 className="from-orange-600 via-rose-500 to-amber-500 mb-2 bg-gradient-to-r bg-clip-text text-lg font-semibold text-transparent">
-        {t("chat.welcome")}
-      </h3>
-      <p className="text-muted-foreground text-center text-sm">
-        {t("chat.welcomeDesc")}
-      </p>
+    <EmptyStateLayout
+      icon={<IconRobot className="size-6" aria-hidden />}
+      title={t("chat.welcome")}
+      description={t("chat.welcomeDesc")}
+      tone="info"
+      hero
+    >
       <EmptyTemplateCards />
-    </div>
+    </EmptyStateLayout>
   )
 }

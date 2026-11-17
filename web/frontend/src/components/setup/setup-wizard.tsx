@@ -1,18 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { cn } from "@/lib/utils"
 import { patchAppConfig } from "@/api/channels"
 import {
+  type ModelInfo,
+  type ModelProviderOption,
   addModel,
   getModels,
   setDefaultModel,
   testModelInline,
-  type ModelInfo,
-  type ModelProviderOption,
 } from "@/api/models"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { cn } from "@/lib/utils"
 
 const WIZARD_STORAGE_KEY = "picoclaw-setup-wizard-dismissed"
 
@@ -135,7 +135,7 @@ export function SetupWizard({ open, onClose }: SetupWizardProps) {
           provider: selected.id,
           model: modelName || "",
           api_base: selected.default_api_base,
-api_key: apiKey || undefined,
+          api_key: apiKey || undefined,
           enabled: true,
         })
       }
