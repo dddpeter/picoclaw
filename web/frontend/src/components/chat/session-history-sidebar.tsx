@@ -165,6 +165,7 @@ export function SessionHistorySidebar({
 
           {sessions.map((session) => {
             const active = session.id === activeSessionId
+            const busy = (active && activeSessionBusy) || session.busy === true
 
             return (
               <div
@@ -182,31 +183,35 @@ export function SessionHistorySidebar({
                 }}
                 className={cn(
                   "group relative min-w-0 cursor-pointer rounded-lg px-2.5 py-2 transition-colors select-none",
+                  // 三态可见性分级（2026-11-17 反馈）：原先选中用 fill-3(6%)、hover 用
+                  // fill-2(9%)，选中底色反而比 hover 淡，暗色下几乎不可辨。
+                  // 现改为：hover = 9% 底 + 淡色左条；选中 = 14% 底 + 主色左条。
                   active
-                    ? "bg-[var(--lobe-fill-3)] text-[var(--lobe-text)]"
-                    : "text-[var(--lobe-text-2)] hover:bg-[var(--lobe-fill-2)] hover:text-[var(--lobe-text)]",
+                    ? "bg-[var(--lobe-fill)] text-[var(--lobe-text)] shadow-[inset_2px_0_0_0_var(--lobe-info)]"
+                    : "text-[var(--lobe-text-2)] hover:bg-[var(--lobe-fill-2)] hover:text-[var(--lobe-text)] hover:shadow-[inset_2px_0_0_0_var(--lobe-border)]",
                 )}
               >
                 <div className="flex items-center gap-2 pr-6">
-                  {(active && activeSessionBusy) || session.busy ? (
+                  {busy ? (
                     <IconLoader2
-                      className="size-3.5 shrink-0 animate-spin text-[var(--lobe-info)]"
+                      className="size-4 shrink-0 animate-spin text-[var(--lobe-info)]"
                       aria-label={t("chat.turnRunning")}
                     />
                   ) : (
                     <span
                       className={cn(
-                        "h-1.5 w-1.5 shrink-0 rounded-full transition-colors",
+                        "shrink-0 rounded-full transition-all",
                         active
-                          ? "bg-[var(--lobe-info)]"
-                          : "bg-[var(--lobe-text-disabled)]",
+                          ? "h-2 w-2 bg-[var(--lobe-info)]"
+                          : "h-1.5 w-1.5 bg-[var(--lobe-text-disabled)]",
                       )}
                     />
                   )}
                   <span
                     className={cn(
                       "line-clamp-1 text-[13px] font-medium [overflow-wrap:anywhere]",
-                      active
+                      // 活跃（运行中）会话即使未被选中也提亮标题，配合转圈图标形成第二辨认通道。
+                      active || busy
                         ? "text-[var(--lobe-text)]"
                         : "text-[var(--lobe-text-2)] group-hover:text-[var(--lobe-text)]",
                     )}
