@@ -1512,6 +1512,33 @@ div.chead[role="button"]:focus-visible,
   }
 }
 
+/* ==== [REQ-023] 断点体系落地（口径 B）：宽度断点必须以真实 media query 存在，禁止仅注释声明 ====
+ * md=768：窄屏主断点，见上方 @media (max-width: 768px) 块（真实规则）。
+ * lg=1024 / xl=1280：消息区密度无独立行为——需求基线 v1.1 REQ-023 仅要求 ≤768px；
+ * 平板档 769-1024 经审计无独立密度需求；基准 A（lobe-chat v1.11.9）聊天布局亦以
+ * md 768 为唯一分界。lg/xl 的真实行为 = 页面留白/列宽阶梯，owner = chat-page.tsx
+ *（px-4 md:px-8 lg:px-24 xl:px-48）与容器封顶 max-w-250（= 1000px）。
+ * 以下两条为【幂等固化】：现值与既有渲染 100% 一致（零渲染变化），作用有二：
+ *   ①断点体系在 CSS 层可检索（口径 B 验收：grep 即得）；
+ *   ②守门——本文件为未分层样式，优先级高于 Tailwind @layer utilities；上游若调整
+ *     列宽（max-w-250 / max-w-[1000px]），本规则会压制新值并使 review 必见 diff。
+ * 若上游确需调整列宽：必须同步修改或删除本固化规则，禁止只改一侧。 */
+@media (min-width: 1024px) {
+  .pi-chat {
+    /* 固化来源：chat-page.tsx L488 max-w-250（Tailwind v4 = 250 × 0.25rem = 1000px）。
+     * lg 档内容列宽 = min(视口 − 2×96px, 1000px)：1024 视口 → 832px。 */
+    max-width: 1000px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .pi-chat {
+    /* xl 档无独立密度行为（守门固化）。内容列宽 = min(视口 − 2×192px, 1000px)：
+     * 1280 视口 → 896px，≥1384px 视口起封顶 1000px。 */
+    max-width: 1000px;
+  }
+}
+
 /* ==== [REQ-020] MessageActionsBar 骨架：hover 底部操作条 ==== */
 .msg-actions-bar {
   display: inline-flex;
