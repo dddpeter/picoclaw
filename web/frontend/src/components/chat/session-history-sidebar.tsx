@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import type { SessionSummary } from "@/api/sessions"
+import { LOBE_SCOPE_TOKENS } from "@/chat-pi/tokens"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
@@ -29,9 +30,6 @@ interface SessionHistorySidebarProps {
   onRefresh: () => void
   onAutoRefresh: () => void
 }
-
-const LOBE_SIDEBAR_TOKENS =
-  "[--lobe-text:var(--foreground)] [--lobe-text-2:var(--muted-foreground)] [--lobe-text-desc:var(--muted-foreground)] [--lobe-text-disabled:var(--muted-foreground)] [--lobe-border:var(--border)] [--lobe-border-2:var(--border)] [--lobe-fill-2:var(--accent)] [--lobe-fill-3:var(--secondary)] [--lobe-bg-elevated:var(--card)] [--lobe-info:var(--primary)]"
 
 export function SessionHistorySidebar({
   sessions,
@@ -120,7 +118,7 @@ export function SessionHistorySidebar({
   return (
     <aside
       className={cn(
-        LOBE_SIDEBAR_TOKENS,
+        LOBE_SCOPE_TOKENS,
         "flex w-80 shrink-0 flex-col border-r border-[var(--lobe-border-2)] bg-[var(--lobe-bg-elevated)]",
       )}
     >

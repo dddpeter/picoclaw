@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next"
 
 import type { ModelInfo } from "@/api/models"
+import { LOBE_SCOPE_TOKENS } from "@/chat-pi/tokens"
 import {
   Select,
   SelectContent,
@@ -21,9 +22,6 @@ interface ModelSelectorProps {
   disabled?: boolean
   onValueChange: (modelName: string) => void
 }
-
-const LOBE_SELECT_TOKENS =
-  "[--lobe-text:var(--foreground)] [--lobe-text-2:var(--muted-foreground)] [--lobe-text-desc:var(--muted-foreground)] [--lobe-border:var(--border)] [--lobe-border-2:var(--border)] [--lobe-fill-2:var(--accent)] [--lobe-fill-3:var(--secondary)] [--lobe-bg-elevated:var(--card)]"
 
 export function ModelSelector({
   defaultModelName,
@@ -51,7 +49,7 @@ export function ModelSelector({
       <SelectTrigger
         size="sm"
         className={cn(
-          LOBE_SELECT_TOKENS,
+          LOBE_SCOPE_TOKENS,
           "focus-visible:ring-ring/30 h-8 max-w-[180px] min-w-[96px] rounded-lg border-0 bg-[var(--lobe-fill-2)] px-2.5 text-[13px] font-medium text-[var(--lobe-text-2)] shadow-none hover:bg-[var(--lobe-fill-3)] hover:text-[var(--lobe-text)] focus-visible:ring-2 sm:max-w-[240px]",
         )}
       >
@@ -61,7 +59,7 @@ export function ModelSelector({
         position="popper"
         align="start"
         className={cn(
-          LOBE_SELECT_TOKENS,
+          LOBE_SCOPE_TOKENS,
           "rounded-lg border border-[var(--lobe-border-2)] bg-[var(--lobe-bg-elevated)] p-1 text-[var(--lobe-text)] shadow-lg ring-0",
         )}
       >
