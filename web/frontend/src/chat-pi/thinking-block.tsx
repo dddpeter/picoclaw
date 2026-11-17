@@ -47,7 +47,7 @@ export function ThinkingBlock({
         role="button"
         tabIndex={0}
         aria-expanded={shown}
-        aria-controls={bodyId}
+        aria-controls={shown ? bodyId : undefined}
         aria-label={shown ? t("piChat.collapseMsg") : t("piChat.expandMsg")}
         title={shown ? t("piChat.collapseMsg") : t("piChat.expandMsg")}
         onClick={() => setOpen(!expanded)}
@@ -65,7 +65,7 @@ export function ThinkingBlock({
           title={shown ? t("piChat.collapseMsg") : t("piChat.expandMsg")}
           aria-label={shown ? t("piChat.collapseMsg") : t("piChat.expandMsg")}
           aria-expanded={shown}
-          aria-controls={bodyId}
+          aria-controls={shown ? bodyId : undefined}
           onClick={(e) => {
             e.stopPropagation()
             setOpen(!expanded)

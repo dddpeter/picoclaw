@@ -3,9 +3,8 @@
 // .thinking-toggle 挂 aria-controls，.thinking-body 挂 id，仍仅展开时渲染）：
 //  - 展开态：body 渲染且带 id，head/toggle 的 aria-controls 与该 id 一致，
 //    aria-expanded="true"；
-//  - 折叠态：aria-expanded="false" 正确，但 body 不渲染 → aria-controls 成为
-//    断链 IDREF（无同 id 元素）。本条如实锁定期望行为，同时在测试报告登记为
-//    边界/缺陷 A11Y-01，不做「假装通过」处理（见 TB-02 注释）；
+//  - 折叠态：aria-expanded="false" 正确；body 不渲染时 aria-controls 同步摘除
+//    （A11Y-01 方案 A），避免悬空 IDREF；
 //  - 展开/收起（鼠标 + 键盘）后 id 关联不漂移，useId 在同一 root 内不冲突；
 //  - 复制槽 stopPropagation：点复制槽不得误触发折叠（边界）。
 //
@@ -88,19 +87,27 @@ describe("ThinkingBlock 可达性 [REQ-020]", () => {
     h.unmount()
   })
 
-  it("TB-02 折叠态：aria-controls 指向的 id 在文档中不存在（断链 IDREF，登记为 A11Y-01）", () => {
-    // 断言的是「当前实现的客观事实」，不是「理想可达性」。因此本用例通过 =
-    // 该事实成立，不代表 aria-controls 合法。判定与影响见测试报告缺陷 A11Y-01：
-    // 折叠时 body 不渲染，ARIA IDREF 悬空；因 aria-expanded 已独立承载展开态，
-    // 读屏仍可操作该披露控件，故按低严重度登记。
+  it("TB-02 折叠态：aria-controls 不挂属性；展开后非空且解析到真实 body", () => {
+    // A11Y-01 修复（方案 A）：折叠态 body 不渲染，因此 head/toggle 不挂
+    // aria-controls，避免悬空 IDREF。展开后属性恢复并指向当前渲染的 body。
     const h = mount(<ThinkingBlock thinking="思考内容" wrap={false} />)
+
+    for (const el of [head(h.container), toggle(h.container)]) {
+      // React 对 undefined 属性不会落成 DOM attribute：折叠态应无 aria-controls。
+      expect(el.hasAttribute("aria-controls")).toBe(false)
+      expect(el.getAttribute("aria-controls")).toBeNull()
+      expect(el.getAttribute("aria-expanded")).toBe("false")
+    }
+
+    click(toggle(h.container))
 
     for (const el of [head(h.container), toggle(h.container)]) {
       const controls = el.getAttribute("aria-controls")
       expect(controls).toBeTruthy()
+      expect(el.getAttribute("aria-expanded")).toBe("true")
       // 用 getElementById 而非 querySelector(`#${id}`)：React useId 的 id 含
       // 非 CSS 标识符字符，选择器会转义失败。
-      expect(document.getElementById(controls!)).toBeNull()
+      expect(document.getElementById(controls!)).toBe(body(h.container))
     }
     h.unmount()
   })
