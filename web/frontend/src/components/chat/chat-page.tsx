@@ -1,4 +1,9 @@
-import { IconAlertTriangle, IconHistory, IconPlus } from "@tabler/icons-react"
+import {
+  IconAlertTriangle,
+  IconArrowDown,
+  IconHistory,
+  IconPlus,
+} from "@tabler/icons-react"
 import { useAtom } from "jotai"
 import {
   type ChangeEvent,
@@ -41,6 +46,7 @@ import { useChatModels } from "@/hooks/use-chat-models"
 import { useGateway } from "@/hooks/use-gateway"
 import { usePicoChat } from "@/hooks/use-pico-chat"
 import { useSessionHistory } from "@/hooks/use-session-history"
+import { cn } from "@/lib/utils"
 import type { AssistantDetailVisibility } from "@/store/chat"
 import type { ConnectionState } from "@/store/chat"
 import type { ChatAttachment } from "@/store/chat"
@@ -194,6 +200,14 @@ export function ChatPage() {
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     syncScrollState(e.currentTarget)
+  }
+
+  // REQ-018: 点击后平滑滚底即可；落底时 onScroll → syncScrollState 会把
+  // isAtBottom 置真，按钮随之隐藏，流式自动跟随恢复（无需在此手动 setState）。
+  const scrollToLatest = () => {
+    const element = scrollRef.current
+    if (!element) return
+    element.scrollTo({ top: element.scrollHeight, behavior: "smooth" })
   }
 
   useEffect(() => {
@@ -463,42 +477,68 @@ export function ChatPage() {
             </Button>
           </PageHeader>
 
-          <div
-            ref={scrollRef}
-            onScroll={handleScroll}
-            className="min-h-0 flex-1 [scrollbar-gutter:stable] overflow-y-auto px-4 py-6 md:px-8 lg:px-24 xl:px-48"
-          >
-            <div className="pi-chat mx-auto flex w-full max-w-250 flex-col pb-8">
-              {messages.length === 0 && !isTyping && (
-                <ChatEmptyState
-                  hasAvailableModels={hasAvailableModels}
-                  defaultModelName={defaultModelName}
-                  isConnected={isGatewayRunning}
+          {/* REQ-018: relative 包裹层让「回到最新」按钮锚定在消息区底部，
+            不随内容滚动；内部滚动容器几何不变。 */}
+          <div className="relative min-h-0 flex-1">
+            <div
+              ref={scrollRef}
+              onScroll={handleScroll}
+              className="h-full [scrollbar-gutter:stable] overflow-y-auto px-4 py-6 md:px-8 lg:px-24 xl:px-48"
+            >
+              <div className="pi-chat mx-auto flex w-full max-w-250 flex-col pb-8">
+                {messages.length === 0 && !isTyping && (
+                  <ChatEmptyState
+                    hasAvailableModels={hasAvailableModels}
+                    defaultModelName={defaultModelName}
+                    isConnected={isGatewayRunning}
+                  />
+                )}
+
+                <PiMessageList
+                  messages={messages}
+                  isTyping={isTyping}
+                  detail={assistantDetailVisibility}
                 />
-              )}
 
-              <PiMessageList
-                messages={messages}
-                isTyping={isTyping}
-                detail={assistantDetailVisibility}
-              />
+                {isTyping && turnStalled && (
+                  <div
+                    role="status"
+                    className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-400"
+                  >
+                    <IconAlertTriangle className="mt-0.5 size-4 shrink-0" />
+                    <span>
+                      {t("chat.turnStalled", {
+                        minutes: Math.max(
+                          1,
+                          Math.floor((turnIdleMs ?? 0) / 60_000),
+                        ),
+                      })}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
 
-              {isTyping && turnStalled && (
-                <div
-                  role="status"
-                  className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-400"
+            {/* REQ-018: 滚离底部（isAtBottom=false）时浮现「回到最新」；
+              宽度/内边距与消息列、输入卡同列，右缘对齐。 */}
+            <div className="pointer-events-none absolute inset-x-0 bottom-8 z-10 px-4 md:px-8 lg:px-24 xl:px-48">
+              <div className="mx-auto flex w-full max-w-[1000px] justify-end">
+                <button
+                  type="button"
+                  onClick={scrollToLatest}
+                  aria-hidden={isAtBottom}
+                  tabIndex={isAtBottom ? -1 : 0}
+                  className={cn(
+                    "border-border/60 bg-card/95 text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-md backdrop-blur transition-all duration-200",
+                    isAtBottom
+                      ? "pointer-events-none translate-y-1 opacity-0"
+                      : "pointer-events-auto translate-y-0 opacity-100",
+                  )}
                 >
-                  <IconAlertTriangle className="mt-0.5 size-4 shrink-0" />
-                  <span>
-                    {t("chat.turnStalled", {
-                      minutes: Math.max(
-                        1,
-                        Math.floor((turnIdleMs ?? 0) / 60_000),
-                      ),
-                    })}
-                  </span>
-                </div>
-              )}
+                  <IconArrowDown className="size-3.5" />
+                  {t("piChat.backToLatest")}
+                </button>
+              </div>
             </div>
           </div>
 

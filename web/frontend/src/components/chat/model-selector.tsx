@@ -11,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { cn } from "@/lib/utils"
 
 interface ModelSelectorProps {
   defaultModelName: string
@@ -20,6 +21,9 @@ interface ModelSelectorProps {
   disabled?: boolean
   onValueChange: (modelName: string) => void
 }
+
+const LOBE_SELECT_TOKENS =
+  "[--lobe-text:var(--foreground)] [--lobe-text-2:var(--muted-foreground)] [--lobe-text-desc:var(--muted-foreground)] [--lobe-border:var(--border)] [--lobe-border-2:var(--border)] [--lobe-fill-2:var(--accent)] [--lobe-fill-3:var(--secondary)] [--lobe-bg-elevated:var(--card)]"
 
 export function ModelSelector({
   defaultModelName,
@@ -46,23 +50,46 @@ export function ModelSelector({
     >
       <SelectTrigger
         size="sm"
-        className="text-muted-foreground hover:text-foreground focus-visible:border-input h-8 max-w-[160px] min-w-[80px] bg-transparent shadow-none focus-visible:ring-0 sm:max-w-[220px]"
+        className={cn(
+          LOBE_SELECT_TOKENS,
+          "focus-visible:ring-ring/30 h-8 max-w-[180px] min-w-[96px] rounded-lg border-0 bg-[var(--lobe-fill-2)] px-2.5 text-[13px] font-medium text-[var(--lobe-text-2)] shadow-none hover:bg-[var(--lobe-fill-3)] hover:text-[var(--lobe-text)] focus-visible:ring-2 sm:max-w-[240px]",
+        )}
       >
         <SelectValue placeholder={t("chat.noModel")} />
       </SelectTrigger>
-      <SelectContent position="popper" align="start">
+      <SelectContent
+        position="popper"
+        align="start"
+        className={cn(
+          LOBE_SELECT_TOKENS,
+          "rounded-lg border border-[var(--lobe-border-2)] bg-[var(--lobe-bg-elevated)] p-1 text-[var(--lobe-text)] shadow-lg ring-0",
+        )}
+      >
         {rawDefaultModel && (
-          <SelectItem value={rawDefaultModel}>{rawDefaultModel}</SelectItem>
+          <SelectItem
+            value={rawDefaultModel}
+            className="rounded-md px-2 py-1.5 text-[13px] focus:bg-[var(--lobe-fill-2)] focus:text-[var(--lobe-text)]"
+          >
+            {rawDefaultModel}
+          </SelectItem>
         )}
         {rawDefaultModel &&
           (apiKeyModels.length > 0 ||
             oauthModels.length > 0 ||
-            localModels.length > 0) && <SelectSeparator />}
+            localModels.length > 0) && (
+            <SelectSeparator className="bg-[var(--lobe-border-2)]" />
+          )}
         {apiKeyModels.length > 0 && (
-          <SelectGroup>
-            <SelectLabel>{t("chat.modelGroup.apikey")}</SelectLabel>
+          <SelectGroup className="p-0.5">
+            <SelectLabel className="px-2 py-1 text-[11px] font-semibold tracking-wide text-[var(--lobe-text-desc)] uppercase">
+              {t("chat.modelGroup.apikey")}
+            </SelectLabel>
             {apiKeyModels.map((model) => (
-              <SelectItem key={model.index} value={model.model_name}>
+              <SelectItem
+                key={model.index}
+                value={model.model_name}
+                className="rounded-md px-2 py-1.5 text-[13px] focus:bg-[var(--lobe-fill-2)] focus:text-[var(--lobe-text)]"
+              >
                 {model.model_name}
               </SelectItem>
             ))}
@@ -70,14 +97,20 @@ export function ModelSelector({
         )}
         {apiKeyModels.length > 0 &&
           (oauthModels.length > 0 || localModels.length > 0) && (
-            <SelectSeparator />
+            <SelectSeparator className="bg-[var(--lobe-border-2)]" />
           )}
 
         {oauthModels.length > 0 && (
-          <SelectGroup>
-            <SelectLabel>{t("chat.modelGroup.oauth")}</SelectLabel>
+          <SelectGroup className="p-0.5">
+            <SelectLabel className="px-2 py-1 text-[11px] font-semibold tracking-wide text-[var(--lobe-text-desc)] uppercase">
+              {t("chat.modelGroup.oauth")}
+            </SelectLabel>
             {oauthModels.map((model) => (
-              <SelectItem key={model.index} value={model.model_name}>
+              <SelectItem
+                key={model.index}
+                value={model.model_name}
+                className="rounded-md px-2 py-1.5 text-[13px] focus:bg-[var(--lobe-fill-2)] focus:text-[var(--lobe-text)]"
+              >
                 {model.model_name}
               </SelectItem>
             ))}
@@ -85,14 +118,20 @@ export function ModelSelector({
         )}
         {oauthModels.length > 0 &&
           (localModels.length > 0 || apiKeyModels.length > 0) && (
-            <SelectSeparator />
+            <SelectSeparator className="bg-[var(--lobe-border-2)]" />
           )}
 
         {localModels.length > 0 && (
-          <SelectGroup>
-            <SelectLabel>{t("chat.modelGroup.local")}</SelectLabel>
+          <SelectGroup className="p-0.5">
+            <SelectLabel className="px-2 py-1 text-[11px] font-semibold tracking-wide text-[var(--lobe-text-desc)] uppercase">
+              {t("chat.modelGroup.local")}
+            </SelectLabel>
             {localModels.map((model) => (
-              <SelectItem key={model.index} value={model.model_name}>
+              <SelectItem
+                key={model.index}
+                value={model.model_name}
+                className="rounded-md px-2 py-1.5 text-[13px] focus:bg-[var(--lobe-fill-2)] focus:text-[var(--lobe-text)]"
+              >
                 {model.model_name}
               </SelectItem>
             ))}

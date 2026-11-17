@@ -1,4 +1,9 @@
-import { IconHistory, IconLoader2, IconPencil, IconTrash } from "@tabler/icons-react"
+import {
+  IconHistory,
+  IconLoader2,
+  IconPencil,
+  IconTrash,
+} from "@tabler/icons-react"
 import dayjs from "dayjs"
 import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
@@ -24,6 +29,9 @@ interface SessionHistorySidebarProps {
   onRefresh: () => void
   onAutoRefresh: () => void
 }
+
+const LOBE_SIDEBAR_TOKENS =
+  "[--lobe-text:var(--foreground)] [--lobe-text-2:var(--muted-foreground)] [--lobe-text-desc:var(--muted-foreground)] [--lobe-text-disabled:var(--muted-foreground)] [--lobe-border:var(--border)] [--lobe-border-2:var(--border)] [--lobe-fill-2:var(--accent)] [--lobe-fill-3:var(--secondary)] [--lobe-bg-elevated:var(--card)] [--lobe-info:var(--primary)]"
 
 export function SessionHistorySidebar({
   sessions,
@@ -72,7 +80,10 @@ export function SessionHistorySidebar({
         onAutoRefreshRef.current()
       }
     }
-    const interval = window.setInterval(refreshIfVisible, anyBusy ? 5_000 : 30_000)
+    const interval = window.setInterval(
+      refreshIfVisible,
+      anyBusy ? 5_000 : 30_000,
+    )
     window.addEventListener("focus", refreshIfVisible)
     document.addEventListener("visibilitychange", refreshIfVisible)
     return () => {
@@ -91,7 +102,12 @@ export function SessionHistorySidebar({
 
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMore && !isLoadingMore && !loadError) {
+        if (
+          entries[0].isIntersecting &&
+          hasMore &&
+          !isLoadingMore &&
+          !loadError
+        ) {
           onLoadMore()
         }
       },
@@ -102,21 +118,26 @@ export function SessionHistorySidebar({
   }, [hasMore, isLoadingMore, loadError, onLoadMore])
 
   return (
-    <aside className="border-border/60 bg-gradient-to-b from-amber-500/[0.09] via-transparent to-teal-500/[0.05] flex w-80 shrink-0 flex-col border-r dark:from-amber-400/[0.10] dark:via-transparent dark:to-teal-400/[0.05]">
-      <div className="flex items-center gap-2 px-4 pt-4 pb-3">
-        <span className="bg-primary/10 text-primary flex h-7 w-7 items-center justify-center rounded-lg">
-          <IconHistory className="size-4" />
+    <aside
+      className={cn(
+        LOBE_SIDEBAR_TOKENS,
+        "flex w-80 shrink-0 flex-col border-r border-[var(--lobe-border-2)] bg-[var(--lobe-bg-elevated)]",
+      )}
+    >
+      <div className="flex items-center gap-2 px-3 pt-3 pb-2">
+        <span className="flex size-7 items-center justify-center rounded-md bg-[var(--lobe-fill-2)] text-[var(--lobe-text-desc)]">
+          <IconHistory className="size-3.5" />
         </span>
-        <span className="text-foreground text-sm font-semibold tracking-wide">
+        <span className="text-[13px] font-semibold tracking-[0.01em] text-[var(--lobe-text)]">
           {t("chat.history")}
         </span>
-        <span className="bg-secondary text-secondary-foreground ml-auto rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums">
+        <span className="ml-auto rounded-full bg-[var(--lobe-fill-2)] px-2 py-0.5 text-[11px] font-medium text-[var(--lobe-text-desc)] tabular-nums">
           {sessions.length}
         </span>
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
-        <div className="flex flex-col gap-1 px-3 pb-4">
+        <div className="flex flex-col gap-0.5 px-2 pb-3">
           {loadError && (
             <div className="text-destructive bg-destructive/10 flex flex-col gap-2 rounded-lg px-3 py-2 text-xs">
               <span>{loadErrorMessage}</span>
@@ -132,14 +153,14 @@ export function SessionHistorySidebar({
           )}
 
           {isLoading && !loadError && sessions.length === 0 && (
-            <div className="text-muted-foreground flex items-center justify-center gap-2 rounded-lg px-3 py-6 text-xs">
+            <div className="flex items-center justify-center gap-2 rounded-lg px-3 py-6 text-xs text-[var(--lobe-text-desc)]">
               <IconLoader2 className="size-3.5 animate-spin" />
               <span>{t("chat.loadingMore")}</span>
             </div>
           )}
 
           {!loadError && !isLoading && sessions.length === 0 && (
-            <div className="text-muted-foreground rounded-lg px-3 py-6 text-center text-xs">
+            <div className="rounded-lg px-3 py-6 text-center text-xs text-[var(--lobe-text-desc)]">
               {t("chat.noHistory")}
             </div>
           )}
@@ -162,32 +183,34 @@ export function SessionHistorySidebar({
                   }
                 }}
                 className={cn(
-                  "group relative min-w-0 cursor-pointer rounded-xl border px-3 py-2 transition-all select-none",
+                  "group relative min-w-0 cursor-pointer rounded-lg px-2.5 py-2 transition-colors select-none",
                   active
-                    ? "border-primary/40 from-primary/20 to-primary/[0.05] bg-gradient-to-r shadow-sm"
-                    : "hover:bg-accent border-border/40 hover:border-border",
+                    ? "bg-[var(--lobe-fill-3)] text-[var(--lobe-text)]"
+                    : "text-[var(--lobe-text-2)] hover:bg-[var(--lobe-fill-2)] hover:text-[var(--lobe-text)]",
                 )}
               >
                 <div className="flex items-center gap-2 pr-6">
                   {(active && activeSessionBusy) || session.busy ? (
                     <IconLoader2
-                      className="text-primary size-3.5 shrink-0 animate-spin"
+                      className="size-3.5 shrink-0 animate-spin text-[var(--lobe-info)]"
                       aria-label={t("chat.turnRunning")}
                     />
                   ) : (
                     <span
                       className={cn(
                         "h-1.5 w-1.5 shrink-0 rounded-full transition-colors",
-                        active ? "bg-primary" : "bg-muted-foreground/40",
+                        active
+                          ? "bg-[var(--lobe-info)]"
+                          : "bg-[var(--lobe-text-disabled)]",
                       )}
                     />
                   )}
                   <span
                     className={cn(
-                      "line-clamp-1 [overflow-wrap:anywhere] text-[13px] font-medium",
+                      "line-clamp-1 text-[13px] font-medium [overflow-wrap:anywhere]",
                       active
-                        ? "text-foreground"
-                        : "text-foreground/85 group-hover:text-foreground",
+                        ? "text-[var(--lobe-text)]"
+                        : "text-[var(--lobe-text-2)] group-hover:text-[var(--lobe-text)]",
                     )}
                   >
                     {session.title}
@@ -196,29 +219,31 @@ export function SessionHistorySidebar({
                 {session.preview &&
                   session.preview !== "(empty)" &&
                   session.preview !== session.title && (
-                    <div className="text-muted-foreground/70 mt-0.5 line-clamp-1 [overflow-wrap:anywhere] pl-3.5 text-[11px]">
+                    <div className="mt-0.5 line-clamp-1 pl-3.5 text-[11px] [overflow-wrap:anywhere] text-[var(--lobe-text-desc)]">
                       {session.preview}
                     </div>
                   )}
                 <div className="mt-1 flex items-center gap-1 pl-3.5 text-[11px]">
                   {session.channel && session.channel !== "pico" && (
-                    <span className="bg-secondary text-secondary-foreground rounded px-1 py-px text-[10px] font-semibold uppercase tracking-wide">
+                    <span className="rounded bg-[var(--lobe-fill-2)] px-1 py-px text-[10px] font-semibold tracking-wide text-[var(--lobe-text-desc)] uppercase">
                       {session.channel}
                     </span>
                   )}
-                  <span className="text-primary/90 font-semibold tabular-nums">
+                  <span className="font-medium text-[var(--lobe-text-2)] tabular-nums">
                     {t("chat.messagesCount", {
                       count: session.message_count,
                     })}
                   </span>
-                  <span className="text-muted-foreground/50">·</span>
-                  <span className="text-muted-foreground">{dayjs(session.updated).fromNow()}</span>
+                  <span className="text-[var(--lobe-text-disabled)]">·</span>
+                  <span className="text-[var(--lobe-text-desc)]">
+                    {dayjs(session.updated).fromNow()}
+                  </span>
                 </div>
 
                 {renamingId === session.id ? (
                   <input
                     autoFocus
-                    className="bg-background border-primary absolute top-1/2 right-1.5 z-10 h-6 w-40 -translate-y-1/2 rounded border px-1.5 text-xs outline-none"
+                    className="absolute top-1/2 right-1.5 z-10 h-6 w-40 -translate-y-1/2 rounded border border-[var(--lobe-border)] bg-[var(--lobe-bg-elevated)] px-1.5 text-xs text-[var(--lobe-text)] outline-none focus:border-[var(--lobe-info)]"
                     value={renameDraft}
                     onClick={(event) => event.stopPropagation()}
                     onChange={(event) => setRenameDraft(event.target.value)}
@@ -240,7 +265,7 @@ export function SessionHistorySidebar({
                     variant="ghost"
                     size="icon"
                     aria-label={t("chat.renameSession")}
-                    className="text-muted-foreground hover:bg-secondary hover:text-secondary-foreground absolute top-1/2 right-8 h-6 w-6 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                    className="absolute top-1/2 right-8 h-6 w-6 -translate-y-1/2 text-[var(--lobe-text-desc)] opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--lobe-fill-3)] hover:text-[var(--lobe-text)] focus-visible:opacity-100"
                     onClick={(event) => {
                       event.stopPropagation()
                       setRenameDraft(session.title || "")
@@ -254,7 +279,7 @@ export function SessionHistorySidebar({
                   variant="ghost"
                   size="icon"
                   aria-label={t("chat.deleteSession")}
-                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive absolute top-1/2 right-1.5 h-6 w-6 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                  className="hover:bg-destructive/10 hover:text-destructive absolute top-1/2 right-1.5 h-6 w-6 -translate-y-1/2 text-[var(--lobe-text-desc)] opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                   onClick={(event) => {
                     event.stopPropagation()
                     onDeleteSession(session.id, session.channel)
@@ -269,7 +294,7 @@ export function SessionHistorySidebar({
           {hasMore && sessions.length > 0 && (
             <div
               ref={sentinelRef}
-              className="text-muted-foreground flex items-center justify-center gap-2 py-2 text-xs"
+              className="flex items-center justify-center gap-2 py-2 text-xs text-[var(--lobe-text-desc)]"
             >
               <IconLoader2 className="size-3.5 animate-spin" />
               <span>{t("chat.loadingMore")}</span>
