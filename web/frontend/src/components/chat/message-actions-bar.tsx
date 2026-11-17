@@ -7,11 +7,11 @@ import {
   IconDots,
   IconRefresh,
 } from "@tabler/icons-react"
-import { memo, useState } from "react"
+import { memo } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
-import { copyText } from "@/lib/clipboard"
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard"
 
 interface MessageActionsBarProps {
   /** 复制的原文（undefined 时隐藏复制键）。 */
@@ -51,7 +51,7 @@ export const MessageActionsBar = memo(function MessageActionsBar({
   onMore,
 }: MessageActionsBarProps) {
   const { t } = useTranslation()
-  const [copied, setCopied] = useState(false)
+  const { copy, isCopied: copied } = useCopyToClipboard()
   const hasAny =
     text !== undefined || onRegenerate !== undefined || onMore !== undefined
   if (!hasAny) return null
@@ -65,14 +65,9 @@ export const MessageActionsBar = memo(function MessageActionsBar({
         <ActionButton
           label={copied ? t("piChat.copied") : t("piChat.copy")}
           onClick={() => {
-            void copyText(text).then((ok) => {
-              if (ok) {
-                setCopied(true)
-                window.setTimeout(() => setCopied(false), 1200)
-              } else {
-                // [REQ-019] 失败态提示：copied 不变，按钮保持可点，重试成功即回正常态。
-                toast.error(t("piChat.copyFailed"))
-              }
+            // [REQ-019] 统一 useCopyToClipboard 的 2000ms 恢复节律；失败态保持可重试。
+            void copy(text).then((ok) => {
+              if (!ok) toast.error(t("piChat.copyFailed"))
             })
           }}
         >

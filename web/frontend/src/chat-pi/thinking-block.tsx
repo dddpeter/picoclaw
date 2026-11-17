@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // 适配点：i18n 由 pi-web-ui 的 useT() 换成 react-i18next 的 useTranslation()。
 import { IconChevronDown, IconChevronRight, IconCpu } from "@tabler/icons-react"
-import { useState } from "react"
+import { useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { MessageActionsBar } from "@/components/chat/message-actions-bar"
@@ -30,6 +30,7 @@ export function ThinkingBlock({
   wrap = true,
 }: ThinkingBlockProps) {
   const { t } = useTranslation()
+  const bodyId = useId()
   // null = 未手动点过 → 跟随开关：wrap=true（开）→ 完整展开；wrap=false（关）→ 折叠。
   const [open, setOpen] = useState<boolean | null>(null)
   const expanded = open ?? wrap
@@ -46,6 +47,7 @@ export function ThinkingBlock({
         role="button"
         tabIndex={0}
         aria-expanded={shown}
+        aria-controls={bodyId}
         aria-label={shown ? t("piChat.collapseMsg") : t("piChat.expandMsg")}
         title={shown ? t("piChat.collapseMsg") : t("piChat.expandMsg")}
         onClick={() => setOpen(!expanded)}
@@ -63,6 +65,7 @@ export function ThinkingBlock({
           title={shown ? t("piChat.collapseMsg") : t("piChat.expandMsg")}
           aria-label={shown ? t("piChat.collapseMsg") : t("piChat.expandMsg")}
           aria-expanded={shown}
+          aria-controls={bodyId}
           onClick={(e) => {
             e.stopPropagation()
             setOpen(!expanded)
@@ -92,7 +95,11 @@ export function ThinkingBlock({
           <MessageActionsBar text={thinking || undefined} />
         </span>
       </div>
-      {shown && <div className="thinking-body">{thinking}</div>}
+      {shown && (
+        <div className="thinking-body" id={bodyId}>
+          {thinking}
+        </div>
+      )}
     </div>
   )
 }

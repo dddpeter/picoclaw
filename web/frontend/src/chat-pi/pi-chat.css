@@ -1498,7 +1498,7 @@ div.chead[role="button"]:focus-visible,
  * hover:none（触屏常显操作）、pointer:coarse（触控目标加大，见下）、
  * prefers-reduced-motion（无障碍降级，见文件尾）。平板档 769-1024
  * 经审计无独立密度需求（列宽自适应 + markdown 层溢出处理已覆盖），
- * 不另设规则。 */
+ * 不另设规则；lg/xl 的列宽递增已由 chat-page 的响应式 padding 承担。 */
 @media (max-width: 768px) {
   .msg {
     padding: 6px 0 12px;
@@ -1669,13 +1669,6 @@ div.chead[role="button"]:focus-visible,
   from {
     opacity: 0;
     transform: translateY(10px);
-  }
-}
-
-@keyframes a2ui-row-in {
-  from {
-    opacity: 0;
-    transform: translateX(-8px);
   }
 }
 
