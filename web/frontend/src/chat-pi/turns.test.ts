@@ -112,7 +112,7 @@ describe("buildTurns", () => {
     })
   })
 
-  it("merges tool calls with their feedback and flags errors", () => {
+  it("merges tool calls with their feedback and flags errors（活跃 turn 登记反馈时刻）", () => {
     resetFeedbackObservations()
     const turns = buildTurns(
       [
@@ -123,7 +123,7 @@ describe("buildTurns", () => {
           feedback: "error: boom",
         }),
       ],
-      { ...ALL, now: 999 },
+      { ...ALL, isTyping: true, now: 999 },
     )
 
     expect(turns[0].assistant?.blocks).toEqual([
@@ -327,10 +327,12 @@ describe("isLikelyToolError", () => {
 describe("feedback observation registry", () => {
   it("evicts the oldest observation once the cap is reached", () => {
     resetFeedbackObservations()
+    // 仅活跃流式 turn 登记反馈时刻（评审 P2-4）：注册表用例须显式 isTyping。
     const observed = (id: string, now: number) =>
       feedbackEndedAt(
         buildTurns([toolMessage(id, "c1", { feedback: "ok" })], {
           ...ALL,
+          isTyping: true,
           now,
         }),
       )
@@ -341,6 +343,7 @@ describe("feedback observation registry", () => {
     for (let i = 0; i < 600; i += 1) {
       buildTurns([toolMessage(`filler-${i}`, "c1", { feedback: "ok" })], {
         ...ALL,
+        isTyping: true,
         now: 1100,
       })
     }
@@ -348,16 +351,40 @@ describe("feedback observation registry", () => {
     expect(observed("first", 2000)).toBe(2000)
   })
 
-  it("keeps observed instants stable for repeated renders", () => {
+  it("keeps observed instants stable for repeated renders（活跃 turn）", () => {
     resetFeedbackObservations()
     const messages = [toolMessage("a1", "c1", { feedback: "ok" })]
 
-    expect(feedbackEndedAt(buildTurns(messages, { ...ALL, now: 111 }))).toBe(
-      111,
-    )
-    expect(feedbackEndedAt(buildTurns(messages, { ...ALL, now: 222 }))).toBe(
-      111,
-    )
+    expect(
+      feedbackEndedAt(
+        buildTurns(messages, { ...ALL, isTyping: true, now: 111 }),
+      ),
+    ).toBe(111)
+    expect(
+      feedbackEndedAt(
+        buildTurns(messages, { ...ALL, isTyping: true, now: 222 }),
+      ),
+    ).toBe(111)
+  })
+
+  it("历史会话不登记反馈时刻（endedAt 缺失，且不污染注册表）", () => {
+    resetFeedbackObservations()
+    const historic = [toolMessage("h1", "c1", { feedback: "ok" })]
+
+    // 历史重建：末条消息不再处于流式 → feedback 不写 endedAt。
+    expect(
+      feedbackEndedAt(
+        buildTurns(historic, { ...ALL, isTyping: false, now: 5000 }),
+      ),
+    ).toBeUndefined()
+
+    // 注册表未被历史消息写入：首次以活跃态观测时应登记「当前」时刻（7000），
+    // 而不是被历史调用提前写入的 5000。
+    expect(
+      feedbackEndedAt(
+        buildTurns(historic, { ...ALL, isTyping: true, now: 7000 }),
+      ),
+    ).toBe(7000)
   })
 })
 

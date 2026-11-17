@@ -325,7 +325,14 @@ export function buildTurns(
                 feedback: {
                   text: explanation,
                   isError: isLikelyToolError(explanation),
-                  endedAt: observeFeedbackEndedAt(feedbackKey, now),
+                  // endedAt 仅对活跃流式 turn 可信（评审 P2-4）：历史会话的反馈
+                  // 时刻服务端不提供，若在此写 now，会与很旧的 startedAt 相减
+                  // 得出巨型时长（当前仅靠 waitingModel 渲染条件兜住）。与
+                  // PiToolFeedback.endedAt 的可选语义保持一致：历史 → 不登记，
+                  // 同时避免模块级 feedbackSeenAt 被历史消息无界污染。
+                  ...(messageLive
+                    ? { endedAt: observeFeedbackEndedAt(feedbackKey, now) }
+                    : {}),
                 },
               }
             : {}),
