@@ -36,5 +36,6 @@ describe("LOBE_SCOPE_TOKENS 共享纪律 [评审 P2-2]", () => {
   it("TK-03 共享常量保持静态字面量（Tailwind 依赖文本扫描生成对应 CSS）", () => {
     expect(tokensSrc).toContain("[--lobe-text:var(--foreground)]")
     expect(tokensSrc).toContain("[--lobe-info:var(--primary)]")
+    expect(tokensSrc).toContain("[--lobe-fill:color-mix(in_srgb,var(--foreground)_14%,transparent)]")
   })
 })
