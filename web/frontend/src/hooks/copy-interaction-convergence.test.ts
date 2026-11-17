@@ -76,7 +76,9 @@ describe("复制交互收敛纪律 [REQ-019]", () => {
 
   it("CV-07 hook 契约：await copyText → 仅成功才置位 → 返回 boolean", () => {
     const src = code(hookSrc)
-    expect(src).toMatch(/const didCopy = await copyText\(text\)/)
+    // 评审 P1-1 后不再锁“裸 const didCopy = await …”形态：hook 允许在
+    // copyText 调用上追加 reject 兜底（.catch / try），意图是「仅成功才置位」。
+    expect(src).toMatch(/await copyText\(text\)/)
     expect(src).toMatch(/if \(didCopy\) \{[\s\S]*markCopied\(\)[\s\S]*\}/)
     expect(src).toMatch(/return didCopy/)
   })

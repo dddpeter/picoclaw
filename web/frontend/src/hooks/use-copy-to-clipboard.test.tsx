@@ -222,4 +222,48 @@ describe("useCopyToClipboard [REQ-019]", () => {
     h.unmount()
     expect(vi.getTimerCount()).toBe(0)
   })
+
+  it("UT-09 copyText reject（实现漂移兜底）→ resolve false，不外泄 rejection，isCopied 保持 false", async () => {
+    copyTextMock.mockImplementation(async () => {
+      throw new Error("boom")
+    })
+    const h = mountHook()
+
+    let resolved: boolean | undefined
+    await act(async () => {
+      resolved = await h.current.copy("hello")
+    })
+
+    expect(resolved).toBe(false)
+    expect(h.current.isCopied).toBe(false)
+    h.unmount()
+  })
+
+  it("UT-10 pending 中卸载 → 完成后不再 setState（无卸载后更新 / 无异常）", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    let release: ((ok: boolean) => void) | undefined
+    copyTextMock.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          release = resolve
+        }),
+    )
+    const h = mountHook()
+
+    let pending: Promise<boolean> | undefined
+    act(() => {
+      pending = h.current.copy("hello")
+    })
+
+    h.unmount()
+    await act(async () => {
+      release?.(true)
+    })
+    await expect(pending).resolves.toBe(true)
+
+    // mountedRef 拦住卸载后的 setIsCopied；React 18+ 已不再输出卸载更新告警，
+    // 此处锁「不产生任何 console.error」，兼作未来版本行为的回归锁。
+    expect(errorSpy).not.toHaveBeenCalled()
+    errorSpy.mockRestore()
+  })
 })
