@@ -348,9 +348,13 @@ export function splitRenderedCodeContentIntoLines(
  * 内联徽章而非带行号 gutter 的完整代码块。
  */
 export function isSingleLine(code: string): boolean {
-  const trimmed = code.replace(/^\n+|\n+$/g, "")
+  // 先归一 CRLF（评审 P3-4）：残留的 `\r` 会让单行输入的长度判定带偏。
+  const normalized = code.replace(/\r\n?/g, "\n")
+  const trimmed = normalized.replace(/^\n+|\n+$/g, "")
   if (trimmed.includes("\n")) {
     return false
   }
-  return trimmed.length > 0 && trimmed.length <= 32
+  // 纯空白（如 "   "）不构成内联徽章：原判定只看长度 > 0，
+  // 会渲染出 trim 后为空的空徽章（评审 P3-4）。
+  return trimmed.trim().length > 0 && trimmed.length <= 32
 }
