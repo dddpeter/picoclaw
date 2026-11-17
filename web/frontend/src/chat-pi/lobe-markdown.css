@@ -11,56 +11,56 @@
  * GFM 任务清单自绘复选框、KaTeX 横向滚动。
  */
 .msg-text {
-	position: relative;
-	color: var(--lobe-text);
-	font-size: 14px;
-	line-height: 1.6;
-	letter-spacing: 0.02em;
-	/* 长 token（URL/路径/编译输出）在气泡内断行，不撑破横向布局 */
-	min-width: 0;
-	overflow-wrap: anywhere;
-	word-break: break-word;
+  position: relative;
+  color: var(--lobe-text);
+  font-size: 14px;
+  line-height: 1.6;
+  letter-spacing: 0.02em;
+  /* 长 token（URL/路径/编译输出）在气泡内断行，不撑破横向布局 */
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 /* ---- 段落 ---- */
 .msg-text p {
-	margin-block: 1em;
-	color: var(--lobe-text);
+  margin-block: 1em;
+  color: var(--lobe-text);
 }
 .msg-text p:first-child {
-	margin-top: 0;
+  margin-top: 0;
 }
 .msg-text p:last-child {
-	margin-bottom: 0;
+  margin-bottom: 0;
 }
 
 /* ---- 列表：LobeHub `-` 伪元素方案（D1） ---- */
 .msg-text ul,
 .msg-text ol {
-	padding-left: 22px;
-	margin-block: 1em;
-	list-style: none;
+  padding-left: 22px;
+  margin-block: 1em;
+  list-style: none;
 }
 .msg-text li {
-	margin: 2px 0;
-	position: relative;
+  margin: 2px 0;
+  position: relative;
 }
 /* ol 用 UA 序号（decimal），ul 用 `-` 伪元素 */
 .msg-text ol {
-	list-style: decimal;
+  list-style: decimal;
 }
 .msg-text ul > li::before {
-	content: "-";
-	position: absolute;
-	left: -14px;
-	color: var(--lobe-text-2);
+  content: "-";
+  position: absolute;
+  left: -14px;
+  color: var(--lobe-text-2);
 }
 /* GFM 任务清单（- [ ]）自带复选框，不出 `-` 符号 */
 .msg-text .contains-task-list {
-	list-style: none;
+  list-style: none;
 }
 .msg-text .contains-task-list > li::before {
-	content: none;
+  content: none;
 }
 
 /* ---- 标题（h1=×1.375 / h2=×1.25 / h3=×1.125 / h4+=×1.0625，粗 700 lh 1.25） ---- */
@@ -70,155 +70,155 @@
 .msg-text h4,
 .msg-text h5,
 .msg-text h6 {
-	margin: 1.25em 0 0.5em;
-	font-weight: 700;
-	line-height: 1.25;
-	color: var(--lobe-text);
+  margin: 1.25em 0 0.5em;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--lobe-text);
 }
 .msg-text :is(h1, h2, h3, h4, h5, h6):first-child {
-	margin-top: 0;
+  margin-top: 0;
 }
 .msg-text h1 {
-	font-size: 1.375em;
+  font-size: 1.375em;
 }
 .msg-text h2 {
-	font-size: 1.25em;
+  font-size: 1.25em;
 }
 .msg-text h3 {
-	font-size: 1.125em;
+  font-size: 1.125em;
 }
 .msg-text h4 {
-	font-size: 1.0625em;
+  font-size: 1.0625em;
 }
 .msg-text h5,
 .msg-text h6 {
-	font-size: 1em;
+  font-size: 1em;
 }
 
 /* ---- 引用：4px 左边框 + fill 背景取消（LobeHub 无底色） ---- */
 .msg-text blockquote {
-	margin: 1em 0;
-	padding: 4px 12px;
-	border-left: 4px solid var(--lobe-border-2);
-	color: var(--lobe-text-2);
+  margin: 1em 0;
+  padding: 4px 12px;
+  border-left: 4px solid var(--lobe-border-2);
+  color: var(--lobe-text-2);
 }
 
 /* ---- 表格：bg fill-4、radius 8 ---- */
 .msg-text table {
-	border-collapse: collapse;
-	margin: 1em 0;
-	/* 宽表横向滚动而非撑破气泡 */
-	display: block;
-	width: max-content;
-	max-width: 100%;
-	overflow-x: auto;
-	border: 1px solid var(--lobe-border-2);
-	border-radius: 8px;
-	background: var(--lobe-fill-4);
+  border-collapse: collapse;
+  margin: 1em 0;
+  /* 宽表横向滚动而非撑破气泡 */
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--lobe-border-2);
+  border-radius: 8px;
+  background: var(--lobe-fill-4);
 }
 .msg-text th,
 .msg-text td {
-	border: 1px solid var(--lobe-border-2);
-	padding: 5px 12px;
-	color: var(--lobe-text);
+  border: 1px solid var(--lobe-border-2);
+  padding: 5px 12px;
+  color: var(--lobe-text);
 }
 .msg-text th {
-	background: var(--lobe-fill-3);
-	font-weight: 600;
-	text-align: left;
+  background: var(--lobe-fill-3);
+  font-weight: 600;
+  text-align: left;
 }
 
 /* ---- 分隔线：dashed（LobeHub） ---- */
 .msg-text hr {
-	margin: 1em 0;
-	border: none;
-	border-top: 1px dashed var(--lobe-border-2);
+  margin: 1em 0;
+  border: none;
+  border-top: 1px dashed var(--lobe-border-2);
 }
 
 /* ---- 图片 ---- */
 .msg-text img {
-	max-width: 100%;
-	max-height: 420px;
-	border-radius: 8px;
-	border: 1px solid var(--lobe-border-2);
+  max-width: 100%;
+  max-height: 420px;
+  border-radius: 8px;
+  border: 1px solid var(--lobe-border-2);
 }
 
 /* ---- GFM 任务清单自绘复选框（功能保留） ---- */
 .msg-text input[type="checkbox"] {
-	appearance: none;
-	-webkit-appearance: none;
-	width: 13px;
-	height: 13px;
-	margin-right: 6px;
-	vertical-align: -1.5px;
-	border: 1.5px solid var(--lobe-border);
-	border-radius: 3.5px;
-	background: transparent;
-	transition:
-		background-color 0.15s ease,
-		border-color 0.15s ease;
+  appearance: none;
+  -webkit-appearance: none;
+  width: 13px;
+  height: 13px;
+  margin-right: 6px;
+  vertical-align: -1.5px;
+  border: 1.5px solid var(--lobe-border);
+  border-radius: 3.5px;
+  background: transparent;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
 .msg-text input[type="checkbox"]:checked {
-	background-color: var(--lobe-info);
-	border-color: var(--lobe-info);
-	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 8'%3E%3Cpath d='M1 4.2 3.6 6.8 9 1.2' fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-	background-size: 9px 7px;
-	background-repeat: no-repeat;
-	background-position: center;
+  background-color: var(--lobe-info);
+  border-color: var(--lobe-info);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 8'%3E%3Cpath d='M1 4.2 3.6 6.8 9 1.2' fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-size: 9px 7px;
+  background-repeat: no-repeat;
+  background-position: center;
 }
 
 /* ---- 链接 ---- */
 .msg-text a {
-	color: var(--lobe-info);
-	overflow-wrap: anywhere;
-	text-decoration: underline;
-	text-decoration-color: color-mix(in srgb, var(--lobe-info) 45%, transparent);
-	text-underline-offset: 2px;
-	transition: text-decoration-color 0.15s ease;
+  color: var(--lobe-info);
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--lobe-info) 45%, transparent);
+  text-underline-offset: 2px;
+  transition: text-decoration-color 0.15s ease;
 }
 .msg-text a:hover {
-	text-decoration-color: var(--lobe-info);
+  text-decoration-color: var(--lobe-info);
 }
 
 /* ---- 内联代码：bg fill-2 + border-2（LobeHub） ---- */
 .msg-text code {
-	font-family: var(--mono);
-	font-size: 12.5px;
-	background: var(--lobe-fill-2);
-	border: 1px solid var(--lobe-border-2);
-	border-radius: 4px;
-	padding: 1px 5px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  background: var(--lobe-fill-2);
+  border: 1px solid var(--lobe-border-2);
+  border-radius: 4px;
+  padding: 1px 5px;
 }
 
 /* ---- KaTeX（功能保留：横向滚动不撑破气泡） ---- */
 .msg-text .katex-display {
-	margin: 8px 0;
-	padding: 4px 2px;
-	overflow-x: auto;
-	overflow-y: hidden;
+  margin: 8px 0;
+  padding: 4px 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .msg-text .katex {
-	font-size: 1.05em;
+  font-size: 1.05em;
 }
 
 /* ---- REQ-007：单行短代码 inline 徽章（isSingleLine 分流命中时） ---- */
 .msg-text .lobe-inline-code-wrap {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	margin: 4px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
 }
 .msg-text .lobe-inline-code {
-	display: inline-block;
-	max-width: 100%;
-	overflow-x: auto;
-	white-space: nowrap;
-	font-family: var(--mono);
-	font-size: 12.5px;
-	line-height: 1.6;
-	background: var(--lobe-fill-2);
-	border: 1px solid var(--lobe-border-2);
-	border-radius: 6px;
-	padding: 2px 8px;
-	color: var(--lobe-text);
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  background: var(--lobe-fill-2);
+  border: 1px solid var(--lobe-border-2);
+  border-radius: 6px;
+  padding: 2px 8px;
+  color: var(--lobe-text);
 }

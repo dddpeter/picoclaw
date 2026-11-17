@@ -91,7 +91,8 @@ export async function loadSessionMessages(
       ? {
           approvalSeal: {
             verdict: "timeout" as const,
-            at: (detail.pending_approval.started_at ?? 0) +
+            at:
+              (detail.pending_approval.started_at ?? 0) +
               (detail.pending_approval.timeout_ms ?? 0),
           },
         }
@@ -106,7 +107,8 @@ export async function loadSessionMessages(
         ...(detail.pending_approval.preview
           ? { preview: detail.pending_approval.preview }
           : {}),
-        ...(detail.pending_approval.timeout_ms && detail.pending_approval.timeout_ms > 0
+        ...(detail.pending_approval.timeout_ms &&
+        detail.pending_approval.timeout_ms > 0
           ? { timeoutMs: detail.pending_approval.timeout_ms }
           : {}),
       },

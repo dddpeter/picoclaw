@@ -878,7 +878,8 @@ export function ModelsPage() {
         model.provider,
         providerOptions,
       )
-      const haystack = `${model.model_name} ${model.model} ${providerKey ?? ""}`.toLowerCase()
+      const haystack =
+        `${model.model_name} ${model.model} ${providerKey ?? ""}`.toLowerCase()
       if (!haystack.includes(searchLower)) continue
     }
     const providerKey = getCanonicalProviderKey(model.provider, providerOptions)
@@ -1020,7 +1021,7 @@ export function ModelsPage() {
       <div className="min-h-0 flex-1 overflow-y-auto px-4 sm:px-6">
         <div className="pt-2">
           <div className="flex items-center gap-2">
-            <div className="bg-card focus-within:border-primary/50 relative flex-1 rounded-lg border border-border/60 transition-colors sm:max-w-xs">
+            <div className="bg-card focus-within:border-primary/50 border-border/60 relative flex-1 rounded-lg border transition-colors sm:max-w-xs">
               <IconSearch className="text-muted-foreground/70 pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
               <input
                 type="text"
@@ -1049,10 +1050,11 @@ export function ModelsPage() {
                     {t("models.defaultChain.title")}
                   </p>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                    <span className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-gradient-to-r from-primary/90 to-[oklch(0.6_0.19_28)] px-3 py-1 text-xs font-medium text-primary-foreground shadow-sm">
+                    <span className="from-primary/90 text-primary-foreground inline-flex max-w-full items-center gap-1.5 rounded-full bg-gradient-to-r to-[oklch(0.6_0.19_28)] px-3 py-1 text-xs font-medium shadow-sm">
                       <IconStarFilled className="size-3 shrink-0" />
                       <span className="truncate">
-                        {defaultModelLabel || t("models.defaultChain.noDefault")}
+                        {defaultModelLabel ||
+                          t("models.defaultChain.noDefault")}
                       </span>
                     </span>
                     {fallbackChainDraft.map((name, idx) => (
@@ -1127,7 +1129,7 @@ export function ModelsPage() {
           <div className="pb-8">
             {models.length === 0 && !defaultModelDraft ? (
               <div className="flex flex-col items-center justify-center py-20">
-                <div className="from-primary/15 to-[oklch(0.62_0.2_25/12%)] mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br shadow-lg shadow-primary/10">
+                <div className="from-primary/15 shadow-primary/10 mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br to-[oklch(0.62_0.2_25/12%)] shadow-lg">
                   <IconDatabase className="text-primary size-8" />
                 </div>
                 <h3 className="text-foreground text-lg font-semibold">

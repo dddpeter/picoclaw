@@ -32,7 +32,6 @@ vi.mock("react-vega", async () => {
     },
   }
 })
-
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
 function mount(ui: ReactElement) {
@@ -122,20 +121,14 @@ describe("VegaChart theme linking", () => {
       act(() => {
         document.documentElement.classList.add("dark")
       })
-      await waitFor(
-        () => expect(renderLog.length).toBeGreaterThan(0),
-        3000,
-      )
+      await waitFor(() => expect(renderLog.length).toBeGreaterThan(0), 3000)
 
       // 回切主题同样触发。
       renderLog.length = 0
       act(() => {
         document.documentElement.classList.remove("dark")
       })
-      await waitFor(
-        () => expect(renderLog.length).toBeGreaterThan(0),
-        3000,
-      )
+      await waitFor(() => expect(renderLog.length).toBeGreaterThan(0), 3000)
       // 主题切换不重挂 lazy 实例（重嵌 ≠ 重建组件类型）。
       expect(container.querySelector("[data-vegachart-placeholder]")).toBeNull()
     } finally {

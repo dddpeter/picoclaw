@@ -6,12 +6,12 @@
  * Sheets inject only the differences: header, entry-only fields
  * (`headerFields`), error display, dialog instances (children).
  */
-import type { ReactNode } from "react"
 import {
   IconDownload,
   IconLoader2,
   IconPlugConnected,
 } from "@tabler/icons-react"
+import type { ReactNode } from "react"
 import { useRef } from "react"
 import { useTranslation } from "react-i18next"
 
@@ -319,9 +319,7 @@ export function ModelFormSheet({
                 }
               >
                 <Input
-                  value={
-                    authMethodLocked ? defaultAuthMethod : form.authMethod
-                  }
+                  value={authMethodLocked ? defaultAuthMethod : form.authMethod}
                   onChange={setField("authMethod")}
                   placeholder="oauth"
                   disabled={authMethodLocked}
@@ -465,9 +463,7 @@ export function ModelFormSheet({
           </Button>
           <Button
             onClick={onSave}
-            disabled={
-              !isDirty || saving || modelValidation?.level === "error"
-            }
+            disabled={!isDirty || saving || modelValidation?.level === "error"}
           >
             {saving && <IconLoader2 className="size-4 animate-spin" />}
             {confirmLabel}

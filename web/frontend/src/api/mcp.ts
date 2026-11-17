@@ -67,7 +67,12 @@ export interface MCPStatusResponse {
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await launcherFetch(path, options)
   if (!res.ok) {
-    throw new Error(await parseResponseError(res, `API error: ${res.status} ${res.statusText}`))
+    throw new Error(
+      await parseResponseError(
+        res,
+        `API error: ${res.status} ${res.statusText}`,
+      ),
+    )
   }
   return res.json() as Promise<T>
 }

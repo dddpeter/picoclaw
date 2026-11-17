@@ -211,9 +211,7 @@ export function useModelFormState(opts: {
 
   const setField =
     (key: keyof ModelFormState) =>
-    (
-      e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
-    ): void => {
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>): void => {
       setForm((f) => ({ ...f, [key]: e.target.value }))
       if (fieldErrors[key as keyof ModelFieldErrors]) {
         setFieldErrors((prev) => ({ ...prev, [key]: undefined }))
@@ -336,9 +334,7 @@ export function useModelFormState(opts: {
         : {}
     } catch {
       setServerError(
-        t("models.field.customHeaders") +
-          ": " +
-          t("models.field.invalidJson"),
+        t("models.field.customHeaders") + ": " + t("models.field.invalidJson"),
       )
       return null
     }

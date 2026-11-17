@@ -180,7 +180,11 @@ const streamingMessages = [
       surfaceId: "stream-test",
       components: [
         { id: "root", component: "Card", child: "col" },
-        { id: "col", component: "Column", children: ["titleText", "nameField"] },
+        {
+          id: "col",
+          component: "Column",
+          children: ["titleText", "nameField"],
+        },
         { id: "titleText", component: "Text", text: { path: "/title" } },
         {
           id: "nameField",

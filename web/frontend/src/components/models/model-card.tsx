@@ -89,7 +89,7 @@ export function ModelCard({
       className={[
         "group/card relative flex w-full flex-col gap-3 rounded-xl border p-4 transition-all duration-200",
         model.available
-          ? "border-border/60 bg-card hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-[0_8px_24px_-8px_oklch(0.66_0.19_55/35%)]"
+          ? "border-border/60 bg-card hover:border-primary/40 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_-8px_oklch(0.66_0.19_55/35%)]"
           : "border-border/50 bg-card/90 hover:-translate-y-0.5 hover:shadow-[0_6px_18px_-8px_oklch(0.66_0.19_55/25%)]",
         isDefault
           ? "border-primary/50 shadow-[0_0_0_1px_oklch(0.66_0.19_55/30%),0_6px_20px_-6px_oklch(0.66_0.19_55/30%)]"

@@ -16,7 +16,13 @@ export const BubblesLoading = memo(function BubblesLoading() {
       viewBox="0 0 60 32"
       width="60"
     >
-      <circle className="lobe-bubbles-dot" cx="7" cy="16" data-delay="0" r="6" />
+      <circle
+        className="lobe-bubbles-dot"
+        cx="7"
+        cy="16"
+        data-delay="0"
+        r="6"
+      />
       <circle
         className="lobe-bubbles-dot"
         cx="30"

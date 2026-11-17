@@ -43,7 +43,9 @@ export async function savePromptTemplates(
 
 async function extractErrorMessage(res: Response): Promise<string> {
   try {
-    const body = (await res.json().catch(() => null)) as { error?: string } | null
+    const body = (await res.json().catch(() => null)) as {
+      error?: string
+    } | null
     if (body?.error) {
       return body.error
     }

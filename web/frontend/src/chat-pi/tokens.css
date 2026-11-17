@@ -7,33 +7,33 @@
  * 作用域：.pi-chat（与 pi-chat.css 桥接区一致，不污染全局）。
  */
 .pi-chat {
-	/* 文本 */
-	--lobe-text: var(--text);
-	--lobe-text-2: color-mix(in srgb, var(--text) 72%, transparent);
-	--lobe-text-desc: color-mix(in srgb, var(--text) 55%, transparent);
-	--lobe-text-disabled: color-mix(in srgb, var(--text) 28%, transparent);
+  /* 文本 */
+  --lobe-text: var(--text);
+  --lobe-text-2: color-mix(in srgb, var(--text) 72%, transparent);
+  --lobe-text-desc: color-mix(in srgb, var(--text) 55%, transparent);
+  --lobe-text-disabled: color-mix(in srgb, var(--text) 28%, transparent);
 
-	/* 边框 */
-	--lobe-border: color-mix(in srgb, var(--text) 18%, transparent);
-	--lobe-border-2: color-mix(in srgb, var(--text) 10%, transparent);
+  /* 边框 */
+  --lobe-border: color-mix(in srgb, var(--text) 18%, transparent);
+  --lobe-border-2: color-mix(in srgb, var(--text) 10%, transparent);
 
-	/* 填充（fill 越小越淡） */
-	--lobe-fill-4: color-mix(in srgb, var(--text) 4%, transparent);
-	--lobe-fill-3: color-mix(in srgb, var(--text) 6%, transparent);
-	--lobe-fill-2: color-mix(in srgb, var(--text) 9%, transparent);
-	--lobe-fill: color-mix(in srgb, var(--text) 14%, transparent);
+  /* 填充（fill 越小越淡） */
+  --lobe-fill-4: color-mix(in srgb, var(--text) 4%, transparent);
+  --lobe-fill-3: color-mix(in srgb, var(--text) 6%, transparent);
+  --lobe-fill-2: color-mix(in srgb, var(--text) 9%, transparent);
+  --lobe-fill: color-mix(in srgb, var(--text) 14%, transparent);
 
-	/* 背景 */
-	--lobe-bg: var(--bg);
-	--lobe-bg-elevated: var(--card-bg);
+  /* 背景 */
+  --lobe-bg: var(--bg);
+  --lobe-bg-elevated: var(--card-bg);
 
-	/* 语义色 */
-	--lobe-info: var(--accent);
-	--lobe-success: var(--green, #22c55e);
-	--lobe-warning: var(--amber, #f59e0b);
-	--lobe-danger: var(--red, #ef4444);
+  /* 语义色 */
+  --lobe-info: var(--accent);
+  --lobe-success: var(--green, #22c55e);
+  --lobe-warning: var(--amber, #f59e0b);
+  --lobe-danger: var(--red, #ef4444);
 
-	/* 圆角（对齐 LobeHub borderRadiusLG） */
-	--lobe-radius-lg: 12px;
-	--lobe-radius-md: 8px;
+  /* 圆角（对齐 LobeHub borderRadiusLG） */
+  --lobe-radius-lg: 12px;
+  --lobe-radius-md: 8px;
 }

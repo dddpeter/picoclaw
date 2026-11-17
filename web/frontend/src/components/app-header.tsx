@@ -13,6 +13,7 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 
 import { postLauncherDashboardLogout } from "@/api/launcher-auth"
+import { ThemeSwitcher } from "@/components/theme-switcher.tsx"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,7 +38,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { ThemeSwitcher } from "@/components/theme-switcher.tsx"
 import { useGateway } from "@/hooks/use-gateway.ts"
 
 export function AppHeader() {

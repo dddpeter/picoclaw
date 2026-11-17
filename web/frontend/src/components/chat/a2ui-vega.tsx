@@ -115,9 +115,9 @@ function normalizeVegaSpec(
     // 里面的系列——柱子粗细走 config.bar/scale 注入，见 themeVegaDefaults）。
     s.width = Math.floor(hostWidth)
   }
-  const modelConfig = (typeof s.config === "object" && s.config !== null
-    ? s.config
-    : {}) as Record<string, Record<string, unknown>>
+  const modelConfig = (
+    typeof s.config === "object" && s.config !== null ? s.config : {}
+  ) as Record<string, Record<string, unknown>>
   const defaults = themeVegaDefaults()
   const mergedConfig: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(defaults)) {

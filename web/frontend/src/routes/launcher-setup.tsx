@@ -4,6 +4,7 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 
 import { postLauncherDashboardSetup } from "@/api/launcher-auth"
+import { ThemeSwitcher } from "@/components/theme-switcher.tsx"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -20,7 +21,6 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ThemeSwitcher } from "@/components/theme-switcher.tsx"
 
 function LauncherSetupPage() {
   const { t, i18n } = useTranslation()

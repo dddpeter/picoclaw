@@ -20,7 +20,7 @@ export const AnsiLogLine = memo(function AnsiLogLine({
   }, [line, wrapColumns])
 
   return (
-    <div className="break-normal whitespace-pre-wrap [content-visibility:auto] [contain-intrinsic-size:auto_1.625em]">
+    <div className="break-normal whitespace-pre-wrap [contain-intrinsic-size:auto_1.625em] [content-visibility:auto]">
       {segments.map((segment, index) => (
         <Fragment key={`${index}-${segment.text.length}`}>
           <span style={segment.style}>{segment.text}</span>

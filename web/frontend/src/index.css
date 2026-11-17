@@ -362,7 +362,8 @@ header.sticky {
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border-color: color-mix(in oklab, var(--primary) 26%, var(--border));
-  box-shadow: 0 8px 32px -12px color-mix(in oklab, var(--primary) 32%, transparent);
+  box-shadow: 0 8px 32px -12px
+    color-mix(in oklab, var(--primary) 32%, transparent);
   transition:
     border-color 0.25s ease,
     box-shadow 0.25s ease,
@@ -371,7 +372,8 @@ header.sticky {
 
 [data-slot="card"]:hover {
   border-color: color-mix(in oklab, var(--primary) 38%, transparent);
-  box-shadow: 0 14px 44px -14px color-mix(in oklab, var(--primary) 38%, transparent);
+  box-shadow: 0 14px 44px -14px
+    color-mix(in oklab, var(--primary) 38%, transparent);
   transform: translateY(-2px);
 }
 

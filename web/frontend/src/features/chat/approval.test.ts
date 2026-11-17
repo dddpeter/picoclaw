@@ -20,14 +20,20 @@ describe("parseApprovalFromPayload", () => {
   it("parses v1 approval payload", () => {
     expect(
       parseApprovalFromPayload({
-        approval: { tool: "exec", preview: "rm -rf /tmp/x", timeout_ms: 300000 },
+        approval: {
+          tool: "exec",
+          preview: "rm -rf /tmp/x",
+          timeout_ms: 300000,
+        },
       }),
     ).toEqual({ tool: "exec", preview: "rm -rf /tmp/x", timeoutMs: 300000 })
   })
 
   it("rejects missing tool and non-object payloads", () => {
     expect(parseApprovalFromPayload({})).toBeUndefined()
-    expect(parseApprovalFromPayload({ approval: { tool: "  " } })).toBeUndefined()
+    expect(
+      parseApprovalFromPayload({ approval: { tool: "  " } }),
+    ).toBeUndefined()
     expect(parseApprovalFromPayload({ approval: "exec" })).toBeUndefined()
   })
 })
@@ -65,10 +71,22 @@ describe("parseGoDuration", () => {
 describe("matchApprovalReceipt", () => {
   it("matches all receipt forms", () => {
     expect(matchApprovalReceipt("✅ 已批准，继续执行。")).toBe("approved")
-    expect(matchApprovalReceipt("✅ 已批准；本会话内命中规则 \"x\" 的调用将自动放行（约 6 小时后或重启失效）。")).toBe("always")
-    expect(matchApprovalReceipt("✅ 已批准；本会话内所有审批将自动放行（约 6 小时后或重启失效）。")).toBe("allow_all")
+    expect(
+      matchApprovalReceipt(
+        '✅ 已批准；本会话内命中规则 "x" 的调用将自动放行（约 6 小时后或重启失效）。',
+      ),
+    ).toBe("always")
+    expect(
+      matchApprovalReceipt(
+        "✅ 已批准；本会话内所有审批将自动放行（约 6 小时后或重启失效）。",
+      ),
+    ).toBe("allow_all")
     expect(matchApprovalReceipt("⛔ 已拒绝本次工具执行。")).toBe("denied")
-    expect(matchApprovalReceipt("⛔ 审批超时（5m0s），已按拒绝处理（fail-closed）。")).toBe("timeout")
+    expect(
+      matchApprovalReceipt(
+        "⛔ 审批超时（5m0s），已按拒绝处理（fail-closed）。",
+      ),
+    ).toBe("timeout")
   })
 
   it("does not match other messages", () => {
@@ -76,7 +94,9 @@ describe("matchApprovalReceipt", () => {
   })
 
   it("recognizes the orphan receipt as a done signal", () => {
-    expect(matchApprovalReceipt("当前没有待批准的操作，本次回复已忽略。")).toBe("done")
+    expect(matchApprovalReceipt("当前没有待批准的操作，本次回复已忽略。")).toBe(
+      "done",
+    )
   })
 })
 
@@ -93,7 +113,11 @@ function assistantMessage(partial: Partial<ChatMessage>): ChatMessage {
 describe("sealLastApproval", () => {
   it("seals the latest unsealed approval and keeps the rest untouched", () => {
     const messages = [
-      assistantMessage({ id: "a", approval: { tool: "exec" }, approvalSeal: { verdict: "denied", at: 1 } }),
+      assistantMessage({
+        id: "a",
+        approval: { tool: "exec" },
+        approvalSeal: { verdict: "denied", at: 1 },
+      }),
       assistantMessage({ id: "b", approval: { tool: "exec" } }),
     ]
     const sealed = sealLastApproval(messages, "approved", 42)
@@ -104,7 +128,9 @@ describe("sealLastApproval", () => {
   })
 
   it("returns undefined when nothing is sealable", () => {
-    expect(sealLastApproval([assistantMessage({ content: "hi" })], "approved", 1)).toBeUndefined()
+    expect(
+      sealLastApproval([assistantMessage({ content: "hi" })], "approved", 1),
+    ).toBeUndefined()
   })
 })
 
@@ -112,19 +138,29 @@ describe("pairApprovalHistory", () => {
   it("pairs ask with receipt, suppresses the receipt text", () => {
     const messages = [
       assistantMessage({ id: "ask", content: REAL_ASK }),
-      assistantMessage({ id: "receipt", content: "✅ 已批准，继续执行。", timestamp: 1_700_000_060_000 }),
+      assistantMessage({
+        id: "receipt",
+        content: "✅ 已批准，继续执行。",
+        timestamp: 1_700_000_060_000,
+      }),
     ]
     const paired = pairApprovalHistory(messages)
     expect(paired).toHaveLength(1)
     expect(paired[0].id).toBe("ask")
     expect(paired[0].approval?.tool).toBe("exec")
-    expect(paired[0].approvalSeal).toEqual({ verdict: "approved", at: 1_700_000_060_000 })
+    expect(paired[0].approvalSeal).toEqual({
+      verdict: "approved",
+      at: 1_700_000_060_000,
+    })
   })
 
   it("marks unpaired asks as done and orphan receipts seal the dangling card", () => {
     const paired = pairApprovalHistory([
       assistantMessage({ id: "ask", content: REAL_ASK }),
-      assistantMessage({ id: "orphan", content: "当前没有待批准的操作，本次回复已忽略。" }),
+      assistantMessage({
+        id: "orphan",
+        content: "当前没有待批准的操作，本次回复已忽略。",
+      }),
     ])
     // 孤儿回执把悬空的 pending 卡封存为 done，自身被抑制。
     expect(paired).toHaveLength(1)
@@ -134,7 +170,10 @@ describe("pairApprovalHistory", () => {
 
   it("keeps orphan receipts as text when no card is pending", () => {
     const paired = pairApprovalHistory([
-      assistantMessage({ id: "orphan", content: "当前没有待批准的操作，本次回复已忽略。" }),
+      assistantMessage({
+        id: "orphan",
+        content: "当前没有待批准的操作，本次回复已忽略。",
+      }),
     ])
     expect(paired).toHaveLength(1)
     expect(paired[0].id).toBe("orphan")

@@ -14,13 +14,19 @@ interface ConfigChangeNoticeProps {
 }
 
 // Style map per notice kind; keyed lookup keeps this flat as kinds grow.
-const KIND_STYLES: Record<NonNullable<ConfigChangeNoticeProps["kind"]>, string> = {
+const KIND_STYLES: Record<
+  NonNullable<ConfigChangeNoticeProps["kind"]>,
+  string
+> = {
   save: "border-yellow-200 bg-yellow-50 text-yellow-900",
   restart: "border-amber-200 bg-amber-50 text-amber-900",
   warning: "border-orange-200 bg-orange-50 text-orange-900",
 }
 
-const KIND_ICONS: Record<NonNullable<ConfigChangeNoticeProps["kind"]>, typeof IconRefresh> = {
+const KIND_ICONS: Record<
+  NonNullable<ConfigChangeNoticeProps["kind"]>,
+  typeof IconRefresh
+> = {
   save: IconDeviceFloppy,
   restart: IconRefresh,
   warning: IconAlertCircle,

@@ -7,6 +7,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react"
 import {
+  type ReactNode,
   createContext,
   useCallback,
   useContext,
@@ -14,14 +15,13 @@ import {
   useMemo,
   useRef,
   useState,
-  type ReactNode,
 } from "react"
 import { useTranslation } from "react-i18next"
 
 import {
+  type StoredPromptTemplate,
   getPromptTemplates,
   savePromptTemplates,
-  type StoredPromptTemplate,
 } from "@/api/prompt-templates"
 import { Button } from "@/components/ui/button"
 import {
@@ -57,32 +57,188 @@ interface BuiltinDef {
 // pi-web-ui. Copy lives in i18n (tpl.sk.*); the gateway only stores the user
 // delta on top of these defaults.
 const BUILTIN_DEFS: BuiltinDef[] = [
-  { id: "project-context", icon: "📁", titleKey: "tpl.sk.project.title", descKey: "tpl.sk.project.desc", promptKey: "tpl.sk.project.prompt" },
-  { id: "setup-matt-pocock-skills", icon: "🧰", titleKey: "tpl.sk.setup.title", descKey: "tpl.sk.setup.desc", promptKey: "tpl.sk.setup.prompt" },
-  { id: "ask-matt", icon: "🟣", titleKey: "tpl.sk.ask.title", descKey: "tpl.sk.ask.desc", promptKey: "tpl.sk.ask.prompt" },
-  { id: "grill-with-docs", icon: "🔥", titleKey: "tpl.sk.grilldocs.title", descKey: "tpl.sk.grilldocs.desc", promptKey: "tpl.sk.grilldocs.prompt" },
-  { id: "to-spec", icon: "📄", titleKey: "tpl.sk.tospec.title", descKey: "tpl.sk.tospec.desc", promptKey: "tpl.sk.tospec.prompt" },
-  { id: "to-tickets", icon: "🎫", titleKey: "tpl.sk.totickets.title", descKey: "tpl.sk.totickets.desc", promptKey: "tpl.sk.totickets.prompt" },
-  { id: "implement", icon: "🛠️", titleKey: "tpl.sk.implement.title", descKey: "tpl.sk.implement.desc", promptKey: "tpl.sk.implement.prompt" },
-  { id: "code-review", icon: "🧐", titleKey: "tpl.sk.codeview.title", descKey: "tpl.sk.codeview.desc", promptKey: "tpl.sk.codeview.prompt" },
-  { id: "wayfinder", icon: "🧭", titleKey: "tpl.sk.wayfinder.title", descKey: "tpl.sk.wayfinder.desc", promptKey: "tpl.sk.wayfinder.prompt" },
-  { id: "prototype", icon: "🚀", titleKey: "tpl.sk.prototype.title", descKey: "tpl.sk.prototype.desc", promptKey: "tpl.sk.prototype.prompt" },
-  { id: "research", icon: "🛰️", titleKey: "tpl.sk.research.title", descKey: "tpl.sk.research.desc", promptKey: "tpl.sk.research.prompt" },
-  { id: "improve-codebase-architecture", icon: "🏛️", titleKey: "tpl.sk.arch.title", descKey: "tpl.sk.arch.desc", promptKey: "tpl.sk.arch.prompt" },
-  { id: "diagnosing-bugs", icon: "🩺", titleKey: "tpl.sk.debug.title", descKey: "tpl.sk.debug.desc", promptKey: "tpl.sk.debug.prompt" },
-  { id: "resolving-merge-conflicts", icon: "🔀", titleKey: "tpl.sk.merge.title", descKey: "tpl.sk.merge.desc", promptKey: "tpl.sk.merge.prompt" },
-  { id: "triage", icon: "🚑", titleKey: "tpl.sk.triage.title", descKey: "tpl.sk.triage.desc", promptKey: "tpl.sk.triage.prompt" },
-  { id: "wizard", icon: "🧙", titleKey: "tpl.sk.wizard.title", descKey: "tpl.sk.wizard.desc", promptKey: "tpl.sk.wizard.prompt" },
-  { id: "grill-me", icon: "🥩", titleKey: "tpl.sk.grillme.title", descKey: "tpl.sk.grillme.desc", promptKey: "tpl.sk.grillme.prompt" },
-  { id: "handoff", icon: "🤝", titleKey: "tpl.sk.handoff.title", descKey: "tpl.sk.handoff.desc", promptKey: "tpl.sk.handoff.prompt" },
-  { id: "to-questionnaire", icon: "📋", titleKey: "tpl.sk.questionnaire.title", descKey: "tpl.sk.questionnaire.desc", promptKey: "tpl.sk.questionnaire.prompt" },
-  { id: "teach", icon: "🧑‍🏫", titleKey: "tpl.sk.teach.title", descKey: "tpl.sk.teach.desc", promptKey: "tpl.sk.teach.prompt" },
-  { id: "wait-what", icon: "✋", titleKey: "tpl.sk.ww.title", descKey: "tpl.sk.ww.desc", promptKey: "tpl.sk.ww.prompt" },
-  { id: "writing-for-agents", icon: "✍️", titleKey: "tpl.sk.wfa.title", descKey: "tpl.sk.wfa.desc", promptKey: "tpl.sk.wfa.prompt" },
-  { id: "codebase-design", icon: "📐", titleKey: "tpl.sk.codesign.title", descKey: "tpl.sk.codesign.desc", promptKey: "tpl.sk.codesign.prompt" },
-  { id: "domain-modeling", icon: "🗺️", titleKey: "tpl.sk.domain.title", descKey: "tpl.sk.domain.desc", promptKey: "tpl.sk.domain.prompt" },
-  { id: "grilling", icon: "🍖", titleKey: "tpl.sk.grilling.title", descKey: "tpl.sk.grilling.desc", promptKey: "tpl.sk.grilling.prompt" },
-  { id: "tdd", icon: "🧪", titleKey: "tpl.sk.tdd.title", descKey: "tpl.sk.tdd.desc", promptKey: "tpl.sk.tdd.prompt" },
+  {
+    id: "project-context",
+    icon: "📁",
+    titleKey: "tpl.sk.project.title",
+    descKey: "tpl.sk.project.desc",
+    promptKey: "tpl.sk.project.prompt",
+  },
+  {
+    id: "setup-matt-pocock-skills",
+    icon: "🧰",
+    titleKey: "tpl.sk.setup.title",
+    descKey: "tpl.sk.setup.desc",
+    promptKey: "tpl.sk.setup.prompt",
+  },
+  {
+    id: "ask-matt",
+    icon: "🟣",
+    titleKey: "tpl.sk.ask.title",
+    descKey: "tpl.sk.ask.desc",
+    promptKey: "tpl.sk.ask.prompt",
+  },
+  {
+    id: "grill-with-docs",
+    icon: "🔥",
+    titleKey: "tpl.sk.grilldocs.title",
+    descKey: "tpl.sk.grilldocs.desc",
+    promptKey: "tpl.sk.grilldocs.prompt",
+  },
+  {
+    id: "to-spec",
+    icon: "📄",
+    titleKey: "tpl.sk.tospec.title",
+    descKey: "tpl.sk.tospec.desc",
+    promptKey: "tpl.sk.tospec.prompt",
+  },
+  {
+    id: "to-tickets",
+    icon: "🎫",
+    titleKey: "tpl.sk.totickets.title",
+    descKey: "tpl.sk.totickets.desc",
+    promptKey: "tpl.sk.totickets.prompt",
+  },
+  {
+    id: "implement",
+    icon: "🛠️",
+    titleKey: "tpl.sk.implement.title",
+    descKey: "tpl.sk.implement.desc",
+    promptKey: "tpl.sk.implement.prompt",
+  },
+  {
+    id: "code-review",
+    icon: "🧐",
+    titleKey: "tpl.sk.codeview.title",
+    descKey: "tpl.sk.codeview.desc",
+    promptKey: "tpl.sk.codeview.prompt",
+  },
+  {
+    id: "wayfinder",
+    icon: "🧭",
+    titleKey: "tpl.sk.wayfinder.title",
+    descKey: "tpl.sk.wayfinder.desc",
+    promptKey: "tpl.sk.wayfinder.prompt",
+  },
+  {
+    id: "prototype",
+    icon: "🚀",
+    titleKey: "tpl.sk.prototype.title",
+    descKey: "tpl.sk.prototype.desc",
+    promptKey: "tpl.sk.prototype.prompt",
+  },
+  {
+    id: "research",
+    icon: "🛰️",
+    titleKey: "tpl.sk.research.title",
+    descKey: "tpl.sk.research.desc",
+    promptKey: "tpl.sk.research.prompt",
+  },
+  {
+    id: "improve-codebase-architecture",
+    icon: "🏛️",
+    titleKey: "tpl.sk.arch.title",
+    descKey: "tpl.sk.arch.desc",
+    promptKey: "tpl.sk.arch.prompt",
+  },
+  {
+    id: "diagnosing-bugs",
+    icon: "🩺",
+    titleKey: "tpl.sk.debug.title",
+    descKey: "tpl.sk.debug.desc",
+    promptKey: "tpl.sk.debug.prompt",
+  },
+  {
+    id: "resolving-merge-conflicts",
+    icon: "🔀",
+    titleKey: "tpl.sk.merge.title",
+    descKey: "tpl.sk.merge.desc",
+    promptKey: "tpl.sk.merge.prompt",
+  },
+  {
+    id: "triage",
+    icon: "🚑",
+    titleKey: "tpl.sk.triage.title",
+    descKey: "tpl.sk.triage.desc",
+    promptKey: "tpl.sk.triage.prompt",
+  },
+  {
+    id: "wizard",
+    icon: "🧙",
+    titleKey: "tpl.sk.wizard.title",
+    descKey: "tpl.sk.wizard.desc",
+    promptKey: "tpl.sk.wizard.prompt",
+  },
+  {
+    id: "grill-me",
+    icon: "🥩",
+    titleKey: "tpl.sk.grillme.title",
+    descKey: "tpl.sk.grillme.desc",
+    promptKey: "tpl.sk.grillme.prompt",
+  },
+  {
+    id: "handoff",
+    icon: "🤝",
+    titleKey: "tpl.sk.handoff.title",
+    descKey: "tpl.sk.handoff.desc",
+    promptKey: "tpl.sk.handoff.prompt",
+  },
+  {
+    id: "to-questionnaire",
+    icon: "📋",
+    titleKey: "tpl.sk.questionnaire.title",
+    descKey: "tpl.sk.questionnaire.desc",
+    promptKey: "tpl.sk.questionnaire.prompt",
+  },
+  {
+    id: "teach",
+    icon: "🧑‍🏫",
+    titleKey: "tpl.sk.teach.title",
+    descKey: "tpl.sk.teach.desc",
+    promptKey: "tpl.sk.teach.prompt",
+  },
+  {
+    id: "wait-what",
+    icon: "✋",
+    titleKey: "tpl.sk.ww.title",
+    descKey: "tpl.sk.ww.desc",
+    promptKey: "tpl.sk.ww.prompt",
+  },
+  {
+    id: "writing-for-agents",
+    icon: "✍️",
+    titleKey: "tpl.sk.wfa.title",
+    descKey: "tpl.sk.wfa.desc",
+    promptKey: "tpl.sk.wfa.prompt",
+  },
+  {
+    id: "codebase-design",
+    icon: "📐",
+    titleKey: "tpl.sk.codesign.title",
+    descKey: "tpl.sk.codesign.desc",
+    promptKey: "tpl.sk.codesign.prompt",
+  },
+  {
+    id: "domain-modeling",
+    icon: "🗺️",
+    titleKey: "tpl.sk.domain.title",
+    descKey: "tpl.sk.domain.desc",
+    promptKey: "tpl.sk.domain.prompt",
+  },
+  {
+    id: "grilling",
+    icon: "🍖",
+    titleKey: "tpl.sk.grilling.title",
+    descKey: "tpl.sk.grilling.desc",
+    promptKey: "tpl.sk.grilling.prompt",
+  },
+  {
+    id: "tdd",
+    icon: "🧪",
+    titleKey: "tpl.sk.tdd.title",
+    descKey: "tpl.sk.tdd.desc",
+    promptKey: "tpl.sk.tdd.prompt",
+  },
 ]
 
 const BUILTIN_IDS = new Set(BUILTIN_DEFS.map((d) => d.id))
@@ -126,7 +282,9 @@ const PromptTemplatesContext = createContext<PromptTemplatesApi | null>(null)
 export function usePromptTemplates(): PromptTemplatesApi {
   const ctx = useContext(PromptTemplatesContext)
   if (!ctx) {
-    throw new Error("usePromptTemplates must be used within PromptTemplatesProvider")
+    throw new Error(
+      "usePromptTemplates must be used within PromptTemplatesProvider",
+    )
   }
   return ctx
 }
@@ -138,7 +296,12 @@ interface ProviderProps {
   canSend: boolean
 }
 
-export function PromptTemplatesProvider({ children, onFill, onSend, canSend }: ProviderProps) {
+export function PromptTemplatesProvider({
+  children,
+  onFill,
+  onSend,
+  canSend,
+}: ProviderProps) {
   const { t } = useTranslation()
   // i18n hands out a fresh `t` on every locale change. Effects read it through
   // this ref instead of depending on it: re-running the load effect would GET
@@ -204,7 +367,9 @@ export function PromptTemplatesProvider({ children, onFill, onSend, canSend }: P
         })
       }
     }
-    const builtins: PromptTemplate[] = BUILTIN_DEFS.filter((d) => !hidden.has(d.id)).map((d) => {
+    const builtins: PromptTemplate[] = BUILTIN_DEFS.filter(
+      (d) => !hidden.has(d.id),
+    ).map((d) => {
       const o = overrides.get(d.id)
       return {
         id: d.id,
@@ -241,7 +406,9 @@ export function PromptTemplatesProvider({ children, onFill, onSend, canSend }: P
         return true
       } catch (err) {
         setStored(prev)
-        setSaveError(err instanceof Error ? err.message : tRef.current("tpl.saveError"))
+        setSaveError(
+          err instanceof Error ? err.message : tRef.current("tpl.saveError"),
+        )
         return false
       } finally {
         savingRef.current = false
@@ -361,8 +528,14 @@ export function PromptTemplatesProvider({ children, onFill, onSend, canSend }: P
   return (
     <PromptTemplatesContext.Provider value={api}>
       {children}
-      <TemplatePickerDialog open={pickerOpen} onOpenChange={(o) => !o && closePicker()} />
-      <TemplateEditDialog open={editOpen} onOpenChange={(o) => !o && closeEdit()} />
+      <TemplatePickerDialog
+        open={pickerOpen}
+        onOpenChange={(o) => !o && closePicker()}
+      />
+      <TemplateEditDialog
+        open={editOpen}
+        onOpenChange={(o) => !o && closeEdit()}
+      />
     </PromptTemplatesContext.Provider>
   )
 }
@@ -383,18 +556,18 @@ function TemplateCard({
         onClick={() => fill(tpl.prompt)}
         title={tpl.title}
         className={cn(
-          "flex h-full w-full cursor-pointer flex-col gap-2 rounded-xl border bg-card p-4 text-left transition-colors hover:border-foreground/25 hover:bg-accent",
+          "bg-card hover:border-foreground/25 hover:bg-accent flex h-full w-full cursor-pointer flex-col gap-2 rounded-xl border p-4 text-left transition-colors",
           compact && "h-11 flex-row items-center gap-2 px-3 py-0 pr-8",
         )}
       >
-        <span className="flex items-center gap-2 min-w-0">
+        <span className="flex min-w-0 items-center gap-2">
           <span aria-hidden className="shrink-0 text-lg leading-none">
             {tpl.icon}
           </span>
           <span className="truncate text-sm font-medium">{tpl.title}</span>
         </span>
         {!compact && tpl.desc && (
-          <span className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+          <span className="text-muted-foreground line-clamp-2 text-xs leading-relaxed">
             {tpl.desc}
           </span>
         )}
@@ -404,7 +577,7 @@ function TemplateCard({
         onClick={() => openEdit(tpl)}
         title={t("tpl.editTitle")}
         className={cn(
-          "absolute top-2 right-2 hidden h-6 w-6 cursor-pointer items-center justify-center rounded-lg bg-background/80 text-muted-foreground transition-colors hover:text-foreground group-hover/card:flex",
+          "bg-background/80 text-muted-foreground hover:text-foreground absolute top-2 right-2 hidden h-6 w-6 cursor-pointer items-center justify-center rounded-lg transition-colors group-hover/card:flex",
           compact && "top-1/2 right-1.5 -translate-y-1/2",
         )}
       >
@@ -416,7 +589,8 @@ function TemplateCard({
 
 function ResetButton({ className }: { className?: string }) {
   const { t } = useTranslation()
-  const { resetConfirm, toggleReset, resetToDefaults, saving } = usePromptTemplates()
+  const { resetConfirm, toggleReset, resetToDefaults, saving } =
+    usePromptTemplates()
   return (
     <Button
       type="button"
@@ -440,7 +614,8 @@ const EMPTY_VISIBLE = 11
 
 export function EmptyTemplateCards() {
   const { t } = useTranslation()
-  const { templates, loading, loadError, openPicker, openEdit } = usePromptTemplates()
+  const { templates, loading, loadError, openPicker, openEdit } =
+    usePromptTemplates()
   if (loading) {
     return null
   }
@@ -455,13 +630,11 @@ export function EmptyTemplateCards() {
   const remaining = templates.length - visible.length
   return (
     <div className="mt-10 flex w-full flex-col items-center gap-3">
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+      <div className="text-muted-foreground flex items-center gap-2 text-sm">
         <IconTemplate size={16} aria-hidden />
         <span>{t("tpl.hint")}</span>
       </div>
-      {loadError && (
-        <p className="text-xs text-destructive">{loadError}</p>
-      )}
+      {loadError && <p className="text-destructive text-xs">{loadError}</p>}
       <div className="w-full max-w-2xl">
         <div className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-2 p-0.5">
           {visible.map((tpl) => (
@@ -470,7 +643,7 @@ export function EmptyTemplateCards() {
           <button
             type="button"
             onClick={() => openEdit()}
-            className="flex h-11 cursor-pointer flex-row items-center justify-center gap-1.5 rounded-xl border border-dashed px-3 text-muted-foreground transition-colors hover:border-foreground/25 hover:bg-accent hover:text-foreground"
+            className="text-muted-foreground hover:border-foreground/25 hover:bg-accent hover:text-foreground flex h-11 cursor-pointer flex-row items-center justify-center gap-1.5 rounded-xl border border-dashed px-3 transition-colors"
           >
             <IconPlus size={16} aria-hidden />
             <span className="text-xs font-medium">{t("tpl.add")}</span>
@@ -479,7 +652,12 @@ export function EmptyTemplateCards() {
       </div>
       <div className="mt-1 flex items-center gap-2">
         {remaining > 0 && (
-          <Button type="button" variant="outline" size="sm" onClick={openPicker}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={openPicker}
+          >
             {t("tpl.viewAll", { n: templates.length })}
           </Button>
         )}
@@ -508,7 +686,7 @@ function TemplatePickerDialog({
           </DialogTitle>
           <DialogDescription>{t("tpl.pickerHint")}</DialogDescription>
         </DialogHeader>
-        {loadError && <p className="text-xs text-destructive">{loadError}</p>}
+        {loadError && <p className="text-destructive text-xs">{loadError}</p>}
         <ScrollArea className="max-h-[50vh]">
           <div className="grid grid-cols-1 gap-2 p-0.5 sm:grid-cols-2">
             {templates.map((tpl) => (
@@ -517,7 +695,7 @@ function TemplatePickerDialog({
             <button
               type="button"
               onClick={() => openEdit()}
-              className="flex min-h-20 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed p-4 text-muted-foreground transition-colors hover:border-foreground/25 hover:bg-accent hover:text-foreground"
+              className="text-muted-foreground hover:border-foreground/25 hover:bg-accent hover:text-foreground flex min-h-20 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed p-4 transition-colors"
             >
               <IconPlus size={18} aria-hidden />
               <span className="text-sm font-medium">{t("tpl.add")}</span>
@@ -640,13 +818,18 @@ function TemplateEditDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{isNew ? t("tpl.newTitle") : t("tpl.editTitle")}</DialogTitle>
+          <DialogTitle>
+            {isNew ? t("tpl.newTitle") : t("tpl.editTitle")}
+          </DialogTitle>
         </DialogHeader>
         {!draft ? null : (
           <div className="flex flex-col gap-3">
             <div className="flex gap-2">
               <div className="flex w-20 flex-col gap-1.5">
-                <label className="text-xs font-medium text-muted-foreground" htmlFor="tpl-icon">
+                <label
+                  className="text-muted-foreground text-xs font-medium"
+                  htmlFor="tpl-icon"
+                >
                   {t("tpl.fieldIcon")}
                 </label>
                 <Input
@@ -657,7 +840,10 @@ function TemplateEditDialog({
                 />
               </div>
               <div className="flex flex-1 flex-col gap-1.5">
-                <label className="text-xs font-medium text-muted-foreground" htmlFor="tpl-title">
+                <label
+                  className="text-muted-foreground text-xs font-medium"
+                  htmlFor="tpl-title"
+                >
                   {t("tpl.fieldTitle")}
                 </label>
                 <Input
@@ -670,7 +856,10 @@ function TemplateEditDialog({
               </div>
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-muted-foreground" htmlFor="tpl-desc">
+              <label
+                className="text-muted-foreground text-xs font-medium"
+                htmlFor="tpl-desc"
+              >
                 {t("tpl.fieldDesc")}
               </label>
               <Input
@@ -682,7 +871,10 @@ function TemplateEditDialog({
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-muted-foreground" htmlFor="tpl-prompt">
+              <label
+                className="text-muted-foreground text-xs font-medium"
+                htmlFor="tpl-prompt"
+              >
                 {t("tpl.fieldPrompt")}
               </label>
               <Textarea
@@ -695,7 +887,7 @@ function TemplateEditDialog({
               />
             </div>
             {(error || saveError) && (
-              <p className="text-xs text-destructive">{error ?? saveError}</p>
+              <p className="text-destructive text-xs">{error ?? saveError}</p>
             )}
           </div>
         )}

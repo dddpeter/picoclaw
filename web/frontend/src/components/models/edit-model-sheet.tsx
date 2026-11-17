@@ -14,10 +14,7 @@ import { refreshGatewayState } from "@/store/gateway"
 
 import { FetchModelsDialog } from "./fetch-models-dialog"
 import { ModelFormSheet } from "./model-form-sheet"
-import {
-  buildModelFormFromModel,
-  useModelFormState,
-} from "./model-form-state"
+import { buildModelFormFromModel, useModelFormState } from "./model-form-state"
 import { TestModelDialog } from "./test-model-dialog"
 
 interface EditModelSheetProps {
@@ -101,7 +98,8 @@ export function EditModelSheet({
           ? Number(state.form.requestTimeout)
           : undefined,
         thinking_level: state.form.thinkingLevel.trim() || undefined,
-        tool_schema_transform: state.form.toolSchemaTransform.trim() || undefined,
+        tool_schema_transform:
+          state.form.toolSchemaTransform.trim() || undefined,
         streaming,
         extra_body: parsed.extraBody,
         custom_headers: parsed.customHeaders,

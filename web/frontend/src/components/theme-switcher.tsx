@@ -41,7 +41,7 @@ export function ThemeSwitcher({
               {def.swatch.map((color, i) => (
                 <span
                   key={`${def.id}-${i}`}
-                  className="-mr-1 size-3 rounded-full border border-border/60 last:mr-0"
+                  className="border-border/60 -mr-1 size-3 rounded-full border last:mr-0"
                   style={{ backgroundColor: color }}
                 />
               ))}
