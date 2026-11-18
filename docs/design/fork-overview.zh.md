@@ -488,4 +488,12 @@ Web 聊天页的模型选择器**只对当前会话生效**，不修改配置文
 
 **锁纪律（关键）**：`runTurn` 全程持模型状态**读锁**。因此分两类 API：回合**内**用无锁的 `ts.effectiveContextWindow()`/`al.sessionBudgetWithOverride()`；回合**外**才用带锁的 `al.SessionContextUsage()`/`al.SessionCompactionBudget()`。**在回合内调用带锁版本会嵌套 RLock，与 `Close()` 的阻塞写锁互锁**——本特性第一版就踩了这个坑（`TestParallelMessageProcessing_DifferentSessionsProcessedConcurrently` 挂死 600s），现已按上述二分收口。
 
-上游同步注意：`pkg/agent/session_model.go`、`pkg/channels/pico/pico_session_model.go`、`pkg/gateway/pico_session_model.go`、`web/backend/api/pico.go` 的两条 session-model 路由、`web/frontend/src/api/session-model.ts` + `hooks/use-session-model.ts` 均为 fork 行为，同步时保留。锚点：`TestSetSessionModel_DoesNotMutateAgentModel`/`TestResolveSessionModel_WindowFollowsModel`/`TestSessionContextUsage_UsesSessionWindow`/`TestHandleSessionModel_*`。**不要**把会话模型改成写配置文件（那是 `/switch`/模型页的职责），**不要**在回合内调用带 RLock 的快照 helper。
+**并发语义（2026-11-18 评审 yellow 修复批，`76cb5f21`/`2e632192`）**：
+
+- **busy 拒绝**：turn 活跃时 `SetSessionModel`（含清空）返回 `errSessionBusy`——回合持有会话解析出的 provider，换/清会把它从活回合脚下抽走（对有状态 provider 是致命的）。互斥锁 `sessionModelGate` 把 busy 检查与写注册表配成原子对，`registerActiveTurn` 持同一 gate 包裹注册——堵「check 过后 turn 才注册」的窗口。锁序 `modelMu→gate→registry.mu` 单向无环。
+- **provider 原子解析**：`registry.ProviderFor(sessionKey, expectModel, create)` 把「查缓存→建 provider→存」收进注册表同一把锁；override 中途被换走返回哨兵 `errSessionModelOverrideChanged`，`resolveSessionModel` 乐观重试（≤3 次，耗尽则本回合走配置默认，下回合生效）。旧 `Provider`/`SetProvider` 两步法已删。
+- **LRU 淘汰**：注册表上限 64 条（单调序号时钟），超限淘汰最旧并关其 provider；`inUse` 回调（指向 `activeTurnStates`）让淘汰跳过 turn 活跃的条目（长回合只在 resolve 时 touch，可能被推到淘汰序首）。跨进程删除（web 后端直删文件）无法挂钩，LRU 封顶兜底。
+- **`/new` 清覆盖**：`rotateSession` 保留同一 sessionKey，不清则新会话静默跑在上一会话的模型上——现在**无条件**清除（`rotateSession` 持有消息自身的 pump placeholder 认领，「活跃则跳过」会恒跳过，评审实测击穿过一版）。
+- **前端守卫**：POST 在途切会话不串显（`activeSessionIdRef` 三路径守卫）；断连清 `loadedSessionRef`，重连同会话重拉（网关重启清内存 override，旧值不再常驻选择器）。
+
+上游同步注意：`pkg/agent/session_model.go`、`pkg/channels/pico/pico_session_model.go`、`pkg/gateway/pico_session_model.go`、`web/backend/api/pico.go` 的两条 session-model 路由、`web/frontend/src/api/session-model.ts` + `hooks/use-session-model.ts` 均为 fork 行为，同步时保留。锚点：`TestSetSessionModel_DoesNotMutateAgentModel`/`TestResolveSessionModel_WindowFollowsModel`/`TestSessionContextUsage_UsesSessionWindow`/`TestHandleSessionModel_*`/`TestResolveSessionModel_NoProviderLeakUnderSwitchStorm`/`TestRotateSession_ClearsSessionModelOverride`/`TestSetSessionModel_BusyDuringActiveTurn`。**不要**把会话模型改成写配置文件（那是 `/switch`/模型页的职责），**不要**在回合内调用带 RLock 的快照 helper，**不要**把 `ProviderFor` 拆回「查/建/存」三步（竞态窗口正是它堵住的）。
