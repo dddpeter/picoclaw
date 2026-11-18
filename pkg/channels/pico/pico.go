@@ -48,6 +48,19 @@ type picoConn struct {
 	pending    []PicoMessage
 }
 
+// picoWriteTimeout bounds every server-side frame write. A wedged peer (TCP
+// zero window / half-dead connection) must not hold the delivery chain
+// indefinitely: when the deadline expires the write fails and the connection
+// is closed, and the read loop's deferred cleanup removes it from the
+// broadcast indexes.
+const picoWriteTimeout = 10 * time.Second
+
+// maxPendingCatchupFrames caps the per-connection catch-up buffer. A client
+// that cannot keep up even in buffered mode is beyond saving: the connection
+// is closed and a reconnect replays the missed frames from the seq ring, so
+// nothing the seq contract guarantees is lost.
+const maxPendingCatchupFrames = 4096
+
 var allowedInlineImageMIMETypes = map[string]struct{}{
 	"image/jpeg": {},
 	"image/png":  {},
@@ -109,7 +122,18 @@ func (pc *picoConn) writeJSON(v any) error {
 	}
 	pc.writeMu.Lock()
 	defer pc.writeMu.Unlock()
-	return pc.conn.WriteJSON(v)
+	_ = pc.conn.SetWriteDeadline(time.Now().Add(picoWriteTimeout))
+	err := pc.conn.WriteJSON(v)
+	_ = pc.conn.SetWriteDeadline(time.Time{})
+	if err != nil {
+		// The peer is gone or wedged: close the connection so the read
+		// loop unblocks and its deferred cleanup drops this conn from the
+		// broadcast indexes. Leaving it in place would stall every future
+		// frame for the full write timeout.
+		pc.close()
+		return err
+	}
+	return nil
 }
 
 // deliver hands a session frame to this connection preserving per-connection
@@ -121,6 +145,13 @@ func (pc *picoConn) deliver(msg PicoMessage) error {
 	pc.deliveryMu.Lock()
 	defer pc.deliveryMu.Unlock()
 	if pc.catchingUp {
+		if len(pc.pending) >= maxPendingCatchupFrames {
+			// Give up on a client that cannot keep up even in buffered
+			// mode; the reconnect replays the missed frames from the seq
+			// ring (exactly-once contract unchanged).
+			pc.close()
+			return fmt.Errorf("catch-up pending buffer overflow (%d frames)", len(pc.pending))
+		}
 		pc.pending = append(pc.pending, msg)
 		return nil
 	}
@@ -1722,9 +1753,14 @@ func (c *PicoChannel) pingLoop(pc *picoConn, interval time.Duration) {
 				return
 			}
 			pc.writeMu.Lock()
+			_ = pc.conn.SetWriteDeadline(time.Now().Add(picoWriteTimeout))
 			err := pc.conn.WriteMessage(websocket.PingMessage, nil)
+			_ = pc.conn.SetWriteDeadline(time.Time{})
 			pc.writeMu.Unlock()
 			if err != nil {
+				// A failed ping means the connection is dead or wedged:
+				// close it so the read loop's cleanup can remove it.
+				pc.close()
 				return
 			}
 		}
