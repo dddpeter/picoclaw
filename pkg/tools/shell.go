@@ -253,7 +253,11 @@ var (
 	// policy. Revive from git history if the threat model changes.
 
 	// absolutePathPattern matches absolute file paths in commands (Unix and Windows).
-	absolutePathPattern = regexp.MustCompile(`[A-Za-z]:\\[^\\\"']+|/[^\s\"']+`)
+	// The drive-letter branch allows backslashes inside the class so
+	// multi-component paths (C:\Users\me\file) match in full — stopping at
+	// the first separator used to validate only "C:\Users" and misjudge
+	// every nested path as outside the workspace.
+	absolutePathPattern = regexp.MustCompile(`[A-Za-z]:\\[^\s\"']+|/[^\s\"']+`)
 
 	// pathTraversalPattern blocks ../ chains in commands when the workspace
 	// restriction is on. Package-level: guardCommand compiled it on every
@@ -1669,7 +1673,25 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 				}
 			}
 
-			p, err := commandPathAbs(commandPathTextFromMatch(cmd, loc[0], loc[1]), cwdPath)
+			pText := commandPathTextFromMatch(cmd, loc[0], loc[1])
+
+			// file:// URIs are validated as plain filesystem paths (issue
+			// #1254): "file:///etc/passwd" → "/etc/passwd", Windows-style
+			// "file://C:\x" → "C:\x". "file:" is deliberately absent from the
+			// web-scheme exemptions above, so the match starts right after the
+			// scheme — drop the "//" authority marker before path checks.
+			if loc[0] >= 5 && cmd[loc[0]-5:loc[0]] == "file:" && strings.HasPrefix(pText, "//") {
+				pText = pText[2:]
+			}
+
+			// safePaths are keyed by their canonical POSIX spelling; match on
+			// the command text because Windows re-rooting below maps
+			// /dev/null to <drive>:\dev\null, which would defeat the exemption.
+			if safePaths[pText] {
+				continue
+			}
+
+			p, err := commandPathAbs(pText, cwdPath)
 			if err != nil {
 				continue
 			}
@@ -1699,7 +1721,10 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 
 			rel, err := filepath.Rel(cwdPath, p)
 			if err != nil {
-				continue
+				// On Windows Rel fails when the target sits on another drive
+				// or a UNC share (//host/share). Those can never be inside
+				// the working dir — fail closed instead of skipping.
+				return "Command blocked by safety guard (path outside working dir)"
 			}
 
 			if strings.HasPrefix(rel, "..") {
@@ -1712,6 +1737,18 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 }
 
 func commandPathAbs(pathText, cwdPath string) (string, error) {
+	if runtime.GOOS == "windows" {
+		// PowerShell normalizes forward slashes and resolves rooted paths
+		// ("/tmp", "\tmp") against the drive of the current directory,
+		// while filepath classifies them as relative — validate the path
+		// the shell will actually resolve, not the filepath fiction.
+		pathText = filepath.FromSlash(pathText)
+		if len(pathText) > 0 && (pathText[0] == '/' || pathText[0] == '\\') {
+			if vol := filepath.VolumeName(cwdPath); vol != "" {
+				pathText = vol + pathText
+			}
+		}
+	}
 	if filepath.IsAbs(pathText) {
 		return filepath.Abs(pathText)
 	}
