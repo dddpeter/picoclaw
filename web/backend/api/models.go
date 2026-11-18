@@ -35,6 +35,26 @@ func (h *Handler) registerModelRoutes(mux *http.ServeMux) {
 }
 
 // modelResponse is the JSON structure returned for each model in the list.
+
+// effectiveContextWindow mirrors the agent-side rule: the effective window is
+// min(agents.defaults context window, model context_window); a model-level
+// override wins when it is tighter, the default fills in when the model has
+// none. 0 = unknown (frontend falls back to used-only display).
+func effectiveContextWindow(cfg *config.Config, m *config.ModelConfig) int {
+	def := cfg.Agents.Defaults.ContextWindow
+	model := m.ContextWindow
+	switch {
+	case def <= 0:
+		return model
+	case model <= 0:
+		return def
+	case model < def:
+		return model
+	default:
+		return def
+	}
+}
+
 // All ModelConfig fields are included so the frontend can display and edit them.
 type modelResponse struct {
 	Index      int    `json:"index"`
@@ -56,6 +76,10 @@ type modelResponse struct {
 	Streaming           config.ModelStreamingConfig `json:"streaming,omitempty"`
 	ExtraBody           map[string]any              `json:"extra_body,omitempty"`
 	CustomHeaders       map[string]string           `json:"custom_headers,omitempty"`
+	// Effective context window (fork): min(agents.defaults.context_window,
+	// model.context_window) when set — lets the web status bar show the
+	// context total before the first turn populates real usage.
+	ContextWindow int `json:"context_window,omitempty"`
 	// Meta
 	Enabled             bool   `json:"enabled"`
 	Available           bool   `json:"available"`
@@ -604,15 +628,27 @@ func (h *Handler) handleListModels(w http.ResponseWriter, r *http.Request) {
 	fallbackChain := cfg.Agents.Defaults.ModelFallbacks
 	modelStatuses := make([]modelConfigurationSummary, len(cfg.ModelList))
 
+	// Deterministic publication: probes send results over a buffered
+	// channel; the shared slice is written only in the main goroutine after
+	// every probe has finished — no shared-state writes inside goroutines.
+	type statusResult struct {
+		index  int
+		status modelConfigurationSummary
+	}
+	results := make(chan statusResult, len(cfg.ModelList))
 	var wg sync.WaitGroup
 	wg.Add(len(cfg.ModelList))
 	for i, m := range cfg.ModelList {
 		go func(i int, m *config.ModelConfig) {
 			defer wg.Done()
-			modelStatuses[i] = modelConfigurationStatus(m)
+			results <- statusResult{i, modelConfigurationStatus(m)}
 		}(i, m)
 	}
 	wg.Wait()
+	close(results)
+	for r := range results {
+		modelStatuses[r.index] = r.status
+	}
 
 	models := make([]modelResponse, 0, len(cfg.ModelList))
 	for i, m := range cfg.ModelList {
@@ -633,6 +669,7 @@ func (h *Handler) handleListModels(w http.ResponseWriter, r *http.Request) {
 			RequestTimeout:      m.RequestTimeout,
 			ThinkingLevel:       m.ThinkingLevel,
 			ToolSchemaTransform: m.ToolSchemaTransform,
+			ContextWindow:       effectiveContextWindow(cfg, m),
 			Streaming:           m.Streaming,
 			ExtraBody:           m.ExtraBody,
 			CustomHeaders:       m.CustomHeaders,

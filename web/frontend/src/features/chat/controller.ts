@@ -15,6 +15,7 @@ import { invalidateSocket, isCurrentSocket } from "@/features/chat/websocket"
 import i18n from "@/i18n"
 import {
   type ChatAttachment,
+  type ContextUsage,
   getChatState,
   updateChatStore,
 } from "@/store/chat"
@@ -427,17 +428,45 @@ export function sendChatMessage({
   }
 }
 
+
+/** Restore the context ring after a page refresh: the gateway stashes the
+ * most recent ContextUsage per session in memory (live payloads only reach
+ * connected clients). Returns undefined when nothing is stashed. */
+async function fetchContextUsage(
+  sessionId: string,
+): Promise<ContextUsage | undefined> {
+  try {
+    const res = await fetch(
+      `/pico/context-usage?session=${encodeURIComponent(sessionId)}`,
+    )
+    if (!res.ok) return undefined
+    const data = (await res.json()) as {
+      usage?: Partial<ContextUsage> | null
+    }
+    if (!data.usage || !Number.isFinite(data.usage.used_tokens)) {
+      return undefined
+    }
+    return data.usage as ContextUsage
+  } catch {
+    return undefined
+  }
+}
+
 export async function switchChatSession(sessionId: string, channel?: string) {
   if (sessionId === activeSessionIdRef) {
     return
   }
 
   try {
+    const [sessionDetail, stashedUsage] = await Promise.all([
+      loadSessionMessages(sessionId, channel),
+      fetchContextUsage(sessionId),
+    ])
     const {
       messages: historyMessages,
       channel: detailChannel,
       turnActive,
-    } = await loadSessionMessages(sessionId, channel)
+    } = sessionDetail
 
     disconnectChatInternal({ clearDesiredConnection: false })
     setActiveSessionId(sessionId)
@@ -451,7 +480,7 @@ export async function switchChatSession(sessionId: string, channel?: string) {
       turnStatus: undefined,
       activeSessionChannel: detailChannel ?? channel,
       hasHydratedActiveSession: true,
-      contextUsage: undefined,
+      contextUsage: stashedUsage,
     })
 
     if (store.get(gatewayAtom).status === "running") {

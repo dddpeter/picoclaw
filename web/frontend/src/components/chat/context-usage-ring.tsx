@@ -6,6 +6,9 @@ import type { ContextUsage } from "@/store/chat"
 
 interface ContextUsageRingProps {
   usage: ContextUsage
+  /** 末次 LLM 调用的输入 token（turnStats）——比 used_tokens 的广播时点
+   * 更新鲜，与 TurnStatusBar 胶囊完全同口径；缺省回退 used_tokens。 */
+  inputTokens?: number
   onDetailClick?: () => void
 }
 
@@ -43,6 +46,7 @@ function segmentLabel(key: string): string {
 
 export function ContextUsageRing({
   usage,
+  inputTokens,
   onDetailClick,
 }: ContextUsageRingProps) {
   const { t } = useTranslation()
@@ -78,7 +82,13 @@ export function ContextUsageRing({
     }
   }, [])
 
-  const percent = Math.min(usage.used_percent, 100)
+  // 口径与 TurnStatusBar 胶囊一致：分母用真实窗口 total_tokens（而非压缩
+  // 阈值 compress_at），分子优先末次调用输入（更新鲜）。compressed 阈值
+  // 在弹层里单独成行展示。
+  const total = usage.total_tokens > 0 ? usage.total_tokens : usage.compress_at_tokens
+  const used = inputTokens ?? usage.used_tokens
+  const percent =
+    total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0
   const radius = 8
   const circumference = 2 * Math.PI * radius
   const offset = circumference - (percent / 100) * circumference
@@ -161,8 +171,7 @@ export function ContextUsageRing({
               {t("chat.contextTitle")}
             </span>
             <span className="text-xs font-medium">
-              {formatTokens(usage.used_tokens)} /{" "}
-              {formatTokens(usage.compress_at_tokens)}
+              {formatTokens(used)} / {formatTokens(total)}
             </span>
           </div>
           {/* flex 让分段块横向排成堆叠条——块级 div 默认纵向堆叠，固定高度

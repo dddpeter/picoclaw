@@ -18,6 +18,8 @@ export interface ModelInfo {
   rpm?: number
   max_tokens_field?: string
   request_timeout?: number
+  /** 有效上下文窗口（min(defaults, model override)），0=未配置。 */
+  context_window?: number
   thinking_level?: string
   tool_schema_transform?: string
   streaming?: {

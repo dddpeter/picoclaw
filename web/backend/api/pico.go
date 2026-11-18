@@ -36,6 +36,8 @@ func (h *Handler) registerPicoRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /pico/tree", h.handlePicoMediaProxy())
 	// "My files" aggregation (design §11.1).
 	mux.HandleFunc("GET /pico/myfiles", h.handlePicoMediaProxy())
+	// Context-ring restore after refresh (design §11.1 follow-up).
+	mux.HandleFunc("GET /pico/context-usage", h.handlePicoMediaProxy())
 }
 
 // createWsProxy creates a reverse proxy to the current gateway WebSocket endpoint.

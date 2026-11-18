@@ -212,6 +212,11 @@ type PicoChannel struct {
 	// aggregation endpoint (design §11.1); injected by the gateway.
 	fileScanner   SessionFileScanner
 	fileScannerMu sync.RWMutex
+	// lastUsage keeps the most recent ContextUsage per chatID so the web UI
+	// can restore the context ring after a page refresh (live payloads only
+	// reach the currently-connected client).
+	lastUsage   map[string]*bus.ContextUsage
+	lastUsageMu sync.RWMutex
 }
 
 // NewPicoChannel creates a new Pico Protocol channel.
@@ -254,6 +259,7 @@ func NewPicoChannel(
 		seqs:               newSeqStore(DefaultSeqBufferCapacity),
 		seenIDs:            newIdempotencyStore(DefaultSeqBufferCapacity),
 		a2uiSurfaces:       newA2uiSurfaceRegistry(),
+		lastUsage:          make(map[string]*bus.ContextUsage),
 	}
 	ch.progress = channels.NewToolFeedbackAnimator(ch.EditMessage)
 	ch.deleteMessageFn = ch.DeleteMessage
@@ -266,6 +272,25 @@ func (c *PicoChannel) SetTurnActiveProbe(fn func(chatID string) bool) {
 	c.turnActiveProbeMu.Lock()
 	defer c.turnActiveProbeMu.Unlock()
 	c.turnActiveProbe = fn
+}
+
+// rememberUsage stashes the most recent ContextUsage for a chatID so a
+// refreshing web client can restore the context ring via
+// GET /pico/context-usage (live payloads only reach connected clients).
+func (c *PicoChannel) rememberUsage(chatID string, u *bus.ContextUsage) {
+	if u == nil || chatID == "" {
+		return
+	}
+	c.lastUsageMu.Lock()
+	defer c.lastUsageMu.Unlock()
+	c.lastUsage[chatID] = u
+}
+
+// lastUsageFor returns the stashed ContextUsage for a chatID, or nil.
+func (c *PicoChannel) lastUsageFor(chatID string) *bus.ContextUsage {
+	c.lastUsageMu.RLock()
+	defer c.lastUsageMu.RUnlock()
+	return c.lastUsage[chatID]
 }
 
 func (c *PicoChannel) getTurnActiveProbe() func(chatID string) bool {
@@ -414,6 +439,8 @@ func (c *PicoChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		c.handleFileRead(w, r)
 	case "/myfiles", "/myfiles/":
 		c.handleMyFiles(w, r)
+	case "/context-usage", "/context-usage/":
+		c.handleContextUsage(w, r)
 	case "/tree", "/tree/":
 		c.handleTree(w, r)
 	default:
@@ -694,6 +721,7 @@ func (c *PicoChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]stri
 		}
 	}
 	setContextUsagePayload(payload, msg.ContextUsage)
+	c.rememberUsage(msg.ChatID, msg.ContextUsage)
 
 	// A2UI streamed update (phase 2, task 5): an update-only batch (no
 	// createSurface) targets a card this channel already broadcast — merge
@@ -1104,6 +1132,7 @@ func (s *picoStreamer) sendLocked(ctx context.Context, content string, contextUs
 			payload[PayloadKeyModelName] = s.modelName
 		}
 		setContextUsagePayload(payload, contextUsage)
+		s.channel.rememberUsage(s.chatID, contextUsage)
 		setTurnUsagePayload(payload, s.turnUsage, s.turnLLMCalls)
 		outMsg := newMessage(TypeMessageCreate, payload)
 		if err := s.channel.broadcast(s.chatID, outMsg); err != nil {
@@ -1129,7 +1158,7 @@ func (s *picoStreamer) sendLocked(ctx context.Context, content string, contextUs
 	return nil
 }
 
-func (s *picoStreamer) sendReasoningLocked(ctx context.Context, content string) error {
+func (s *picoStreamer) sendReasoningLocked(_ context.Context, content string) error {
 	now := time.Now()
 	contentLen := len([]rune(content))
 
@@ -2066,6 +2095,7 @@ func (c *PicoChannel) editMessagePayload(
 	}
 	normalized["message_id"] = messageID
 	setContextUsagePayload(normalized, contextUsage)
+	c.rememberUsage(chatID, contextUsage)
 	outMsg := newMessage(TypeMessageUpdate, normalized)
 	return c.broadcastToSession(chatID, outMsg)
 }

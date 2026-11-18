@@ -145,6 +145,7 @@ export function useChatModels({ isConnected }: UseChatModelsOptions) {
   )
 
   return {
+    models: modelList,
     defaultModelName,
     hasAvailableModels,
     apiKeyModels,

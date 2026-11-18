@@ -16,6 +16,7 @@ export function usePicoChat() {
     activeSessionChannel,
     contextUsage,
     turnStartedAt,
+    turnStats,
   } = useAtomValue(chatAtom)
 
   return {
@@ -26,6 +27,7 @@ export function usePicoChat() {
     activeSessionChannel,
     contextUsage,
     turnStartedAt,
+    turnStats,
     sendMessage: sendChatMessage,
     switchSession: switchChatSession,
     newChat: newChatSession,
