@@ -26,6 +26,16 @@ func (h *Handler) registerPicoRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /pico/ws", h.handleWebSocketProxy())
 	mux.HandleFunc("GET /pico/media/{id}", h.handlePicoMediaProxy())
 	mux.HandleFunc("HEAD /pico/media/{id}", h.handlePicoMediaProxy())
+	// Web upload pipeline (design §4.2): multipart uploads ride the same
+	// token-injecting proxy as media downloads; cookie session + IP
+	// allowlist come from the global middleware stack.
+	mux.HandleFunc("POST /pico/upload", h.handlePicoMediaProxy())
+	// Web preview + file manager (design §5.1/§11.2): same proxy, GET only.
+	mux.HandleFunc("GET /pico/file", h.handlePicoMediaProxy())
+	mux.HandleFunc("HEAD /pico/file", h.handlePicoMediaProxy())
+	mux.HandleFunc("GET /pico/tree", h.handlePicoMediaProxy())
+	// "My files" aggregation (design §11.1).
+	mux.HandleFunc("GET /pico/myfiles", h.handlePicoMediaProxy())
 }
 
 // createWsProxy creates a reverse proxy to the current gateway WebSocket endpoint.

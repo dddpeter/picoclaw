@@ -205,6 +205,13 @@ type PicoChannel struct {
 	// update-only batches merge into the live card and hot-update it via
 	// message.update (A2UI phase 2, task 5).
 	a2uiSurfaces *a2uiSurfaceRegistry
+	// uploads carries the workspace-rooted options for POST /pico/upload
+	// (web file upload pipeline, design §4.1); injected via SetUploadOptions.
+	uploads uploadState
+	// fileScanner supplies persisted session history for the "my files"
+	// aggregation endpoint (design §11.1); injected by the gateway.
+	fileScanner   SessionFileScanner
+	fileScannerMu sync.RWMutex
 }
 
 // NewPicoChannel creates a new Pico Protocol channel.
@@ -401,6 +408,14 @@ func (c *PicoChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch path {
 	case "/ws", "/ws/":
 		c.handleWebSocket(w, r)
+	case "/upload", "/upload/":
+		c.handleUpload(w, r)
+	case "/file", "/file/":
+		c.handleFileRead(w, r)
+	case "/myfiles", "/myfiles/":
+		c.handleMyFiles(w, r)
+	case "/tree", "/tree/":
+		c.handleTree(w, r)
 	default:
 		if strings.HasPrefix(path, "/media/") {
 			c.handleMediaDownload(w, r)
@@ -1217,6 +1232,7 @@ func (c *PicoChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMessag
 			"url":          attachmentURL,
 			"filename":     filename,
 			"content_type": contentType,
+			"path":         localPath,
 		})
 
 		if caption == "" && strings.TrimSpace(part.Caption) != "" {
@@ -1694,7 +1710,20 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 		return
 	}
 
-	if strings.TrimSpace(content) == "" && len(media) == 0 {
+	// Uploaded file references (web upload pipeline, design §4.4): validate
+	// the inbound/ prefix contract, then embed [file:<path>] tags in content
+	// so the model gains visibility and the tags persist with the message.
+	fileRefs, fileTags, err := c.parseInboundFiles(msg.Payload, c.uploadOptions().workspace)
+	if err != nil {
+		errMsg := newErrorWithPayload("invalid_files", err.Error(), map[string]any{
+			"request_id": msg.ID,
+		})
+		pc.writeJSON(errMsg)
+		return
+	}
+	content = appendFileTags(content, fileTags)
+
+	if strings.TrimSpace(content) == "" && len(media) == 0 && len(fileRefs) == 0 {
 		errMsg := newErrorWithPayload("empty_content", "message content is empty", map[string]any{
 			"request_id": msg.ID,
 		})
@@ -1758,7 +1787,11 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 	// Delivery failure used to be swallowed silently; roll the idempotency
 	// record back so a client retry with the same ID can still be delivered
 	// instead of being acked as a duplicate.
-	if err := c.HandleInboundContext(c.ctx, chatID, content, media, inboundCtx, sender); err != nil {
+	var files []bus.InboundFile
+	for _, ref := range fileRefs {
+		files = append(files, bus.InboundFile{Path: ref.Path, Filename: ref.Filename, ContentType: ref.ContentType})
+	}
+	if err := c.HandleInboundContextWithFiles(c.ctx, chatID, content, media, files, inboundCtx, sender); err != nil {
 		c.seenIDs.Unseen(sessionID, msg.ID)
 		logger.DebugCF("pico", "Inbound delivery failed, idempotency rolled back", map[string]any{
 			"session_id": sessionID,
@@ -1766,6 +1799,15 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 			"error":      err.Error(),
 		})
 	}
+}
+
+// appendFileTags appends [file:<path>] tags to the message content. With an
+// empty content the tags alone become the content, keeping the turn valid.
+func appendFileTags(content string, tags []string) string {
+	for _, tag := range tags {
+		content = strings.TrimSpace(content + " " + tag)
+	}
+	return content
 }
 
 // truncate truncates a string to maxLen runes.

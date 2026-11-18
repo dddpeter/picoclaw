@@ -23,6 +23,10 @@ func init() {
 			if err != nil {
 				return nil, err
 			}
+			// Web upload pipeline (design §4.1): the pico channel only sees
+			// PicoSettings, so the workspace root and size cap are injected here.
+			ch.SetUploadOptions(cfg.WorkspacePath(), int64(cfg.Agents.Defaults.GetMaxMediaSize()))
+			ch.SetFileAccessRoots(cfg.GetFileAccessRoots())
 			if channelName != config.ChannelPico {
 				ch.SetName(channelName)
 			}

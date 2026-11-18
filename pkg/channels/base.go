@@ -267,11 +267,48 @@ func (c *BaseChannel) HandleMessageWithContext(
 	inboundCtx bus.InboundContext,
 	senderOpts ...bus.SenderInfo,
 ) error {
+	return c.handleMessage(ctx, deliveryChatID, content, media, nil, inboundCtx, senderOpts...)
+}
+
+// HandleInboundContext publishes a normalized inbound message using only the
+// structured context.
+func (c *BaseChannel) HandleInboundContext(
+	ctx context.Context,
+	deliveryChatID, content string,
+	media []string,
+	inboundCtx bus.InboundContext,
+	senderOpts ...bus.SenderInfo,
+) error {
+	return c.handleMessage(ctx, deliveryChatID, content, media, nil, inboundCtx, senderOpts...)
+}
+
+// HandleInboundContextWithFiles is HandleInboundContext plus uploaded-file
+// references carried through to the agent as replayable attachments.
+func (c *BaseChannel) HandleInboundContextWithFiles(
+	ctx context.Context,
+	deliveryChatID, content string,
+	media []string,
+	files []bus.InboundFile,
+	inboundCtx bus.InboundContext,
+	senderOpts ...bus.SenderInfo,
+) error {
+	return c.handleMessage(ctx, deliveryChatID, content, media, files, inboundCtx, senderOpts...)
+}
+
+func (c *BaseChannel) handleMessage(
+	ctx context.Context,
+	deliveryChatID, content string,
+	media []string,
+	files []bus.InboundFile,
+	inboundCtx bus.InboundContext,
+	senderOpts ...bus.SenderInfo,
+) error {
 	// Use SenderInfo-based allow check when available, else fall back to string
 	var sender bus.SenderInfo
 	if len(senderOpts) > 0 {
 		sender = senderOpts[0]
 	}
+
 	senderID := strings.TrimSpace(inboundCtx.SenderID)
 	if sender.CanonicalID != "" || sender.PlatformID != "" {
 		if !c.IsAllowedSender(sender) {
@@ -309,6 +346,7 @@ func (c *BaseChannel) HandleMessageWithContext(
 		Content:    content,
 		Media:      media,
 		MediaScope: scope,
+		Files:      append([]bus.InboundFile(nil), files...),
 	}
 	msg = bus.NormalizeInboundMessage(msg)
 
@@ -353,18 +391,6 @@ func (c *BaseChannel) HandleMessageWithContext(
 		return err
 	}
 	return nil
-}
-
-// HandleInboundContext publishes a normalized inbound message using only the
-// structured context.
-func (c *BaseChannel) HandleInboundContext(
-	ctx context.Context,
-	deliveryChatID, content string,
-	media []string,
-	inboundCtx bus.InboundContext,
-	senderOpts ...bus.SenderInfo,
-) error {
-	return c.HandleMessageWithContext(ctx, deliveryChatID, content, media, inboundCtx, senderOpts...)
 }
 
 func (c *BaseChannel) SetRunning(running bool) {

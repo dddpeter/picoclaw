@@ -37,12 +37,22 @@ type InboundContext struct {
 	Raw          map[string]string `json:"raw,omitempty"`
 }
 
+// InboundFile describes a user-uploaded file referenced by an inbound
+// message (web upload pipeline). Path is workspace-relative; the model sees
+// a [file:<path>] tag in Content, the UI replays it as an attachment.
+type InboundFile struct {
+	Path        string `json:"path"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type,omitempty"`
+}
+
 type InboundMessage struct {
 	Context    InboundContext `json:"context"`
 	Sender     SenderInfo     `json:"sender"`
 	Content    string         `json:"content"`
 	Media      []string       `json:"media,omitempty"`
 	MediaScope string         `json:"media_scope,omitempty"` // media lifecycle scope
+	Files      []InboundFile  `json:"files,omitempty"`       // uploaded file references (UI replay)
 	SessionKey string         `json:"session_key"`
 
 	// Convenience mirrors derived from Context for runtime consumers.
