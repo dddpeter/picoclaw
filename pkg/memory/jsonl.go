@@ -95,6 +95,24 @@ type JSONLStore struct {
 	// serving stale answers (see resolveCacheEntry.live).
 	resolveMu    sync.RWMutex
 	resolveCache map[string]resolveCacheEntry
+
+	// metaMu guards the metaCache map structure. Per-key entry access is
+	// additionally serialized by that key's sessionLock (lock order:
+	// sessionLock → metaMu, never the reverse). addMsg accumulates
+	// Count/UpdatedAt/CreatedAt here and marks the entry dirty instead of
+	// paying a read-modify-write of the meta file per message; the turn-end
+	// Compact (Save) or Close flushes dirty entries.
+	metaMu    sync.RWMutex
+	metaCache map[string]*metaCacheEntry
+}
+
+// metaCacheEntry memoizes one session's metadata between disk writes.
+// dirty=true means Count/UpdatedAt/CreatedAt have moved past the on-disk
+// copy and must be flushed by flushMetaLocked before the durability point
+// (Compact/Save) or Close.
+type metaCacheEntry struct {
+	meta  SessionMeta
+	dirty bool
 }
 
 // resolveCacheEntry memoizes one ResolveSessionKey result. found=false
@@ -124,7 +142,11 @@ func NewJSONLStore(dir string) (*JSONLStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("memory: create directory: %w", err)
 	}
-	return &JSONLStore{dir: dir, resolveCache: make(map[string]resolveCacheEntry)}, nil
+	return &JSONLStore{
+		dir:          dir,
+		resolveCache: make(map[string]resolveCacheEntry),
+		metaCache:    make(map[string]*metaCacheEntry),
+	}, nil
 }
 
 // sessionLock returns a mutex for the given session key.
@@ -193,7 +215,70 @@ func (s *JSONLStore) writeMeta(key string, meta SessionMeta) error {
 	if err != nil {
 		return fmt.Errorf("memory: encode meta: %w", err)
 	}
-	return fileutil.WriteFileAtomic(s.metaPath(key), data, 0o644)
+	if err := fileutil.WriteFileAtomic(s.metaPath(key), data, 0o644); err != nil {
+		return err
+	}
+	// Adopt the written meta into the cache so a direct writeMeta (bypassing
+	// the currentMeta flow — e.g. callers that build a full meta by hand)
+	// still leaves cache and disk in agreement. Internal cache-flow callers
+	// pass their own entry.meta here, so this is a no-op for them.
+	s.metaMu.Lock()
+	if entry, ok := s.metaCache[key]; ok {
+		entry.meta = meta
+		entry.dirty = false
+	}
+	s.metaMu.Unlock()
+	return nil
+}
+
+// currentMetaLocked returns the session's authoritative metadata entry,
+// loading it from disk on first touch. Callers must hold the session's
+// sessionLock; mutations to entry.meta become visible to every later
+// cache-aware reader and persist only when the caller writes them through
+// writeMeta (clearing dirty) or leaves them dirty for flushMetaLocked.
+func (s *JSONLStore) currentMetaLocked(key string) (*metaCacheEntry, error) {
+	s.metaMu.RLock()
+	entry, ok := s.metaCache[key]
+	s.metaMu.RUnlock()
+	if ok {
+		return entry, nil
+	}
+	meta, err := s.readMeta(key)
+	if err != nil {
+		return nil, err
+	}
+	entry = &metaCacheEntry{meta: meta}
+	s.metaMu.Lock()
+	s.metaCache[key] = entry
+	s.metaMu.Unlock()
+	return entry, nil
+}
+
+// flushMetaLocked persists pending Count/UpdatedAt/CreatedAt deltas for a
+// session, merging them into a freshly read disk meta so concurrent
+// out-of-process writes (the launcher's title updates) are preserved.
+// Callers must hold the session's sessionLock.
+func (s *JSONLStore) flushMetaLocked(key string) error {
+	s.metaMu.RLock()
+	entry, ok := s.metaCache[key]
+	s.metaMu.RUnlock()
+	if !ok || !entry.dirty {
+		return nil
+	}
+	disk, err := s.readMeta(key)
+	if err != nil {
+		return err
+	}
+	disk.Count = entry.meta.Count
+	disk.UpdatedAt = entry.meta.UpdatedAt
+	if !entry.meta.CreatedAt.IsZero() {
+		disk.CreatedAt = entry.meta.CreatedAt
+	}
+	if err := s.writeMeta(key, disk); err != nil {
+		return err
+	}
+	entry.dirty = false
+	return nil
 }
 
 func cloneRawJSON(data json.RawMessage) json.RawMessage {
@@ -256,13 +341,17 @@ func (s *JSONLStore) WriteIdleCompactMarker(sessionKey string, seenUpdated time.
 	l := s.sessionLock(sessionKey)
 	l.Lock()
 	defer l.Unlock()
-	meta, err := s.readMeta(sessionKey)
+	entry, err := s.currentMetaLocked(sessionKey)
 	if err != nil {
 		return err
 	}
-	meta.IdleCompactedAt = time.Now()
-	meta.IdleCompactedSeen = seenUpdated
-	return s.writeMeta(sessionKey, meta)
+	entry.meta.IdleCompactedAt = time.Now()
+	entry.meta.IdleCompactedSeen = seenUpdated
+	if err := s.writeMeta(sessionKey, entry.meta); err != nil {
+		return err
+	}
+	entry.dirty = false
+	return nil
 }
 
 // ReadIdleCompactMarker returns the persisted idle-compaction marker, if
@@ -273,11 +362,11 @@ func (s *JSONLStore) ReadIdleCompactMarker(sessionKey string) (compactedAt, seen
 	l := s.sessionLock(sessionKey)
 	l.Lock()
 	defer l.Unlock()
-	meta, err := s.readMeta(sessionKey)
-	if err != nil || meta.IdleCompactedAt.IsZero() {
+	entry, err := s.currentMetaLocked(sessionKey)
+	if err != nil || entry.meta.IdleCompactedAt.IsZero() {
 		return time.Time{}, time.Time{}, false
 	}
-	return meta.IdleCompactedAt, meta.IdleCompactedSeen, true
+	return entry.meta.IdleCompactedAt, entry.meta.IdleCompactedSeen, true
 }
 
 // GetSessionMeta returns the current metadata snapshot for sessionKey.
@@ -286,10 +375,11 @@ func (s *JSONLStore) GetSessionMeta(_ context.Context, sessionKey string) (Sessi
 	l.Lock()
 	defer l.Unlock()
 
-	meta, err := s.readMeta(sessionKey)
+	entry, err := s.currentMetaLocked(sessionKey)
 	if err != nil {
 		return SessionMeta{}, err
 	}
+	meta := entry.meta
 	meta.Scope = cloneRawJSON(meta.Scope)
 	if len(meta.Aliases) > 0 {
 		meta.Aliases = append([]string(nil), meta.Aliases...)
@@ -309,21 +399,22 @@ func (s *JSONLStore) UpsertSessionMeta(
 	l.Lock()
 	defer l.Unlock()
 
-	meta, err := s.readMeta(sessionKey)
+	entry, err := s.currentMetaLocked(sessionKey)
 	if err != nil {
 		return err
 	}
-	meta.Scope = cloneRawJSON(scope)
-	meta.Aliases = normalizeAliases(sessionKey, aliases)
+	entry.meta.Scope = cloneRawJSON(scope)
+	entry.meta.Aliases = normalizeAliases(sessionKey, aliases)
 	now := time.Now()
-	if meta.CreatedAt.IsZero() {
-		meta.CreatedAt = now
+	if entry.meta.CreatedAt.IsZero() {
+		entry.meta.CreatedAt = now
 	}
-	meta.UpdatedAt = now
+	entry.meta.UpdatedAt = now
 
-	if err := s.writeMeta(sessionKey, meta); err != nil {
+	if err := s.writeMeta(sessionKey, entry.meta); err != nil {
 		return err
 	}
+	entry.dirty = false
 	// Alias mappings changed: any memoized resolution may now answer
 	// differently. The cache rebuilds lazily from a full scan.
 	s.resolveMu.Lock()
@@ -366,19 +457,20 @@ func (s *JSONLStore) SetSessionTitle(
 	l.Lock()
 	defer l.Unlock()
 
-	meta, err := s.readMeta(sessionKey)
+	entry, err := s.currentMetaLocked(sessionKey)
 	if err != nil {
 		return false, err
 	}
-	if titlePriority(meta.TitleSource) > titlePriority(source) {
+	if titlePriority(entry.meta.TitleSource) > titlePriority(source) {
 		return false, nil
 	}
-	meta.Title = title
-	meta.TitleSource = source
-	meta.UpdatedAt = time.Now()
-	if err := s.writeMeta(sessionKey, meta); err != nil {
+	entry.meta.Title = title
+	entry.meta.TitleSource = source
+	entry.meta.UpdatedAt = time.Now()
+	if err := s.writeMeta(sessionKey, entry.meta); err != nil {
 		return false, err
 	}
+	entry.dirty = false
 	return true, nil
 }
 
@@ -390,17 +482,21 @@ func (s *JSONLStore) ClearSessionTitle(_ context.Context, sessionKey string) err
 	l.Lock()
 	defer l.Unlock()
 
-	meta, err := s.readMeta(sessionKey)
+	entry, err := s.currentMetaLocked(sessionKey)
 	if err != nil {
 		return err
 	}
-	if meta.Title == "" && meta.TitleSource == "" {
+	if entry.meta.Title == "" && entry.meta.TitleSource == "" {
 		return nil
 	}
-	meta.Title = ""
-	meta.TitleSource = ""
-	meta.UpdatedAt = time.Now()
-	return s.writeMeta(sessionKey, meta)
+	entry.meta.Title = ""
+	entry.meta.TitleSource = ""
+	entry.meta.UpdatedAt = time.Now()
+	if err := s.writeMeta(sessionKey, entry.meta); err != nil {
+		return err
+	}
+	entry.dirty = false
+	return nil
 }
 
 // PromoteAliasHistory atomically promotes the first non-empty alias session
@@ -621,10 +717,11 @@ func (s *JSONLStore) promoteAliasHistoryLocked(
 	scope json.RawMessage,
 	aliases []string,
 ) (bool, error) {
-	canonicalMeta, err := s.readMeta(sessionKey)
+	canonicalEntry, err := s.currentMetaLocked(sessionKey)
 	if err != nil {
 		return false, err
 	}
+	canonicalMeta := canonicalEntry.meta
 	canonicalHasContent, err := s.sessionHasVisibleContentLocked(sessionKey, canonicalMeta)
 	if err != nil {
 		return false, err
@@ -633,15 +730,15 @@ func (s *JSONLStore) promoteAliasHistoryLocked(
 		return false, nil
 	}
 
-	aliasMeta, err := s.readMeta(alias)
+	aliasEntry, err := s.currentMetaLocked(alias)
 	if err != nil {
 		return false, err
 	}
-	aliasHistory, err := readMessages(s.jsonlPath(alias), aliasMeta.Skip)
+	aliasHistory, err := readMessages(s.jsonlPath(alias), aliasEntry.meta.Skip)
 	if err != nil {
 		return false, err
 	}
-	aliasSummary := strings.TrimSpace(aliasMeta.Summary)
+	aliasSummary := strings.TrimSpace(aliasEntry.meta.Summary)
 	if len(aliasHistory) == 0 && aliasSummary == "" {
 		return false, nil
 	}
@@ -673,6 +770,8 @@ func (s *JSONLStore) promoteAliasHistoryLocked(
 		}
 		return false, err
 	}
+	canonicalEntry.meta = canonicalMeta
+	canonicalEntry.dirty = false
 	return true, nil
 }
 
@@ -857,35 +956,34 @@ func (s *JSONLStore) addMsg(sessionKey string, msg providers.Message) error {
 		f.Close()
 		return fmt.Errorf("memory: append message: %w", writeErr)
 	}
-	// Flush to physical storage before closing. This matches the
-	// durability guarantee of writeMeta and rewriteJSONL (which use
-	// WriteFileAtomic with fsync). Without Sync, a power loss could
-	// leave the append in the kernel page cache only — lost on reboot.
-	if syncErr := f.Sync(); syncErr != nil {
-		f.Close()
-		return fmt.Errorf("memory: sync jsonl: %w", syncErr)
-	}
+	// No per-message Sync: the append lands in the kernel page cache, which
+	// survives a process crash; power-loss durability is provided at the
+	// turn boundary by Compact (the Save the finalize path calls before
+	// publishing the reply), which fsyncs the file and flushes the pending
+	// metadata below. Per-message f.Sync + readMeta + WriteFileAtomic meta
+	// rewrite cost ~3 fsyncs per message and dominated the turn critical
+	// path for long tool loops.
 	if closeErr := f.Close(); closeErr != nil {
 		return fmt.Errorf("memory: close jsonl: %w", closeErr)
 	}
 
-	// Update metadata.
-	meta, err := s.readMeta(sessionKey)
+	// Accumulate metadata in memory; flushed at the durability point.
+	entry, err := s.currentMetaLocked(sessionKey)
 	if err != nil {
 		return err
 	}
-	if meta.Count == 0 && meta.CreatedAt.IsZero() {
-		meta.CreatedAt = now
+	if entry.meta.Count == 0 && entry.meta.CreatedAt.IsZero() {
+		entry.meta.CreatedAt = now
 		// First message created this session: a memoized negative
 		// resolution for the key is now stale.
 		s.resolveMu.Lock()
 		delete(s.resolveCache, sessionKey)
 		s.resolveMu.Unlock()
 	}
-	meta.Count++
-	meta.UpdatedAt = now
-
-	return s.writeMeta(sessionKey, meta)
+	entry.meta.Count++
+	entry.meta.UpdatedAt = now
+	entry.dirty = true
+	return nil
 }
 
 func (s *JSONLStore) GetHistory(
@@ -895,14 +993,14 @@ func (s *JSONLStore) GetHistory(
 	l.Lock()
 	defer l.Unlock()
 
-	meta, err := s.readMeta(sessionKey)
+	entry, err := s.currentMetaLocked(sessionKey)
 	if err != nil {
 		return nil, err
 	}
 
 	// Pass meta.Skip so readMessages skips those lines without
 	// unmarshaling them — avoids wasted CPU on truncated messages.
-	msgs, err := readMessages(s.jsonlPath(sessionKey), meta.Skip)
+	msgs, err := readMessages(s.jsonlPath(sessionKey), entry.meta.Skip)
 	if err != nil {
 		return nil, err
 	}
@@ -917,11 +1015,11 @@ func (s *JSONLStore) GetSummary(
 	l.Lock()
 	defer l.Unlock()
 
-	meta, err := s.readMeta(sessionKey)
+	entry, err := s.currentMetaLocked(sessionKey)
 	if err != nil {
 		return "", err
 	}
-	return meta.Summary, nil
+	return entry.meta.Summary, nil
 }
 
 func (s *JSONLStore) SetSummary(
@@ -931,18 +1029,22 @@ func (s *JSONLStore) SetSummary(
 	l.Lock()
 	defer l.Unlock()
 
-	meta, err := s.readMeta(sessionKey)
+	entry, err := s.currentMetaLocked(sessionKey)
 	if err != nil {
 		return err
 	}
 	now := time.Now()
-	if meta.CreatedAt.IsZero() {
-		meta.CreatedAt = now
+	if entry.meta.CreatedAt.IsZero() {
+		entry.meta.CreatedAt = now
 	}
-	meta.Summary = summary
-	meta.UpdatedAt = now
+	entry.meta.Summary = summary
+	entry.meta.UpdatedAt = now
 
-	return s.writeMeta(sessionKey, meta)
+	if err := s.writeMeta(sessionKey, entry.meta); err != nil {
+		return err
+	}
+	entry.dirty = false
+	return nil
 }
 
 func (s *JSONLStore) TruncateHistory(
@@ -952,7 +1054,7 @@ func (s *JSONLStore) TruncateHistory(
 	l.Lock()
 	defer l.Unlock()
 
-	meta, err := s.readMeta(sessionKey)
+	entry, err := s.currentMetaLocked(sessionKey)
 	if err != nil {
 		return err
 	}
@@ -961,26 +1063,30 @@ func (s *JSONLStore) TruncateHistory(
 	if scanErr != nil {
 		return scanErr
 	}
-	meta.Count = rawCount
-	if meta.Skip > meta.Count {
-		meta.Skip = meta.Count
+	entry.meta.Count = rawCount
+	if entry.meta.Skip > entry.meta.Count {
+		entry.meta.Skip = entry.meta.Count
 	}
 
 	activeStart := sort.Search(len(retainedRawLines), func(i int) bool {
-		return retainedRawLines[i] > meta.Skip
+		return retainedRawLines[i] > entry.meta.Skip
 	})
 	activeRetainedCount := len(retainedRawLines) - activeStart
 
 	switch {
 	case keepLast <= 0 || activeRetainedCount == 0:
-		meta.Skip = meta.Count
+		entry.meta.Skip = entry.meta.Count
 	case keepLast < activeRetainedCount:
 		activeRawLines := retainedRawLines[activeStart:]
-		meta.Skip = activeRawLines[activeRetainedCount-keepLast-1]
+		entry.meta.Skip = activeRawLines[activeRetainedCount-keepLast-1]
 	}
-	meta.UpdatedAt = time.Now()
+	entry.meta.UpdatedAt = time.Now()
 
-	return s.writeMeta(sessionKey, meta)
+	if err := s.writeMeta(sessionKey, entry.meta); err != nil {
+		return err
+	}
+	entry.dirty = false
+	return nil
 }
 
 func (s *JSONLStore) SetHistory(
@@ -994,17 +1100,17 @@ func (s *JSONLStore) SetHistory(
 	l.Lock()
 	defer l.Unlock()
 
-	meta, err := s.readMeta(sessionKey)
+	entry, err := s.currentMetaLocked(sessionKey)
 	if err != nil {
 		return err
 	}
 	now := time.Now()
-	if meta.CreatedAt.IsZero() {
-		meta.CreatedAt = now
+	if entry.meta.CreatedAt.IsZero() {
+		entry.meta.CreatedAt = now
 	}
-	meta.Skip = 0
-	meta.Count = len(history)
-	meta.UpdatedAt = now
+	entry.meta.Skip = 0
+	entry.meta.Count = len(history)
+	entry.meta.UpdatedAt = now
 
 	for i := range history {
 		if history[i].CreatedAt == nil {
@@ -1016,10 +1122,12 @@ func (s *JSONLStore) SetHistory(
 	// the two writes, meta has Skip=0 and the old file is still intact,
 	// so GetHistory reads from line 1 — returning "too many" messages
 	// rather than losing data. The next SetHistory call corrects this.
-	err = s.writeMeta(sessionKey, meta)
-	if err != nil {
+	// Any pending append-count deltas ride along (the entry meta carries
+	// them), and the dirty flag clears since the file now has the truth.
+	if err := s.writeMeta(sessionKey, entry.meta); err != nil {
 		return err
 	}
+	entry.dirty = false
 
 	return s.rewriteJSONL(sessionKey, history)
 }
@@ -1028,8 +1136,12 @@ func (s *JSONLStore) SetHistory(
 // skipped lines. This reclaims disk space that accumulates after
 // repeated TruncateHistory calls.
 //
-// It is safe to call at any time; if there is nothing to compact
-// (skip == 0) the method returns immediately.
+// It is also the store's durability point: the finalize path calls Save
+// (= Compact) after persisting the final assistant message and before
+// publishing the reply, so the skip==0 branch fsyncs the appended JSONL and
+// flushes pending metadata — restoring the "durable before publish"
+// contract at turn granularity now that addMsg no longer fsyncs per
+// message.
 func (s *JSONLStore) Compact(
 	_ context.Context, sessionKey string,
 ) error {
@@ -1037,17 +1149,22 @@ func (s *JSONLStore) Compact(
 	l.Lock()
 	defer l.Unlock()
 
-	meta, err := s.readMeta(sessionKey)
+	entry, err := s.currentMetaLocked(sessionKey)
 	if err != nil {
 		return err
 	}
-	if meta.Skip == 0 {
-		return nil
+	if entry.meta.Skip == 0 {
+		// Nothing to rewrite: make the appended lines durable and flush
+		// any pending metadata, then done.
+		if err := s.fsyncJSONL(sessionKey); err != nil {
+			return err
+		}
+		return s.flushMetaLocked(sessionKey)
 	}
 
 	// Read only the active messages, skipping truncated lines
 	// without unmarshaling them.
-	active, err := readMessages(s.jsonlPath(sessionKey), meta.Skip)
+	active, err := readMessages(s.jsonlPath(sessionKey), entry.meta.Skip)
 	if err != nil {
 		return err
 	}
@@ -1057,16 +1174,37 @@ func (s *JSONLStore) Compact(
 	// (uncompacted) file is still intact, so GetHistory reads from
 	// line 1 — returning previously-truncated messages rather than
 	// losing data. The next Compact or TruncateHistory corrects this.
-	meta.Skip = 0
-	meta.Count = len(active)
-	meta.UpdatedAt = time.Now()
+	entry.meta.Skip = 0
+	entry.meta.Count = len(active)
+	entry.meta.UpdatedAt = time.Now()
 
-	err = s.writeMeta(sessionKey, meta)
-	if err != nil {
+	if err := s.writeMeta(sessionKey, entry.meta); err != nil {
 		return err
 	}
+	entry.dirty = false
 
 	return s.rewriteJSONL(sessionKey, active)
+}
+
+// fsyncJSONL flushes the session's appended JSONL lines to physical storage.
+// Missing file = nothing to sync (empty session). This is the durability
+// point that replaced addMsg's per-message Sync (see addMsg and Compact).
+func (s *JSONLStore) fsyncJSONL(sessionKey string) error {
+	f, err := os.OpenFile(s.jsonlPath(sessionKey), os.O_WRONLY|os.O_APPEND, 0o644)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("memory: open jsonl for sync: %w", err)
+	}
+	if syncErr := f.Sync(); syncErr != nil {
+		f.Close()
+		return fmt.Errorf("memory: sync jsonl: %w", syncErr)
+	}
+	if closeErr := f.Close(); closeErr != nil {
+		return fmt.Errorf("memory: close jsonl: %w", closeErr)
+	}
+	return nil
 }
 
 // rewriteJSONL atomically replaces the JSONL file with the given messages
@@ -1126,6 +1264,26 @@ func (s *JSONLStore) ListSessions() []string {
 	return keys
 }
 
+// Close flushes any pending metadata deltas to disk. Append durability up
+// to the last Compact is already in place; this covers the tail between the
+// last Save and shutdown.
 func (s *JSONLStore) Close() error {
+	s.metaMu.RLock()
+	pending := make([]string, 0, len(s.metaCache))
+	for key, entry := range s.metaCache {
+		if entry.dirty {
+			pending = append(pending, key)
+		}
+	}
+	s.metaMu.RUnlock()
+
+	for _, key := range pending {
+		l := s.sessionLock(key)
+		l.Lock()
+		if err := s.flushMetaLocked(key); err != nil {
+			log.Printf("[memory] flush meta for %s on close: %v", key, err)
+		}
+		l.Unlock()
+	}
 	return nil
 }

@@ -390,6 +390,11 @@ func (h *Handler) findJSONLSessions(dir string) ([]jsonlSessionRef, error) {
 		if !ok || ref.Key == "" || ref.ID == "" {
 			continue
 		}
+		// Meta-less sessions (fresh turn, metadata still batched in the
+		// gateway's memory) must report busy from the marker probe too.
+		if _, busy := busyBases[base]; busy {
+			ref.Busy = true
+		}
 		idKey := ref.Channel + "\x00" + ref.ID
 		if _, exists := seen[idKey]; exists {
 			continue
