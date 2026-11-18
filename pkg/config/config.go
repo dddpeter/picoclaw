@@ -49,11 +49,31 @@ type Config struct {
 	Devices   DevicesConfig   `json:"devices"             yaml:"-"`
 	Voice     VoiceConfig     `json:"voice"               yaml:"-"`
 	Memory    MemoryConfig    `json:"memory,omitempty"    yaml:"-"`
+	Web       WebConfig       `json:"web,omitempty"        yaml:"-"`
 	// BuildInfo contains build-time version information
 	BuildInfo BuildInfo `json:"build_info,omitempty" yaml:"-"`
 
 	// cache for sensitive values and compiled regex (computed once)
 	sensitiveCache *SensitiveDataCache
+}
+
+// WebConfig scopes web-surface (launcher/pico) options. The web file
+// endpoints apply a stricter posture than the agent file tools: reads are
+// confined to the workspace plus these explicitly configured roots
+// (design web-file-upload-preview §5.2).
+type WebConfig struct {
+	// FileAccessRoots lists extra host directories the web preview may
+	// read. Entries may start with ~ (home-relative) or be relative to the
+	// workspace root. Empty = workspace only.
+	FileAccessRoots []string `json:"file_access_roots,omitempty" env:"PICOCLAW_WEB_FILE_ACCESS_ROOTS"`
+}
+
+// GetFileAccessRoots returns the configured web file-access roots.
+func (c *Config) GetFileAccessRoots() []string {
+	if c == nil || len(c.Web.FileAccessRoots) == 0 {
+		return nil
+	}
+	return append([]string(nil), c.Web.FileAccessRoots...)
 }
 
 // MemoryConfig configures agent memory backends.
@@ -1606,7 +1626,7 @@ type ToolsConfig struct {
 	// borrowing 增量清单 §2.1). Default off — a plain bool is deliberate:
 	// unlike loop_detection/streaming there is no legacy behavior to
 	// preserve, so the *bool nil=on convention does not apply.
-	Checkpoint CheckpointConfig `json:"checkpoint"        yaml:"-"`
+	Checkpoint   CheckpointConfig   `json:"checkpoint"        yaml:"-"`
 	AppendFile   ToolConfig         `json:"append_file"       yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_APPEND_FILE_"`
 	EditFile     ToolConfig         `json:"edit_file"         yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_EDIT_FILE_"`
 	FindSkills   ToolConfig         `json:"find_skills"       yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_FIND_SKILLS_"`
