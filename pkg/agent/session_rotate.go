@@ -54,6 +54,19 @@ func (al *AgentLoop) rotateSession(ctx context.Context, agent *AgentInstance, op
 	// starts from the deferred baseline, not the tools the previous
 	// conversation happened to load (review P2).
 	al.toolDefer.clearSession(sessionKey)
+	// Same key means the session-scoped model override (fork §28) would
+	// survive the rotation and the fresh conversation would silently run on
+	// the previous chat's model — clear it so /new's "reset model to the
+	// configured default" contract holds for session-scoped choices too.
+	//
+	// Unconditional on purpose: rotateSession runs inside the message's own
+	// pump claim (agent.go's placeholder LoadOrStore), so a naive
+	// "skip when a turn is active" check would see the claim itself and
+	// never clear (review P1-1). Concurrent turns for this session are
+	// impossible here — another inbound message would have been enqueued by
+	// the pump instead of dispatched — so no live turn can hold the entry's
+	// provider when this runs.
+	al.sessionModels.Clear(sessionKey)
 	if len(history) == 0 && summary == "" {
 		// Nothing to preserve; the session is already fresh.
 		clearSessionTitleMetadata(sessions, sessionKey)

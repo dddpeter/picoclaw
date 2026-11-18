@@ -84,6 +84,15 @@ func NewAgentLoop(
 		ownsRuntimeEvents: true,
 		sessionModels:     newSessionModelRegistry(),
 	}
+	// LRU eviction must not close a provider a live turn is using (review
+	// P2-1): expose the active-turn set to the registry. Read without the
+	// sessionModelGate — eviction already holds the registry lock, and a
+	// stale true/false by a hair is harmless (the entry survives one extra
+	// write, or is evicted one write later).
+	al.sessionModels.inUse = func(sessionKey string) bool {
+		_, busy := al.activeTurnStates.Load(sessionKey)
+		return busy
+	}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(al)

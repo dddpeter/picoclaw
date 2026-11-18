@@ -368,7 +368,13 @@ func newTurnState(agent *AgentInstance, opts processOptions, scope turnEventScop
 }
 
 func (al *AgentLoop) registerActiveTurn(ts *turnState) {
+	// The gate pairs registration with session-model writes (see
+	// sessionModelGate): a SetSessionModel that raced past its busy check
+	// just before this Store would otherwise be able to close the provider
+	// this turn is about to resolve.
+	al.sessionModelGate.Lock()
 	al.activeTurnStates.Store(ts.sessionKey, ts)
+	al.sessionModelGate.Unlock()
 }
 
 func (al *AgentLoop) clearActiveTurn(ts *turnState) {

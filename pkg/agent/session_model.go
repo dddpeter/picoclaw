@@ -3,6 +3,7 @@
 package agent
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -50,20 +51,89 @@ type SessionModel struct {
 // restart drops the session's model choice back to the config default —
 // the same contract /switch already has, and the reason a session-scoped
 // model is a safe thing to add: nothing on disk has to be reconciled.
+//
+// Eviction: entries are bounded by maxSessionModelEntries (LRU). Session
+// deletion can happen in another process (the web backend removes session
+// files directly, without a gateway round-trip), so the gateway cannot hook
+// delete events; the LRU cap bounds both memory and cached providers
+// instead. /new clears the live session's entry explicitly (same session
+// key survives rotation), so the realistic unbounded growth path — users
+// starting new conversations forever — is covered from both sides.
 type sessionModelRegistry struct {
-	mu      sync.RWMutex
-	entries map[string]*SessionModel
+	mu         sync.Mutex
+	entries    map[string]*SessionModel
+	lastUsed   map[string]uint64
+	seq        uint64 // monotonic LRU clock — wall clocks are too coarse for sub-ms touches
+	maxEntries int
+	// inUse reports whether a turn is currently running on the session (nil
+	// = never in use). LRU eviction must not close a provider a live turn is
+	// using: a long turn touches its entry only at resolve time, so 63 other
+	// sessions' writes can push it to the head of the eviction order before
+	// the turn finishes. Wired by AgentLoop to activeTurnStates.
+	inUse func(sessionKey string) bool
 }
 
+// maxSessionModelEntries caps the registry. Well above any realistic
+// concurrent-session count; the LRU evicts stale entries so long-running
+// gateways cannot accumulate unbounded overrides.
+const maxSessionModelEntries = 64
+
 func newSessionModelRegistry() *sessionModelRegistry {
-	return &sessionModelRegistry{entries: make(map[string]*SessionModel)}
+	return &sessionModelRegistry{
+		entries:    make(map[string]*SessionModel),
+		lastUsed:   make(map[string]uint64),
+		maxEntries: maxSessionModelEntries,
+	}
+}
+
+// touch records a use of sessionKey for LRU eviction. Caller holds r.mu.
+func (r *sessionModelRegistry) touch(sessionKey string) {
+	if r.lastUsed == nil {
+		r.lastUsed = make(map[string]uint64)
+	}
+	r.seq++
+	r.lastUsed[sessionKey] = r.seq
+}
+
+// evictLRU removes the least recently used entry (and closes its provider)
+// when the registry is over capacity. Caller holds r.mu. neverKey is the
+// entry being inserted and is never evicted; entries whose session has an
+// active turn (r.inUse) are spared — closing their provider would pull the
+// provider out from under the running turn (review P2-1). The registry may
+// temporarily stay over capacity when every other entry is in use; the next
+// write retries.
+func (r *sessionModelRegistry) evictLRU(neverKey string) {
+	for len(r.entries) > r.maxEntries {
+		oldestKey := ""
+		var oldest uint64
+		for key, used := range r.lastUsed {
+			if key == neverKey {
+				continue
+			}
+			if r.inUse != nil && r.inUse(key) {
+				continue
+			}
+			if oldestKey == "" || used < oldest {
+				oldestKey = key
+				oldest = used
+			}
+		}
+		if oldestKey == "" {
+			return
+		}
+		closeSessionModelProvider(r.entries[oldestKey])
+		delete(r.entries, oldestKey)
+		delete(r.lastUsed, oldestKey)
+	}
 }
 
 // Set stores the override for a session. An empty model name clears the
 // override (the session falls back to the agent's configured model).
 //
 // Replacing an override closes the previously cached provider: the old
-// model may hold live upstream connections that would otherwise leak.
+// model may hold live upstream connections that would otherwise leak. The
+// caller must guarantee no turn is using it — SetSessionModel rejects
+// session-model writes while the session has an active turn.
 func (r *sessionModelRegistry) Set(sessionKey string, model *SessionModel) {
 	if r == nil {
 		return
@@ -77,18 +147,26 @@ func (r *sessionModelRegistry) Set(sessionKey string, model *SessionModel) {
 	if r.entries == nil {
 		r.entries = make(map[string]*SessionModel)
 	}
+	if r.lastUsed == nil {
+		r.lastUsed = make(map[string]uint64)
+	}
 	if model == nil || strings.TrimSpace(model.ModelName) == "" {
 		closeSessionModelProvider(r.entries[sessionKey])
 		delete(r.entries, sessionKey)
+		delete(r.lastUsed, sessionKey)
 		return
 	}
 	stored := *model
 	stored.ModelName = strings.TrimSpace(stored.ModelName)
 	closeSessionModelProvider(r.entries[sessionKey])
 	r.entries[sessionKey] = &stored
+	r.touch(sessionKey)
+	r.evictLRU(sessionKey)
 }
 
 // Get returns the override for a session, or nil when the session has none.
+// The read refreshes the entry's LRU timestamp, so polling paths (context
+// usage, idle compaction) keep live sessions from being evicted.
 func (r *sessionModelRegistry) Get(sessionKey string) *SessionModel {
 	if r == nil {
 		return nil
@@ -97,12 +175,13 @@ func (r *sessionModelRegistry) Get(sessionKey string) *SessionModel {
 	if sessionKey == "" {
 		return nil
 	}
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	model, ok := r.entries[sessionKey]
 	if !ok || model == nil {
 		return nil
 	}
+	r.touch(sessionKey)
 	copied := *model
 	return &copied
 }
@@ -120,11 +199,19 @@ func (r *sessionModelRegistry) Clear(sessionKey string) {
 	defer r.mu.Unlock()
 	closeSessionModelProvider(r.entries[sessionKey])
 	delete(r.entries, sessionKey)
+	delete(r.lastUsed, sessionKey)
 }
 
-// UpdateWindows refreshes the cached windows of a session's override.
+// UpdateWindows refreshes the cached windows of a session's override. The
+// write is conditional on expectModel: between the caller's resolve and this
+// update, a concurrent Set could have moved the entry to another model —
+// stamping the old model's windows onto the new entry would misreport the
+// UI's context ring and the compaction budget until the next turn (review
+// P2-2). On mismatch this is a no-op; the new model's resolve refreshes the
+// windows itself.
 func (r *sessionModelRegistry) UpdateWindows(
 	sessionKey string,
+	expectModel string,
 	contextWindow int,
 	declaredContextWindow int,
 ) {
@@ -138,47 +225,65 @@ func (r *sessionModelRegistry) UpdateWindows(
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	entry, ok := r.entries[sessionKey]
-	if !ok || entry == nil {
+	if !ok || entry == nil || strings.TrimSpace(entry.ModelName) != expectModel {
 		return
 	}
 	entry.ContextWindow = contextWindow
 	entry.DeclaredContextWindow = declaredContextWindow
 }
 
-// Provider returns the cached provider of a session's override, if any.
-func (r *sessionModelRegistry) Provider(sessionKey string) providers.LLMProvider {
-	if r == nil {
-		return nil
-	}
-	sessionKey = strings.TrimSpace(sessionKey)
-	if sessionKey == "" {
-		return nil
-	}
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	entry, ok := r.entries[sessionKey]
-	if !ok || entry == nil {
-		return nil
-	}
-	return entry.provider
-}
+// errSessionModelOverrideChanged is returned by ProviderFor when the
+// session's override was replaced (or removed) while the provider was being
+// created: the caller must re-resolve instead of storing a provider built
+// for a model the session no longer runs.
+var errSessionModelOverrideChanged = errors.New("session model override changed during provider creation")
 
-// SetProvider caches the provider of a session's override.
-func (r *sessionModelRegistry) SetProvider(sessionKey string, provider providers.LLMProvider) {
+// ProviderFor returns the cached provider of a session's override, creating
+// one via create() when none is cached — atomically under the registry
+// lock.
+//
+// The atomicity closes the resolve-side TOCTOU: the previous
+// Provider→create→SetProvider dance let a concurrent Set/Clear race in
+// between, so two resolvers could both build a provider (one leaked) or a
+// provider could be stored into an entry that had already moved to another
+// model (wrong-model execution). Here the entry is re-checked under the
+// same lock that stores the result; when the override moved, the sentinel
+// error tells the caller to re-resolve rather than stash a mismatched
+// provider.
+//
+// create() runs under the registry lock: provider construction is
+// in-memory (HTTP client build), so holding the lock costs milliseconds at
+// worst and removes the whole class of interleavings.
+func (r *sessionModelRegistry) ProviderFor(
+	sessionKey string,
+	expectModel string,
+	create func() (providers.LLMProvider, error),
+) (providers.LLMProvider, error) {
 	if r == nil {
-		return
+		return nil, errSessionModelOverrideChanged
 	}
 	sessionKey = strings.TrimSpace(sessionKey)
 	if sessionKey == "" {
-		return
+		return nil, errSessionModelOverrideChanged
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	entry, ok := r.entries[sessionKey]
-	if !ok || entry == nil {
-		return
+	if !ok || entry == nil || strings.TrimSpace(entry.ModelName) != expectModel {
+		return nil, errSessionModelOverrideChanged
 	}
-	entry.provider = provider
+	if entry.provider != nil {
+		r.touch(sessionKey)
+		return entry.provider, nil
+	}
+	created, err := create()
+	if err != nil {
+		return nil, err
+	}
+	entry.provider = created
+	r.touch(sessionKey)
+	return created, nil
 }
 
 // Close releases every cached provider (gateway shutdown).
@@ -192,6 +297,7 @@ func (r *sessionModelRegistry) Close() {
 		closeSessionModelProvider(entry)
 		delete(r.entries, key)
 	}
+	r.lastUsed = make(map[string]uint64)
 }
 
 // closeSessionModelProvider closes a cached provider if it is stateful.
@@ -220,6 +326,11 @@ type resolvedSessionModel struct {
 	// chosen model, and DeclaredContextWindow the one reported to UIs.
 	ContextWindow         int
 	DeclaredContextWindow int
+
+	// overrideChanged is true when the override moved underneath this
+	// resolve attempt and the caller must retry against the fresh one. No
+	// other field is meaningful in that case.
+	overrideChanged bool
 }
 
 // resolveSessionModel turns a session's model override into the concrete
@@ -239,6 +350,31 @@ func (al *AgentLoop) resolveSessionModel(
 	if al == nil || agent == nil {
 		return nil
 	}
+
+	// The override can move between reading it and caching a provider for it
+	// (a concurrent SetSessionModel on another session path, a Clear, an
+	// eviction). ProviderFor detects that and reports the sentinel; re-resolve
+	// against the fresh override. Bounded: a storm of concurrent switches
+	// converges, and giving up only means this turn runs on the configured
+	// default — the next turn picks the override up.
+	const maxResolveAttempts = 3
+	for attempt := 0; attempt < maxResolveAttempts; attempt++ {
+		resolved := al.resolveSessionModelOnce(agent, sessionKey)
+		if resolved == nil || !resolved.overrideChanged {
+			return resolved
+		}
+	}
+	logger.WarnCF("agent", "session model override kept changing during resolve; running on configured model this turn",
+		map[string]any{"session_key": sessionKey})
+	return nil
+}
+
+// resolveSessionModelOnce performs a single resolve attempt. resolvedSessionModel.overrideChanged
+// is true when the override moved underneath and the caller should retry.
+func (al *AgentLoop) resolveSessionModelOnce(
+	agent *AgentInstance,
+	sessionKey string,
+) *resolvedSessionModel {
 	override := al.sessionModels.Get(sessionKey)
 	if override == nil {
 		return nil
@@ -274,24 +410,32 @@ func (al *AgentLoop) resolveSessionModel(
 		return nil
 	}
 
-	provider := al.sessionModels.Provider(sessionKey)
-	if provider == nil {
-		factory := providers.CreateProviderFromConfig
-		if al.providerFactory != nil {
-			factory = al.providerFactory
+	factory := providers.CreateProviderFromConfig
+	if al.providerFactory != nil {
+		factory = al.providerFactory
+	}
+	modelCfgForProvider := modelCfg
+	provider, providerErr := al.sessionModels.ProviderFor(
+		sessionKey,
+		override.ModelName,
+		func() (providers.LLMProvider, error) {
+			created, _, createErr := factory(modelCfgForProvider)
+			return created, createErr
+		},
+	)
+	if providerErr != nil {
+		if errors.Is(providerErr, errSessionModelOverrideChanged) {
+			// The override moved while we were resolving: retry against the
+			// fresh one (the caller loops).
+			return &resolvedSessionModel{overrideChanged: true}
 		}
-		created, _, createErr := factory(modelCfg)
-		if createErr != nil {
-			logger.WarnCF("agent", "session model override provider init failed",
-				map[string]any{
-					"session_key": sessionKey,
-					"model":       override.ModelName,
-					"error":       createErr.Error(),
-				})
-			return nil
-		}
-		provider = created
-		al.sessionModels.SetProvider(sessionKey, provider)
+		logger.WarnCF("agent", "session model override provider init failed",
+			map[string]any{
+				"session_key": sessionKey,
+				"model":       override.ModelName,
+				"error":       providerErr.Error(),
+			})
+		return nil
 	}
 
 	// Window: min(per-model entry, agent-level window) — same rule as the
@@ -311,7 +455,7 @@ func (al *AgentLoop) resolveSessionModel(
 	}
 	// Keep the cached window in sync with the agent's current base so the
 	// usage snapshots (which read the registry) and the turn agree.
-	al.sessionModels.UpdateWindows(sessionKey, contextWindow, declaredContextWindow)
+	al.sessionModels.UpdateWindows(sessionKey, override.ModelName, contextWindow, declaredContextWindow)
 
 	return &resolvedSessionModel{
 		ModelName:             resolvedCandidateModelName(candidates, override.ModelName),
@@ -369,6 +513,13 @@ func (al *AgentLoop) AgentForSessionKey(sessionKey string) *AgentInstance {
 // SetSessionModel assigns a model to one session without touching the
 // config file or the agent's global model. An empty model name clears the
 // override (the session falls back to the configured model).
+//
+// Session-model writes are rejected while the session has an active turn
+// (the same contract /switch and /new already have): a turn holds the
+// session's resolved provider for its whole duration, and replacing or
+// clearing the entry would close that provider under the live turn — fatal
+// for stateful providers. The gate mutex closes the check/apply race
+// against turn registration.
 func (al *AgentLoop) SetSessionModel(sessionKey, modelName string) error {
 	if al == nil {
 		return fmt.Errorf("agent loop is nil")
@@ -380,8 +531,7 @@ func (al *AgentLoop) SetSessionModel(sessionKey, modelName string) error {
 	modelName = strings.TrimSpace(modelName)
 
 	if modelName == "" {
-		al.sessionModels.Clear(sessionKey)
-		return nil
+		return al.applySessionModelOverride(sessionKey, nil)
 	}
 
 	cfg := al.GetConfig()
@@ -406,16 +556,40 @@ func (al *AgentLoop) SetSessionModel(sessionKey, modelName string) error {
 	if agent != nil {
 		contextWindow, declaredContextWindow = al.sessionModelWindows(agent, modelName)
 	}
-	al.sessionModels.Set(sessionKey, &SessionModel{
+	err := al.applySessionModelOverride(sessionKey, &SessionModel{
 		ModelName:             modelName,
 		ContextWindow:         contextWindow,
 		DeclaredContextWindow: declaredContextWindow,
 	})
+	if err != nil {
+		return err
+	}
 	logger.InfoCF("agent", "session model override set",
 		map[string]any{
 			"session_key": sessionKey,
 			"model":       modelName,
 		})
+	return nil
+}
+
+// errSessionBusy is returned by applySessionModelOverride (and surfaced by
+// SetSessionModel) when the session has an active turn.
+var errSessionBusy = errors.New("session is busy: a turn is active, try again after it completes")
+
+// applySessionModelOverride atomically checks turn activity and stores (or,
+// with a nil model, clears) the override.
+//
+// LOCK DISCIPLINE: takes al.sessionModelGate, the same mutex
+// registerActiveTurn holds while publishing a turn to activeTurnStates —
+// without it, a write could pass the busy check just before a turn
+// registers, then close the provider the turn resolves moments later.
+func (al *AgentLoop) applySessionModelOverride(sessionKey string, model *SessionModel) error {
+	al.sessionModelGate.Lock()
+	defer al.sessionModelGate.Unlock()
+	if al.getActiveTurnState(sessionKey) != nil {
+		return errSessionBusy
+	}
+	al.sessionModels.Set(sessionKey, model)
 	return nil
 }
 

@@ -105,6 +105,13 @@ type AgentLoop struct {
 	// mutates the agent's global model — it is resolved per turn.
 	sessionModels *sessionModelRegistry
 
+	// sessionModelGate serializes session-model writes (SetSessionModel)
+	// against turn registration (registerActiveTurn). Without it, a write
+	// could pass the busy check just before a turn registers and then close
+	// the provider the turn resolves moments later. Held only for the
+	// check+apply pair, never around LLM work.
+	sessionModelGate sync.Mutex
+
 	turnSeq atomic.Uint64
 
 	// activeReqMu/activeReqCond/activeReqCount replace sync.WaitGroup to

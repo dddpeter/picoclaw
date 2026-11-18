@@ -114,6 +114,11 @@ func (al *AgentLoop) watchHardAbortUnwind(sessionKey string, ts *turnState) {
 	if al.getActiveTurnState(sessionKey) == ts {
 		// Flag first: the turn's goroutine may unwind at any moment and
 		// abortTurn must observe the release before it touches the session.
+		// Note the session-scoped model entry (fork §28) keeps its cached
+		// provider after this release: the zombie turn is unrecoverable, so
+		// the provider is neither reused by a new turn until the next
+		// resolve nor closed by SetSessionModel's busy path anymore — the
+		// next write on this session replaces/closes it normally.
 		ts.zombieReleased.Store(true)
 		al.releaseSessionTurnState(sessionKey, ts)
 		logger.ErrorCF("agent", "hard abort watchdog: turn goroutine failed to unwind; force-released session registration",
