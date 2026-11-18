@@ -8,6 +8,7 @@ import (
 	"mime"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -95,7 +96,10 @@ type uploadIndexEntry struct {
 // hostile multipart filename cannot escape the target directory or corrupt
 // the JSONL index.
 func sanitizeUploadFilename(name string) string {
-	name = filepath.Base(strings.TrimSpace(name))
+	// path.Base (slash-only), not filepath.Base: on Windows the latter eats
+	// backslashes, making the sanitized name OS-dependent. The contract is
+	// "keep the whole string, strip separators" regardless of server OS.
+	name = path.Base(strings.TrimSpace(name))
 	var b strings.Builder
 	for _, r := range name {
 		if r < 0x20 || r == ':' || r == '\\' || r == '/' {

@@ -19,6 +19,15 @@ import (
 // extraRoots entries may be absolute, ~-relative (home), or relative to the
 // workspace root. A root grants access to itself and everything under it.
 func ResolveWebPath(path, workspace string, extraRoots []string) (string, error) {
+	// Windows: rooted-but-driveless paths ("/etc/passwd" → "\etc\passwd") are
+	// absolute on the process drive, yet filepath.IsAbs reports false — left
+	// alone they would silently re-anchor inside the workspace and answer 404
+	// instead of the boundary denial Unix gets. Volume-ize before validation.
+	if !filepath.IsAbs(path) && strings.HasPrefix(filepath.ToSlash(path), "/") {
+		if abs, err := filepath.Abs(path); err == nil {
+			path = abs
+		}
+	}
 	var patterns []*regexp.Regexp
 	for _, root := range extraRoots {
 		trimmed := strings.TrimSpace(root)
@@ -29,7 +38,9 @@ func ResolveWebPath(path, workspace string, extraRoots []string) (string, error)
 		if err != nil {
 			continue
 		}
-		patterns = append(patterns, regexp.MustCompile("^"+regexp.QuoteMeta(abs)+"(/|$)"))
+		// Separator-agnostic: on Windows the remainder after the root is
+		// "\child", so a "/"-only boundary would never match any child path.
+		patterns = append(patterns, regexp.MustCompile("^"+regexp.QuoteMeta(abs)+`(?:[/\\]|$)`))
 	}
 	return validatePathWithAllowPaths(path, workspace, true, patterns)
 }

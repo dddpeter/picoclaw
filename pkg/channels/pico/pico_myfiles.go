@@ -308,7 +308,11 @@ func normalizeToWorkspacePath(workspace, path string) (string, bool) {
 	if raw == "" || strings.Contains(raw, "...") {
 		return "", false
 	}
-	if filepath.IsAbs(filepath.FromSlash(raw)) {
+	fromSlash := filepath.FromSlash(raw)
+	// Windows: "/x" (rooted, drive-less) is absolute on the process drive even
+	// though filepath.IsAbs says false — treating it as relative would list
+	// workspace-external paths as if they lived in the workspace.
+	if filepath.IsAbs(fromSlash) || strings.HasPrefix(filepath.ToSlash(fromSlash), "/") {
 		absWorkspace, err := filepath.Abs(workspace)
 		if err != nil {
 			return "", false

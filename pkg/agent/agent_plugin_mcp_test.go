@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/sipeed/picoclaw/pkg/agentplugins"
 	"github.com/sipeed/picoclaw/pkg/config"
 )
 
@@ -45,7 +46,11 @@ func TestPluginMCP_MergeBasic(t *testing.T) {
 
 	echo, ok := merged.Servers["plugin/golden/echo"]
 	if !ok {
-		t.Fatalf("plugin server key missing: %v", merged.Servers)
+		// Re-scan to surface load warnings: the merged map alone cannot say
+		// why the plugin did not bridge (manifest rejection, containment
+		// check, machine-dependent fs condition).
+		_, rep := agentplugins.LoadPluginsDir(installRoot, dataRoot)
+		t.Fatalf("plugin server key missing: %v (load warnings: %v)", merged.Servers, rep.Warnings)
 	}
 	if !echo.Enabled {
 		t.Error("bridged server must be enabled")
