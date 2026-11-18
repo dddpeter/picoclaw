@@ -20,6 +20,14 @@ import (
 // cycles on the same file; without the mutex two concurrent writers could
 // interleave and silently drop one side's changes. Cross-process writers
 // (the gateway itself) are out of scope here.
+//
+// Lock order with gateway.mu (review C-1): while holding configWriteMu you
+// MUST NOT acquire gateway.mu — the gateway start path holds gateway.mu and
+// re-enters this mutex via startGatewayLocked → EnsurePicoChannel, so the
+// reverse nesting pairs into an ABBA deadlock. Handlers that need gateway
+// state (status check, restart, token-cache update) must release
+// configWriteMu first — see handleResetConfig, handleRegenPicoToken and
+// restartGatewayAfterBinding for the pattern.
 var configWriteMu sync.Mutex
 
 // registerConfigRoutes binds configuration management endpoints to the ServeMux.
@@ -320,17 +328,20 @@ func (h *Handler) PatchConfigFile(patch map[string]any) error {
 //	POST /api/config/reset
 func (h *Handler) handleResetConfig(w http.ResponseWriter, r *http.Request) {
 	configWriteMu.Lock()
-	defer configWriteMu.Unlock()
-
 	if err := config.ResetToDefaults(h.configPath); err != nil {
+		configWriteMu.Unlock()
 		http.Error(w, fmt.Sprintf("Failed to reset config: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	h.applyRuntimeLogLevel()
 	logger.Infof("configuration reset to factory defaults")
+	configWriteMu.Unlock()
 
-	// Restart gateway if running
+	// Restart the gateway strictly OUTSIDE configWriteMu (review C-1 lock
+	// order): RestartGateway transitively re-enters this mutex via
+	// startGatewayLocked → EnsurePicoChannel, and sync.Mutex is not
+	// reentrant. See restartGatewayAfterBinding for the same pattern.
 	status := h.gatewayStatusData()
 	gatewayStatus, _ := status["gateway_status"].(string)
 	if gatewayStatus == "running" {

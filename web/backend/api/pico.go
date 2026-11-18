@@ -230,11 +230,16 @@ func (h *Handler) handleGetPicoInfo(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleRegenPicoToken(w http.ResponseWriter, r *http.Request) {
 	// Serialize the whole load-modify-save against other config writers
 	// (2026-10-31 review B5: this writer previously bypassed configWriteMu).
+	// The gateway token-cache update below stays strictly OUTSIDE
+	// configWriteMu (review C-1 lock order): it takes gateway.mu, and
+	// startGatewayLocked holds gateway.mu while re-entering this mutex via
+	// EnsurePicoChannel — nesting the other way would pair with it into an
+	// ABBA deadlock.
 	configWriteMu.Lock()
-	defer configWriteMu.Unlock()
 
 	cfg, err := config.LoadConfig(h.configPath)
 	if err != nil {
+		configWriteMu.Unlock()
 		http.Error(w, fmt.Sprintf("Failed to load config: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -250,9 +255,12 @@ func (h *Handler) handleRegenPicoToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := config.SaveConfig(h.configPath, cfg); err != nil {
+		configWriteMu.Unlock()
 		http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
 		return
 	}
+
+	configWriteMu.Unlock()
 
 	gateway.mu.Lock()
 	gateway.picoToken = token
@@ -263,6 +271,10 @@ func (h *Handler) handleRegenPicoToken(w http.ResponseWriter, r *http.Request) {
 
 // EnsurePicoChannel enables the Pico channel with sane defaults if it isn't
 // already configured. Returns true when the config was modified.
+//
+// Lock order note: callers may hold gateway.mu (startGatewayLocked does) —
+// taking configWriteMu under gateway.mu is the ONLY allowed direction; the
+// reverse nesting is an ABBA deadlock (see configWriteMu).
 func (h *Handler) EnsurePicoChannel() (bool, error) {
 	// Serialize the whole load-modify-save against other config writers
 	// (2026-10-31 review B5: this writer previously bypassed configWriteMu).
