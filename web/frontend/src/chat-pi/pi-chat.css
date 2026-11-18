@@ -2076,3 +2076,44 @@ div.chead[role="button"]:focus-visible,
   --a2ui-modal-box-shadow:
     0 18px 50px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--border);
 }
+
+/* == 文件附件预览入口（web file upload/preview, design §5.4/5.5）======= */
+.msg-attach-chip-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.msg-attach-chip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 4px;
+  border-radius: var(--radius-1, 6px);
+  color: var(--fg-secondary);
+  flex-shrink: 0;
+}
+
+.msg-attach-chip-icon:hover {
+  color: var(--fg-primary);
+}
+
+.toolcall-preview-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  margin-left: 2px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-1, 6px);
+  color: var(--fg-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.toolcall-preview-btn:hover {
+  color: var(--fg-primary);
+  background: var(--bg-hover, rgba(128, 128, 128, 0.15));
+}

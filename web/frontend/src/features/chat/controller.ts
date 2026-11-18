@@ -342,11 +342,27 @@ export function sendChatMessage({
   }
 
   const normalizedContent = content.trim()
-  const normalizedAttachments = attachments
-    .filter((attachment) => attachment.type === "image" && attachment.url)
-    .map((attachment) => ({ ...attachment }))
+  const normalizedAttachments = attachments.map((attachment) => ({
+    ...attachment,
+  }))
+  // Inline media stay data URLs (existing image channel); uploaded files
+  // travel as workspace-relative path references (design §4.4).
+  const inlineMediaUrls = normalizedAttachments
+    .filter((attachment) => attachment.url)
+    .map((attachment) => attachment.url)
+  const uploadedFileRefs = normalizedAttachments
+    .filter((attachment) => attachment.path)
+    .map((attachment) => ({
+      path: attachment.path ?? "",
+      filename: attachment.filename ?? "",
+      content_type: attachment.contentType ?? "",
+    }))
 
-  if (!normalizedContent && normalizedAttachments.length === 0) {
+  if (
+    !normalizedContent &&
+    inlineMediaUrls.length === 0 &&
+    uploadedFileRefs.length === 0
+  ) {
     return false
   }
 
@@ -385,7 +401,10 @@ export function sendChatMessage({
   try {
     const payload: Record<string, unknown> = {
       content: normalizedContent,
-      media: normalizedAttachments.map((attachment) => attachment.url),
+      media: inlineMediaUrls,
+    }
+    if (uploadedFileRefs.length > 0) {
+      payload.files = uploadedFileRefs
     }
 
     socket.send(

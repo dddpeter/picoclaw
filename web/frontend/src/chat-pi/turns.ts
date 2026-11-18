@@ -94,6 +94,8 @@ export type PiBlock =
       filename?: string
       /** true = 图片（<img>）；false = 音频/视频/文件（链接 chip）。 */
       media: boolean
+      /** workspace 相对路径（上传文件 url 为空时启用预览入口，设计 §5.4 来源 a）。 */
+      path?: string
     }
 
 export interface PiAssistantPart {
@@ -208,6 +210,7 @@ function attachmentBlocks(
     url: attachment.url,
     filename: attachment.filename,
     media: attachment.type === "image",
+    path: attachment.path,
   }))
 }
 

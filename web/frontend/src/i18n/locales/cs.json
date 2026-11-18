@@ -9,6 +9,7 @@
   },
   "navigation": {
     "chat": "Chat",
+    "files": "Soubory",
     "model_group": "Modely",
     "models": "Modely",
     "credentials": "Přihlašovací údaje",
@@ -115,6 +116,8 @@
     "invalidImage": "\"{{name}}\" není podporovaný formát obrázku.",
     "imageTooLarge": "\"{{name}}\" překračuje limit {{size}}.",
     "imageReadFailed": "Čtení souboru \"{{name}}\" selhalo.",
+    "uploadFailed": "Nahrání {{name}} se nezdařilo, zkuste to znovu",
+    "fileTooLarge": "{{name}} překračuje limit velikosti nahrávání (20MB)",
     "empty": {
       "noConfiguredModel": "Žádný model není nakonfigurován",
       "noConfiguredModelDescription": "Před zahájením chatu musíte nakonfigurovat alespoň jeden AI model s API klíčem.",
@@ -1118,5 +1121,38 @@
         "prompt": "Nejprve popíši situaci, kterou potřebuji vyřešit; ty určíš nejvhodnější pracovní postup (upevnění požadavků / plán rozdělení / testy první / ladění / architektura / kontrola / předání atd.), vysvětlíš, proč jej doporučuješ a jak bys postupoval, a po mém potvrzení jej provedeš."
       }
     }
+  },
+  "filePreview": {
+    "loading": "Načítání…",
+    "forbidden": "K náhledu této cesty nemáte oprávnění",
+    "notFound": "Soubor nenalezen nebo přesunut",
+    "loadFailed": "Načtení se nezdařilo",
+    "textTruncated": "Soubor je příliš velký; zobrazuje se prvních 1 MB",
+    "noInlinePreview": "Online náhled pro tento formát není k dispozici — stáhněte si soubor",
+    "download": "Stáhnout",
+    "retry": "Zkusit znovu",
+    "tabPreview": "Náhled",
+    "tabFiles": "Soubory",
+    "close": "Zavřít",
+    "dialogDesc": "Panel náhledu souborů; přepínejte mezi náhledem a správcem souborů",
+    "empty": "Klikněte na soubor v chatu pro náhled",
+    "richFailed": "Vykreslení dokumentu se nezdařilo — stáhněte si ho",
+    "openPreview": "Náhled souboru",
+    "modeRendered": "Vykresleno",
+    "modeSource": "Zdroj"
+  },
+  "fileManager": {
+    "view-session": "Relace",
+    "view-workspace": "Pracovní prostor",
+    "uploadedFiles": "Nahrané soubory",
+    "generatedFiles": "Vygenerované soubory",
+    "empty": "Žádné soubory",
+    "loadFailed": "Načtení se nezdařilo",
+    "truncated": "Příliš mnoho položek; zobrazuje se část",
+    "workspaceSummary": "{{count}} souborů v pracovním prostoru (klikněte pro náhled)",
+    "noUploads": "Zatím žádné nahrané soubory",
+    "noGenerated": "Zatím žádné vygenerované soubory",
+    "tagUploaded": "Nahráno",
+    "tagGenerated": "Vygenerováno"
   }
 }

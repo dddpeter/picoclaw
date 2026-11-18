@@ -5,6 +5,7 @@ import {
 } from "@tabler/icons-react"
 import {
   IconAtom,
+  IconFolder,
   IconKey,
   IconListDetails,
   IconMessageCircle,
@@ -132,6 +133,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             title: "navigation.chat",
             url: "/",
             icon: IconMessageCircle,
+            translateTitle: true,
+          },
+          {
+            title: "navigation.files",
+            url: "/files",
+            icon: IconFolder,
             translateTitle: true,
           },
         ],

@@ -14,6 +14,7 @@ import {
   IconCircleCheck,
   IconClock,
   IconCompass,
+  IconEye,
   IconFilePencil,
   IconFileText,
   IconFolderOpen,
@@ -29,6 +30,8 @@ import { memo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { MessageActionsBar } from "@/components/chat/message-actions-bar"
+import { FILE_WRITE_TOOLS, toolCallPath } from "@/features/chat/file-detection"
+import { openFilePreview } from "@/store/file-preview"
 
 import { shortenPath, toolArgHints } from "./tool-args"
 
@@ -120,6 +123,10 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   // bash 类的命令行给正文的终端行，折叠时卡头跟一小段预览。
   const hints = toolArgHints(argumentsText)
   const bashCommand = name === "bash" ? hints.command : undefined
+  // 写文件类工具：从参数提取 path 供右侧预览（设计 §5.4 来源 b）。
+  const writeToolPath = FILE_WRITE_TOOLS.has(name)
+    ? (toolCallPath(argumentsText) ?? undefined)
+    : undefined
   // 折叠预览：只取首行（空白压成单空格），80 字截断；多行折成 +N 后缀。
   const collapsedCmd =
     !shown && bashCommand ? collapsedBashPreview(bashCommand) : undefined
@@ -184,6 +191,20 @@ export const ToolCallBlock = memo(function ToolCallBlock({
           <span className="toolcall-path" title={hints.path}>
             {shortenPath(hints.path)}
           </span>
+        )}
+        {writeToolPath && (
+          <button
+            type="button"
+            className="toolcall-preview-btn"
+            title={t("filePreview.openPreview")}
+            aria-label={t("filePreview.openPreview")}
+            onClick={(e) => {
+              e.stopPropagation()
+              openFilePreview(writeToolPath, hints.path ?? writeToolPath)
+            }}
+          >
+            <IconEye size={13} />
+          </button>
         )}
         {hints.timeout && (
           <span className="toolcall-timeout">⏱ {hints.timeout}</span>

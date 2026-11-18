@@ -423,3 +423,70 @@ describe("mergeHistoryMessages ui dimension", () => {
     expect(merged).toHaveLength(2)
   })
 })
+
+describe("uploaded file attachments", () => {
+  it("parses workspace-relative paths from message.create attachments", () => {
+    const snapshot = getChatState()
+    try {
+      handlePicoMessage(
+        {
+          type: "message.create",
+          session_id: "s1",
+          timestamp: 1_700_000_000,
+          payload: {
+            message_id: "file-1",
+            content: "分析这个数据集",
+            attachments: [
+              {
+                url: "",
+                path: "inbound/20260118/abc_sales.csv",
+                filename: "sales.csv",
+                content_type: "text/csv",
+              },
+            ],
+          },
+        },
+        "s1",
+      )
+
+      const message = getChatState().messages.at(-1)
+      expect(message?.attachments).toEqual([
+        {
+          type: "file",
+          url: "",
+          path: "inbound/20260118/abc_sales.csv",
+          filename: "sales.csv",
+          contentType: "text/csv",
+        },
+      ])
+    } finally {
+      updateChatStore(snapshot)
+    }
+  })
+
+  it("keeps image attachments without a path working as before", () => {
+    const snapshot = getChatState()
+    try {
+      handlePicoMessage(
+        {
+          type: "message.create",
+          session_id: "s1",
+          timestamp: 1_700_000_000,
+          payload: {
+            message_id: "img-1",
+            content: "看看这张图",
+            attachments: [{ url: "https://example.com/a.png", type: "image" }],
+          },
+        },
+        "s1",
+      )
+
+      const message = getChatState().messages.at(-1)
+      expect(message?.attachments).toEqual([
+        { type: "image", url: "https://example.com/a.png" },
+      ])
+    } finally {
+      updateChatStore(snapshot)
+    }
+  })
+})

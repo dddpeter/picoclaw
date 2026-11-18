@@ -48,7 +48,9 @@ function parseAttachments(
 
     const attachment = item as Record<string, unknown>
     const url = typeof attachment.url === "string" ? attachment.url : ""
-    if (!url) {
+    const path =
+      typeof attachment.path === "string" ? attachment.path : undefined
+    if (!url && !path) {
       continue
     }
 
@@ -72,6 +74,7 @@ function parseAttachments(
       url,
       ...(filename ? { filename } : {}),
       ...(contentType ? { contentType } : {}),
+      ...(path ? { path } : {}),
     })
   }
 

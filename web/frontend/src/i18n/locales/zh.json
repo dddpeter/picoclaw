@@ -9,6 +9,7 @@
   },
   "navigation": {
     "chat": "对话",
+    "files": "文件",
     "model_group": "模型",
     "models": "模型",
     "credentials": "凭据",
@@ -101,6 +102,8 @@
     "invalidImage": "“{{name}}”不是支持的图片文件。",
     "imageTooLarge": "“{{name}}”超过了 {{size}} 限制。",
     "imageReadFailed": "读取“{{name}}”失败。",
+    "uploadFailed": "上传 {{name}} 失败，请重试",
+    "fileTooLarge": "{{name}} 超过上传大小限制（20MB）",
     "empty": {
       "noConfiguredModel": "尚未配置模型",
       "noConfiguredModelDescription": "请先配置至少一个带有 API Key 的 AI 模型，才能开始对话。",
@@ -1330,5 +1333,38 @@
         "prompt": "请用 TDD（红-绿-重构）完成：\n\n1. 先写会失败的测试，覆盖正常路径、边界与错误分支\n2. 用最小实现让测试通过\n3. 重构并保持测试通过\n\n避免三种反模式：与实现耦合的测试、空洞断言（永远为真）、横向切片（只测表面）。每步汇报并运行测试。"
       }
     }
+  },
+  "filePreview": {
+    "loading": "加载中…",
+    "forbidden": "无权预览该路径（不在允许范围内）",
+    "notFound": "文件不存在或已被移动",
+    "loadFailed": "加载失败",
+    "textTruncated": "文件过大，仅显示前 1MB 内容",
+    "noInlinePreview": "该格式暂不支持在线预览，可下载查看",
+    "download": "下载",
+    "retry": "重试",
+    "tabPreview": "预览",
+    "tabFiles": "文件",
+    "close": "关闭",
+    "dialogDesc": "文件预览面板，可在预览与文件管理之间切换",
+    "empty": "点击消息中的文件查看预览",
+    "richFailed": "文档渲染失败，请下载后查看",
+    "openPreview": "预览文件",
+    "modeRendered": "渲染",
+    "modeSource": "源码"
+  },
+  "fileManager": {
+    "view-session": "本会话",
+    "view-workspace": "浏览工作区",
+    "uploadedFiles": "上传的文件",
+    "generatedFiles": "生成的文件",
+    "empty": "暂无文件",
+    "loadFailed": "加载失败",
+    "truncated": "条目过多，仅显示部分",
+    "workspaceSummary": "工作区共 {{count}} 个文件（点击预览）",
+    "noUploads": "还没有上传过文件",
+    "noGenerated": "还没有生成文件",
+    "tagUploaded": "上传",
+    "tagGenerated": "生成"
   }
 }

@@ -14,6 +14,7 @@ import remarkMath from "remark-math"
 import type { PluggableList } from "unified"
 
 import { isSingleLine } from "@/components/chat/message-code-block.utils"
+import { openFilePreview } from "@/store/file-preview"
 
 import { splitCodeLines } from "./code-lines"
 import { CopyButton } from "./copy-button"
@@ -39,6 +40,20 @@ export const rehypePlugins: PluggableList = [
   [rehypeHighlight, { detect: true, ignoreMissing: true }],
 ]
 
+/** Inline file tags → clickable markdown links (design §5.4 render hook):
+ * the [file:/image:...] tags embedded in message content are the most
+ * visible affordance in a bubble, so they must open the preview dock —
+ * plain text would read as a dead link to the user. Rewritten to a
+ * picoclaw-file: scheme the shared link renderer intercepts. */
+const FILE_TAG_RE = /\[(file|image|audio|video):([^\]\s]+)\]/g
+
+export function embedFileTags(text: string): string {
+  return text.replace(FILE_TAG_RE, (_match, _kind: string, path: string) => {
+    const name = path.split("/").pop() || path
+    return `📎 [${name}](picoclaw-file:${path})`
+  })
+}
+
 export function MarkdownBody({
   text,
   hardBreaks = false,
@@ -52,7 +67,7 @@ export function MarkdownBody({
       rehypePlugins={rehypePlugins}
       components={{ pre: PlainCodeBlock, a: MdLink }}
     >
-      {text}
+      {embedFileTags(text)}
     </ReactMarkdown>
   )
 }
@@ -69,9 +84,23 @@ export const Markdown = memo(function Markdown({
   )
 })
 
-/** 正文里的外链一律新窗口打开（`target=_blank` + `rel`）。 */
+/** 正文里的外链一律新窗口打开（`target=_blank` + `rel`）；
+ * picoclaw-file: 链接是内联文件 tag 的化身——点击打开右侧预览。 */
 function MdLink({ href, children, ...rest }: JSX.IntrinsicElements["a"]) {
   const target = String(href ?? "")
+  if (target.startsWith("picoclaw-file:")) {
+    const path = decodeURIComponent(target.slice("picoclaw-file:".length))
+    return (
+      <button
+        type="button"
+        className="msg-attach-chip"
+        onClick={() => openFilePreview(path)}
+        title={path}
+      >
+        {children}
+      </button>
+    )
+  }
   if (!/^(https?:|mailto:|tel:)/i.test(target)) {
     return (
       <a href={href} {...rest}>

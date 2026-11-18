@@ -17,6 +17,9 @@ export interface ChatAttachment {
   url: string
   filename?: string
   contentType?: string
+  /** Workspace-relative path for uploaded files (web upload pipeline).
+   *  Empty for inline image data URLs; preview hrefs resolve from it (P1). */
+  path?: string
 }
 
 export interface ChatToolCallFunction {

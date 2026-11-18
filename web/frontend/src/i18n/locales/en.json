@@ -9,6 +9,7 @@
   },
   "navigation": {
     "chat": "Chat",
+    "files": "Files",
     "model_group": "Models",
     "models": "Models",
     "credentials": "Credentials",
@@ -101,6 +102,8 @@
     "invalidImage": "\"{{name}}\" is not a supported image file.",
     "imageTooLarge": "\"{{name}}\" exceeds the {{size}} limit.",
     "imageReadFailed": "Failed to read \"{{name}}\".",
+    "uploadFailed": "Failed to upload {{name}}, please retry",
+    "fileTooLarge": "{{name}} exceeds the upload size limit (20MB)",
     "empty": {
       "noConfiguredModel": "No Model Configured",
       "noConfiguredModelDescription": "You need to configure at least one AI model with an API key before you can start chatting.",
@@ -1330,5 +1333,38 @@
         "prompt": "Implement using TDD (red-green-refactor):\n\n1. First write failing tests covering the happy path, edge cases and error branches\n2. Make them pass with the minimal implementation\n3. Refactor while keeping tests green\n\nAvoid three test anti-patterns: tests coupled to the implementation, tautological assertions (always true), and horizontal slicing (surface only). Report after each step and run the tests."
       }
     }
+  },
+  "filePreview": {
+    "loading": "Loading…",
+    "forbidden": "No permission to preview this path",
+    "notFound": "File not found or moved",
+    "loadFailed": "Failed to load",
+    "textTruncated": "File too large; showing the first 1MB",
+    "noInlinePreview": "Inline preview unavailable for this format — download instead",
+    "download": "Download",
+    "retry": "Retry",
+    "tabPreview": "Preview",
+    "tabFiles": "Files",
+    "close": "Close",
+    "dialogDesc": "File preview panel; switch between preview and file manager",
+    "empty": "Click a file in the chat to preview it",
+    "richFailed": "Document render failed — download to view",
+    "openPreview": "Preview file",
+    "modeRendered": "Rendered",
+    "modeSource": "Source"
+  },
+  "fileManager": {
+    "view-session": "Session",
+    "view-workspace": "Workspace",
+    "uploadedFiles": "Uploaded files",
+    "generatedFiles": "Generated files",
+    "empty": "No files yet",
+    "loadFailed": "Failed to load",
+    "truncated": "Too many entries; showing a subset",
+    "workspaceSummary": "{{count}} files in the workspace (click to preview)",
+    "noUploads": "No uploads yet",
+    "noGenerated": "No generated files yet",
+    "tagUploaded": "Uploaded",
+    "tagGenerated": "Generated"
   }
 }

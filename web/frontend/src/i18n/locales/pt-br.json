@@ -9,6 +9,7 @@
   },
   "navigation": {
     "chat": "Chat",
+    "files": "Arquivos",
     "model_group": "Modelos",
     "models": "Modelos",
     "credentials": "Credenciais",
@@ -117,6 +118,8 @@
     "invalidImage": "\"{{name}}\" não é um arquivo de imagem suportado.",
     "imageTooLarge": "\"{{name}}\" excede o limite de {{size}}.",
     "imageReadFailed": "Falha ao ler \"{{name}}\".",
+    "uploadFailed": "Falha ao enviar {{name}}, tente novamente",
+    "fileTooLarge": "{{name}} excede o limite de tamanho de upload (20MB)",
     "empty": {
       "noConfiguredModel": "Nenhum Modelo Configurado",
       "noConfiguredModelDescription": "Você precisa configurar pelo menos um modelo de IA com uma API Key antes de iniciar o chat.",
@@ -1120,5 +1123,38 @@
         "prompt": "Descrevo primeiro a situação que preciso resolver; você determina o fluxo de trabalho mais adequado (esclarecimento de requisitos / plano de decomposição / desenvolvimento orientado a testes / depuração / arquitetura / revisão / transição etc.), explica por que o recomenda e como procederia, e após minha confirmação o executa."
       }
     }
+  },
+  "filePreview": {
+    "loading": "Carregando…",
+    "forbidden": "Sem permissão para visualizar este caminho",
+    "notFound": "Arquivo não encontrado ou movido",
+    "loadFailed": "Falha ao carregar",
+    "textTruncated": "Arquivo muito grande; mostrando o primeiro 1MB",
+    "noInlinePreview": "Visualização inline indisponível para este formato — baixe para ver",
+    "download": "Baixar",
+    "retry": "Tentar novamente",
+    "tabPreview": "Pré-visualizar",
+    "tabFiles": "Arquivos",
+    "close": "Fechar",
+    "dialogDesc": "Painel de pré-visualização de arquivos; alterne entre pré-visualização e gerenciador",
+    "empty": "Clique em um arquivo no chat para visualizar",
+    "richFailed": "Falha ao renderizar documento — baixe para ver",
+    "openPreview": "Visualizar arquivo",
+    "modeRendered": "Renderizado",
+    "modeSource": "Código-fonte"
+  },
+  "fileManager": {
+    "view-session": "Sessão",
+    "view-workspace": "Workspace",
+    "uploadedFiles": "Arquivos enviados",
+    "generatedFiles": "Arquivos gerados",
+    "empty": "Nenhum arquivo",
+    "loadFailed": "Falha ao carregar",
+    "truncated": "Muitas entradas; mostrando parte",
+    "workspaceSummary": "{{count}} arquivos no workspace (clique para visualizar)",
+    "noUploads": "Nenhum envio ainda",
+    "noGenerated": "Nenhum arquivo gerado ainda",
+    "tagUploaded": "Enviado",
+    "tagGenerated": "Gerado"
   }
 }

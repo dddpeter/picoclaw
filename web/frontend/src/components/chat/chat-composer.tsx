@@ -1,5 +1,6 @@
 import {
   IconArrowUp,
+  IconFile,
   IconPhotoPlus,
   IconSquare,
   IconX,
@@ -19,6 +20,7 @@ import { TurnStatusBar } from "@/components/chat/turn-status-bar"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { ChatAttachment, ContextUsage } from "@/store/chat"
+import { openFilePreview } from "@/store/file-preview"
 
 export type ChatInputDisabledReason =
   | "nonPicoSession"
@@ -128,14 +130,45 @@ export function ChatComposer({
             <div className="flex flex-wrap gap-2 px-2">
               {attachments.map((attachment, index) => (
                 <div
-                  key={`${attachment.url}-${index}`}
-                  className="bg-background relative h-20 w-20 overflow-hidden rounded-xl border"
+                  key={`${attachment.path ?? attachment.url}-${index}`}
+                  className="bg-background relative overflow-hidden rounded-xl border"
                 >
-                  <img
-                    src={attachment.url}
-                    alt={attachment.filename || t("chat.uploadedImage")}
-                    className="h-full w-full object-cover"
-                  />
+                  {attachment.url ? (
+                    <div className="h-20 w-20">
+                      <img
+                        src={attachment.url}
+                        alt={attachment.filename || t("chat.uploadedImage")}
+                        className="h-full w-full object-cover"
+                      />
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:bg-accent/50 flex h-14 max-w-56 items-center gap-2 px-3 text-left transition"
+                      onClick={() => {
+                        if (attachment.path) {
+                          openFilePreview(
+                            attachment.path,
+                            attachment.filename ?? undefined,
+                          )
+                        }
+                      }}
+                      disabled={!attachment.path}
+                      title={
+                        attachment.path
+                          ? t("filePreview.openPreview")
+                          : (attachment.filename ?? "")
+                      }
+                    >
+                      <IconFile className="size-4 shrink-0" />
+                      <span
+                        className="truncate text-sm"
+                        title={attachment.filename || attachment.path}
+                      >
+                        {attachment.filename || attachment.path}
+                      </span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => onRemoveAttachment(index)}

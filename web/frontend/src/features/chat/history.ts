@@ -19,10 +19,11 @@ function toChatAttachments({
     url: string
     filename?: string
     content_type?: string
+    path?: string
   }[]
 }): ChatAttachment[] | undefined {
   const normalizedAttachments = attachments
-    ?.filter((attachment) => attachment.url)
+    ?.filter((attachment) => attachment.url || attachment.path)
     .map(
       (attachment) =>
         ({
@@ -30,6 +31,7 @@ function toChatAttachments({
           url: attachment.url,
           filename: attachment.filename,
           contentType: attachment.content_type,
+          path: attachment.path,
         }) satisfies ChatAttachment,
     )
 

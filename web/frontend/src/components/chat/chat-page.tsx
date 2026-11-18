@@ -22,6 +22,7 @@ import {
   type ChatInputDisabledReason,
 } from "@/components/chat/chat-composer"
 import { ChatEmptyState } from "@/components/chat/chat-empty-state"
+import { FilePreviewPanel } from "@/components/chat/file-preview-panel"
 import { ModelSelector } from "@/components/chat/model-selector"
 import { PromptTemplatesProvider } from "@/components/chat/prompt-templates"
 import { SessionHistorySidebar } from "@/components/chat/session-history-sidebar"
@@ -36,11 +37,11 @@ import {
 } from "@/components/ui/select"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
 import {
-  CHAT_IMAGE_ACCEPT,
-  buildChatImageAttachments,
+  CHAT_FILE_ACCEPT,
+  buildChatFileAttachments,
   getTransferredFiles,
   hasFileTransfer,
-} from "@/features/chat/image-input"
+} from "@/features/chat/file-input"
 import { useTurnStall } from "@/features/chat/use-turn-stall"
 import { useChatModels } from "@/hooks/use-chat-models"
 import { useGateway } from "@/hooks/use-gateway"
@@ -246,7 +247,7 @@ export function ChatPage() {
       return
     }
 
-    const nextAttachments = await buildChatImageAttachments(files, t)
+    const nextAttachments = await buildChatFileAttachments(files, t)
     if (nextAttachments.length === 0) {
       return
     }
@@ -407,176 +408,179 @@ export function ChatPage() {
           </SheetContent>
         </Sheet>
 
-        <div className="flex min-w-0 flex-1 flex-col">
-          <PageHeader
-            title={t("navigation.chat")}
-            className={`transition-shadow ${
-              hasScrolled ? "shadow-xs" : "shadow-none"
-            }`}
-            titleExtra={
-              hasAvailableModels && (
-                <ModelSelector
-                  defaultModelName={defaultModelName}
-                  apiKeyModels={apiKeyModels}
-                  oauthModels={oauthModels}
-                  localModels={localModels}
-                  disabled={settingDefault}
-                  onValueChange={handleSetDefault}
-                />
-              )
-            }
-          >
-            {/* Radix SheetTrigger 必须位于 <Sheet> 上下文内；此按钮在 PageHeader
-            下、Sheet 树外，且 Sheet 已是受控模式——直接 onClick 打开即可。 */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="md:hidden"
-              aria-label={t("chat.sessionHistory")}
-              onClick={() => setSessionsSheetOpen(true)}
-            >
-              <IconHistory className="size-5" />
-            </Button>
-            <div className="border-border/60 hidden items-center gap-2 rounded-lg border px-3 py-1.5 sm:flex">
-              <span className="text-muted-foreground text-sm">
-                {t("chat.showAssistantDetails")}
-              </span>
-              <Select
-                value={assistantDetailVisibility}
-                onValueChange={(value) =>
-                  setAssistantDetailVisibility(
-                    value as AssistantDetailVisibility,
-                  )
-                }
-              >
-                <SelectTrigger
-                  size="sm"
-                  aria-label={t("chat.showAssistantDetails")}
-                  className="text-muted-foreground hover:text-foreground focus-visible:border-input h-8 min-w-[104px] bg-transparent shadow-none focus-visible:ring-0"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent align="end">
-                  {assistantDetailVisibilityOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={newChat}
-              className="h-9 gap-2"
-            >
-              <IconPlus className="size-4" />
-              <span className="hidden sm:inline">{t("chat.newChat")}</span>
-            </Button>
-          </PageHeader>
-
-          {/* REQ-018: relative 包裹层让「回到最新」按钮锚定在消息区底部，
-            不随内容滚动；内部滚动容器几何不变。 */}
-          <div className="relative min-h-0 flex-1">
-            <div
-              ref={scrollRef}
-              onScroll={handleScroll}
-              className="h-full [scrollbar-gutter:stable] overflow-y-auto px-4 py-6 md:px-8 lg:px-24 xl:px-48"
-            >
-              <div className="pi-chat mx-auto flex w-full max-w-250 flex-col pb-8">
-                {messages.length === 0 && !isTyping && (
-                  <ChatEmptyState
-                    hasAvailableModels={hasAvailableModels}
+        <div className="flex min-w-0 flex-1">
+          <div className="flex min-w-0 flex-1 flex-col">
+            <PageHeader
+              title={t("navigation.chat")}
+              className={`transition-shadow ${
+                hasScrolled ? "shadow-xs" : "shadow-none"
+              }`}
+              titleExtra={
+                hasAvailableModels && (
+                  <ModelSelector
                     defaultModelName={defaultModelName}
-                    isConnected={isGatewayRunning}
+                    apiKeyModels={apiKeyModels}
+                    oauthModels={oauthModels}
+                    localModels={localModels}
+                    disabled={settingDefault}
+                    onValueChange={handleSetDefault}
                   />
-                )}
-
-                <PiMessageList
-                  messages={messages}
-                  isTyping={isTyping}
-                  detail={assistantDetailVisibility}
-                />
-
-                {isTyping && turnStalled && (
-                  <div
-                    role="status"
-                    className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-400"
-                  >
-                    <IconAlertTriangle className="mt-0.5 size-4 shrink-0" />
-                    <span>
-                      {t("chat.turnStalled", {
-                        minutes: Math.max(
-                          1,
-                          Math.floor((turnIdleMs ?? 0) / 60_000),
-                        ),
-                      })}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* REQ-018: 滚离底部（isAtBottom=false）时浮现「回到最新」；
-              宽度/内边距与消息列、输入卡同列，右缘对齐。 */}
-            <div className="pointer-events-none absolute inset-x-0 bottom-8 z-10 px-4 md:px-8 lg:px-24 xl:px-48">
-              <div className="mx-auto flex w-full max-w-[1000px] justify-end">
-                <button
-                  type="button"
-                  onClick={scrollToLatest}
-                  aria-hidden={isAtBottom}
-                  tabIndex={isAtBottom ? -1 : 0}
-                  className={cn(
-                    "border-border/60 bg-card/95 text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-md backdrop-blur transition-all duration-200",
-                    isAtBottom
-                      ? "pointer-events-none translate-y-1 opacity-0"
-                      : "pointer-events-auto translate-y-0 opacity-100",
-                  )}
-                >
-                  <IconArrowDown className="size-3.5" />
-                  {t("piChat.backToLatest")}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept={CHAT_IMAGE_ACCEPT}
-            multiple
-            className="hidden"
-            onChange={handleImageSelection}
-          />
-
-          <ChatComposer
-            input={input}
-            attachments={attachments}
-            onInputChange={setInput}
-            onAddImages={handleAddImages}
-            onPaste={handleComposerPaste}
-            onDragEnter={handleComposerDragEnter}
-            onDragLeave={handleComposerDragLeave}
-            onDragOver={handleComposerDragOver}
-            onDrop={handleComposerDrop}
-            onRemoveAttachment={handleRemoveAttachment}
-            onSend={handleSend}
-            isTyping={isTyping}
-            onStop={() => {
-              sendMessage({ content: "/stop", attachments: [] })
-            }}
-            onContextDetail={() => {
-              if (sendMessage({ content: "/context", attachments: [] })) {
-                setInput("")
+                )
               }
-            }}
-            inputDisabledReason={inputDisabledReason}
-            canSend={canSubmit}
-            isDragActive={isDragActive}
-            contextUsage={contextUsage}
-          />
+            >
+              {/* Radix SheetTrigger 必须位于 <Sheet> 上下文内；此按钮在 PageHeader
+            下、Sheet 树外，且 Sheet 已是受控模式——直接 onClick 打开即可。 */}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="md:hidden"
+                aria-label={t("chat.sessionHistory")}
+                onClick={() => setSessionsSheetOpen(true)}
+              >
+                <IconHistory className="size-5" />
+              </Button>
+              <div className="border-border/60 hidden items-center gap-2 rounded-lg border px-3 py-1.5 sm:flex">
+                <span className="text-muted-foreground text-sm">
+                  {t("chat.showAssistantDetails")}
+                </span>
+                <Select
+                  value={assistantDetailVisibility}
+                  onValueChange={(value) =>
+                    setAssistantDetailVisibility(
+                      value as AssistantDetailVisibility,
+                    )
+                  }
+                >
+                  <SelectTrigger
+                    size="sm"
+                    aria-label={t("chat.showAssistantDetails")}
+                    className="text-muted-foreground hover:text-foreground focus-visible:border-input h-8 min-w-[104px] bg-transparent shadow-none focus-visible:ring-0"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent align="end">
+                    {assistantDetailVisibilityOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={newChat}
+                className="h-9 gap-2"
+              >
+                <IconPlus className="size-4" />
+                <span className="hidden sm:inline">{t("chat.newChat")}</span>
+              </Button>
+            </PageHeader>
+
+            {/* REQ-018: relative 包裹层让「回到最新」按钮锚定在消息区底部，
+            不随内容滚动；内部滚动容器几何不变。 */}
+            <div className="relative min-h-0 flex-1">
+              <div
+                ref={scrollRef}
+                onScroll={handleScroll}
+                className="h-full [scrollbar-gutter:stable] overflow-y-auto px-4 py-6 md:px-8 lg:px-24 xl:px-48"
+              >
+                <div className="pi-chat mx-auto flex w-full max-w-250 flex-col pb-8">
+                  {messages.length === 0 && !isTyping && (
+                    <ChatEmptyState
+                      hasAvailableModels={hasAvailableModels}
+                      defaultModelName={defaultModelName}
+                      isConnected={isGatewayRunning}
+                    />
+                  )}
+
+                  <PiMessageList
+                    messages={messages}
+                    isTyping={isTyping}
+                    detail={assistantDetailVisibility}
+                  />
+
+                  {isTyping && turnStalled && (
+                    <div
+                      role="status"
+                      className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-400"
+                    >
+                      <IconAlertTriangle className="mt-0.5 size-4 shrink-0" />
+                      <span>
+                        {t("chat.turnStalled", {
+                          minutes: Math.max(
+                            1,
+                            Math.floor((turnIdleMs ?? 0) / 60_000),
+                          ),
+                        })}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* REQ-018: 滚离底部（isAtBottom=false）时浮现「回到最新」；
+              宽度/内边距与消息列、输入卡同列，右缘对齐。 */}
+              <div className="pointer-events-none absolute inset-x-0 bottom-8 z-10 px-4 md:px-8 lg:px-24 xl:px-48">
+                <div className="mx-auto flex w-full max-w-[1000px] justify-end">
+                  <button
+                    type="button"
+                    onClick={scrollToLatest}
+                    aria-hidden={isAtBottom}
+                    tabIndex={isAtBottom ? -1 : 0}
+                    className={cn(
+                      "border-border/60 bg-card/95 text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-md backdrop-blur transition-all duration-200",
+                      isAtBottom
+                        ? "pointer-events-none translate-y-1 opacity-0"
+                        : "pointer-events-auto translate-y-0 opacity-100",
+                    )}
+                  >
+                    <IconArrowDown className="size-3.5" />
+                    {t("piChat.backToLatest")}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={CHAT_FILE_ACCEPT}
+              multiple
+              className="hidden"
+              onChange={handleImageSelection}
+            />
+
+            <ChatComposer
+              input={input}
+              attachments={attachments}
+              onInputChange={setInput}
+              onAddImages={handleAddImages}
+              onPaste={handleComposerPaste}
+              onDragEnter={handleComposerDragEnter}
+              onDragLeave={handleComposerDragLeave}
+              onDragOver={handleComposerDragOver}
+              onDrop={handleComposerDrop}
+              onRemoveAttachment={handleRemoveAttachment}
+              onSend={handleSend}
+              isTyping={isTyping}
+              onStop={() => {
+                sendMessage({ content: "/stop", attachments: [] })
+              }}
+              onContextDetail={() => {
+                if (sendMessage({ content: "/context", attachments: [] })) {
+                  setInput("")
+                }
+              }}
+              inputDisabledReason={inputDisabledReason}
+              canSend={canSubmit}
+              isDragActive={isDragActive}
+              contextUsage={contextUsage}
+            />
+          </div>
+          <FilePreviewPanel />
         </div>
       </div>
     </PromptTemplatesProvider>

@@ -8,7 +8,7 @@
 //  - i18n 走 react-i18next（piChat 命名空间），文案取 pi-web-ui 原文。
 //  - [REQ-010] 图标统一 @tabler/icons-react；[REQ-001] 消息卡挂 role/tabIndex
 //    供 C1 hover-reveal 键盘可达（focus-within）。
-import { IconPaperclip } from "@tabler/icons-react"
+import { IconExternalLink, IconPaperclip } from "@tabler/icons-react"
 import { memo } from "react"
 import { useTranslation } from "react-i18next"
 
@@ -17,6 +17,7 @@ import { ApprovalCard } from "@/components/chat/approval-card"
 import { AskCard } from "@/components/chat/ask-card"
 import { BubblesLoading } from "@/components/chat/bubbles-loading"
 import { MessageActionsBar } from "@/components/chat/message-actions-bar"
+import { openFilePreview } from "@/store/file-preview"
 
 import "./lobe-markdown.css"
 import { Markdown } from "./markdown"
@@ -68,6 +69,7 @@ function UserCard({ user, label }: { user: PiUserPart; label: string }) {
             url={attachment.url}
             filename={attachment.filename}
             media={attachment.type === "image"}
+            path={attachment.path}
           />
         ))}
       </div>
@@ -157,16 +159,45 @@ function AttachmentView({
   url,
   filename,
   media,
+  path,
 }: {
   url: string
   filename?: string
   media: boolean
+  path?: string
 }) {
-  if (media) {
+  if (media && url) {
     return (
       <div className="msg-image">
         <img src={url} alt={filename ?? "attachment"} />
       </div>
+    )
+  }
+  // Uploaded/file attachment with a workspace path: preview chip opens the
+  // right dock (design §5.4); fall back to a plain link when only a url.
+  if (path) {
+    return (
+      <span className="msg-attach-chip-row">
+        <button
+          type="button"
+          className="msg-attach-chip"
+          onClick={() => openFilePreview(path, filename)}
+          title={path}
+        >
+          <IconPaperclip size={13} />{" "}
+          {filename ?? path.split("/").pop() ?? "file"}
+        </button>
+        <a
+          className="msg-attach-chip-icon"
+          href={`/pico/file?${new URLSearchParams({ path, download: "1" })}`}
+          download
+          target="_blank"
+          rel="noreferrer"
+          title={filename ?? path}
+        >
+          <IconExternalLink size={12} />
+        </a>
+      </span>
     )
   }
   return (
@@ -240,6 +271,7 @@ function PiBlockView({ block, active }: { block: PiBlock; active: boolean }) {
           url={block.url}
           filename={block.filename}
           media={block.media}
+          path={block.path}
         />
       )
     default:
