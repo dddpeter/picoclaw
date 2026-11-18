@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/providers"
 )
@@ -192,6 +193,28 @@ func userPromptMessage(content string, media []string) providers.Message {
 		msg.Media = append([]string(nil), media...)
 	}
 	return promptMessageWithMetadata(msg, PromptLayerTurn, PromptSlotMessage, PromptSourceUserMessage)
+}
+
+// buildInboundFileAttachments converts uploaded file references into
+// replayable message attachments (design §4.5.2). Ref carries the
+// workspace-relative path — session replay treats a non-media:// Ref as a
+// durable location, so the attachment survives restarts; URL stays empty
+// because the frontend resolves hrefs from Path instead.
+func buildInboundFileAttachments(files []bus.InboundFile) []providers.Attachment {
+	if len(files) == 0 {
+		return nil
+	}
+	attachments := make([]providers.Attachment, 0, len(files))
+	for _, f := range files {
+		attachments = append(attachments, providers.Attachment{
+			Type:        "file",
+			Ref:         f.Path,
+			Path:        f.Path,
+			Filename:    f.Filename,
+			ContentType: f.ContentType,
+		})
+	}
+	return attachments
 }
 
 func toolResultPromptMessage(content, toolCallID string, media []string) providers.Message {

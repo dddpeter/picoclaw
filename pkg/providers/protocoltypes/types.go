@@ -109,6 +109,10 @@ type Attachment struct {
 	URL         string `json:"url,omitempty"`
 	Filename    string `json:"filename,omitempty"`
 	ContentType string `json:"content_type,omitempty"`
+	// Path is the workspace-relative source path for web-upload and
+	// send_file attachments (design §5.3): replayable file previews resolve
+	// from it; URL stays for provider-facing locations (data URLs, /pico/media).
+	Path string `json:"path,omitempty"`
 }
 
 type Message struct {

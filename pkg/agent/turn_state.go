@@ -179,7 +179,7 @@ func (exec *turnExecution) closeOwnedProviders() {
 
 // newTurnExecution creates a turnExecution initialized from turnState and options.
 func newTurnExecution(
-	agent *AgentInstance,
+	_agent *AgentInstance,
 	opts processOptions,
 	history []providers.Message,
 	summary string,
@@ -223,6 +223,9 @@ type turnState struct {
 	workspace   string
 	userMessage string
 	media       []string
+	// files mirrors opts.Dispatch.Files: uploaded file references attached
+	// to the persisted user message for UI replay (design §4.5.2).
+	files []bus.InboundFile
 
 	phase     TurnPhase
 	iteration int
@@ -343,6 +346,7 @@ func newTurnState(agent *AgentInstance, opts processOptions, scope turnEventScop
 		workspace:    agent.Workspace,
 		userMessage:  opts.Dispatch.UserMessage,
 		media:        append([]string(nil), opts.Dispatch.Media...),
+		files:        append([]bus.InboundFile(nil), opts.Dispatch.Files...),
 		phase:        TurnPhaseSetup,
 		startedAt:    time.Now(),
 		health:       newTurnHealth(agent.LoopDetection),

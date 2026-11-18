@@ -190,6 +190,7 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 			SessionScope:   session.CloneScope(&allocation.Scope),
 			UserMessage:    msg.Content,
 			Media:          append([]string(nil), msg.Media...),
+			Files:          append([]bus.InboundFile(nil), msg.Files...),
 		},
 		SenderID:                msg.SenderID,
 		SenderDisplayName:       msg.Sender.DisplayName,

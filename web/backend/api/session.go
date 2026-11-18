@@ -92,6 +92,7 @@ type sessionChatAttachment struct {
 	URL         string `json:"url,omitempty"`
 	Filename    string `json:"filename,omitempty"`
 	ContentType string `json:"content_type,omitempty"`
+	Path        string `json:"path,omitempty"`
 }
 
 // legacyPicoSessionPrefix is the legacy key prefix used by older Pico JSON/JSONL
@@ -761,6 +762,7 @@ func sessionAttachments(msg providers.Message) []sessionChatAttachment {
 			URL:         urlValue,
 			Filename:    strings.TrimSpace(attachment.Filename),
 			ContentType: strings.TrimSpace(attachment.ContentType),
+			Path:        strings.TrimSpace(attachment.Path),
 		})
 	}
 

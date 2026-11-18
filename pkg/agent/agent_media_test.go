@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/media"
 	"github.com/sipeed/picoclaw/pkg/providers"
@@ -174,5 +175,30 @@ func TestMediaRefs_CapIgnoresOversizedImages(t *testing.T) {
 	}
 	if !strings.Contains(got[1].Content, "[image:"+bigLocal+"]") {
 		t.Fatalf("oversized image must keep its path tag, got %q", got[1].Content)
+	}
+}
+
+func TestBuildInboundFileAttachments(t *testing.T) {
+	if got := buildInboundFileAttachments(nil); got != nil {
+		t.Fatalf("nil files = %v, want nil", got)
+	}
+	attachments := buildInboundFileAttachments([]bus.InboundFile{
+		{Path: "inbound/20260118/abc_sales.csv", Filename: "sales.csv", ContentType: "text/csv"},
+		{Path: "inbound/20260118/def_notes.md", Filename: "notes.md"},
+	})
+	if len(attachments) != 2 {
+		t.Fatalf("attachments = %d, want 2", len(attachments))
+	}
+	first := attachments[0]
+	if first.Type != "file" || first.Ref != "inbound/20260118/abc_sales.csv" ||
+		first.Path != "inbound/20260118/abc_sales.csv" ||
+		first.Filename != "sales.csv" || first.ContentType != "text/csv" {
+		t.Fatalf("first attachment = %+v", first)
+	}
+	if first.URL != "" {
+		t.Fatalf("URL = %q, want empty (frontend resolves hrefs from Path)", first.URL)
+	}
+	if attachments[1].ContentType != "" {
+		t.Fatalf("second ContentType = %q, want empty", attachments[1].ContentType)
 	}
 }

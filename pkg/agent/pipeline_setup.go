@@ -115,9 +115,13 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 		}
 	}
 
-	if !ts.opts.NoHistory && (strings.TrimSpace(ts.userMessage) != "" || len(ts.media) > 0) {
+	if !ts.opts.NoHistory && (strings.TrimSpace(ts.userMessage) != "" || len(ts.media) > 0 || len(ts.files) > 0) {
 		rootMsg := userPromptMessage(ts.userMessage, ts.media)
-		if len(rootMsg.Media) > 0 {
+		// Web-upload attachments ride on the persisted user message so the
+		// UI replays file chips after refresh (design §4.5.2). Must persist
+		// via AddFullMessage — the plain AddMessage path drops attachments.
+		rootMsg.Attachments = buildInboundFileAttachments(ts.files)
+		if len(rootMsg.Media) > 0 || len(rootMsg.Attachments) > 0 {
 			ts.agent.Sessions.AddFullMessage(ts.sessionKey, rootMsg)
 		} else {
 			ts.agent.Sessions.AddMessage(ts.sessionKey, rootMsg.Role, rootMsg.Content)

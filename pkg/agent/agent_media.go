@@ -309,10 +309,13 @@ func buildProviderAttachments(store media.MediaStore, refs []string) []providers
 	attachments := make([]providers.Attachment, 0, len(refs))
 	for _, ref := range refs {
 		attachment := providers.Attachment{Ref: ref}
-		if _, meta, err := store.ResolveWithMeta(ref); err == nil {
+		if localPath, meta, err := store.ResolveWithMeta(ref); err == nil {
 			attachment.Filename = meta.Filename
 			attachment.ContentType = meta.ContentType
 			attachment.Type = inferMediaType(meta.Filename, meta.ContentType)
+			// Source path for web previews (design §5.3): the file tool that
+			// produced this attachment wrote a durable on-disk location.
+			attachment.Path = localPath
 		}
 		attachments = append(attachments, attachment)
 	}

@@ -18,6 +18,10 @@ type DispatchRequest struct {
 	SessionScope   *session.SessionScope
 	UserMessage    string
 	Media          []string
+	// Files carries user-uploaded file references (web upload pipeline) so
+	// the turn can attach them to the persisted user message for UI replay
+	// (design §4.5.2). Model visibility comes from content tags, not Files.
+	Files []bus.InboundFile
 }
 
 func (r DispatchRequest) Channel() string {
