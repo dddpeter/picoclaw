@@ -51,7 +51,8 @@ function formatSize(bytes: number): string {
   return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`
 }
 
-const ROW_HEIGHT = 32
+const ROW_HEIGHT = 44
+const MIN_COLUMN_WIDTH = 240
 
 export function FilesPage() {
   const { t } = useTranslation()
@@ -116,16 +117,13 @@ export function FilesPage() {
               {t("fileManager.empty")}
             </p>
           ) : (
-            <div className="flex min-h-0 flex-1 flex-col">
-              <div className="min-h-0 flex-1">
-                <VirtualFileList
-                  items={files}
-                  rowHeight={ROW_HEIGHT}
-                  getKey={(file) => file.path}
-                  renderRow={(file) => <FileRow file={file} />}
-                />
-              </div>
-            </div>
+            <VirtualFileList
+              items={files}
+              rowHeight={ROW_HEIGHT}
+              minColumnWidth={MIN_COLUMN_WIDTH}
+              getKey={(file) => file.path}
+              renderRow={(file) => <FileRow file={file} />}
+            />
           )}
         </div>
       </div>
@@ -138,38 +136,31 @@ function FileRow({ file }: { file: MyFile }) {
   const { t } = useTranslation()
   const isUpload = file.origin === "upload"
   return (
-    <div className="hover:bg-accent/50 group flex h-8 items-center gap-2 rounded-md px-2">
-      <button
-        type="button"
-        className="flex min-w-0 flex-1 items-center gap-2 text-left"
-        onClick={() => openFilePreview(file.path, file.filename)}
-        title={file.path}
-      >
-        <IconFile className="text-muted-foreground size-4 shrink-0" />
-        <span
-          className={
-            isUpload
-              ? "bg-secondary text-secondary-foreground shrink-0 rounded px-1.5 py-0.5 text-[10px] leading-none"
-              : "text-muted-foreground/80 shrink-0 rounded border px-1.5 py-0.5 text-[10px] leading-none"
-          }
+    <div className="hover:bg-accent/50 group flex h-full min-w-0 items-center gap-2 rounded-md px-2">
+      <IconFile className="text-muted-foreground size-4 shrink-0" />
+      <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
+        <button
+          type="button"
+          className="truncate text-left text-sm leading-tight"
+          onClick={() => openFilePreview(file.path, file.filename)}
+          title={file.path}
         >
-          {isUpload
-            ? t("fileManager.tagUploaded")
-            : t("fileManager.tagGenerated")}
-        </span>
-        <span className="truncate text-sm">{file.filename}</span>
-        <span className="text-muted-foreground ml-auto shrink-0 text-xs">
-          {formatSize(file.size)}
-        </span>
-        {file.mtime && (
+          {file.filename}
+        </button>
+        <span className="text-muted-foreground/70 truncate text-[11px] leading-tight">
           <span
-            className="text-muted-foreground/70 shrink-0 text-xs"
-            title={file.mtime}
+            className={
+              isUpload
+                ? "text-secondary-foreground bg-secondary mr-1 rounded px-1 py-px text-[10px]"
+                : "text-muted-foreground/80 mr-1 rounded border px-1 py-px text-[10px]"
+            }
           >
-            {formatTime(file.mtime)}
+            {isUpload ? t("fileManager.tagUploaded") : t("fileManager.tagGenerated")}
           </span>
-        )}
-      </button>
+          {formatSize(file.size)}
+          {file.mtime && ` · ${formatTime(file.mtime)}`}
+        </span>
+      </div>
       <a
         href={`/pico/file?${new URLSearchParams({ path: file.path, download: "1" })}`}
         download
