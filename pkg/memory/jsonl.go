@@ -85,6 +85,37 @@ type SessionMeta struct {
 type JSONLStore struct {
 	dir   string
 	locks [numLockShards]sync.Mutex
+
+	// resolveMu guards resolveCache: a (sessionKey → resolution) memo for
+	// ResolveSessionKey. Keys containing ":" (every channel session key)
+	// never short-circuit and would otherwise rescan the whole sessions
+	// directory — ReadDir plus a full parse of every .meta.json — on every
+	// store operation. Entries carry a liveness probe so externally deleted
+	// or newly created sessions fall through to a full rescan instead of
+	// serving stale answers (see resolveCacheEntry.live).
+	resolveMu    sync.RWMutex
+	resolveCache map[string]resolveCacheEntry
+}
+
+// resolveCacheEntry memoizes one ResolveSessionKey result. found=false
+// caches a negative answer; jsonlPath/metaPath are the liveness probe for
+// both directions (a cached "missing" session that has since gained its
+// files, or a cached session whose files were deleted out-of-band).
+type resolveCacheEntry struct {
+	canonical string
+	found     bool
+	jsonlPath string
+	metaPath  string
+}
+
+func (e resolveCacheEntry) live() bool {
+	if _, err := os.Stat(e.jsonlPath); err == nil {
+		return true
+	}
+	if _, err := os.Stat(e.metaPath); err == nil {
+		return true
+	}
+	return false
 }
 
 // NewJSONLStore creates a new JSONL-backed store rooted at dir.
@@ -93,7 +124,7 @@ func NewJSONLStore(dir string) (*JSONLStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("memory: create directory: %w", err)
 	}
-	return &JSONLStore{dir: dir}, nil
+	return &JSONLStore{dir: dir, resolveCache: make(map[string]resolveCacheEntry)}, nil
 }
 
 // sessionLock returns a mutex for the given session key.
@@ -290,7 +321,15 @@ func (s *JSONLStore) UpsertSessionMeta(
 	}
 	meta.UpdatedAt = now
 
-	return s.writeMeta(sessionKey, meta)
+	if err := s.writeMeta(sessionKey, meta); err != nil {
+		return err
+	}
+	// Alias mappings changed: any memoized resolution may now answer
+	// differently. The cache rebuilds lazily from a full scan.
+	s.resolveMu.Lock()
+	s.resolveCache = make(map[string]resolveCacheEntry)
+	s.resolveMu.Unlock()
+	return nil
 }
 
 // titlePriority ranks title sources; higher wins. Unknown sources rank
@@ -428,15 +467,23 @@ func isMainSessionAlias(alias string) bool {
 
 // ResolveSessionKey returns the canonical session key for a candidate key.
 // It short-circuits direct canonical keys when possible, then scans metadata
-// once to resolve aliases or canonical metadata keys.
+// once to resolve aliases or canonical metadata keys. Results are memoized
+// in resolveCache — keys containing ":" (every channel session key) never
+// short-circuit, so without the memo every store operation would pay the
+// full directory scan.
 func (s *JSONLStore) ResolveSessionKey(_ context.Context, sessionKey string) (string, bool, error) {
 	sessionKey = strings.TrimSpace(sessionKey)
 	if sessionKey == "" {
 		return "", false, nil
 	}
 
+	if canonical, ok, cached := s.cachedResolution(sessionKey); cached {
+		return canonical, ok, nil
+	}
+
 	hasDirectSession := s.sessionExists(sessionKey)
 	if hasDirectSession && shouldShortCircuitSessionResolve(sessionKey) {
+		s.rememberResolution(sessionKey, sessionKey, true)
 		return sessionKey, true, nil
 	}
 
@@ -473,20 +520,68 @@ func (s *JSONLStore) ResolveSessionKey(_ context.Context, sessionKey string) (st
 
 		for _, alias := range meta.Aliases {
 			if alias == sessionKey && meta.Key != sessionKey {
+				s.rememberResolution(sessionKey, meta.Key, true)
 				return meta.Key, true, nil
 			}
 		}
 	}
 
 	if directMetaMatch != "" {
+		s.rememberResolution(sessionKey, directMetaMatch, true)
 		return directMetaMatch, true, nil
 	}
 
 	if hasDirectSession {
+		s.rememberResolution(sessionKey, sessionKey, true)
 		return sessionKey, true, nil
 	}
 
+	s.rememberResolution(sessionKey, "", false)
 	return "", false, nil
+}
+
+// cachedResolution returns the memoized resolution for a key. A cached entry
+// is only trusted while its liveness probe agrees with the directory: a
+// cached session whose files were deleted out-of-band (launcher delete), or
+// a cached "missing" session that has since gained its files, falls through
+// to a full rescan.
+func (s *JSONLStore) cachedResolution(sessionKey string) (string, bool, bool) {
+	s.resolveMu.RLock()
+	entry, hit := s.resolveCache[sessionKey]
+	s.resolveMu.RUnlock()
+	if !hit {
+		return "", false, false
+	}
+	if entry.found {
+		if !entry.live() {
+			return "", false, false
+		}
+		return entry.canonical, true, true
+	}
+	if entry.live() {
+		return "", false, false
+	}
+	return "", false, true
+}
+
+// rememberResolution stores one resolution result (including negative
+// answers, which turn every later resolve of an unknown key into two Stats).
+func (s *JSONLStore) rememberResolution(sessionKey, canonical string, found bool) {
+	entry := resolveCacheEntry{
+		canonical: canonical,
+		found:     found,
+		jsonlPath: s.jsonlPath(sessionKey),
+		metaPath:  s.metaPath(sessionKey),
+	}
+	if found && canonical != sessionKey {
+		// Alias or metadata-key resolution: probe the canonical session's
+		// files, not the candidate key's.
+		entry.jsonlPath = s.jsonlPath(canonical)
+		entry.metaPath = s.metaPath(canonical)
+	}
+	s.resolveMu.Lock()
+	s.resolveCache[sessionKey] = entry
+	s.resolveMu.Unlock()
 }
 
 func shouldShortCircuitSessionResolve(sessionKey string) bool {
@@ -781,6 +876,11 @@ func (s *JSONLStore) addMsg(sessionKey string, msg providers.Message) error {
 	}
 	if meta.Count == 0 && meta.CreatedAt.IsZero() {
 		meta.CreatedAt = now
+		// First message created this session: a memoized negative
+		// resolution for the key is now stale.
+		s.resolveMu.Lock()
+		delete(s.resolveCache, sessionKey)
+		s.resolveMu.Unlock()
 	}
 	meta.Count++
 	meta.UpdatedAt = now
