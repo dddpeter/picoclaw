@@ -108,7 +108,11 @@ func assertBindingSaveRestartsOutsideConfigLock(t *testing.T, fn func(h *Handler
 		_ = sleeper.Process.Kill()
 		_, _ = sleeper.Process.Wait()
 	})
-	go func() { _ = sleeper.Wait() }() // so ProcessState flips after Kill
+	// Reap the process once the restart path kills it, so Signal(0) probing
+	// does not see an unreaped zombie as alive. Use os.Process.Wait — not
+	// exec.Cmd.Wait — so exec.Cmd.ProcessState is never written and stays
+	// race-free against isCmdProcessAliveLocked's reads.
+	go func() { _, _ = sleeper.Process.Wait() }()
 
 	gateway.mu.Lock()
 	gateway.cmd = sleeper
