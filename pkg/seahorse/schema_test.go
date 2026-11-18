@@ -64,6 +64,17 @@ func TestRunMigrations(t *testing.T) {
 	if err != nil {
 		t.Errorf("FTS5 table summaries_fts not found: %v", err)
 	}
+
+	// Verify the loadMessageParts index exists — without it every
+	// GetMessages N+1 part lookup is a full message_parts scan (see the
+	// 2026-11-18 gateway startup hang pinned by this assertion).
+	var idxName string
+	err = db.QueryRow(
+		"SELECT name FROM sqlite_master WHERE type='index' AND name='idx_message_parts_message'",
+	).Scan(&idxName)
+	if err != nil {
+		t.Errorf("index idx_message_parts_message not found: %v", err)
+	}
 }
 
 func TestRunMigrationsIdempotent(t *testing.T) {

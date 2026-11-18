@@ -114,6 +114,11 @@ func runSchema(db *sql.DB) error {
 		// Indexes for common query patterns
 		`CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(conversation_id, created_at)`,
+		// Without this index every loadMessageParts call (N+1 per GetMessages,
+		// e.g. agent bootstrap reconcile) degrades to a full message_parts scan
+		// — on a 28k-row store that is ~15M B-tree steps per startup, minutes of
+		// pure-Go sqlite churn (2026-11-18 gateway startup hang).
+		`CREATE INDEX IF NOT EXISTS idx_message_parts_message ON message_parts(message_id, ordinal)`,
 		`CREATE INDEX IF NOT EXISTS idx_summaries_conversation ON summaries(conversation_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_summaries_kind_depth ON summaries(conversation_id, kind, depth)`,
 		`CREATE INDEX IF NOT EXISTS idx_summary_parents_parent ON summary_parents(parent_summary_id)`,
