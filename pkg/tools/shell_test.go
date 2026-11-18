@@ -1334,20 +1334,27 @@ func TestShellTool_Write_Read_NonPTY(t *testing.T) {
 	})
 	require.False(t, writeResult.IsError, "write should succeed: %s", writeResult.ForLLM)
 
-	// Give cat time to process and output
-	time.Sleep(200 * time.Millisecond)
-
-	// Read the output
-	readResult := tool.Execute(ctx, map[string]any{
-		"action":    "read",
-		"sessionId": resp.SessionID,
-	})
-	require.False(t, readResult.IsError, "read should succeed: %s", readResult.ForLLM)
-
+	// Poll the read until the echo comes back with a deadline: the Windows
+	// wrapper (powershell cold start + ReadLine) can exceed the old fixed
+	// 200ms sleep under full-suite parallel load.
+	deadline := time.Now().Add(10 * time.Second)
 	var readResp ExecResponse
-	err = json.Unmarshal([]byte(readResult.ForLLM), &readResp)
-	require.NoError(t, err)
-	require.Contains(t, readResp.Output, "hello world")
+	for {
+		readResult := tool.Execute(ctx, map[string]any{
+			"action":    "read",
+			"sessionId": resp.SessionID,
+		})
+		require.False(t, readResult.IsError, "read should succeed: %s", readResult.ForLLM)
+
+		err = json.Unmarshal([]byte(readResult.ForLLM), &readResp)
+		require.NoError(t, err)
+		if strings.Contains(readResp.Output, "hello world") {
+			break
+		}
+		require.Less(t, time.Now().Unix(), deadline.Unix(),
+			"echo never came back; last output: %q", readResp.Output)
+		time.Sleep(100 * time.Millisecond)
+	}
 
 	// Clean up
 	tool.Execute(ctx, map[string]any{
