@@ -42,7 +42,6 @@ import (
 	_ "github.com/sipeed/picoclaw/pkg/channels/whatsapp"
 	_ "github.com/sipeed/picoclaw/pkg/channels/whatsapp_native"
 	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/snapshot"
 	"github.com/sipeed/picoclaw/pkg/cron"
 	"github.com/sipeed/picoclaw/pkg/devices"
 	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
@@ -54,6 +53,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/netbind"
 	"github.com/sipeed/picoclaw/pkg/pid"
 	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/picoclaw/pkg/snapshot"
 	"github.com/sipeed/picoclaw/pkg/state"
 	"github.com/sipeed/picoclaw/pkg/tools"
 )
@@ -628,7 +628,7 @@ func shutdownGateway(
 }
 
 func handleConfigReload(
-	ctx context.Context,
+	_ context.Context,
 	al *agent.AgentLoop,
 	newCfg *config.Config,
 	providerRef *providers.LLMProvider,
@@ -1004,6 +1004,19 @@ func wirePicoChannelCallbacks(agentLoop *agent.AgentLoop, manager *channels.Mana
 	}
 	picoCh.SetTurnActiveProbe(func(chatID string) bool {
 		return agentLoop.SessionTurnActive(config.ChannelPico, chatID)
+	})
+	// "My files" aggregation needs the transcript directory (design §11.1):
+	// uploads come from the inbound index, generated files are recovered from
+	// the persisted session transcripts.
+	picoCh.SetSessionFileScanner(func() string {
+		if agentLoop == nil {
+			return ""
+		}
+		cfg := agentLoop.GetConfig()
+		if cfg == nil {
+			return ""
+		}
+		return filepath.Join(cfg.WorkspacePath(), "sessions")
 	})
 	agentLoop.SetCheckpointNotifier(func(channel, chatID, sessionKey string, result *snapshot.RevertResult) {
 		if channel != config.ChannelPico {
