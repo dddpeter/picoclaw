@@ -148,11 +148,18 @@ describe("VegaChart", () => {
     )
     try {
       // VegaChart 的 React 宿主 custom element（toWebComponent 命名为
-      // a2ui-react-<name>）与 vega-embed 的 svg 图表 DOM。
-      await waitFor(() => {
-        expect(container.querySelector("a2ui-react-vegachart")).not.toBeNull()
-        expect(container.querySelector("svg.marks")).not.toBeNull()
-      })
+      // a2ui-react-<name>）与 vega-embed 的 svg 图表 DOM。vega 渲染链
+      // （懒加载 chunk + rAF）在 vitest 多 worker 满载时远超默认 5s，
+      // 与 spec-update 用例同样放宽：等待 20s、vitest 超时 30s。
+      await waitFor(
+        () => {
+          expect(
+            container.querySelector("a2ui-react-vegachart"),
+          ).not.toBeNull()
+          expect(container.querySelector("svg.marks")).not.toBeNull()
+        },
+        20000,
+      )
       // 图表内容来自内联 spec（标题渲染进 svg 文本节点）。
       expect(container.querySelector("svg.marks")?.textContent).toContain(
         "Bars From Inline Spec",
@@ -160,7 +167,7 @@ describe("VegaChart", () => {
     } finally {
       unmount()
     }
-  })
+  }, 30000)
 
   it("renders a {path}-bound spec after updateDataModel delivers the value", async () => {
     // 直接驱动 MessageProcessor（同 A2uiCard 内部构造），先挂载空
@@ -247,9 +254,12 @@ describe("VegaChart", () => {
           },
         ])
       })
-      await waitFor(() => {
-        expect(container.querySelector("svg.marks")).not.toBeNull()
-      })
+      await waitFor(
+        () => {
+          expect(container.querySelector("svg.marks")).not.toBeNull()
+        },
+        20000,
+      )
       expect(container.querySelector("svg.marks")?.textContent).toContain(
         "Bars From DataModel",
       )
@@ -257,7 +267,7 @@ describe("VegaChart", () => {
       unmount()
       processor.dispose()
     }
-  })
+  }, 30000)
 
   it("shows an in-component placeholder for an invalid spec without crashing the card", async () => {
     const { container, unmount } = mount(

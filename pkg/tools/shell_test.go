@@ -606,8 +606,12 @@ func TestShellTool_ExitCodeDetails(t *testing.T) {
 
 	ctx := context.Background()
 	args := map[string]any{
-		"action":  "run",
-		"command": "sh -c 'exit 42'",
+		"action": "run",
+		// A bare "exit 42" propagates verbatim through both wrappers
+		// (sh -c on POSIX, powershell -Command on Windows); "sh -c 'exit 42'"
+		// would additionally depend on sh being on PATH and on the Windows
+		// wrapper folding the child's code into its own (42 → 1).
+		"command": "exit 42",
 	}
 
 	result := tool.Execute(ctx, args)
@@ -641,10 +645,11 @@ func TestShellTool_TimeoutWithPartialOutput(t *testing.T) {
 	tool.SetTimeout(1 * time.Second) // Give more time for echo to complete
 
 	ctx := context.Background()
-	// Use a command that outputs immediately then sleeps
+	// Output immediately, then sleep past the deadline. ";" separates the two
+	// statements in both POSIX sh and PowerShell (PowerShell 5.1 has no "&&").
 	args := map[string]any{
 		"action":  "run",
-		"command": "echo 'partial output before timeout' && sleep 30",
+		"command": "echo 'partial output before timeout'; sleep 30",
 	}
 
 	result := tool.Execute(ctx, args)
@@ -1301,11 +1306,17 @@ func TestShellTool_Write_Read_NonPTY(t *testing.T) {
 
 	ctx := WithToolContext(context.Background(), "cli", "test")
 
-	// Start a background process that reads from stdin and outputs it
-	// Using 'cat' which echoes stdin to stdout
+	// Start a background process that reads from stdin and outputs it.
+	// POSIX: 'cat' echoes stdin to stdout. Windows: 'cat' is the PowerShell
+	// alias of Get-Content (needs a path) and 'more' buffers until EOF — the
+	// session's stdin never closes — so read and echo a single line instead.
+	echoStdinCmd := "cat"
+	if runtime.GOOS == "windows" {
+		echoStdinCmd = "[Console]::In.ReadLine()"
+	}
 	result := tool.Execute(ctx, map[string]any{
 		"action":     "run",
-		"command":    "cat",
+		"command":    echoStdinCmd,
 		"pty":        false,
 		"background": "true",
 	})
@@ -1646,16 +1657,26 @@ func TestShellTool_Poll_Status(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "running", pollResp.Status)
 
-	time.Sleep(1200 * time.Millisecond)
+	// Poll until the session completes with a deadline instead of a fixed
+	// sleep: the Windows wrapper (powershell startup + Start-Sleep) needs
+	// well over the old 1.2s budget before it can report "done".
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		pollResult = tool.Execute(ctx, map[string]any{
+			"action":    "poll",
+			"sessionId": resp.SessionID,
+		})
+		require.False(t, pollResult.IsError)
 
-	pollResult = tool.Execute(ctx, map[string]any{
-		"action":    "poll",
-		"sessionId": resp.SessionID,
-	})
-	require.False(t, pollResult.IsError)
-
-	err = json.Unmarshal([]byte(pollResult.ForLLM), &pollResp)
-	require.NoError(t, err)
+		err = json.Unmarshal([]byte(pollResult.ForLLM), &pollResp)
+		require.NoError(t, err)
+		if pollResp.Status == "done" {
+			break
+		}
+		require.NotEqual(t, "error", pollResp.Status, "session failed instead of completing")
+		require.Less(t, time.Now().Unix(), deadline.Unix(), "session did not complete within deadline")
+		time.Sleep(200 * time.Millisecond)
+	}
 	require.Equal(t, "done", pollResp.Status)
 }
 
