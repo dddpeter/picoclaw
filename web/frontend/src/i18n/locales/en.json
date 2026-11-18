@@ -158,7 +158,12 @@
     "a2uiStaleCard": "This card is outdated. Use the latest interactive view to interact.",
     "stopGeneration": "Stop generating",
     "renameSession": "Rename session",
-    "sessionHistory": "Session history"
+    "sessionHistory": "Session history",
+    "statusModel": "Current model",
+    "statusModelUnknown": "unknown",
+    "statusContext": "Context window",
+    "statusCacheRatio": "Last-call cache hit",
+    "statusCache": "Cache"
   },
   "header": {
     "logout": {
@@ -1171,6 +1176,7 @@
     "regenerate": "Regenerate",
     "moreActions": "More actions",
     "backToLatest": "Back to latest",
+    "backToTop": "Back to top",
     "copyFailed": "Copy failed, please retry"
   },
   "tpl": {

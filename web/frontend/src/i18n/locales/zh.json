@@ -158,7 +158,12 @@
     "a2uiStaleCard": "这是历史版本的卡片，请使用最新的交互视图操作。",
     "stopGeneration": "停止生成",
     "renameSession": "重命名会话",
-    "sessionHistory": "会话历史"
+    "sessionHistory": "会话历史",
+    "statusModel": "当前模型",
+    "statusModelUnknown": "未定",
+    "statusContext": "上下文窗口",
+    "statusCacheRatio": "末次调用缓存命中",
+    "statusCache": "缓存"
   },
   "header": {
     "logout": {
@@ -1171,6 +1176,7 @@
     "regenerate": "重新生成",
     "moreActions": "更多操作",
     "backToLatest": "回到最新",
+    "backToTop": "回到顶部",
     "copyFailed": "复制失败，请重试"
   },
   "tpl": {

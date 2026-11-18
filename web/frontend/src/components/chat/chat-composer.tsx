@@ -1,5 +1,6 @@
 import {
   IconArrowUp,
+  IconCpu,
   IconFile,
   IconPhotoPlus,
   IconSquare,
@@ -54,6 +55,13 @@ interface ChatComposerProps {
   canSend: boolean
   isDragActive: boolean
   contextUsage?: ContextUsage
+  /** 末次回合/消息解析出的当前模型；新会话回退 defaultModelName。 */
+  modelName?: string
+  defaultModelName?: string
+  /** 活动模型上下文窗口总量（配置），实时用量缺失时用于显示总量。 */
+  contextWindow?: number
+  /** 末次 LLM 调用输入 token——上下文环与 TurnStatusBar 同口径。 */
+  inputTokens?: number
 }
 
 export function ChatComposer({
@@ -75,6 +83,10 @@ export function ChatComposer({
   canSend,
   isDragActive,
   contextUsage,
+  modelName,
+  defaultModelName,
+  contextWindow,
+  inputTokens,
 }: ChatComposerProps) {
   const { t } = useTranslation()
   const canInput = inputDisabledReason === null
@@ -105,8 +117,8 @@ export function ChatComposer({
   }
 
   return (
-    <div className="before:bg-background pointer-events-none relative z-10 -mt-[24px] shrink-0 [scrollbar-gutter:stable] overflow-y-auto px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] before:pointer-events-none before:absolute before:inset-x-0 before:top-[24px] before:bottom-0 before:content-[''] md:px-8 md:pb-8 lg:px-24 xl:px-48">
-      <div className="pointer-events-auto mx-auto flex max-w-[1000px] flex-col items-end">
+    <div className="before:bg-background pointer-events-none relative z-10 -mt-[24px] shrink-0 [scrollbar-gutter:stable] overflow-y-auto px-3 pb-[env(safe-area-inset-bottom)] before:pointer-events-none before:absolute before:inset-x-0 before:top-[24px] before:bottom-0 before:content-[''] sm:px-4 md:px-6 md:pb-0 lg:px-10 xl:px-16 2xl:px-24">
+      <div className="pointer-events-auto flex w-full flex-col items-end">
         <TurnStatusBar />
         <div
           className={cn(
@@ -220,15 +232,37 @@ export function ChatComposer({
                 <IconPhotoPlus className="size-4" />
               </Button>
               <TemplatePickerButton className="text-muted-foreground hover:text-foreground h-8 w-8 rounded-full" />
+              {/* 常驻元信息：当前模型 + 上下文（紧随模板图标，参考 pi 状态栏）。
+                  与左侧图标按钮统一：size-4 图标 + text-muted-foreground。
+                  上下文 chip 常驻：新会话无用量时显示 0（总量取模型配置窗口）。 */}
+              <span
+                className="text-muted-foreground hidden items-center gap-1.5 text-xs sm:flex"
+                title={t("chat.statusModel")}
+              >
+                <IconCpu className="size-4" />
+                <span className="max-w-40 truncate">
+                  {modelName ||
+                    defaultModelName ||
+                    t("chat.statusModelUnknown")}
+                </span>
+              </span>
             </div>
 
             <div className="flex items-center gap-1.5">
-              {contextUsage && (
-                <ContextUsageRing
-                  usage={contextUsage}
-                  onDetailClick={onContextDetail}
-                />
-              )}
+              {/* 常驻：无实时用量时合成零用量（总量取活动模型配置窗口），
+                  保证上下文环永远可见。 */}
+              <ContextUsageRing
+                usage={
+                  contextUsage ?? {
+                    used_tokens: 0,
+                    total_tokens: contextWindow ?? 0,
+                    compress_at_tokens: contextWindow ?? 0,
+                    used_percent: 0,
+                  }
+                }
+                inputTokens={inputTokens}
+                onDetailClick={onContextDetail}
+              />
               {canInput && isTyping && onStop ? (
                 <Button
                   type="button"

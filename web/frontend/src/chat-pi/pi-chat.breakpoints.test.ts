@@ -48,11 +48,14 @@ describe("REQ-023 breakpoint contract", () => {
     expect(css).toContain("@media (min-width: 1280px)")
   })
 
-  it("lg/xl 固化规则存在且值为 1000px（幂等守门）", () => {
+  it("lg/xl 固化规则存在且不再封顶列宽（幂等守门）", () => {
+    // 需求：对话区占满聊天区域 → 内容列不再有 max-width 阶梯。
+    // 断点仍保留（口径 B 要求真实 media query 存在），值为 none。
     const lg = mediaBlock(css, "(min-width: 1024px)")
     const xl = mediaBlock(css, "(min-width: 1280px)")
-    expect(lg).toContain("max-width: 1000px")
-    expect(xl).toContain("max-width: 1000px")
+    expect(lg).toContain("max-width: none")
+    expect(xl).toContain("max-width: none")
+    expect(css).not.toContain("max-width: 1000px")
   })
 
   it("窄屏主断点行为未被回退（基线 6px 间距 + a2ui 溢出防御）", () => {
@@ -61,9 +64,13 @@ describe("REQ-023 breakpoint contract", () => {
     expect(narrow).toContain("overflow-x: auto")
   })
 
-  it("断点行为 owner（chat-page / composer 的留白阶梯与封顶）未被静默变更", () => {
-    expect(chatPage).toContain("md:px-8 lg:px-24 xl:px-48")
-    expect(chatPage).toContain("max-w-250")
+  it("断点行为 owner（chat-page / composer 的留白阶梯）未被静默变更", () => {
+    // 内边距阶梯随屏宽递增（窄屏更小，宽屏更宽的留白避免卡片贴边）；
+    // 列宽不再封顶。
+    expect(chatPage).toContain(
+      "px-3 py-6 sm:px-4 md:px-6 lg:px-10 xl:px-16 2xl:px-24",
+    )
+    expect(chatPage).not.toContain("max-w-250")
 
     // [D-1] composer 断言限定到根容器 className 片段，不做全文件 toContain：
     // 全文件断言无法区分「前缀在根容器」还是「被搬到无关元素」（漏检 M2）。
@@ -71,20 +78,21 @@ describe("REQ-023 breakpoint contract", () => {
     // 唯一，当前 L106）；片段内四前缀顺序无关断言（容忍 M1：lg/xl 顺序对调
     // 在 Tailwind 下语义等价不应红灯；拦截 M2：挪去无关 span 则片段缺失红灯）。
     const rootMatch = composer.match(
-      /className="([^"]*md:px-8[^"]*md:pb-8[^"]*)"/s,
+      /className="([^"]*md:px-6[^"]*md:pb-0[^"]*)"/s,
     )
     expect(rootMatch, "composer 根容器 className 未找到").toBeTruthy()
     const rootCls = rootMatch?.[1] ?? ""
-    expect(rootCls).toContain("md:px-8")
-    expect(rootCls).toContain("md:pb-8")
-    expect(rootCls).toContain("lg:px-24")
-    expect(rootCls).toContain("xl:px-48")
+    expect(rootCls).toContain("px-3")
+    expect(rootCls).toContain("sm:px-4")
+    expect(rootCls).toContain("md:px-6")
+    // 贴底：md 及以下内边距归零（safe-area 由 pb-[env(...)] 承担）。
+    expect(rootCls).toContain("md:pb-0")
+    expect(rootCls).toContain("pb-[env(safe-area-inset-bottom)]")
+    expect(rootCls).toContain("lg:px-10")
+    expect(rootCls).toContain("xl:px-16")
+    expect(rootCls).toContain("2xl:px-24")
 
-    // 封顶列宽限定在根容器或其直接子容器（当前 L107
-    // `mx-auto flex max-w-[1000px] flex-col items-end`）；Tailwind 任意值
-    // 语法的方括号在正则中已转义。
-    const capMatch = composer.match(/className="([^"]*max-w-\[1000px\][^"]*)"/s)
-    expect(capMatch, "composer 封顶容器 max-w-[1000px] 未找到").toBeTruthy()
-    expect(capMatch?.[1] ?? "").toContain("max-w-[1000px]")
+    // 输入区不再有列宽封顶（输入卡自身 w-full 撑满）。
+    expect(composer).not.toContain("max-w-[1000px]")
   })
 })

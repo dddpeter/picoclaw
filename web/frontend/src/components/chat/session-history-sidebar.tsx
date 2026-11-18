@@ -119,7 +119,7 @@ export function SessionHistorySidebar({
     <aside
       className={cn(
         LOBE_SCOPE_TOKENS,
-        "flex w-80 shrink-0 flex-col border-r border-[var(--lobe-border-2)] bg-[var(--lobe-bg-elevated)]",
+        "flex w-80 shrink-0 flex-col border-r border-[var(--lobe-border-2)] bg-background",
       )}
     >
       <div className="flex items-center gap-2 px-3 pt-3 pb-2">
@@ -135,7 +135,7 @@ export function SessionHistorySidebar({
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
-        <div className="flex flex-col gap-0.5 px-2 pb-3">
+        <div className="flex flex-col gap-[5px] px-2 pb-3">
           {loadError && (
             <div className="text-destructive bg-destructive/10 flex flex-col gap-2 rounded-lg px-3 py-2 text-xs">
               <span>{loadErrorMessage}</span>
@@ -182,13 +182,15 @@ export function SessionHistorySidebar({
                   }
                 }}
                 className={cn(
-                  "group relative min-w-0 cursor-pointer rounded-lg px-2.5 py-2 transition-colors select-none",
+                  "group relative min-w-0 cursor-pointer rounded-lg border px-2.5 py-2 transition-colors select-none",
                   // 三态可见性分级（2026-11-17 反馈）：原先选中用 fill-3(6%)、hover 用
                   // fill-2(9%)，选中底色反而比 hover 淡，暗色下几乎不可辨。
                   // 现改为：hover = 9% 底 + 淡色左条；选中 = 14% 底 + 主色左条。
+                  // 2026-11-18 反馈：默认态无底色无边框时卡片与父容器连成一片——
+                  // 现给默认态 subtle 底色 + 边框，让每张卡片成为独立可辨的单元。
                   active
-                    ? "bg-[var(--lobe-fill)] text-[var(--lobe-text)] shadow-[inset_2px_0_0_0_var(--lobe-info)]"
-                    : "text-[var(--lobe-text-2)] hover:bg-[var(--lobe-fill-2)] hover:text-[var(--lobe-text)] hover:shadow-[inset_2px_0_0_0_var(--lobe-border)]",
+                    ? "border-[var(--lobe-border)] bg-[var(--lobe-fill)] text-[var(--lobe-text)] shadow-[inset_2px_0_0_0_var(--lobe-info)]"
+                    : "border-[var(--lobe-border-2)] bg-[var(--lobe-bg-elevated)] text-[var(--lobe-text-2)] hover:border-[var(--lobe-border)] hover:bg-[var(--lobe-fill-2)] hover:text-[var(--lobe-text)] hover:shadow-[inset_2px_0_0_0_var(--lobe-border)]",
                 )}
               >
                 <div className="flex items-center gap-2 pr-6">

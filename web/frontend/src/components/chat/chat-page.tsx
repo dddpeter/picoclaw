@@ -1,6 +1,7 @@
 import {
   IconAlertTriangle,
   IconArrowDown,
+  IconArrowUp,
   IconHistory,
   IconPlus,
 } from "@tabler/icons-react"
@@ -122,6 +123,8 @@ export function ChatPage() {
   const dragDepthRef = useRef(0)
   const [sessionsSheetOpen, setSessionsSheetOpen] = useState(false)
   const [isAtBottom, setIsAtBottom] = useState(true)
+  // 「回到顶部」：距顶 > 10px 时出现（与 isAtBottom 的阈值对称）。
+  const [isAtTop, setIsAtTop] = useState(true)
   const [hasScrolled, setHasScrolled] = useState(false)
   const [input, setInput] = useState("")
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
@@ -150,6 +153,7 @@ export function ChatPage() {
     activeSessionId,
     activeSessionChannel,
     contextUsage,
+    turnStats,
     sendMessage,
     switchSession,
     newChat,
@@ -160,6 +164,7 @@ export function ChatPage() {
   const { stalled: turnStalled, idleMs: turnIdleMs } = useTurnStall()
 
   const {
+    models,
     defaultModelName,
     hasAvailableModels,
     apiKeyModels,
@@ -169,6 +174,19 @@ export function ChatPage() {
     handleSetDefault,
   } = useChatModels({ isConnected: isGatewayRunning })
   const hasDefaultModel = Boolean(defaultModelName)
+  // 常驻元信息：末次回合模型 → 末条助手消息 → 配置主模型。
+  const model =
+    turnStats?.modelName ??
+    [...messages].reverse().find((m) => m.modelName)?.modelName ??
+    defaultModelName
+  // 活动模型的上下文窗口总量：优先实时用量里的 total（真实窗口），
+  // 否则查模型配置（新会话显示 0 / 总量）。
+  const contextWindow =
+    contextUsage?.total_tokens ||
+    models.find(
+      (m) => m.model_name === model || m.model_name === defaultModelName,
+    )?.context_window ||
+    0
   const inputDisabledReason = resolveChatInputDisabledReason({
     hasDefaultModel,
     connectionState,
@@ -197,6 +215,7 @@ export function ChatPage() {
     const { clientHeight, scrollHeight, scrollTop } = element
     setHasScrolled(scrollTop > 0)
     setIsAtBottom(scrollHeight - scrollTop <= clientHeight + 10)
+    setIsAtTop(scrollTop <= 10)
   }
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
@@ -209,6 +228,14 @@ export function ChatPage() {
     const element = scrollRef.current
     if (!element) return
     element.scrollTo({ top: element.scrollHeight, behavior: "smooth" })
+  }
+
+  // 「回到顶部」：与「回到最新」对称的平滑滚顶；滚到顶后 onScroll →
+  // syncScrollState 把 isAtTop 置真，按钮随之隐藏。
+  const scrollToTop = () => {
+    const element = scrollRef.current
+    if (!element) return
+    element.scrollTo({ top: 0, behavior: "smooth" })
   }
 
   useEffect(() => {
@@ -385,10 +412,12 @@ export function ChatPage() {
       canSend={canInput}
     >
       <div className="bg-background/95 flex h-full">
-        {/* M-3: desktop keeps the inline sidebar; on mobile only the drawer is
-          available (the trigger button below is md:hidden). Previously the
-          inline sidebar rendered at every viewport and crowded out the chat. */}
-        <div className="hidden h-full md:flex">{sessionSidebar}</div>
+        {/* M-3: wide desktop keeps the inline sidebar; below lg only the
+          drawer is available (the trigger button below is lg:hidden). The
+          inline column costs 320px, which on tablet-width viewports left
+          the conversation column unusably narrow — so the inline sidebar
+          now starts at lg, and the drawer covers everything narrower. */}
+        <div className="hidden h-full lg:flex">{sessionSidebar}</div>
 
         <Sheet open={sessionsSheetOpen} onOpenChange={setSessionsSheetOpen}>
           <SheetContent side="left" className="w-80 p-0">
@@ -433,7 +462,7 @@ export function ChatPage() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="md:hidden"
+                className="lg:hidden"
                 aria-label={t("chat.sessionHistory")}
                 onClick={() => setSessionsSheetOpen(true)}
               >
@@ -485,9 +514,9 @@ export function ChatPage() {
               <div
                 ref={scrollRef}
                 onScroll={handleScroll}
-                className="h-full [scrollbar-gutter:stable] overflow-y-auto px-4 py-6 md:px-8 lg:px-24 xl:px-48"
+                className="h-full [scrollbar-gutter:stable] overflow-y-auto px-3 py-6 sm:px-4 md:px-6 lg:px-10 xl:px-16 2xl:px-24"
               >
-                <div className="pi-chat mx-auto flex w-full max-w-250 flex-col pb-8">
+                <div className="pi-chat flex w-full flex-col pb-8">
                   {messages.length === 0 && !isTyping && (
                     <ChatEmptyState
                       hasAvailableModels={hasAvailableModels}
@@ -522,9 +551,25 @@ export function ChatPage() {
               </div>
 
               {/* REQ-018: 滚离底部（isAtBottom=false）时浮现「回到最新」；
-              宽度/内边距与消息列、输入卡同列，右缘对齐。 */}
-              <div className="pointer-events-none absolute inset-x-0 bottom-8 z-10 px-4 md:px-8 lg:px-24 xl:px-48">
-                <div className="mx-auto flex w-full max-w-[1000px] justify-end">
+              宽度/内边距与消息列、输入卡同列，右缘对齐。
+              「回到顶部」与之对称：滚离顶部（isAtTop=false）时浮现于其上方。 */}
+              <div className="pointer-events-none absolute inset-x-0 bottom-8 z-10 px-3 sm:px-4 md:px-6 lg:px-10 xl:px-16 2xl:px-24">
+                <div className="flex w-full flex-col items-end gap-2">
+                  <button
+                    type="button"
+                    onClick={scrollToTop}
+                    aria-hidden={isAtTop}
+                    tabIndex={isAtTop ? -1 : 0}
+                    className={cn(
+                      "border-border/60 bg-card/95 text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-md backdrop-blur transition-all duration-200",
+                      isAtTop
+                        ? "pointer-events-none translate-y-1 opacity-0"
+                        : "pointer-events-auto translate-y-0 opacity-100",
+                    )}
+                  >
+                    <IconArrowUp className="size-3.5" />
+                    {t("piChat.backToTop")}
+                  </button>
                   <button
                     type="button"
                     onClick={scrollToLatest}
@@ -578,6 +623,10 @@ export function ChatPage() {
               canSend={canSubmit}
               isDragActive={isDragActive}
               contextUsage={contextUsage}
+              modelName={model}
+              defaultModelName={defaultModelName}
+              contextWindow={contextWindow}
+              inputTokens={turnStats?.inputTokens}
             />
           </div>
           <FilePreviewPanel />

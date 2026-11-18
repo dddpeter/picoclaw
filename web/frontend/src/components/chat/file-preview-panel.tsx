@@ -2,6 +2,8 @@ import { IconEye, IconFile, IconX } from "@tabler/icons-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
+import { useRouterState } from "@tanstack/react-router"
+
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -50,6 +52,18 @@ export function FilePreviewPanel() {
   // mask. Gate the dialog by viewport instead: desktop uses the inline dock
   // column, mobile uses the dialog — never both.
   const isMobile = useIsMobile()
+  // The dock state is global (jotai), so it survives route changes — e.g.
+  // opening a preview on /files then navigating to the chat page would carry
+  // the panel over. A preview belongs to the page it was opened on: close
+  // it whenever the pathname changes.
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const prevPathname = useRef(pathname)
+  useEffect(() => {
+    if (prevPathname.current !== pathname) {
+      prevPathname.current = pathname
+      dock.close()
+    }
+  }, [pathname, dock])
 
   return (
     <>
