@@ -412,4 +412,34 @@ C.4 的初稿判断过宽：当时的 28 条 `--- FAIL` 里有 **6 条是确定�
 
 ---
 
-*执行人：pico（AI）。批次 1/2 于 2026-09-20 完成；批次 3（CallLLM 拆分）待开始，前置：降级路径回归测试。C.7 为路线图外的热路径优化；C.8 为体检第 3、4 项实现。*
+## C.9 shell 守卫 Windows 路径校验三缺口修复 + 测试白名单再收缩（2026-11-18）
+
+触发：例行「拉取 + 全量体检」。`./pkg/...` 失败集相对 C.6/C.8 白名单出现 2 条可疑条目——`TestWindows_SymlinkBypassPrevented`（Windows 专属用例在 Windows 上挂）与总数 9 > 白名单 7。逐个单跑定性后确认为**守卫真缺口 + 脆弱测试**两类，全部修复。
+
+### 守卫修复（pkg/tools/shell.go，3 缺口，均影响 restrict_to_workspace=true 场景）
+
+1. **多级盘符路径误拦（真 bug，也误伤可用性）**：`absolutePathPattern` 的盘符分支 `[A-Za-z]:\\[^\\\"']+` 在第一个反斜杠处截断——`find C:\Users\me\x` 只校验 `C:\Users`，工作区内合法绝对路径也被判「path outside working dir」；反向 `C:/Users/...`（正斜杠）则完全绕过校验。改为 `[A-Za-z]:\\[^\s\"']+` 全路径匹配。
+2. **rooted 路径语义错位（沙箱绕过）**：PowerShell 把 `/tmp`、`\tmp` 按「当前驱动器根」解析执行，而 `filepath` 在 Windows 把它们分类为相对路径（`IsAbs=false`）——守卫校验 `cwd\tmp`（区内），实际执行 `C:\tmp`（区外）。`commandPathAbs` 补 Windows 分支：FromSlash 后检测 rooted 前缀并重挂 `VolumeName(cwd)`。一并关闭 `cat file:///etc/passwd` → `//etc/passwd` 经 UNC 判定的既有放行。
+3. **跨卷 Rel 失败从放行改为 fail-closed**：`filepath.Rel` 在目标位于其他盘/UNC 时报错，原代码 `continue` 放行；现在返回 blocked——跨卷目标不可能在工作区内。
+
+配套两处豁免收口：`safePaths` 伪设备表改按**命令原文**匹配（否则 `/dev/null` 被重挂成 `C:\dev\null` 击穿豁免，issue #964 语义保持跨平台）；`file://` URI 在校验前剥掉 `//` authority（Windows 两斜杠变体 `file://C:\x` 指向区内文件须放行，issue #1254 语义）。**默认部署不受影响**：守卫仅在 `restrict_to_workspace=true` 时激活（fork 默认 false）。
+
+### 测试平台化改写（pkg/tools/shell_test.go，语义不变）
+
+- `ExitCodeDetails`：`sh -c 'exit 42'` → `exit 42`——PowerShell 包装器把子进程退出码折叠为自己的 1（实测 42→1），裸 `exit 42` 可被 `sh -c`/`powershell -Command` 双包装器原样传播，测的还是「非零退出码进消息」。
+- `TimeoutWithPartialOutput`：`&&` → `;`（PowerShell 5.1 不支持 `&&`，sh 两者皆可）。
+- `Write_Read_NonPTY`：Windows 分支 `cat` → `[Console]::In.ReadLine()`——`cat` 在 PowerShell 是 `Get-Content` 别名（需要路径参数）；`more`（more.com）等 EOF 才吐输出而会话 stdin 永不关闭。
+- `Poll_Status`：固定 1.2s 后断言 done → 10s 截止轮询（200ms 步进，error 态即败）——powershell 冷启动 ~1s 吃光了 0.2s 余量。
+- 前端 `a2ui-vega.test.tsx` 同批：vega 渲染链（懒 chunk + rAF）在 vitest 26 worker 满载下超默认 5s 等待，两处 svg.marks 等待放宽至 20s、用例超时 30s（spec-update 用例已有 15s 先例）。
+
+### 验证与白名单更新
+
+- `go build/vet -tags goolm,stdjson` 绿；`./pkg/tools/` 全包族重跑全绿；全量 `./pkg/...` 失败集与修复前差集**只减不增**。
+- **白名单 21 → 14 条**：pkg/tools 7 条 `TestShellTool_*` 全部转绿（含原 `TestWindows_SymlinkBypassPrevented` 共 8 个用例修复）；本机 `./pkg/...` 实测剩余 10 条 6 包（asr/deltachat/isolation×4/migrate×3/pid），上表 C.6 中 pkg/tools 行作废。
+- `TestWindows_SymlinkBypassPrevented` 原靠「`/tmp` 在 Windows 不存在」这一环境假设间接命中守卫（本机 2026-10-25 起存在 `C:\tmp` 临时脚本目录后失效）；修复后该用例测的是真实 rooted 路径拦截，不再依赖环境。
+
+**同步注意**：`shell.go` 守卫源自上游 PR（cb5d3312），本节改动使 fork 与上游在此处产生行为分歧（上游仍带缺口），下次同步 `pkg/tools/shell.go` 时须保留 fork 版守卫与测试。
+
+---
+
+*执行人：pico（AI）。批次 1/2 于 2026-09-20 完成；批次 3（CallLLM 拆分）待开始，前置：降级路径回归测试。C.7 为路线图外的热路径优化；C.8 为体检第 3、4 项实现；C.9 为 2026-11-18 例行体检的守卫修复。*
