@@ -120,6 +120,7 @@ func resetGatewayTestState(t *testing.T) {
 		gateway.bootConfigSignature = ""
 		setGatewayRuntimeStatusLocked("stopped")
 		gateway.mu.Unlock()
+		gateway.exitSeen.Store(nil)
 	})
 }
 
@@ -325,8 +326,19 @@ func TestStartGatewayLocked_UsesReloadedConfigForBootSignature(t *testing.T) {
 		if cmd != nil && cmd.Process != nil {
 			_ = cmd.Process.Kill()
 		}
-		if cmd != nil {
-			_ = cmd.Wait()
+		if cmd == nil {
+			return
+		}
+		// The exit watcher inside startGatewayLocked owns cmd.Wait — a
+		// second concurrent Wait here races on exec internals (race
+		// detector verified). Wait for the watcher to publish the reaped
+		// exit instead of reaping here.
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			if gateway.exitSeen.Load() == cmd {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
 		}
 	})
 

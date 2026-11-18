@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -42,6 +43,11 @@ var gateway = struct {
 	pidData             *ppid.PidFileData // pid file data read from picoclaw.pid.json
 	picoToken           string            // cached raw pico token for upstream gateway proxy injection
 	userStopped         bool              // set when the operator explicitly stopped the gateway; watchdog must not undo it
+	// exitSeen records the cmd whose exit the watcher goroutine has reaped
+	// (cmd.Wait returned). cmd.Wait writes cmd.ProcessState without
+	// gateway.mu, so readers must never touch ProcessState — they consult
+	// this atomic instead (race detector verified).
+	exitSeen atomic.Pointer[exec.Cmd]
 }{
 	runtimeStatus: "stopped",
 	logs:          NewLogBuffer(200),
@@ -892,13 +898,16 @@ func isCmdProcessAliveLocked(cmd *exec.Cmd) bool {
 		return false
 	}
 
-	// Wait() sets ProcessState when the process exits; use it when available.
-	if cmd.ProcessState != nil && cmd.ProcessState.Exited() {
+	// The exit watcher publishes reaped exits through exitSeen: cmd.Wait
+	// writes cmd.ProcessState without gateway.mu, so reading ProcessState
+	// here would be a data race (race-detector verified). cmd identity
+	// match = the watcher has reaped this process's exit.
+	if cmd == gateway.exitSeen.Load() {
 		return false
 	}
 
-	// Windows does not support Signal(0) probing. If we still own cmd and it
-	// has not reported exit, treat it as alive.
+	// Windows does not support Signal(0) probing. If we still own cmd and
+	// the watcher has not published its exit, treat it as alive.
 	if runtime.GOOS == "windows" {
 		return true
 	}
@@ -1175,6 +1184,11 @@ func (h *Handler) startGatewayLocked(initialStatus string, existingPid int) (int
 		} else {
 			logger.InfoC("gateway", "Gateway process exited normally")
 		}
+
+		// Publish the exit before the mu cleanup: cmd.Wait wrote
+		// cmd.ProcessState without gateway.mu, so aliveness readers go
+		// through exitSeen instead of ever reading ProcessState.
+		gateway.exitSeen.Store(cmd)
 
 		gateway.mu.Lock()
 		if gateway.cmd == cmd {
