@@ -25,6 +25,7 @@ export function VirtualFileList<T>({
   renderRow,
 }: VirtualFileListProps<T>) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Virtual 返回函数值，React Compiler 无法安全记忆化（已知库限制，无代码侧修法）；该组件未被上层 memo 依赖，跳过编译安全。
   const virtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => scrollRef.current,

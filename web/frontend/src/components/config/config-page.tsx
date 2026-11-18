@@ -158,6 +158,7 @@ export function ConfigPage() {
     const parsed = buildFormFromConfig(cleanConfig)
     setForm(parsed)
     setBaseline(parsed)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- cleanConfig 每渲染重建（warnings 存在时），依赖它会把表单每帧重置；data 才是稳定数据源（见上注释）。
   }, [data])
 
   useEffect(() => {
@@ -254,6 +255,7 @@ export function ConfigPage() {
       return user === serverBaselineRef.current ? next : user
     })
     serverBaselineRef.current = next
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- cleanConfig 每渲染重建，keying 依赖会在 refetch/focus 时静默回滚用户未保存的修改（Review #13）；data 身份即服务端值变化信号。
   }, [data])
   const denyProfileDirty = denyProfile !== denyProfileBaseline
   const saveDenyProfile = useCallback(async () => {

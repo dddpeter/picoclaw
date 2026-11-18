@@ -19,8 +19,9 @@ import { beforeEach, describe, expect, it } from "vitest"
 
 import i18n from "@/i18n"
 
-import { A2uiCard, initA2uiBasicCatalog } from "./a2ui-card"
-import { catalogWithVegaChart } from "./a2ui-vega"
+import { A2uiCard } from "./a2ui-card"
+import { initA2uiBasicCatalog } from "./a2ui-catalog"
+import { catalogWithVegaChart } from "./a2ui-vega-catalog"
 
 // React 19：act 需要显式声明测试环境，否则 createRoot 渲染告警。
 

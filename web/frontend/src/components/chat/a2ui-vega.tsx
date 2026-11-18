@@ -23,18 +23,7 @@
  * catalogId 不变；derive 保留 protocolVersion、theme schema 与全部 basic
  * 组件（同对象引用）。
  */
-import {
-  type ReactA2uiComponentProps,
-  type ReactCatalogComponent,
-  createComponentImplementation,
-} from "@a2ui/react/v0_9"
-import {
-  Catalog,
-  type ComponentApi,
-  DataBindingSchema,
-} from "@a2ui/web_core/v0_9"
-import { basicCatalog } from "@a2ui/web_core/v0_9/basic_catalog"
-import { type WebComponentImplementation } from "@a2ui/web_core/v0_9/universal"
+import { type ReactA2uiComponentProps } from "@a2ui/react/v0_9"
 import { IconChartBarOff, IconLoader2 } from "@tabler/icons-react"
 import {
   Component,
@@ -48,7 +37,6 @@ import {
 } from "react"
 import { useTranslation } from "react-i18next"
 import type { EmbedOptions, VisualizationSpec } from "vega-embed"
-import { z } from "zod"
 
 /**
  * 生成一个全新的 React.lazy 实例。ES module registry 缓存让首次成功后的
@@ -158,12 +146,14 @@ class VegaChartChunkBoundary extends Component<
 }
 
 /**
- * VegaChart 视图。props.spec 已经过 generic binder 解析（schema 的
+ * VegaChart React 视图。catalog 装配（schema + implementation + derive）
+ * 在 ./a2ui-vega-catalog；本文件保持 components-only（react-refresh）。
+ * props.spec 已经过 generic binder 解析（schema 的
  * spec 字段因含 DataBindingSchema 分支被绑定为 DYNAMIC）：内联对象原样
  * 透传；{path} 绑定按 dataModel 值解析且响应式更新。解析结果为
  * undefined（未就绪/缺路径）或非对象 → 占位。
  */
-function VegaChartView({ props }: ReactA2uiComponentProps<{ spec: unknown }>) {
+export function VegaChartView({ props }: ReactA2uiComponentProps<{ spec: unknown }>) {
   const spec = props.spec
   const [failed, setFailed] = useState(false)
   // failed 的镜像 ref：spec 变化的 effect 读最新失败态（state 在 effect 闭包
@@ -229,6 +219,7 @@ function VegaChartView({ props }: ReactA2uiComponentProps<{ spec: unknown }>) {
   // 都在这里注入（themeVersion 变化 = 主题色变了，重新读 --primary）。
   const normalized = useMemo(
     () => normalizeVegaSpec(spec, hostWidth),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- themeVersion 是失效触发器：normalizeVegaSpec 内部读主题 CSS 变量，主题色变化（themeVersion bump）必须重算归一化。
     [spec, hostWidth, themeVersion],
   )
   if (!usable || failed) return <VegaChartPlaceholder />
@@ -278,40 +269,3 @@ function VegaChartLoadingPlaceholder() {
     </div>
   )
 }
-
-/** 组件 API：props 仅 {spec}（strict，无 weight/accessibility/style——
- * 与 Go render_ui description 教给模型的 VegaChart{spec} 一致）。 */
-const VegaChartApi = {
-  name: "VegaChart",
-  schema: z
-    .object({
-      spec: z.union([
-        // {"path": "/pointer"} 数据绑定（generic binder 按值解析）。
-        DataBindingSchema,
-        // 内联 vega-lite JSON（顶层 view spec，任意键的对象）。
-        z.record(z.string(), z.any()),
-      ]),
-    })
-    .strict(),
-} satisfies ComponentApi
-
-export const VegaChartImplementation = createComponentImplementation(
-  VegaChartApi,
-  VegaChartView,
-)
-
-/**
- * basicCatalog + VegaChart 的派生 catalog。derive 的 components 列表里，
- * 字符串名沿用 basicCatalog 原条目（同对象引用），其余为新增实现。
- * cast 说明：derive 的类型签名只收 WebComponentImplementation（basic
- * catalog 的 Lit 实现），而 VegaChartImplementation 是 React 实现——
- * 运行时两个实现都会被 @a2ui/react 的节点层接受（ReactCatalogComponent
- * union），cast 只收窄类型不改变运行时对象。
- */
-export const catalogWithVegaChart = basicCatalog.derive({
-  catalogId: basicCatalog.id,
-  components: [
-    ...basicCatalog.components.keys(),
-    VegaChartImplementation as unknown as WebComponentImplementation,
-  ],
-}) as unknown as Catalog<ReactCatalogComponent>

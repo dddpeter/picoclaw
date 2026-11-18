@@ -17,7 +17,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { sendChatMessage } from "@/features/chat/controller"
 import i18n from "@/i18n"
 
-import { A2uiCard, buildActionMessage, initA2uiBasicCatalog } from "./a2ui-card"
+import { A2uiCard } from "./a2ui-card"
+import { buildActionMessage, initA2uiBasicCatalog } from "./a2ui-catalog"
 
 // 动作回传走普通聊天消息（ask-card 同一条 sendChatMessage 路径）：mock
 // 发送函数断言消息文本。importOriginal 保留模块其余导出，controller 的

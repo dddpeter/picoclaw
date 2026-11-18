@@ -9,9 +9,9 @@ import { useTranslation } from "react-i18next"
 import "@/chat-pi/lobe-markdown.css"
 import { Markdown } from "@/chat-pi/markdown"
 import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
 
-import { RichPreview, supportsRichPreview } from "./file-rich-preview"
+import { RichPreview } from "./file-rich-preview"
+import { filePreviewUrl, supportsRichPreview } from "./file-preview-shared"
 import { HTML_PREVIEW_SANDBOX, isolateHtmlPreview } from "./html-preview"
 import type { PreviewMode } from "./preview-mode"
 
@@ -30,12 +30,6 @@ export interface PreviewFetch {
   text?: string
   truncated?: boolean
   error?: string
-}
-
-export function filePreviewUrl(path: string, download = false): string {
-  const params = new URLSearchParams({ path })
-  if (download) params.set("download", "1")
-  return `/pico/file?${params.toString()}`
 }
 
 async function fetchPreview(path: string): Promise<PreviewFetch> {
@@ -69,7 +63,9 @@ async function fetchPreview(path: string): Promise<PreviewFetch> {
   return fetchResult
 }
 
-export function useFilePreviewContent(path: string | null) {
+// 模块内私有：无外部消费方（面板走自己的 fetch），组件文件保持
+// components-only。
+function useFilePreviewContent(path: string | null) {
   const [data, setData] = useState<PreviewFetch | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -402,5 +398,3 @@ function PreviewErrorCard({
   )
 }
 
-/** Shared class hook so the panel can lay children into a scroll area. */
-export const previewContentClass = cn("min-h-0 flex-1")

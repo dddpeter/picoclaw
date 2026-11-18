@@ -20,8 +20,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import i18n from "@/i18n"
 
-import { initA2uiBasicCatalog } from "./a2ui-card"
-import { catalogWithVegaChart } from "./a2ui-vega"
+import { initA2uiBasicCatalog } from "./a2ui-catalog"
+import { catalogWithVegaChart } from "./a2ui-vega-catalog"
 
 const { mountLog, renderLog } = vi.hoisted(() => ({
   mountLog: [] as string[],
@@ -45,6 +45,7 @@ vi.mock("react-vega", async () => {
       // 挂载计数：[] 依赖只在真挂载（组件类型变化 → 卸载重挂）时触发。
       useEffect(() => {
         mountLog.push(title)
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- 故意 []：测试 mount 计数语义 = 仅真挂载触发，加入 title 会把 spec 更新误计为挂载。
       }, [])
       useEffect(() => {
         if (props.spec?.boom) {
@@ -54,6 +55,7 @@ vi.mock("react-vega", async () => {
           )
           return () => clearTimeout(timer)
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- 故意只依赖 spec：onError 是测试注入的稳定回调，跟随 props 身份变化会重复注册 timer。
       }, [props.spec])
       return null
     },

@@ -12,7 +12,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import i18n from "@/i18n"
 
-import { A2uiCard, initA2uiBasicCatalog } from "./a2ui-card"
+import { A2uiCard } from "./a2ui-card"
+import { initA2uiBasicCatalog } from "./a2ui-catalog"
 
 vi.mock("react-vega", () => {
   throw new Error("chunk 404 (mock)")

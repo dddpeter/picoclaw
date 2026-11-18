@@ -9,11 +9,6 @@ import {
   type ProcessableMessage,
   type SurfaceModel,
 } from "@a2ui/web_core/v0_9"
-import {
-  basicCatalog,
-  injectBasicCatalogStyles,
-} from "@a2ui/web_core/v0_9/basic_catalog"
-import { registerUniversalElement } from "@a2ui/web_core/v0_9/universal"
 import { IconAlertTriangle, IconLayoutGrid } from "@tabler/icons-react"
 // basicCatalog Icon 用 'Material Icons' 字体 ligature 渲染图标名（无字体时
 // 退化成原文，2026-11-14 用户截图实证）——本地打包字体，不依赖 Google CDN。
@@ -33,7 +28,8 @@ import { Markdown } from "@/chat-pi/markdown"
 import { sendChatMessage } from "@/features/chat/controller"
 import type { A2uiInfo } from "@/store/chat"
 
-import { catalogWithVegaChart } from "./a2ui-vega"
+import { buildActionMessage } from "./a2ui-catalog"
+import { catalogWithVegaChart } from "./a2ui-vega-catalog"
 
 /**
  * A2UI 渲染卡（D5 设计）：聊天流内渲染 agent 经 render_ui 工具产出的
@@ -58,39 +54,6 @@ import { catalogWithVegaChart } from "./a2ui-vega"
  *   值）。VegaChart（vega-lite 图表，二期任务 6）在 catalogWithVegaChart
  *   （basicCatalog 经 Catalog.derive 混入，catalogId 不变）中注册。
  */
-
-/**
- * 动作 → 用户消息（A2UI 二期任务 1 契约，逐字）：`[A2UI 交互]
- * surface="<surfaceId>" action="<name>" source="<componentId>"`，context
- * 非空时追加 ` context=<紧凑 JSON>`（event.context 的 {path} 绑定在点击
- * 瞬间由 generic-binder 从 dataModel 收集的表单值）。
- *
- * 前缀是给 agent 解析的协议文本（render_ui description 教了同一形状），
- * 五语言一致、刻意不做 i18n 键——本地化会破坏逐字契约。
- *
- * 三个插值字段是 agent 侧可控字符串（三期任务 2 顺手项）：裸拼时引号会
- * 提前闭合字段、换行直接破坏单行性——经 JSON.stringify 转义成单行 JSON
- * 字符串字面量（正常 id 与旧格式逐字节一致，异常字符成为 \" \n 转义
- * 序列，agent 按 JSON 反转义还原）。导出供单测驱动。
- */
-export function buildActionMessage(action: ActionPayload): string {
-  let message = `[A2UI 交互] surface=${JSON.stringify(action.surfaceId)} action=${JSON.stringify(action.name)} source=${JSON.stringify(action.sourceComponentId)}`
-  if (action.context && Object.keys(action.context).length > 0) {
-    message += ` context=${JSON.stringify(action.context)}`
-  }
-  return message
-}
-
-/** 入口一次性初始化（幂等）：注册 basicCatalog 的 universal（Lit Web
- * Component）custom elements 并注入全局样式。漏注册只会渲染空标签；
- * registerUniversalElement 对同名同构造器重复调用 no-op，
- * injectBasicCatalogStyles 自带 includes 守卫。 */
-export function initA2uiBasicCatalog(): void {
-  for (const component of basicCatalog.components.values()) {
-    registerUniversalElement(component)
-  }
-  injectBasicCatalogStyles()
-}
 
 /** basicCatalog Text 的 markdown 走 app 同一管线（@a2ui/react README
  * 推荐的 MarkdownComponentContext；不提供时 Text 退化为原文 span）。 */

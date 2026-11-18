@@ -3,7 +3,7 @@ import { RouterProvider, createRouter } from "@tanstack/react-router"
 import { StrictMode } from "react"
 import ReactDOM from "react-dom/client"
 
-import { initA2uiBasicCatalog } from "@/components/chat/a2ui-card"
+import { initA2uiBasicCatalog } from "@/components/chat/a2ui-catalog"
 
 import { AppProviders } from "./app-providers"
 import "./i18n"

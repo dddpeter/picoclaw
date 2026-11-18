@@ -8,10 +8,12 @@ import { AppSidebar } from "@/components/app-sidebar"
 import {
   SetupWizard,
   type SetupWizardResult,
+} from "@/components/setup/setup-wizard"
+import {
   getWizardDismissed,
   setWizardDismissed,
   shouldAutoOpenWizard,
-} from "@/components/setup/setup-wizard"
+} from "@/components/setup/setup-wizard-prefs"
 import { TourGuide } from "@/components/tour/tour-guide"
 import { SidebarProvider } from "@/components/ui/sidebar"
 import { TooltipProvider } from "@/components/ui/tooltip"

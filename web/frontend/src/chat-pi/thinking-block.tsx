@@ -7,12 +7,7 @@ import { useTranslation } from "react-i18next"
 
 import { MessageActionsBar } from "@/components/chat/message-actions-bar"
 
-/** 折叠预览纯函数：流式取实时尾巴，结束取开头一行。单测直引此处，禁止在测试里抄一份实现。 */
-export function thinkingPreview(thinking: string, streaming?: boolean): string {
-  return streaming
-    ? thinking.trimEnd().slice(-80)
-    : thinking.split("\n")[0].slice(0, 80)
-}
+import { thinkingPreview } from "./thinking-preview"
 
 interface ThinkingBlockProps {
   thinking: string

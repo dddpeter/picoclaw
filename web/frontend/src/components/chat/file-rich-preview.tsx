@@ -7,16 +7,6 @@ import { useTranslation } from "react-i18next"
  * Each takes the raw bytes URL (/pico/file?path=…).
  */
 
-export function supportsRichPreview(
-  filename: string,
-): "pdf" | "docx" | "xlsx" | null {
-  const lower = filename.toLowerCase()
-  if (lower.endsWith(".pdf")) return "pdf"
-  if (lower.endsWith(".docx")) return "docx"
-  if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) return "xlsx"
-  return null
-}
-
 export function RichPreview({
   kind,
   url,

@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next"
 
 import { patchAppConfig } from "@/api/channels"
 import {
-  type ModelInfo,
   type ModelProviderOption,
   addModel,
   getModels,
@@ -13,26 +12,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-
-const WIZARD_STORAGE_KEY = "picoclaw-setup-wizard-dismissed"
-
-/** True when the wizard should auto-open: never dismissed AND no usable model. */
-export function shouldAutoOpenWizard(
-  models: ModelInfo[] | undefined,
-  dismissed: boolean,
-): boolean {
-  if (dismissed) return false
-  if (!models) return false // still loading — don't flash the wizard
-  return models.every((m) => m.status !== "available")
-}
-
-export function getWizardDismissed(): boolean {
-  return localStorage.getItem(WIZARD_STORAGE_KEY) === "1"
-}
-
-export function setWizardDismissed(v: boolean) {
-  localStorage.setItem(WIZARD_STORAGE_KEY, v ? "1" : "0")
-}
 
 type WizardStep = "provider" | "key" | "testing" | "done" | "error"
 

@@ -17,7 +17,8 @@ import { cn } from "@/lib/utils"
 import { useFileDock } from "@/store/file-preview"
 
 import { FileManagerPanel } from "./file-manager-panel"
-import { FilePreviewContent, filePreviewUrl } from "./file-preview-content"
+import { FilePreviewContent } from "./file-preview-content"
+import { filePreviewUrl } from "./file-preview-shared"
 
 const WIDTH_STORAGE_KEY = "picoclaw:file-preview:width"
 const DEFAULT_WIDTH = 420

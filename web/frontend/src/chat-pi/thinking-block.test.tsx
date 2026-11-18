@@ -17,7 +17,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import i18n from "@/i18n"
 
-import { ThinkingBlock, thinkingPreview } from "./thinking-block"
+import { ThinkingBlock } from "./thinking-block"
+import { thinkingPreview } from "./thinking-preview"
 
 // React 19：act 需要显式声明测试环境，否则 createRoot 渲染告警。
 

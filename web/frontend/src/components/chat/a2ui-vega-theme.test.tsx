@@ -17,8 +17,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import i18n from "@/i18n"
 
-import { initA2uiBasicCatalog } from "./a2ui-card"
-import { catalogWithVegaChart } from "./a2ui-vega"
+import { initA2uiBasicCatalog } from "./a2ui-catalog"
+import { catalogWithVegaChart } from "./a2ui-vega-catalog"
 
 const { renderLog } = vi.hoisted(() => ({
   renderLog: [] as string[],

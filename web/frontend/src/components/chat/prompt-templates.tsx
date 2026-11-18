@@ -279,7 +279,8 @@ interface PromptTemplatesApi {
 
 const PromptTemplatesContext = createContext<PromptTemplatesApi | null>(null)
 
-export function usePromptTemplates(): PromptTemplatesApi {
+// 模块内私有：当前无外部消费方（消费走 Provider 内部）；需要时再导出。
+function usePromptTemplates(): PromptTemplatesApi {
   const ctx = useContext(PromptTemplatesContext)
   if (!ctx) {
     throw new Error(
