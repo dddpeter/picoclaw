@@ -38,6 +38,7 @@
 | 按模型上下文窗口（context_window） | `<2026-10-08>` | `pkg/config/config.go`（ModelConfig.ContextWindow）、`pkg/agent/instance.go`（min 解析 + liveCompactionBudget）、`pkg/agent/agent_command.go`（swap 跟随） | 本文 §24、`docs/guides/configuration.zh.md`「按模型上下文窗口」 |
 | Octop 借鉴七件套 | `<2026-10-12>` | `pkg/tokenizer/estimator.go`（CJK 感知估算）、`pkg/agent/approval_hook.go`（拒绝带理由+策略三档）、`pkg/commands/cmd_compact.go`+`pkg/agent/manual_compact.go`（/compact）、`pkg/agent/context_usage.go`（分段计量）、`pkg/agent/tool_defer.go`（渐进工具加载）、`pkg/agent/turn_active.go`+`pkg/channels/pico`（turn_status 重连信号）、`pkg/agent/ask_user.go`（ask_user 问询）、`pkg/tools/shell.go`+`output_clean.go`（deny 补丁+API key 掩码） | 本文 §25、`docs/design/octop-borrowing-analysis.zh.md` |
 | Trae 借鉴（seq 补发/入站幂等/工作区快照） | `<2026-11-07/08>` | `pkg/channels/pico/seq.go`+`idempotency.go`（出站 seq 补发+入站幂等）、`pkg/snapshot/`+`pkg/agent/checkpoint_hook.go`+`agent_revert.go`+`pkg/commands/cmd_revert.go`+`web/backend/api/session_versions.go`（工作区快照与 /revert） | 本文 §27、`docs/guides/configuration.zh.md`「工作区快照与撤销」 |
+| 会话级模型切换（只对本会话生效，不改配置文件） | `<2026-11-18>` | `pkg/agent/session_model.go`（会话模型注册表+每回合解析）、`pkg/agent/pipeline_setup.go`+`turn_state.go`（窗口读取收口）、`pkg/channels/pico/pico_session_model.go`+`pkg/gateway/pico_session_model.go`（端点）、`web/frontend/src/api/session-model.ts`+`hooks/use-session-model.ts`（前端） | 本文 §28 |
 
 ## 1. 飞书 CardKit v2 流式卡片
 
@@ -468,3 +469,23 @@
 - busy 拦截序：`/revert` 在消息泵 busy 分支于 stop/compact/ask 之后拦截——恢复动作拒绝、只读 `list` 放行，绝不漏进 steering 队列。
 
 上游同步注意：`pkg/channels/pico/seq.go`+`idempotency.go`+`revert_status` 帧+`message.ack` 帧、`pkg/snapshot/` 全包、`pkg/agent/checkpoint_hook.go`/`agent_revert.go`、`agent.go` busy 分支的 revert 拦截、`pkg/commands/cmd_revert.go`+`Runtime.RevertTurn`、`pkg/config` 的 `CheckpointConfig`、`web/backend/api/session_versions.go`、`wirePicoChannelCallbacks`（探针+通知器统一接线，setup/restartServices 双路）——均为 fork 行为，同步时保留；`TestCheckpointDisabledByDefault`/`TestRevertRestoresExactFileState`/`TestExecScanDetectsCreateModifyDelete` 等锚点必须全过。不要把「存储原文不掩码」按展示层掩码语义"修"齐（会破坏恢复保真），也不要把预算的"最新版本软保护"改成硬淘汰（撤销最近 turn 是主场景）。
+
+## 28. 会话级模型切换（2026-11-18）
+
+Web 聊天页的模型选择器**只对当前会话生效**，不修改配置文件——`config.json` 的默认模型原样保留。
+
+**为什么不用现成的 `/switch`**：`/switch` 改的是 agent 的**全局**模型（`AgentInstance.Model`/Provider/Candidates/窗口），影响该 agent 服务的所有会话；且 `/switch` 在 turn 活跃时因 TryLock 失败直接返回 busy。会话级模型必须与二者都不同：粒度是**会话**，且不占用模型状态写锁。
+
+**实现**（`pkg/agent/session_model.go` 新包级文件 + 若干接线）：
+
+- **注册表**：`sessionModelRegistry`（`AgentLoop.sessionModels`）按会话键存 `SessionModel{ModelName, ContextWindow, DeclaredContextWindow}`。**纯内存**（与 `/switch` 同契约——重启回落配置默认，无需协调任何磁盘状态）。
+- **解析（每回合）**：`resolveSessionModel` 在 `SetupTurn` **最开头**调用——因为后续每一步都读窗口（assemble 预算、主动压缩、trim-to-fit），必须先拿到会话窗口再算。解析出候选链（会话模型作主 + 配置 fallback 链作后备）、provider 实例、`min(per-model, agent base)` 窗口。
+- **不改 agent 全局**：`AgentInstance.Model`/`Provider`/`Candidates`/`ContextWindow` **一个都不动**；覆盖只落在回合的 `turnExecution`（`activeCandidates`/`activeProvider`/`activeModelConfig`/`llmModelName`）与 `turnState.sessionModel` 上。**窗口读取全部改走 `ts.effectiveContextWindow()`**（`turn_state.go`）——assemble/压缩/裁剪/输出 clamp 六个读点统一收口。
+- **窗口口径**：沿用 §24 的 min 语义（条目只能收紧 agent 上限，不能抬高）；`DeclaredContextWindow`（UI 展示）与 `ContextWindow`（门控）分离，同 §24。**会话模型覆盖轻量路由**（用户显式选的模型不该被 router 悄悄改道）。
+- **端点**：`GET/POST /pico/session-model?session=<uuid>`（`pkg/channels/pico/pico_session_model.go`）——agent 侧经 `SessionModelController` 接口注入（`pkg/channels/pico` 不 import `pkg/agent`，避免包环），launcher 侧 `web/backend/api/pico.go` 走既有 pico 代理转发。返回模型名 + `context_window` + `compress_at`。
+- **会话键映射**：`SessionKeyForChannelSession("pico", "pico:"+uuid)` 用**与入站泵完全相同**的路由机器推导不透明会话键（实测与 gateway 日志里的 `sk_v1_...` 逐一对上）。
+- **前端**：`use-session-model.ts` hook（切会话时重载）+ `api/session-model.ts`；`ModelSelector` 新增 `sessionModel` prop（会话模型优先于配置默认）；聊天页的模型名与**输入框上下文环总量**跟随会话模型——环的 total 用会话模型窗口，**不用**上一模型的实时 usage total（否则切换后仍显示旧窗口）。
+
+**锁纪律（关键）**：`runTurn` 全程持模型状态**读锁**。因此分两类 API：回合**内**用无锁的 `ts.effectiveContextWindow()`/`al.sessionBudgetWithOverride()`；回合**外**才用带锁的 `al.SessionContextUsage()`/`al.SessionCompactionBudget()`。**在回合内调用带锁版本会嵌套 RLock，与 `Close()` 的阻塞写锁互锁**——本特性第一版就踩了这个坑（`TestParallelMessageProcessing_DifferentSessionsProcessedConcurrently` 挂死 600s），现已按上述二分收口。
+
+上游同步注意：`pkg/agent/session_model.go`、`pkg/channels/pico/pico_session_model.go`、`pkg/gateway/pico_session_model.go`、`web/backend/api/pico.go` 的两条 session-model 路由、`web/frontend/src/api/session-model.ts` + `hooks/use-session-model.ts` 均为 fork 行为，同步时保留。锚点：`TestSetSessionModel_DoesNotMutateAgentModel`/`TestResolveSessionModel_WindowFollowsModel`/`TestSessionContextUsage_UsesSessionWindow`/`TestHandleSessionModel_*`。**不要**把会话模型改成写配置文件（那是 `/switch`/模型页的职责），**不要**在回合内调用带 RLock 的快照 helper。

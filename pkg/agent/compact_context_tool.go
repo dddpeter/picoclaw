@@ -78,12 +78,17 @@ func (t *CompactContextTool) Execute(ctx context.Context, args map[string]any) *
 			compactContextToolMaxUses))
 	}
 
-	usage := computeContextUsage(ts.agent, ts.sessionKey)
+	usage := computeContextUsageWithWindows(
+		ts.agent,
+		ts.sessionKey,
+		ts.effectiveContextWindow(),
+		ts.effectiveDeclaredContextWindow(),
+	)
 	if usage == nil {
 		return tools.SilentResult(
 			"No compaction was performed: current context usage could not be estimated for this session. Nothing was summarized and no detail was lost.")
 	}
-	ratio, threshold := compactContextUsageRatio(ts.agent, usage)
+	ratio, threshold := compactContextUsageRatio(ts.agent, usage, ts.effectiveContextWindow())
 	if ratio < threshold {
 		return tools.SilentResult(fmt.Sprintf(
 			"No compaction was performed: estimated history usage is about %.0f%% of the effective context window, below this tool's %.0f%% threshold. Nothing was summarized and no detail was lost.",
@@ -99,7 +104,10 @@ func (t *CompactContextTool) Execute(ctx context.Context, args map[string]any) *
 // compactContextUsageRatio returns the history-usage ratio on the same basis
 // as shouldCompactNow (HistoryTokens over window minus the output reserve)
 // plus the tool's trigger threshold. ratio is 0 when usage is unavailable.
-func compactContextUsageRatio(agent *AgentInstance, usage *bus.ContextUsage) (ratio, threshold float64) {
+//
+// window is the turn's effective context window (a session-scoped model has
+// its own); zero falls back to the agent's window.
+func compactContextUsageRatio(agent *AgentInstance, usage *bus.ContextUsage, window int) (ratio, threshold float64) {
 	threshold = agent.CompactToolTriggerRatio
 	if threshold <= 0 {
 		threshold = 0.375
@@ -107,12 +115,15 @@ func compactContextUsageRatio(agent *AgentInstance, usage *bus.ContextUsage) (ra
 	if usage == nil {
 		return 0, threshold
 	}
-	window := agent.ContextWindow - agent.MaxTokens
 	if window <= 0 {
 		window = agent.ContextWindow
 	}
-	if window <= 0 {
+	effectiveWindow := window - agent.MaxTokens
+	if effectiveWindow <= 0 {
+		effectiveWindow = window
+	}
+	if effectiveWindow <= 0 {
 		return 0, threshold
 	}
-	return float64(usage.HistoryTokens) / float64(window), threshold
+	return float64(usage.HistoryTokens) / float64(effectiveWindow), threshold
 }

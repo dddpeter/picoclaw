@@ -102,7 +102,7 @@ func (al *AgentLoop) PublishResponseIfNeeded(ctx context.Context, channel, chatI
 		// write lock — a bare computeContextUsage read here is a data race
 		// (review P0-2).
 		if agent := al.agentForSession(sessionKey); agent != nil {
-			msg.ContextUsage = agent.snapshotContextUsage(sessionKey)
+			msg.ContextUsage = al.SessionContextUsage(agent, sessionKey)
 		}
 	}
 	markFinalOutbound(&msg)

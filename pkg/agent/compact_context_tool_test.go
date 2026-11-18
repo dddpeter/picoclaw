@@ -34,7 +34,7 @@ func TestCompactContextTool_HonestNoOp(t *testing.T) {
 	// Below threshold: verify the ratio/threshold math directly (pure helper).
 	low := &bus.ContextUsage{HistoryTokens: 10_000}
 	agent := &AgentInstance{ID: "a", ContextWindow: 100_000, MaxTokens: 8192, CompactToolTriggerRatio: 0.375}
-	ratio, threshold := compactContextUsageRatio(agent, low)
+	ratio, threshold := compactContextUsageRatio(agent, low, 0)
 	if ratio != 10000.0/91808.0 {
 		t.Fatalf("unexpected ratio %v", ratio)
 	}
@@ -46,7 +46,7 @@ func TestCompactContextTool_HonestNoOp(t *testing.T) {
 	}
 
 	// Unset agent threshold falls back to the half-gate default (0.375).
-	_, fallback := compactContextUsageRatio(&AgentInstance{ContextWindow: 100_000, MaxTokens: 8192}, low)
+	_, fallback := compactContextUsageRatio(&AgentInstance{ContextWindow: 100_000, MaxTokens: 8192}, low, 0)
 	if fallback != 0.375 {
 		t.Fatalf("default tool threshold must be 0.375, got %v", fallback)
 	}

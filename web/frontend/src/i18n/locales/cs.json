@@ -163,7 +163,10 @@
     "a2uiStaleCard": "Tato karta je zastaralá. K interakci použijte nejnovější interaktivní zobrazení.",
     "stopGeneration": "Zastavit generování",
     "renameSession": "Přejmenovat relaci",
-    "sessionHistory": "Historie relací"
+    "sessionHistory": "Historie relací",
+    "sessionModelSetFailed": "Nepodařilo se nastavit model relace",
+    "sessionModel": "Model relace",
+    "sessionModelTitle": "Platí pouze pro tuto relaci; konfigurační soubor se nemění"
   },
   "header": {
     "logout": {

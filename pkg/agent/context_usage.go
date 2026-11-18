@@ -30,12 +30,36 @@ func isSubagentToolName(name string) bool {
 //	compress when: history + system + tools + maxTokens > contextWindow
 //	equivalent to: history + system + tools > contextWindow - maxTokens
 //
+// windows overrides the agent's context window (gating + declared) when the
+// session runs on a session-scoped model; pass zero values to use the
+// agent's own window.
+//
 // Returns nil when the agent or session is unavailable.
 func computeContextUsage(agent *AgentInstance, sessionKey string) *bus.ContextUsage {
+	return computeContextUsageWithWindows(agent, sessionKey, 0, 0)
+}
+
+// computeContextUsageWithWindows is computeContextUsage with an explicit
+// window override (session-scoped model). The override is what the turn
+// actually ran against, so the numbers the UI shows (used / total / percent)
+// match the model in use.
+func computeContextUsageWithWindows(
+	agent *AgentInstance,
+	sessionKey string,
+	contextWindowOverride int,
+	declaredWindowOverride int,
+) *bus.ContextUsage {
 	if agent == nil || agent.Sessions == nil {
 		return nil
 	}
 	contextWindow := agent.ContextWindow
+	declaredContextWindow := agent.DeclaredContextWindow
+	if contextWindowOverride > 0 {
+		contextWindow = contextWindowOverride
+	}
+	if declaredWindowOverride > 0 {
+		declaredContextWindow = declaredWindowOverride
+	}
 	if contextWindow <= 0 {
 		return nil
 	}
@@ -102,7 +126,7 @@ func computeContextUsage(agent *AgentInstance, sessionKey string) *bus.ContextUs
 	// reflect what the model advertises — not the fork's conservative
 	// compaction bound the gates run on. Fall back to the (possibly clamped)
 	// ContextWindow for agents hand-built without the declared field.
-	totalTokens := agent.DeclaredContextWindow
+	totalTokens := declaredContextWindow
 	if totalTokens <= 0 {
 		totalTokens = contextWindow
 	}
@@ -251,4 +275,22 @@ func (a *AgentInstance) snapshotContextUsage(sessionKey string) *bus.ContextUsag
 	mu.RLock()
 	defer mu.RUnlock()
 	return computeContextUsage(a, sessionKey)
+}
+
+// snapshotContextUsageWithWindows is snapshotContextUsage with an explicit
+// window override (session-scoped model). The windows come from the
+// session's resolved model, so the usage the UI receives reflects the model
+// the session actually runs on.
+func (a *AgentInstance) snapshotContextUsageWithWindows(
+	sessionKey string,
+	contextWindow int,
+	declaredContextWindow int,
+) *bus.ContextUsage {
+	if a == nil {
+		return nil
+	}
+	mu := a.modelStateMutex()
+	mu.RLock()
+	defer mu.RUnlock()
+	return computeContextUsageWithWindows(a, sessionKey, contextWindow, declaredContextWindow)
 }

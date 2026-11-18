@@ -163,7 +163,10 @@
     "statusModelUnknown": "unknown",
     "statusContext": "Context window",
     "statusCacheRatio": "Last-call cache hit",
-    "statusCache": "Cache"
+    "statusCache": "Cache",
+    "sessionModelSetFailed": "Failed to set the session model",
+    "sessionModel": "Session model",
+    "sessionModelTitle": "Applies to this session only; the config file is untouched"
   },
   "header": {
     "logout": {

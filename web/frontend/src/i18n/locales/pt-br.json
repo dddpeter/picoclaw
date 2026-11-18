@@ -165,7 +165,10 @@
     "a2uiStaleCard": "Este cartão está desatualizado. Use a visualização interativa mais recente para interagir.",
     "stopGeneration": "Parar geração",
     "renameSession": "Renomear sessão",
-    "sessionHistory": "Histórico de sessões"
+    "sessionHistory": "Histórico de sessões",
+    "sessionModelSetFailed": "Falha ao definir o modelo da sessão",
+    "sessionModel": "Modelo da sessão",
+    "sessionModelTitle": "Aplica-se apenas a esta sessão; o arquivo de configuração não é alterado"
   },
   "header": {
     "logout": {

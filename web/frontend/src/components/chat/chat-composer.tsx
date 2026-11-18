@@ -58,6 +58,8 @@ interface ChatComposerProps {
   /** 末次回合/消息解析出的当前模型；新会话回退 defaultModelName。 */
   modelName?: string
   defaultModelName?: string
+  /** 会话级模型（fork）：已绑定时 title 说明仅对本会话生效。 */
+  sessionModel?: string
   /** 活动模型上下文窗口总量（配置），实时用量缺失时用于显示总量。 */
   contextWindow?: number
   /** 末次 LLM 调用输入 token——上下文环与 TurnStatusBar 同口径。 */
@@ -85,6 +87,7 @@ export function ChatComposer({
   contextUsage,
   modelName,
   defaultModelName,
+  sessionModel,
   contextWindow,
   inputTokens,
 }: ChatComposerProps) {
@@ -234,10 +237,15 @@ export function ChatComposer({
               <TemplatePickerButton className="text-muted-foreground hover:text-foreground h-8 w-8 rounded-full" />
               {/* 常驻元信息：当前模型 + 上下文（紧随模板图标，参考 pi 状态栏）。
                   与左侧图标按钮统一：size-4 图标 + text-muted-foreground。
-                  上下文 chip 常驻：新会话无用量时显示 0（总量取模型配置窗口）。 */}
+                  上下文 chip 常驻：新会话无用量时显示 0（总量取模型配置窗口）。
+                  会话级模型生效时，title 说明「仅对本会话生效」。 */}
               <span
                 className="text-muted-foreground hidden items-center gap-1.5 text-xs sm:flex"
-                title={t("chat.statusModel")}
+                title={
+                  sessionModel
+                    ? `${t("chat.statusModel")} · ${t("chat.sessionModelTitle")}`
+                    : t("chat.statusModel")
+                }
               >
                 <IconCpu className="size-4" />
                 <span className="max-w-40 truncate">

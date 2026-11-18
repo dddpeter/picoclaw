@@ -100,6 +100,11 @@ type AgentLoop struct {
 	// nil unless hooks.builtins.approval is enabled.
 	approvalHook *approvalHook
 
+	// sessionModels holds per-session model overrides (fork: session-scoped
+	// model selection). The override never touches config.json and never
+	// mutates the agent's global model — it is resolved per turn.
+	sessionModels *sessionModelRegistry
+
 	turnSeq atomic.Uint64
 
 	// activeReqMu/activeReqCond/activeReqCount replace sync.WaitGroup to
@@ -837,7 +842,7 @@ func (al *AgentLoop) runAgentLoop(
 				SessionKey:   sessionKey,
 				Scope:        scope,
 				Content:      outboundContent,
-				ContextUsage: agent.snapshotContextUsage(opts.Dispatch.SessionKey),
+				ContextUsage: al.SessionContextUsage(agent, opts.Dispatch.SessionKey),
 			}
 			if modelName := strings.TrimSpace(result.modelName); modelName != "" {
 				if msg.Context.Raw == nil {

@@ -138,7 +138,7 @@ func (p *Pipeline) CallLLM(
 	// cannot hold — a stuffed window with a large output budget is the
 	// classic recipe for silent empty responses on aggregate gateways.
 	clampedMaxTokens := clampMaxTokensToContext(
-		ts.agent.MaxTokens, ts.agent.ContextWindow, estimateCallTokens(exec))
+		ts.agent.MaxTokens, ts.effectiveContextWindow(), estimateCallTokens(exec))
 
 	exec.llmOpts = map[string]any{
 		"max_tokens":       clampedMaxTokens,
@@ -413,7 +413,7 @@ func (p *Pipeline) CallLLM(
 			}
 		}
 		exec.llmOpts["max_tokens"] = clampMaxTokensToContext(
-			ts.agent.MaxTokens, ts.agent.ContextWindow, estimateCallTokens(exec))
+			ts.agent.MaxTokens, ts.effectiveContextWindow(), estimateCallTokens(exec))
 
 		exec.response, err = callLLM(exec.callMessages, exec.providerToolDefs)
 		if err == nil {
@@ -530,7 +530,7 @@ func (p *Pipeline) CallLLM(
 			if compactErr := p.ContextManager.Compact(ctx, &CompactRequest{
 				SessionKey: ts.sessionKey,
 				Reason:     ContextCompressReasonRetry,
-				Budget:     ts.agent.CompactionBudget(),
+				Budget:     ts.effectiveCompactionBudget(),
 			}); compactErr != nil {
 				logger.WarnCF("agent", "Context overflow compact failed", map[string]any{
 					"session_key": ts.sessionKey,
@@ -539,7 +539,7 @@ func (p *Pipeline) CallLLM(
 			}
 			if asmResp, asmErr := p.ContextManager.Assemble(ctx, &AssembleRequest{
 				SessionKey: ts.sessionKey,
-				Budget:     ts.agent.ContextWindow,
+				Budget:     ts.effectiveContextWindow(),
 				MaxTokens:  ts.agent.MaxTokens,
 			}); asmErr == nil && asmResp != nil {
 				exec.history = asmResp.History
@@ -579,7 +579,7 @@ func (p *Pipeline) CallLLM(
 					}
 					return rebuilt
 				},
-				ts.agent.ContextWindow,
+				ts.effectiveContextWindow(),
 				exec.providerToolDefs,
 				ts.agent.MaxTokens,
 			)
@@ -596,7 +596,7 @@ func (p *Pipeline) CallLLM(
 					"retry":           retry,
 					"dropped_msgs":    dropped,
 					"remaining_msgs":  len(exec.history),
-					"context_window":  ts.agent.ContextWindow,
+					"context_window":  ts.effectiveContextWindow(),
 					"max_tokens":      ts.agent.MaxTokens,
 					"still_overlimit": !fit,
 				})
@@ -606,7 +606,7 @@ func (p *Pipeline) CallLLM(
 					"retry":               retry,
 					"history_msgs":        len(exec.history),
 					"protected_turn_msgs": len(protectedTurnTail),
-					"context_window":      ts.agent.ContextWindow,
+					"context_window":      ts.effectiveContextWindow(),
 					"max_tokens":          ts.agent.MaxTokens,
 				})
 			}

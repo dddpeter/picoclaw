@@ -45,7 +45,7 @@ func (p *Pipeline) compactBeforeLLMCall(
 	if ts.opts.NoHistory || p.ContextManager == nil {
 		return false
 	}
-	window := ts.agent.ContextWindow
+	window := ts.effectiveContextWindow()
 	if window <= 0 {
 		return false
 	}
@@ -73,7 +73,7 @@ func (p *Pipeline) compactBeforeLLMCall(
 	if err := p.ContextManager.Compact(ctx, &CompactRequest{
 		SessionKey: ts.sessionKey,
 		Reason:     compactReasonFor(forced),
-		Budget:     ts.agent.CompactionBudget(),
+		Budget:     ts.effectiveCompactionBudget(),
 	}); err != nil {
 		logger.WarnCF("agent", "Iteration-boundary compact failed; continuing with current context", map[string]any{
 			"session_key": ts.sessionKey,
@@ -84,7 +84,7 @@ func (p *Pipeline) compactBeforeLLMCall(
 
 	asmResp, asmErr := p.ContextManager.Assemble(ctx, &AssembleRequest{
 		SessionKey: ts.sessionKey,
-		Budget:     ts.agent.ContextWindow,
+		Budget:     ts.effectiveContextWindow(),
 		MaxTokens:  ts.agent.MaxTokens,
 	})
 	if asmErr != nil || asmResp == nil {

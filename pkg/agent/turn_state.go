@@ -207,6 +207,12 @@ type turnState struct {
 	profile config.EffectiveTurnProfile
 	scope   turnEventScope
 
+	// sessionModel is the session-scoped model override resolved for this
+	// turn (nil when the session follows the agent's configured model). It
+	// carries the turn's model candidates, provider and context windows; the
+	// agent's own model fields stay untouched.
+	sessionModel *resolvedSessionModel
+
 	turnID            string
 	agentID           string
 	sessionKey        string
@@ -452,6 +458,55 @@ func (ts *turnState) snapshot() ActiveTurnInfo {
 		ParentTurnID: ts.parentTurnID,
 		ChildTurnIDs: append([]string(nil), ts.childTurnIDs...),
 	}
+}
+
+// effectiveContextWindow returns the context window this turn runs with: the
+// session model's window when the session carries a model override, else the
+// agent's window. Session-scoped models have their own window (min-capped by
+// the agent's base), so every window-dependent gate in the turn — assemble
+// budget, proactive compaction, output clamp, iteration-boundary compaction —
+// must read it through this accessor instead of ts.agent.ContextWindow.
+func (ts *turnState) effectiveContextWindow() int {
+	if ts == nil {
+		return 0
+	}
+	if ts.sessionModel != nil && ts.sessionModel.ContextWindow > 0 {
+		return ts.sessionModel.ContextWindow
+	}
+	if ts.agent == nil {
+		return 0
+	}
+	return ts.agent.ContextWindow
+}
+
+// effectiveDeclaredContextWindow returns the window reported to UIs (the
+// model's declared window, not the gating one).
+func (ts *turnState) effectiveDeclaredContextWindow() int {
+	if ts == nil {
+		return 0
+	}
+	if ts.sessionModel != nil && ts.sessionModel.DeclaredContextWindow > 0 {
+		return ts.sessionModel.DeclaredContextWindow
+	}
+	if ts.agent == nil {
+		return 0
+	}
+	return ts.agent.DeclaredContextWindow
+}
+
+// effectiveCompactionBudget returns the compaction budget for this turn
+// (window minus the output reserve), mirroring liveCompactionBudget but
+// honoring a session-scoped window.
+func (ts *turnState) effectiveCompactionBudget() int {
+	window := ts.effectiveContextWindow()
+	if window <= 0 || ts.agent == nil {
+		return window
+	}
+	budget := window - ts.agent.MaxTokens
+	if budget <= 0 {
+		budget = window / 2
+	}
+	return budget
 }
 
 func (ts *turnState) setPhase(phase TurnPhase) {

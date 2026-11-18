@@ -47,7 +47,12 @@ func (p *Pipeline) Finalize(
 			exec.streamingPublisher = nil
 			// Seal failures must not fail the turn: the response was already
 			// delivered by the tool; details are logged here.
-			if err := publisher.Seal(turnCtx, content, computeContextUsage(ts.agent, ts.sessionKey)); err != nil {
+			if err := publisher.Seal(turnCtx, content, computeContextUsageWithWindows(
+				ts.agent,
+				ts.sessionKey,
+				ts.effectiveContextWindow(),
+				ts.effectiveDeclaredContextWindow(),
+			)); err != nil {
 				logger.WarnCF("agent", "Failed to seal streaming card after tool-delivered response",
 					map[string]any{
 						"session_key": ts.sessionKey,
@@ -97,9 +102,17 @@ func (p *Pipeline) Finalize(
 	// Post-turn compaction runs async after the response is published
 	// (option A): the previous synchronous Compact blocked finalize on a
 	// summarize LLM call (observed 10-30s+ per turn on long sessions).
-	contextUsage := computeContextUsage(ts.agent, ts.sessionKey)
+	// The usage snapshot uses the turn's effective window, so a
+	// session-scoped model reports its own total (and its own compaction
+	// budget) rather than the agent's.
+	contextUsage := computeContextUsageWithWindows(
+		ts.agent,
+		ts.sessionKey,
+		ts.effectiveContextWindow(),
+		ts.effectiveDeclaredContextWindow(),
+	)
 	if !ts.opts.NoHistory && ts.opts.EnableSummary {
-		al.scheduleCompactWithUsage(ts.agent, ts.sessionKey, ts.agent.CompactionBudget(), ts.opts, contextUsage)
+		al.scheduleCompactWithUsage(ts.agent, ts.sessionKey, ts.effectiveCompactionBudget(), ts.opts, contextUsage)
 	}
 	streamErr := finalizeConfiguredStreamingLLM(turnCtx, ts, exec, finalContent, contextUsage)
 	// Text fallback (hermes-style last resort): when the card could not be

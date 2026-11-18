@@ -89,7 +89,7 @@ func (al *AgentLoop) runManualCompact(
 
 	history := agent.Sessions.GetHistory(sessionKey)
 	before := len(history)
-	beforeUsage := agent.snapshotContextUsage(sessionKey)
+	beforeUsage := al.SessionContextUsage(agent, sessionKey)
 
 	base := func(state string) *commands.CompactOutcome {
 		out := &commands.CompactOutcome{
@@ -124,7 +124,7 @@ func (al *AgentLoop) runManualCompact(
 		// Model-state read lock, not the bare field: this runs outside any
 		// turn, so a concurrent /switch (write lock) must not race the read
 		// (instance.go lock-rule comment; the idle scanner does the same).
-		Budget: agent.snapshotCompactionBudget(),
+		Budget: al.SessionCompactionBudget(agent, sessionKey),
 	}
 
 	if !al.manualCompactIdle(sessionKey, mode) {
@@ -147,7 +147,7 @@ func (al *AgentLoop) runManualCompact(
 			// Re-snapshot the budget now that the turn has ended (review P1):
 			// a /switch landing in the enqueue→turn-end window would otherwise
 			// pack against the old, stale window budget.
-			req.Budget = agent.snapshotCompactionBudget()
+			req.Budget = al.SessionCompactionBudget(agent, sessionKey)
 			runCtx, cancel := context.WithTimeout(context.Background(), compactCallTimeout)
 			defer cancel()
 			if err := scheduler.compact(runCtx, req); err != nil {
@@ -184,7 +184,7 @@ func (al *AgentLoop) runManualCompact(
 		// snapshot can go stale when a /switch lands in between — packing
 		// against the old, larger window recreates the very overflow this
 		// feature exists to prevent.
-		req.Budget = agent.snapshotCompactionBudget()
+		req.Budget = al.SessionCompactionBudget(agent, sessionKey)
 		runCtx, cancel := context.WithTimeout(context.Background(), compactCallTimeout)
 		defer cancel()
 		stats, err := al.compactWithEngineStats(runCtx, req)
@@ -218,7 +218,7 @@ func (al *AgentLoop) runManualCompact(
 		}
 	}
 	out.MessagesAfter = len(agent.Sessions.GetHistory(sessionKey))
-	if afterUsage := agent.snapshotContextUsage(sessionKey); afterUsage != nil {
+	if afterUsage := al.SessionContextUsage(agent, sessionKey); afterUsage != nil {
 		out.UsedAfter = afterUsage.UsedTokens
 	}
 	return out, nil

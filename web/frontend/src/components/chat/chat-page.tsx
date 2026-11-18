@@ -48,6 +48,7 @@ import { useChatModels } from "@/hooks/use-chat-models"
 import { useGateway } from "@/hooks/use-gateway"
 import { usePicoChat } from "@/hooks/use-pico-chat"
 import { useSessionHistory } from "@/hooks/use-session-history"
+import { useSessionModel } from "@/hooks/use-session-model"
 import { cn } from "@/lib/utils"
 import type { AssistantDetailVisibility } from "@/store/chat"
 import type { ConnectionState } from "@/store/chat"
@@ -170,23 +171,36 @@ export function ChatPage() {
     apiKeyModels,
     oauthModels,
     localModels,
-    settingDefault,
-    handleSetDefault,
   } = useChatModels({ isConnected: isGatewayRunning })
   const hasDefaultModel = Boolean(defaultModelName)
-  // 常驻元信息：末次回合模型 → 末条助手消息 → 配置主模型。
+
+  // 会话级模型（fork）：只对当前会话生效，不改配置文件。空串 = 跟随配置
+  // 默认模型；会话内切换模型不会动 config.json 的默认模型。
+  const {
+    sessionModel,
+    sessionContextWindow,
+    isSettingSessionModel,
+    handleSetSessionModel,
+  } = useSessionModel({ activeSessionId, isConnected: isGatewayRunning })
+
+  // 常驻元信息：会话模型 → 末次回合模型 → 末条助手消息 → 配置主模型。
   const model =
-    turnStats?.modelName ??
-    [...messages].reverse().find((m) => m.modelName)?.modelName ??
+    sessionModel ||
+    turnStats?.modelName ||
+    [...messages].reverse().find((m) => m.modelName)?.modelName ||
     defaultModelName
-  // 活动模型的上下文窗口总量：优先实时用量里的 total（真实窗口），
-  // 否则查模型配置（新会话显示 0 / 总量）。
-  const contextWindow =
-    contextUsage?.total_tokens ||
-    models.find(
-      (m) => m.model_name === model || m.model_name === defaultModelName,
-    )?.context_window ||
-    0
+  // 活动模型的上下文窗口总量：
+  //   1. 会话模型已绑定 → 用会话模型的窗口（切换模型后立即生效；实时用量
+  //      里还是上一个模型的 total，不能盖住新窗口）；
+  //   2. 否则用实时用量的 total（真实窗口）；
+  //   3. 最后查模型配置（新会话显示 0 / 总量）。
+  const contextWindow = sessionModel
+    ? sessionContextWindow || contextUsage?.total_tokens || 0
+    : contextUsage?.total_tokens ||
+      models.find(
+        (m) => m.model_name === model || m.model_name === defaultModelName,
+      )?.context_window ||
+      0
   const inputDisabledReason = resolveChatInputDisabledReason({
     hasDefaultModel,
     connectionState,
@@ -448,11 +462,12 @@ export function ChatPage() {
                 hasAvailableModels && (
                   <ModelSelector
                     defaultModelName={defaultModelName}
+                    sessionModel={sessionModel}
                     apiKeyModels={apiKeyModels}
                     oauthModels={oauthModels}
                     localModels={localModels}
-                    disabled={settingDefault}
-                    onValueChange={handleSetDefault}
+                    disabled={isSettingSessionModel}
+                    onValueChange={handleSetSessionModel}
                   />
                 )
               }
@@ -625,6 +640,7 @@ export function ChatPage() {
               contextUsage={contextUsage}
               modelName={model}
               defaultModelName={defaultModelName}
+              sessionModel={sessionModel}
               contextWindow={contextWindow}
               inputTokens={turnStats?.inputTokens}
             />

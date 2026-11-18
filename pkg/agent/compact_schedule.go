@@ -104,7 +104,7 @@ func (al *AgentLoop) scheduleCompact(agent *AgentInstance, sessionKey string, op
 	}
 	budget := 0
 	if agent != nil {
-		budget = agent.CompactionBudget()
+		budget = al.sessionBudgetWithOverride(agent, sessionKey)
 	}
 	al.scheduleCompactWithUsage(agent, sessionKey, budget, opts, nil)
 }
@@ -113,6 +113,12 @@ func (al *AgentLoop) scheduleCompact(agent *AgentInstance, sessionKey string, op
 // ContextWindow/MaxTokens/threshold drive the gate — NOT the registry
 // default, which differs in multi-agent setups) and a precomputed context
 // usage snapshot (finalize already has one; nil computes it here).
+//
+// LOCK DISCIPLINE: this runs INSIDE the turn (the finalize path), which
+// holds the model-state read lock for the whole turn. It therefore reads the
+// window fields directly (no snapshot helpers — a nested RLock from the turn
+// goroutine deadlocks against Close()'s blocking write lock) and takes the
+// session's window override into account.
 func (al *AgentLoop) scheduleCompactWithUsage(agent *AgentInstance, sessionKey string, budget int, opts processOptions, usage *bus.ContextUsage) {
 	if al.contextManager == nil || opts.NoHistory || !opts.EnableSummary {
 		return
@@ -122,9 +128,18 @@ func (al *AgentLoop) scheduleCompactWithUsage(agent *AgentInstance, sessionKey s
 	// forceCompression on context-limit errors).
 	if agent != nil {
 		if usage == nil {
-			usage = computeContextUsage(agent, sessionKey)
+			usage = computeContextUsageWithWindows(
+				agent,
+				sessionKey,
+				al.sessionWindowOverride(sessionKey),
+				al.sessionDeclaredWindowOverride(sessionKey),
+			)
 		}
-		if !shouldCompactNow(agent.CompactUsageThreshold, usage, agent.CompactionBudget()) {
+		if !shouldCompactNow(
+			agent.CompactUsageThreshold,
+			usage,
+			al.sessionBudgetWithOverride(agent, sessionKey),
+		) {
 			return
 		}
 	}
@@ -154,7 +169,7 @@ func (al *AgentLoop) scheduleCompactWithUsage(agent *AgentInstance, sessionKey s
 		// goroutine is safe (shared RLock — no self-deadlock with Close's
 		// write lock, unlike a nested RLock on the turn goroutine).
 		if agent != nil {
-			req.Budget = agent.snapshotCompactionBudget()
+			req.Budget = al.SessionCompactionBudget(agent, sessionKey)
 		}
 		defer scheduler.inFlight.Delete(sessionKey)
 		// Detached context: must outlive the turn that enqueued it.

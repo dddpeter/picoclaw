@@ -38,6 +38,10 @@ func (h *Handler) registerPicoRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /pico/myfiles", h.handlePicoMediaProxy())
 	// Context-ring restore after refresh (design §11.1 follow-up).
 	mux.HandleFunc("GET /pico/context-usage", h.handlePicoMediaProxy())
+	// Session-scoped model selection (fork): bind a configured model to ONE
+	// conversation without touching config.json.
+	mux.HandleFunc("GET /pico/session-model", h.handlePicoMediaProxy())
+	mux.HandleFunc("POST /pico/session-model", h.handlePicoMediaProxy())
 }
 
 // createWsProxy creates a reverse proxy to the current gateway WebSocket endpoint.

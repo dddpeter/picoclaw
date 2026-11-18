@@ -82,6 +82,7 @@ func NewAgentLoop(
 		steering:          newSteeringQueue(parseSteeringMode(cfg.Agents.Defaults.SteeringMode)),
 		workerSem:         make(chan struct{}, workerPoolSize),
 		ownsRuntimeEvents: true,
+		sessionModels:     newSessionModelRegistry(),
 	}
 	for _, opt := range opts {
 		if opt != nil {

@@ -212,6 +212,11 @@ type PicoChannel struct {
 	// aggregation endpoint (design §11.1); injected by the gateway.
 	fileScanner   SessionFileScanner
 	fileScannerMu sync.RWMutex
+	// sessionModel binds a model to ONE conversation (fork: session-scoped
+	// model selection). The gateway injects the agent-side controller; nil
+	// means the feature is unavailable.
+	sessionModelMu         sync.RWMutex
+	sessionModelController SessionModelController
 	// lastUsage keeps the most recent ContextUsage per chatID so the web UI
 	// can restore the context ring after a page refresh (live payloads only
 	// reach the currently-connected client).
@@ -272,6 +277,23 @@ func (c *PicoChannel) SetTurnActiveProbe(fn func(chatID string) bool) {
 	c.turnActiveProbeMu.Lock()
 	defer c.turnActiveProbeMu.Unlock()
 	c.turnActiveProbe = fn
+}
+
+// SetSessionModelController wires the agent-side session-model controller
+// (fork: session-scoped model selection). Called from BOTH the startup path
+// and restartServices — a config reload may rebuild the pico channel, and a
+// controller still pointing at the old instance would silently die.
+func (c *PicoChannel) SetSessionModelController(controller SessionModelController) {
+	c.sessionModelMu.Lock()
+	defer c.sessionModelMu.Unlock()
+	c.sessionModelController = controller
+}
+
+// getSessionModelController returns the wired controller (nil when unset).
+func (c *PicoChannel) getSessionModelController() SessionModelController {
+	c.sessionModelMu.RLock()
+	defer c.sessionModelMu.RUnlock()
+	return c.sessionModelController
 }
 
 // rememberUsage stashes the most recent ContextUsage for a chatID so a
@@ -441,6 +463,8 @@ func (c *PicoChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		c.handleMyFiles(w, r)
 	case "/context-usage", "/context-usage/":
 		c.handleContextUsage(w, r)
+	case "/session-model", "/session-model/":
+		c.handleSessionModel(w, r)
 	case "/tree", "/tree/":
 		c.handleTree(w, r)
 	default:

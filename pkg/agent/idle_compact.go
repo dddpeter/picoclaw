@@ -243,7 +243,7 @@ func (s *idleCompactScanner) maybeCompactSession(agent *AgentInstance, key strin
 		s.skip(key, "too_few_messages", map[string]any{"messages": len(history)})
 		return
 	}
-	usage := agent.snapshotContextUsage(key)
+	usage := s.al.SessionContextUsage(agent, key)
 	if usage == nil {
 		// Scanner context: nil (broken agent/window) means skip — unlike the
 		// turn-end path where nil conservatively compacts, a 5-minute loop
@@ -251,7 +251,7 @@ func (s *idleCompactScanner) maybeCompactSession(agent *AgentInstance, key strin
 		s.skip(key, "no_usage", nil)
 		return
 	}
-	if !shouldCompactNow(agent.CompactUsageThreshold, usage, agent.snapshotCompactionBudget()) {
+	if !shouldCompactNow(agent.CompactUsageThreshold, usage, s.sessionCompactionBudget(agent, key)) {
 		s.skip(key, "under_threshold", map[string]any{"history_tokens": usage.HistoryTokens})
 		return
 	}
@@ -259,6 +259,25 @@ func (s *idleCompactScanner) maybeCompactSession(agent *AgentInstance, key strin
 	s.launchCompaction(agent, key, updated)
 }
 
+// sessionCompactionBudget returns the compaction budget for a session,
+// honoring a session-scoped model window (the session runs against its own
+// window, so the budget must follow it).
+func (s *idleCompactScanner) sessionCompactionBudget(agent *AgentInstance, key string) int {
+	if s == nil || s.al == nil || agent == nil {
+		return 0
+	}
+	override := s.al.SessionModelSnapshot(key)
+	if override == nil || override.ContextWindow <= 0 {
+		return agent.snapshotCompactionBudget()
+	}
+	budget := override.ContextWindow - agent.MaxTokens
+	if budget <= 0 {
+		budget = override.ContextWindow / 2
+	}
+	return budget
+}
+
+// launchCompaction starts the async compaction for a session.
 func (s *idleCompactScanner) launchCompaction(agent *AgentInstance, key string, updated time.Time) {
 	scheduler := s.al.compactScheduler
 	if scheduler == nil {
@@ -274,7 +293,7 @@ func (s *idleCompactScanner) launchCompaction(agent *AgentInstance, key string, 
 	// /switch, and a bare read here would race the swap's write path. The
 	// marker store is resolved here for the same reason (agent.Sessions is
 	// agent state); the store itself is long-lived and thread-safe.
-	budget := agent.snapshotCompactionBudget()
+	budget := s.sessionCompactionBudget(agent, key)
 	marker := s.markerStoreFor(agent)
 	scheduler.wg.Add(1)
 	go func() {

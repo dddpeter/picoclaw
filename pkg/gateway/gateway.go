@@ -1005,6 +1005,9 @@ func wirePicoChannelCallbacks(agentLoop *agent.AgentLoop, manager *channels.Mana
 	picoCh.SetTurnActiveProbe(func(chatID string) bool {
 		return agentLoop.SessionTurnActive(config.ChannelPico, chatID)
 	})
+	// Session-scoped model selection (fork): the web chat can bind a
+	// configured model to ONE conversation without touching config.json.
+	picoCh.SetSessionModelController(newPicoSessionModelController(agentLoop))
 	// "My files" aggregation needs the transcript directory (design §11.1):
 	// uploads come from the inbound index, generated files are recovered from
 	// the persisted session transcripts.

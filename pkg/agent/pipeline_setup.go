@@ -18,12 +18,22 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 	maxMediaSize := cfg.Agents.Defaults.GetMaxMediaSize()
 	maxContextImages := cfg.Agents.Defaults.GetMaxContextImages()
 
+	// Session-scoped model (fork): resolve the session's model override
+	// FIRST — every window-dependent step below (assemble budget, proactive
+	// compaction, trim-to-fit) must run against the session model's window,
+	// not the agent's. The agent's own model/provider/window fields are never
+	// mutated, so the override cannot leak into other conversations (and the
+	// config file stays untouched).
+	if sessionModel := p.al.resolveSessionModel(ts.agent, ts.sessionKey); sessionModel != nil {
+		ts.sessionModel = sessionModel
+	}
+
 	var history []providers.Message
 	var summary string
 	if !ts.opts.NoHistory {
 		if resp, err := p.ContextManager.Assemble(ctx, &AssembleRequest{
 			SessionKey: ts.sessionKey,
-			Budget:     ts.agent.ContextWindow,
+			Budget:     ts.effectiveContextWindow(),
 			MaxTokens:  ts.agent.MaxTokens,
 		}); err == nil && resp != nil {
 			history = resp.History
@@ -48,13 +58,13 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 
 	if !ts.opts.NoHistory {
 		toolDefs := filterToolsByTurnProfile(ts.agent.Tools.ToProviderDefs(), ts.profile)
-		if isOverContextBudget(ts.agent.ContextWindow, messages, toolDefs, ts.agent.MaxTokens) {
+		if isOverContextBudget(ts.effectiveContextWindow(), messages, toolDefs, ts.agent.MaxTokens) {
 			logger.WarnCF("agent", "Proactive compression: context budget exceeded before LLM call",
 				map[string]any{"session_key": ts.sessionKey})
 			if err := p.ContextManager.Compact(ctx, &CompactRequest{
 				SessionKey: ts.sessionKey,
 				Reason:     ContextCompressReasonProactive,
-				Budget:     ts.agent.CompactionBudget(),
+				Budget:     ts.effectiveCompactionBudget(),
 			}); err != nil {
 				logger.WarnCF("agent", "Proactive compact failed", map[string]any{
 					"session_key": ts.sessionKey,
@@ -63,7 +73,7 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 			}
 			if resp, err := p.ContextManager.Assemble(ctx, &AssembleRequest{
 				SessionKey: ts.sessionKey,
-				Budget:     ts.agent.ContextWindow,
+				Budget:     ts.effectiveContextWindow(),
 				MaxTokens:  ts.agent.MaxTokens,
 			}); err == nil && resp != nil {
 				history = resp.History
@@ -90,7 +100,7 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 					}
 					return resolveMediaRefs(rebuilt, p.MediaStore, maxMediaSize, maxContextImages, rebuiltCurrentTurnStart)
 				},
-				ts.agent.ContextWindow,
+				ts.effectiveContextWindow(),
 				toolDefs,
 				ts.agent.MaxTokens,
 			)
@@ -99,7 +109,7 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 					"session_key":     ts.sessionKey,
 					"dropped_msgs":    dropped,
 					"remaining_msgs":  len(history),
-					"context_window":  ts.agent.ContextWindow,
+					"context_window":  ts.effectiveContextWindow(),
 					"max_tokens":      ts.agent.MaxTokens,
 					"still_overlimit": !fit,
 				})
@@ -108,7 +118,7 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 					"after proactive compaction rebuild", map[string]any{
 					"session_key":    ts.sessionKey,
 					"history_msgs":   len(history),
-					"context_window": ts.agent.ContextWindow,
+					"context_window": ts.effectiveContextWindow(),
 					"max_tokens":     ts.agent.MaxTokens,
 				})
 			}
@@ -141,6 +151,22 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 	}
 	activeModelName = resolvedCandidateModelName(activeCandidates, activeModelName)
 
+	// Session-scoped model (fork): when the session carries a model
+	// override, the turn runs on THAT model instead of the agent's global
+	// one. The agent's model/provider/window fields stay untouched — the
+	// override only affects this conversation (and never the config file).
+	//
+	// The override also wins over light-model routing: the user picked a
+	// model for this session explicitly, so routing must not silently
+	// divert the turn to the light tier.
+	if ts.sessionModel != nil {
+		activeCandidates = ts.sessionModel.Candidates
+		activeProvider = ts.sessionModel.Provider
+		activeModel = resolvedCandidateModel(activeCandidates, ts.sessionModel.ModelName)
+		activeModelName = ts.sessionModel.ModelName
+		usedLight = false
+	}
+
 	exec := newTurnExecution(
 		ts.agent,
 		ts.opts,
@@ -158,6 +184,9 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 		activeModel,
 		p.Cfg.Agents.Defaults.Provider,
 	)
+	if ts.sessionModel != nil && ts.sessionModel.ModelConfig != nil {
+		exec.activeModelConfig = ts.sessionModel.ModelConfig
+	}
 	exec.llmModelName = activeModelName
 	exec.activeProvider = activeProvider
 	exec.usedLight = usedLight
