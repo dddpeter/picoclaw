@@ -141,7 +141,7 @@ function FileRow({ file }: { file: MyFile }) {
       <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
         <button
           type="button"
-          className="truncate text-left text-sm leading-tight"
+          className="cursor-pointer truncate text-left text-sm leading-tight"
           onClick={() => openFilePreview(file.path, file.filename)}
           title={file.path}
         >

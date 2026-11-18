@@ -144,7 +144,7 @@ function FileRow({ file }: { file: DetectedFile }) {
     <div className="hover:bg-accent/50 group flex items-center gap-2 rounded-md px-2 py-1.5">
       <button
         type="button"
-        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
         onClick={() => openFilePreview(file.path, file.filename)}
         title={file.path}
       >
