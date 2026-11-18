@@ -149,3 +149,79 @@ func jsonString(s string) string {
 	b.WriteByte('"')
 	return b.String()
 }
+
+// TestMinimaxStreamState_MatchesFullSanitizePerFrame pins the incremental
+// scan's equivalence contract: for an accumulated-frame sequence, the state
+// helper must return exactly what a full sanitizeMinimaxToolLeak of each
+// frame returns — while clean it only skips work it can prove redundant.
+func TestMinimaxStreamState_MatchesFullSanitizePerFrame(t *testing.T) {
+	scenarios := [][]string{
+		// clean prose, no leak anywhere
+		{"你好", "你好，我来", "你好，我来处理这个问题。"},
+		// leak completes across the incremental window boundary
+		{"前文正常。]<]min", "前文正常。]<]minimax[>[", "前文正常。]<]minimax[>[</invoke>"},
+		{"前文正常。]<]minimax[>[\nPYEOF", "前文正常。]<]minimax[>[\nPYEOF]<]minimax[>[</command>]<]minimax[>[</invoke>"},
+		// leak appears very late in an otherwise long clean answer
+		{strings.Repeat("长", 5000), strings.Repeat("长", 5000) + "然后]<]minimax[>[</invoke>"},
+	}
+	for si, frames := range scenarios {
+		var st minimaxStreamState
+		accumulated := ""
+		for fi, delta := range frames {
+			accumulated += delta
+			got := st.sanitize(accumulated)
+			want := sanitizeMinimaxToolLeak(accumulated)
+			if got != want {
+				t.Fatalf("scenario %d frame %d: incremental = %q, full sanitize = %q", si, fi, got, want)
+			}
+		}
+	}
+}
+
+// TestMinimaxStreamState_StickyFullSanitizeAfterLeak pins the sticky-dirty
+// behavior: once a boundary token is seen, every later frame takes the full
+// sanitize path (the builder keeps the leak, so per-frame cleaning must
+// continue for as long as the stream emits it).
+func TestMinimaxStreamState_StickyFullSanitizeAfterLeak(t *testing.T) {
+	var st minimaxStreamState
+	leakFrame := "答案开头]<]minimax[>[</invoke>"
+	if got := st.sanitize(leakFrame); got != "答案开头" {
+		t.Fatalf("first leak frame = %q, want %q", got, "答案开头")
+	}
+	// Later frames keep carrying the token (the accumulator is untouched):
+	// the sticky path must keep sanitizing them. The close tag is no longer
+	// at the very end here, so the tail-trim does not fire — the assertion
+	// pins equality with the full sanitize, not a specific string.
+	laterFrame := leakFrame + " 更多内容"
+	if got := st.sanitize(laterFrame); got != sanitizeMinimaxToolLeak(laterFrame) {
+		t.Fatalf("sticky frame = %q, want %q", got, sanitizeMinimaxToolLeak(laterFrame))
+	}
+}
+
+// TestMinimaxStreamState_TokenStraddlingScannedBoundary pins the straddle
+// window: a token whose bytes start inside the already-scanned prefix but
+// complete only in the newest delta must still be caught — the rescan starts
+// one token-length back from the proven-clean boundary.
+func TestMinimaxStreamState_TokenStraddlingScannedBoundary(t *testing.T) {
+	var st minimaxStreamState
+	prefix := strings.Repeat("x", 20)
+	if got := st.sanitize(prefix); got != prefix {
+		t.Fatalf("clean frame = %q", got)
+	}
+	// append exactly the token, split so its head sits at the boundary
+	split := len(prefix) - len(minimaxBoundaryToken) + 1
+	if split < 0 || split > len(prefix) {
+		t.Fatalf("test setup: invalid split %d", split)
+	}
+	first := prefix[:split] + minimaxBoundaryToken[:len(minimaxBoundaryToken)-1]
+	second := minimaxBoundaryToken[len(minimaxBoundaryToken)-1:]
+	// rebuild accumulated texts the way parseStreamResponse would
+	accum1 := first
+	if got, want := st.sanitize(accum1), sanitizeMinimaxToolLeak(accum1); got != want {
+		t.Fatalf("straddle frame 1 = %q, want %q", got, want)
+	}
+	accum2 := first + second
+	if got, want := st.sanitize(accum2), sanitizeMinimaxToolLeak(accum2); got != want {
+		t.Fatalf("straddle frame 2 = %q, want %q", got, want)
+	}
+}

@@ -5,6 +5,41 @@ import (
 	"strings"
 )
 
+// minimaxStreamState carries the incremental scan cursor for one stream's
+// accumulated answer text (parseStreamResponse frames carry the full text so
+// far on every delta; a naive per-delta Contains would rescan the whole
+// answer each time — O(n²) over a turn).
+//
+// The invariant: [0, scannedTo) of the accumulated text has been proven free
+// of the boundary token, so a fresh leak can only involve the newly appended
+// bytes plus a straddle window of one token length. Once a token is seen, the
+// underlying builder still contains it on every later frame, so the state
+// goes sticky and every frame takes the full sanitize (the rare, already
+// slow path).
+//
+// sanitize is a drop-in for sanitizeMinimaxToolLeak on accumulated frames:
+// identical outputs, cheaper scans while clean.
+type minimaxStreamState struct {
+	scannedTo int
+	dirty     bool
+}
+
+func (st *minimaxStreamState) sanitize(accumulated string) string {
+	if st.dirty {
+		return sanitizeMinimaxToolLeak(accumulated)
+	}
+	from := st.scannedTo - (len(minimaxBoundaryToken) - 1)
+	if from < 0 {
+		from = 0
+	}
+	if strings.Contains(accumulated[from:], minimaxBoundaryToken) {
+		st.dirty = true
+		return sanitizeMinimaxToolLeak(accumulated)
+	}
+	st.scannedTo = len(accumulated)
+	return accumulated
+}
+
 // minimaxBoundaryToken is the encoded transport boundary MiniMax models emit
 // around their native XML tool-call syntax. When an upstream tool-call parser
 // fails, the raw markup — with this glitch-decoded token interleaved before

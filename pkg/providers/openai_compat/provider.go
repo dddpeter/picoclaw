@@ -737,6 +737,11 @@ func parseStreamResponse(
 	// so reasoning renders in the process panel and the answer stays clean.
 	thinkSplitter := newThinkSplitter()
 
+	// Incremental MiniMax leak-scan cursor: accumulated frames only rescan
+	// the tail window while clean (identical outputs, no O(n²) rescan over
+	// the whole answer on every delta).
+	var minimaxScan minimaxStreamState
+
 	// Tool call assembly: OpenAI streams tool calls as incremental deltas
 	type toolAccum struct {
 		id       string
@@ -831,7 +836,7 @@ func parseStreamResponse(
 				if onChunk != nil {
 					// Accumulated frame: sanitize so streaming UIs never render the
 					// MiniMax tool-call leak (idempotent on the full text).
-					onChunk(StreamChunk{Content: sanitizeMinimaxToolLeak(textContent.String())})
+					onChunk(StreamChunk{Content: minimaxScan.sanitize(textContent.String())})
 				}
 			}
 		}
@@ -950,7 +955,7 @@ func parseStreamResponse(
 		if aRemain != "" {
 			textContent.WriteString(aRemain)
 			if onChunk != nil {
-				onChunk(StreamChunk{Content: sanitizeMinimaxToolLeak(textContent.String())})
+				onChunk(StreamChunk{Content: minimaxScan.sanitize(textContent.String())})
 			}
 		}
 	}

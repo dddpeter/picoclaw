@@ -16,6 +16,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -1142,7 +1143,7 @@ func (s *picoStreamer) updateLocked(
 	}
 
 	now := time.Now()
-	contentLen := len([]rune(content))
+	contentLen := utf8.RuneCountInString(content)
 	if s.messageID != "" && !force {
 		growth := contentLen - s.lastLen
 		if now.Sub(s.lastAt) < s.throttleInterval || growth < s.minGrowth {
@@ -1162,7 +1163,7 @@ func (s *picoStreamer) updateReasoningLocked(ctx context.Context, content string
 	}
 
 	now := time.Now()
-	contentLen := len([]rune(content))
+	contentLen := utf8.RuneCountInString(content)
 	if s.reasoningID != "" && !force {
 		growth := contentLen - s.reasoningLastLen
 		if now.Sub(s.reasoningLastAt) < s.throttleInterval || growth < s.minGrowth {
@@ -1175,7 +1176,7 @@ func (s *picoStreamer) updateReasoningLocked(ctx context.Context, content string
 
 func (s *picoStreamer) sendLocked(ctx context.Context, content string, contextUsage *bus.ContextUsage) error {
 	now := time.Now()
-	contentLen := len([]rune(content))
+	contentLen := utf8.RuneCountInString(content)
 
 	if s.messageID == "" {
 		s.messageID = uuid.New().String()
@@ -1215,7 +1216,7 @@ func (s *picoStreamer) sendLocked(ctx context.Context, content string, contextUs
 
 func (s *picoStreamer) sendReasoningLocked(_ context.Context, content string) error {
 	now := time.Now()
-	contentLen := len([]rune(content))
+	contentLen := utf8.RuneCountInString(content)
 
 	if s.reasoningID == "" {
 		s.reasoningID = uuid.New().String()

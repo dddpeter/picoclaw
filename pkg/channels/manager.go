@@ -867,7 +867,14 @@ func (s *splitMarkerStreamer) ClearFinalizedStreamMarker() {
 }
 
 func (s *splitMarkerStreamer) updateLocked(ctx context.Context, content string) error {
-	parts := strings.Split(content, MessageSplitMarker)
+	// Fast path: without the marker, Split would scan the whole accumulated
+	// content and allocate for nothing on every streamed chunk.
+	var parts []string
+	if strings.Contains(content, MessageSplitMarker) {
+		parts = strings.Split(content, MessageSplitMarker)
+	} else {
+		parts = []string{content}
+	}
 	completedLimit := len(parts) - 1
 	if err := s.finalizeCompletedPartsLocked(ctx, parts, completedLimit, nil); err != nil {
 		return err
