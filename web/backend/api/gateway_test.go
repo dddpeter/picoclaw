@@ -119,6 +119,7 @@ func resetGatewayTestState(t *testing.T) {
 		gateway.owned = false
 		gateway.bootDefaultModel = ""
 		gateway.bootConfigSignature = ""
+		gateway.userStopped = false
 		setGatewayRuntimeStatusLocked("stopped")
 		gateway.mu.Unlock()
 		gateway.exitSeen.Store(nil)

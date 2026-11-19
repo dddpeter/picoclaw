@@ -1526,24 +1526,41 @@ func (h *Handler) gatewayStatusData() map[string]any {
 	pidData := h.sanitizeGatewayPidData(ppid.ReadPidFileWithCheck(globalConfigDir()), cfg)
 	if pidData != nil {
 		gateway.mu.Lock()
-		gateway.pidData = pidData
-		if pidData.Version != "" {
-			data["gateway_version"] = pidData.Version
-		}
-		setGatewayRuntimeStatusLocked("running")
+		// A lingering pid file must not resurrect a gateway the operator
+		// stopped (the pid file outlives the process until its deferred
+		// removal runs) nor flip a restarting/starting transition back to
+		// running while the old process is still draining. Both fall
+		// through to the status machine below.
+		if gateway.userStopped ||
+			gateway.runtimeStatus == "restarting" ||
+			gateway.runtimeStatus == "starting" {
+			gateway.pidData = nil
+			status := gatewayStatusWithoutHealthLocked()
+			data["gateway_status"] = status
+			if status == "stopped" || status == "error" {
+				gateway.pidData = nil
+			}
+			gateway.mu.Unlock()
+		} else {
+			gateway.pidData = pidData
+			if pidData.Version != "" {
+				data["gateway_version"] = pidData.Version
+			}
+			setGatewayRuntimeStatusLocked("running")
 
-		// Attach if we don't already track this PID.
-		if gateway.cmd == nil || gateway.cmd.Process == nil || gateway.cmd.Process.Pid != pidData.PID {
-			_ = attachToGatewayProcessLocked(pidData.PID, cfg)
-		}
+			// Attach if we don't already track this PID.
+			if gateway.cmd == nil || gateway.cmd.Process == nil || gateway.cmd.Process.Pid != pidData.PID {
+				_ = attachToGatewayProcessLocked(pidData.PID, cfg)
+			}
 
-		bootDefaultModel := gateway.bootDefaultModel
-		if bootDefaultModel != "" {
-			data["boot_default_model"] = bootDefaultModel
+			bootDefaultModel := gateway.bootDefaultModel
+			if bootDefaultModel != "" {
+				data["boot_default_model"] = bootDefaultModel
+			}
+			data["gateway_status"] = "running"
+			data["pid"] = pidData.PID
+			gateway.mu.Unlock()
 		}
-		data["gateway_status"] = "running"
-		data["pid"] = pidData.PID
-		gateway.mu.Unlock()
 	} else {
 		// Intentionally skip health probe here; the startup goroutine
 		// (startGatewayLocked) already handles liveness detection via
