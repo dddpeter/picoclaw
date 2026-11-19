@@ -115,6 +115,53 @@ func (h *Handler) registerSkillRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/skills/{name}", h.handleDeleteSkill)
 }
 
+// skillsCatalogCache memoizes the enriched skill catalog for the launcher
+// UI's browse pattern. ListSkills re-walks five skill roots (depth 8) and
+// full markdown-parses every SKILL.md per request — with deep skill trees
+// that is all-disk-IO for a page the user just looked at. Nested directory
+// changes don't move the roots' own mtimes (the agent-side prompt cache
+// solved this with a recursive snapshot), so a short TTL is the pragmatic
+// staleness bound; every mutating handler drops the cache explicitly, so
+// writes are never served stale.
+const skillsCacheTTL = 5 * time.Second
+
+var (
+	skillsCatalogMu        sync.Mutex
+	skillsCatalogItems     []skillSupportItem
+	skillsCatalogWorkspace string
+	skillsCatalogAt        time.Time
+)
+
+// cachedSkillSupportItems returns the enriched catalog, rebuilding it after
+// the TTL elapsed or the workspace changed. Only the read handlers route
+// through this; write paths call invalidateSkillsCatalog after mutating.
+func (h *Handler) cachedSkillSupportItems(cfg *config.Config) ([]skillSupportItem, error) {
+	workspace := cfg.WorkspacePath()
+	skillsCatalogMu.Lock()
+	defer skillsCatalogMu.Unlock()
+	if skillsCatalogItems != nil && skillsCatalogWorkspace == workspace &&
+		time.Since(skillsCatalogAt) < skillsCacheTTL {
+		return skillsCatalogItems, nil
+	}
+	items, err := h.buildSkillSupportItems(cfg)
+	if err != nil {
+		// Do not cache failures: a transient IO error must not pin an
+		// empty catalog for the TTL window.
+		return nil, err
+	}
+	skillsCatalogItems = items
+	skillsCatalogWorkspace = workspace
+	skillsCatalogAt = time.Now()
+	return items, nil
+}
+
+func invalidateSkillsCatalog() {
+	skillsCatalogMu.Lock()
+	skillsCatalogItems = nil
+	skillsCatalogAt = time.Time{}
+	skillsCatalogMu.Unlock()
+}
+
 func (h *Handler) handleListSkills(w http.ResponseWriter, r *http.Request) {
 	cfg, err := config.LoadConfig(h.configPath)
 	if err != nil {
@@ -122,7 +169,7 @@ func (h *Handler) handleListSkills(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items, err := h.buildSkillSupportItems(cfg)
+	items, err := h.cachedSkillSupportItems(cfg)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to build skill list: %v", err), http.StatusInternalServerError)
 		return
@@ -141,7 +188,7 @@ func (h *Handler) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	skillItems, err := h.buildSkillSupportItems(cfg)
+	skillItems, err := h.cachedSkillSupportItems(cfg)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to build skill list: %v", err), http.StatusInternalServerError)
 		return
@@ -426,6 +473,7 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	invalidateSkillsCatalog()
 	json.NewEncoder(w).Encode(installSkillResponse{
 		Status:         "ok",
 		Slug:           req.Slug,
@@ -476,6 +524,7 @@ func (h *Handler) handleImportSkill(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	invalidateSkillsCatalog()
 	json.NewEncoder(w).Encode(importedSkill)
 }
 
@@ -505,6 +554,7 @@ func (h *Handler) handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		invalidateSkillsCatalog()
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 		return
 	}

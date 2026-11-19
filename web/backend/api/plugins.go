@@ -130,6 +130,9 @@ func (h *Handler) handleSetPluginEnabled(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	// Plugin enable state changes which plugin skills the catalog lists:
+	// drop the skills browse cache so the next /api/skills reflects it.
+	invalidateSkillsCatalog()
 	_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 }
 
