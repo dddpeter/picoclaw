@@ -2,6 +2,8 @@ import { getDefaultStore } from "jotai"
 import { toast } from "sonner"
 
 import {
+  cacheSessionMessages,
+  cachedSessionMessages,
   loadSessionMessages,
   mergeHistoryMessages,
 } from "@/features/chat/history"
@@ -457,6 +459,60 @@ export async function switchChatSession(sessionId: string, channel?: string) {
     return
   }
 
+  // 切出即缓存当前会话的活跃消息（F8）：最近会话回切秒开。
+  const previousSessionId = activeSessionIdRef
+  if (previousSessionId) {
+    cacheSessionMessages(previousSessionId, getChatState().messages)
+  }
+
+  const cached = cachedSessionMessages(sessionId)
+  if (cached) {
+    // Stale-while-revalidate：先渲染缓存秒开（turnActive 未知，WS 重连的
+    // turn.status 活跃帧会立即补 isTyping），后台拉最新并按 signature
+    // 合并回写；期间用户再切会话则丢弃本次回写。
+    disconnectChatInternal({ clearDesiredConnection: false })
+    setActiveSessionId(sessionId)
+    updateChatStore({
+      messages: cached,
+      isTyping: false,
+      turnStartedAt: undefined,
+      lastTurnActivityAt: undefined,
+      turnElapsedMs: undefined,
+      turnStats: undefined,
+      turnStatus: undefined,
+      hasHydratedActiveSession: true,
+    })
+    void (async () => {
+      try {
+        const [sessionDetail, stashedUsage] = await Promise.all([
+          loadSessionMessages(sessionId, channel),
+          fetchContextUsage(sessionId),
+        ])
+        if (activeSessionIdRef !== sessionId) {
+          return
+        }
+        const merged = mergeHistoryMessages(sessionDetail.messages, getChatState().messages)
+        cacheSessionMessages(sessionId, merged)
+        updateChatStore({
+          messages: merged,
+          isTyping: sessionDetail.turnActive ?? false,
+          turnStartedAt: sessionDetail.turnActive ? Date.now() : undefined,
+          lastTurnActivityAt: sessionDetail.turnActive ? Date.now() : undefined,
+          activeSessionChannel: sessionDetail.channel ?? channel,
+          contextUsage: stashedUsage,
+        })
+      } catch (error) {
+        console.error("Failed to refresh cached session history:", error)
+      }
+    })()
+
+    if (store.get(gatewayAtom).status === "running") {
+      shouldMaintainConnection = true
+      await connectChat()
+    }
+    return
+  }
+
   try {
     const [sessionDetail, stashedUsage] = await Promise.all([
       loadSessionMessages(sessionId, channel),
@@ -482,6 +538,7 @@ export async function switchChatSession(sessionId: string, channel?: string) {
       hasHydratedActiveSession: true,
       contextUsage: stashedUsage,
     })
+    cacheSessionMessages(sessionId, historyMessages)
 
     if (store.get(gatewayAtom).status === "running") {
       shouldMaintainConnection = true

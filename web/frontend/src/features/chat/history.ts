@@ -237,3 +237,37 @@ export function mergeHistoryMessages(
       comparableTimestamp(right.timestamp),
   )
 }
+
+// --- 会话消息 LRU 缓存（F8）---
+
+/** 切回最近看过的会话先渲染缓存（秒开），后台刷新后按 signature 合并。 */
+const SESSION_MESSAGES_CACHE_MAX = 8
+const sessionMessagesCache = new Map<string, ChatMessage[]>()
+
+/** 写入并维持 LRU 序（重复写刷新热度）；空消息不入缓存。测试可见。 */
+export function cacheSessionMessages(sessionId: string, messages: ChatMessage[]): void {
+  if (messages.length === 0) {
+    return
+  }
+  sessionMessagesCache.delete(sessionId)
+  sessionMessagesCache.set(sessionId, messages)
+  while (sessionMessagesCache.size > SESSION_MESSAGES_CACHE_MAX) {
+    const oldest = sessionMessagesCache.keys().next().value
+    if (oldest === undefined) {
+      break
+    }
+    sessionMessagesCache.delete(oldest)
+  }
+}
+
+/** 读取缓存（命中即刷新热度）；未命中返回 undefined。测试可见。 */
+export function cachedSessionMessages(sessionId: string): ChatMessage[] | undefined {
+  const cached = sessionMessagesCache.get(sessionId)
+  if (!cached) {
+    return undefined
+  }
+  // refresh LRU heat
+  sessionMessagesCache.delete(sessionId)
+  sessionMessagesCache.set(sessionId, cached)
+  return cached
+}
