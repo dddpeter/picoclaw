@@ -238,9 +238,12 @@ func (s *idleCompactScanner) maybeCompactSession(agent *AgentInstance, key strin
 		}
 	}
 
-	history := agent.Sessions.GetHistory(key)
-	if len(history) < minMessages {
-		s.skip(key, "too_few_messages", map[string]any{"messages": len(history)})
+	// Count gate via session metadata (memory-resident, no transcript
+	// parse); the usage computation below still needs the content, so the
+	// scanner previously read the full transcript twice per candidate tick.
+	n := sessionHistoryLength(agent.Sessions, key)
+	if n < minMessages {
+		s.skip(key, "too_few_messages", map[string]any{"messages": n})
 		return
 	}
 	usage := s.al.SessionContextUsage(agent, key)

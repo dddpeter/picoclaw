@@ -12,6 +12,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/memory"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/session"
@@ -361,10 +362,30 @@ func newTurnState(agent *AgentInstance, opts processOptions, scope turnEventScop
 	// Bind session store and snapshot the history length for diagnostics.
 	if agent != nil && agent.Sessions != nil {
 		ts.session = agent.Sessions
-		ts.initialHistoryLength = len(agent.Sessions.GetHistory(opts.Dispatch.SessionKey))
+		ts.initialHistoryLength = sessionHistoryLength(agent.Sessions, opts.Dispatch.SessionKey)
 	}
 
 	return ts
+}
+
+// sessionHistoryLength snapshots the session's active message count through
+// the store's metadata (memory-resident since the meta batching) instead of
+// parsing the whole JSONL transcript. Consumers are diagnostics-only (the
+// hard-abort log field) and the idle-compaction min-messages gate, where the
+// Count-Skip approximation of the active length is exact enough. Stores
+// without meta support (legacy manager, ephemeral) fall back to GetHistory.
+func sessionHistoryLength(store session.SessionStore, key string) int {
+	if metaStore, ok := store.(interface {
+		GetSessionMeta(ctx context.Context, sessionKey string) (memory.SessionMeta, error)
+	}); ok {
+		if meta, err := metaStore.GetSessionMeta(context.Background(), key); err == nil {
+			if n := meta.Count - meta.Skip; n > 0 {
+				return n
+			}
+			return 0
+		}
+	}
+	return len(store.GetHistory(key))
 }
 
 func (al *AgentLoop) registerActiveTurn(ts *turnState) {
