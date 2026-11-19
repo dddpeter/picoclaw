@@ -245,8 +245,10 @@ func TestRunRestartRecovery_RestoresInterruptedModel(t *testing.T) {
 	if agent.Model != "alt" {
 		t.Fatalf("agent.Model after recovery = %q, want alt (interrupted turn's model)", agent.Model)
 	}
-	if !strings.Contains(oc.text(), "检测到上次任务被中断") {
-		t.Fatalf("expected interruption notifications, got: %q", oc.text())
+	if got := oc.waitForText(func(s string) bool {
+		return strings.Contains(s, "检测到上次任务被中断")
+	}, 2*time.Second); !strings.Contains(got, "检测到上次任务被中断") {
+		t.Fatalf("expected interruption notifications, got: %q", got)
 	}
 	if markerFileExists(agent, key) || markerFileExists(agent, ghostKey) {
 		t.Fatal("both markers must be consumed")
