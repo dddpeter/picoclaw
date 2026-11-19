@@ -112,6 +112,35 @@ type feishuCardStreamer struct {
 	// line's custom icon (empty = standard icon). Snapshot per streamer so
 	// mid-turn invalidation does not race card construction.
 	spinnerKey string
+
+	// pendingSends + sending implement the strictly ordered send queue: ops
+	// are appended inside the seq-assignment critical section (so queue
+	// order == seq order) and exactly one goroutine — the single pump —
+	// drains them with the network call OUTSIDE s.mu. Before the queue,
+	// refreshPanelLocked made its CardKit call while holding s.mu (up to
+	// feishuCallTimeout = 10s), stalling the LLM stream callbacks whenever
+	// Feishu was slow. Both fields are guarded by s.mu. Invariant: sending
+	// == false implies pendingSends is empty (the pump exits only on empty).
+	pendingSends []*feishuSendOp
+	sending      bool
+}
+
+// feishuMaxPendingSends bounds the send queue. Under sustained API slowness
+// the throttles cap the enqueue rate (~1 element write / 200ms-1s, ~1 panel
+// flush / 800ms), so the bound is unreachable in practice; overflow drops
+// the op with a warning rather than growing unboundedly. Panel drops are
+// non-fatal; the answer's authoritative copy always reaches the seal.
+const feishuMaxPendingSends = 128
+
+// feishuSendOp is one serialized CardKit call. run executes the network
+// request (with the enqueueing goroutine's context captured) and records
+// its outcome in err via the op pointer it closes over. fatal marks ops
+// whose error the enqueueing caller needs back (answer writes, seals);
+// non-fatal ops (panel flushes, close) log their own failures.
+type feishuSendOp struct {
+	run   func()
+	err   error
+	fatal bool
 }
 
 // newFeishuCardStreamer builds a streamer bound to a delivered card, wiring
@@ -386,9 +415,9 @@ func (c *FeishuChannel) NotifySteeringInChat(ctx context.Context, chatID, sessio
 		// timeout, so a stalled request can neither block the turn's
 		// streaming callbacks on the card mutex for long, nor outlive it.
 		s.mu.Lock()
-		err := s.refreshPanelLocked(context.Background())
+		pump := s.refreshPanelLocked(context.Background(), "steering notice")
 		s.mu.Unlock()
-		s.logPanelErr("steering notice", err)
+		s.pumpSends(pump, nil)
 	}()
 	return true
 }
@@ -396,6 +425,92 @@ func (c *FeishuChannel) NotifySteeringInChat(ctx context.Context, chatID, sessio
 func (s *feishuCardStreamer) nextSeqLocked() int {
 	s.seq++
 	return s.seq
+}
+
+// enqueueSendLocked appends one send op and reports whether the caller must
+// pump the queue after releasing s.mu. Callers hold s.mu: the append sits in
+// the same critical section as the op's seq assignment, so queue order ==
+// seq order, and the single-flight `sending` flag means the caller that
+// flips it drains the queue — the uncontended fast path runs the op inline
+// on the enqueueing goroutine, byte-for-byte the pre-queue behavior.
+// Overflow drops the op (never blocks, never grows unboundedly).
+func (s *feishuCardStreamer) enqueueSendLocked(op *feishuSendOp) bool {
+	if len(s.pendingSends) >= feishuMaxPendingSends {
+		logger.WarnCF("feishu", "streaming send queue overflow; dropping op", map[string]any{
+			"chat_id": s.chatID,
+			"card_id": s.cardID,
+			"pending": len(s.pendingSends),
+		})
+		return false
+	}
+	s.pendingSends = append(s.pendingSends, op)
+	if s.sending {
+		return false
+	}
+	s.sending = true
+	return true
+}
+
+// pumpSends drains the send queue on the caller goroutine with s.mu
+// released across every network call. own (optional) identifies the op the
+// pump starter itself enqueued: because sending==false implies an empty
+// queue, the starter's op is the queue head, so a fatal head error goes
+// back to the starter — the pre-queue error contract; fatal errors from
+// contended ops (whose callers already returned nil) are logged instead —
+// the next write-through and the final seal carry the full content, so a
+// lost mid-stream write self-heals.
+func (s *feishuCardStreamer) pumpSends(shouldPump bool, own *feishuSendOp) error {
+	if !shouldPump {
+		return nil
+	}
+	var ownErr error
+	first := true
+	for {
+		s.mu.Lock()
+		if len(s.pendingSends) == 0 {
+			s.sending = false
+			s.mu.Unlock()
+			return ownErr
+		}
+		op := s.pendingSends[0]
+		s.pendingSends = s.pendingSends[1:]
+		s.mu.Unlock()
+
+		op.run()
+		if op.err != nil && op.fatal {
+			switch {
+			case first && op == own:
+				ownErr = op.err
+			case first:
+				// Head but not ours (wait-for-idle seal paths pass own ==
+				// head; this branch is unreachable today, kept for safety).
+				ownErr = op.err
+			default:
+				logger.WarnCF("feishu", "streaming card write failed (answer stream continues; next write carries full content)", map[string]any{
+					"chat_id": s.chatID,
+					"card_id": s.cardID,
+					"error":   op.err.Error(),
+				})
+			}
+		}
+		first = false
+	}
+}
+
+// waitForSendQueueIdle blocks until any in-flight pump has drained. Callers
+// must already have set s.done (no new enqueuers) so the idle state is
+// sticky. Used by the seal paths, whose error contract requires their op to
+// run inline as the queue head.
+func (s *feishuCardStreamer) waitForSendQueueIdle() {
+	for {
+		s.mu.Lock()
+		busy := s.sending
+		s.mu.Unlock()
+		if !busy {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // streamerActiveLocked reports whether the streamer still has an unsealed
@@ -627,31 +742,48 @@ func (s *feishuCardStreamer) Update(ctx context.Context, content string) error {
 		// Element streaming is gone server-side; the answer rides the
 		// throttled full-card refreshes instead of the typewriter.
 		s.panelDirty = true
-		err := s.refreshPanelLocked(ctx)
+		pump := s.refreshPanelLocked(ctx, "degraded answer refresh")
 		s.mu.Unlock()
-		s.logPanelErr("degraded answer refresh", err)
+		s.pumpSends(pump, nil)
 		return nil
 	}
-	cardID := s.cardID
 	// Compose + sanitize only on a write-through: chunks arrive far faster
 	// than the flush interval and the regex scans the whole accumulated
 	// answer, so doing it per throttled chunk was pure waste (O(n²) per turn).
 	var (
 		seq           int
 		answerContent string
+		pump          bool
+		op            *feishuSendOp
 	)
 	throttled := time.Since(s.answerSentAt) < feishuAnswerFlushIntervalFor(len(s.answer))
 	if !throttled {
 		s.answerSentAt = time.Now()
 		seq = s.nextSeqLocked()
 		answerContent = sanitizeFeishuMarkdownImages(composeFeishuAnswer(s.state.Narration, s.answer))
+		cardID := s.cardID
+		// fatal op: the pump head's error returns to THIS caller (pre-queue
+		// contract — a rejected answer write surfaces as a visible turn
+		// failure); see pumpSends.
+		op = &feishuSendOp{fatal: true}
+		op.run = func() {
+			op.err = s.tryAnswerElement(ctx, cardID, answerContent, seq)
+		}
+		pump = s.enqueueSendLocked(op)
 	}
 	s.mu.Unlock()
 
 	if throttled {
 		return nil
 	}
-	err := s.streamContent(ctx, cardID, feishuAnswerElementID, answerContent, seq)
+	return s.pumpSends(pump, op)
+}
+
+// tryAnswerElement runs one typewriter element write with the 200850
+// recovery chain (reopen once, retry, degrade) and returns the write error.
+// Runs on the send pump — never under s.mu (only short internal takes).
+func (s *feishuCardStreamer) tryAnswerElement(ctx context.Context, cardID, content string, seq int) error {
+	err := s.streamContent(ctx, cardID, feishuAnswerElementID, content, seq)
 	if err == nil || !errors.Is(err, errFeishuStreamingEnded) {
 		return err
 	}
@@ -659,18 +791,20 @@ func (s *feishuCardStreamer) Update(ctx context.Context, content string) error {
 	// 200850: reopen streaming mode (documented remedy: settings update with
 	// streaming_mode=true), then retry the element write once.
 	s.mu.Lock()
-	if s.streamingLost {
+	if s.streamingLost || s.done {
 		s.mu.Unlock()
 		return nil
 	}
 	reopenSeq := s.nextSeqLocked()
-	retrySeq := s.nextSeqLocked()
 	s.mu.Unlock()
 	if reopenErr := s.reopenStreaming(ctx, cardID, reopenSeq); reopenErr != nil {
 		s.degradeStreaming(ctx, reopenErr)
 		return nil
 	}
-	if retryErr := s.streamContent(ctx, cardID, feishuAnswerElementID, answerContent, retrySeq); retryErr != nil {
+	s.mu.Lock()
+	retrySeq := s.nextSeqLocked()
+	s.mu.Unlock()
+	if retryErr := s.streamContent(ctx, cardID, feishuAnswerElementID, content, retrySeq); retryErr != nil {
 		s.degradeStreaming(ctx, retryErr)
 	}
 	return nil
@@ -688,14 +822,14 @@ func (s *feishuCardStreamer) degradeStreaming(ctx context.Context, cause error) 
 	s.streamingLost = true
 	s.panelDirty = true
 	s.panelSentAt = time.Time{} // force the next refresh through the throttle
-	err := s.flushPanelLocked(ctx)
+	pump := s.enqueuePanelFlushLocked(ctx, "degraded full-card refresh")
 	s.mu.Unlock()
 	logger.WarnCF("feishu", "streaming card lost element streaming; degrading to full-card updates", map[string]any{
 		"chat_id": s.chatID,
 		"card_id": s.cardID,
 		"error":   cause.Error(),
 	})
-	s.logPanelErr("degraded full-card refresh", err)
+	s.pumpSends(pump, nil)
 }
 
 // UpdateReasoning accumulates the in-progress reasoning round and refreshes
@@ -714,9 +848,9 @@ func (s *feishuCardStreamer) UpdateReasoning(ctx context.Context, content string
 		s.reasonAt = time.Now()
 	}
 	s.state.CurReasoning = content
-	err := s.refreshPanelLocked(ctx)
+	pump := s.refreshPanelLocked(ctx, "reasoning update")
 	s.mu.Unlock()
-	s.logPanelErr("reasoning update", err)
+	s.pumpSends(pump, nil)
 	return nil
 }
 
@@ -746,9 +880,9 @@ func (s *feishuCardStreamer) FinalizeReasoning(ctx context.Context, content stri
 		s.state.CurReasoning = ""
 		s.reasonAt = time.Time{}
 	}
-	err := s.refreshPanelLocked(ctx)
+	pump := s.refreshPanelLocked(ctx, "reasoning finalize")
 	s.mu.Unlock()
-	s.logPanelErr("reasoning finalize", err)
+	s.pumpSends(pump, nil)
 	return nil
 }
 
@@ -771,9 +905,9 @@ func (s *feishuCardStreamer) AppendToolStep(ctx context.Context, step bus.ToolSt
 		// narration pin, not a timeline archive. The write doubles as the
 		// 200850 keep-alive (lastAt refresh + panel flush).
 		s.state.ProgressNote = strings.TrimSpace(step.Result)
-		err := s.refreshPanelLocked(ctx)
+		pump := s.refreshPanelLocked(ctx, "progress note")
 		s.mu.Unlock()
-		s.logPanelErr("progress note", err)
+		s.pumpSends(pump, nil)
 		return nil
 	}
 	if step.Kind == bus.ToolStepKindText && !step.Running {
@@ -793,9 +927,9 @@ func (s *feishuCardStreamer) AppendToolStep(ctx context.Context, step bus.ToolSt
 		s.state.Tools = append(s.state.Tools, step)
 		s.state.ToolSeqs = append(s.state.ToolSeqs, s.eventSeq)
 	}
-	err := s.refreshPanelLocked(ctx)
+	pump := s.refreshPanelLocked(ctx, "tool step")
 	s.mu.Unlock()
-	s.logPanelErr("tool step", err)
+	s.pumpSends(pump, nil)
 	return nil
 }
 
@@ -815,28 +949,31 @@ func (s *feishuCardStreamer) logPanelErr(op string, err error) {
 // refreshPanelLocked rebuilds the process panel in the card via a full card
 // update, throttled to feishuPanelFlushInterval. A phase change (e.g. tools
 // → answer) bypasses the throttle once so the status line reaches the card
-// promptly. Caller holds s.mu; the API call is made while
-// holding the lock — streamer methods never call each other, so this only
-// serializes updates, it cannot deadlock.
-func (s *feishuCardStreamer) refreshPanelLocked(ctx context.Context) error {
+// promptly. Caller holds s.mu; returns whether the caller must pump the
+// send queue after releasing it — the CardKit call itself runs on the send
+// pump, outside the lock (it used to hold s.mu for up to feishuCallTimeout,
+// stalling the LLM stream callbacks on a slow Feishu API).
+func (s *feishuCardStreamer) refreshPanelLocked(ctx context.Context, op string) bool {
 	phaseChanged := s.phase != s.renderedPhase
 	if !s.panelDirty && !phaseChanged {
-		return nil
+		return false
 	}
 	if !phaseChanged && time.Since(s.panelSentAt) < feishuPanelFlushInterval {
-		return nil
+		return false
 	}
 	// Without panel content a full-card refresh is only worth it to flip the
 	// status line — or, once element streaming is lost, to carry the answer.
 	if !s.state.hasPanelContent() && !phaseChanged && !s.streamingLost {
-		return nil
+		return false
 	}
-	return s.flushPanelLocked(ctx)
+	return s.enqueuePanelFlushLocked(ctx, op)
 }
 
-// flushPanelLocked sends one full-card refresh unconditionally (caller holds
-// s.mu and has already passed the throttle guards).
-func (s *feishuCardStreamer) flushPanelLocked(ctx context.Context) error {
+// enqueuePanelFlushLocked builds one full-card refresh and queues its
+// updateCard call unconditionally (caller holds s.mu and has already passed
+// the throttle guards). Panel failures are non-fatal by contract: they are
+// logged here when the op runs and never propagate to the answer stream.
+func (s *feishuCardStreamer) enqueuePanelFlushLocked(ctx context.Context, op string) bool {
 	spinnerKey := s.spinnerKey
 	card := buildFeishuCardWithinSize(func(panelBudget int) map[string]any {
 		return buildFeishuRefreshCard(&s.state, s.answer, s.phase, panelBudget, spinnerKey)
@@ -849,16 +986,26 @@ func (s *feishuCardStreamer) flushPanelLocked(ctx context.Context) error {
 	s.panelSentAt = time.Now()
 	s.panelDirty = false
 	s.renderedPhase = s.phase
-	cardID, seq := s.cardID, s.nextSeqLocked()
-	err := s.updateCard(ctx, cardID, card, seq)
-	if err != nil && spinnerKey != "" {
-		// The refresh card is the only place the custom icon is used; a
-		// rejection here most plausibly implicates it, so drop the key and
-		// fall back to the standard icon for the rest of this process.
-		s.ch.invalidateSpinnerIcon()
-		s.spinnerKey = ""
-	}
-	return err
+	cardID := s.cardID
+	seq := s.nextSeqLocked()
+	panelOp := &feishuSendOp{run: func() {
+		err := s.updateCard(ctx, cardID, card, seq)
+		if err == nil {
+			return
+		}
+		if spinnerKey != "" {
+			// The refresh card is the only place the custom icon is used; a
+			// rejection here most plausibly implicates it, so drop the key
+			// and fall back to the standard icon for the rest of this
+			// process.
+			s.mu.Lock()
+			s.ch.invalidateSpinnerIcon()
+			s.spinnerKey = ""
+			s.mu.Unlock()
+		}
+		s.logPanelErr(op, err)
+	}}
+	return s.enqueueSendLocked(panelOp)
 }
 
 // Finalize seals the card: full answer, collapsed panel, footer statistics,
@@ -902,14 +1049,30 @@ func (s *feishuCardStreamer) FinalizeWithContext(ctx context.Context, content st
 	inCard, remainder := clampFeishuAnswerForCard(composed, feishuAnswerCardBudget, feishuAnswerSplitNote)
 	elapsed := time.Since(s.startAt)
 	cardID := s.cardID
-	seq := s.nextSeqLocked()
 	streamingLost := s.streamingLost
 	s.done = true
 	s.mu.Unlock()
 	defer s.ch.streams.CompareAndDelete(streamMapKey(s.chatID, s.sessionKey), s)
 
 	card := buildFeishuFinalCardComposed(&state, inCard, answer, false, elapsed, "")
-	if err := s.updateCard(ctx, cardID, card, seq); err != nil {
+
+	// The seal's error contract (B1-B minimal fallback, remainder cut,
+	// close sequencing) requires its op to run inline as the pump head:
+	// done=true stopped every other enqueuer, so wait out any in-flight
+	// pump, then enqueue+assign-seq in one critical section.
+	s.waitForSendQueueIdle()
+	s.mu.Lock()
+	sealSeq := s.nextSeqLocked()
+	sealOp := &feishuSendOp{fatal: true}
+	sealOp.run = func() {
+		err := s.updateCard(ctx, cardID, card, sealSeq)
+		if err == nil {
+			// Remainder of an oversized answer: best-effort follow-up
+			// messages — never fail the LLM call over them (the card
+			// already carries the head).
+			s.deliverAnswerRemainder(ctx, remainder)
+			return
+		}
 		// Last-resort seal (B1-B): retry with a minimal card (no panel,
 		// hard-clamped answer) — it must always fit, so the card is sealed
 		// even when the regular seal card is rejected.
@@ -919,29 +1082,39 @@ func (s *feishuCardStreamer) FinalizeWithContext(ctx context.Context, content st
 		retrySeq := s.nextSeqLocked()
 		s.mu.Unlock()
 		if retryErr := s.updateCard(ctx, cardID, minimal, retrySeq); retryErr != nil {
-			return err
+			sealOp.err = err
+			return
 		}
 		// The minimal card carries only the first hard-budget slice, so the
 		// remainder must restart from that cut — delivering the 24KB-budget
 		// remainder here would silently drop the [hard, card) span.
-		remainder = hardRest
 		logger.WarnCF("feishu", "final seal card rejected; sealed via minimal card", map[string]any{
 			"chat_id": s.chatID,
 			"card_id": cardID,
 			"error":   err.Error(),
 		})
+		s.deliverAnswerRemainder(ctx, hardRest)
 	}
-	// Remainder of an oversized answer: best-effort follow-up messages —
-	// never fail the LLM call over them (the card already carries the head).
-	s.deliverAnswerRemainder(ctx, remainder)
+	pump := s.enqueueSendLocked(sealOp)
+	s.mu.Unlock()
+	if err := s.pumpSends(pump, sealOp); err != nil {
+		return err
+	}
 	if streamingLost {
 		// Streaming mode was already closed by the server; nothing to seal.
 		return nil
 	}
+	closeOp := &feishuSendOp{fatal: true}
+	var closeSeq int
+	closeOp.run = func() {
+		closeOp.err = s.closeStreaming(ctx, cardID, feishuCardSummary(answer), closeSeq)
+	}
 	s.mu.Lock()
-	closeSeq := s.nextSeqLocked()
+	closeSeq = s.nextSeqLocked()
+	pump = s.enqueueSendLocked(closeOp)
 	s.mu.Unlock()
-	return s.closeStreaming(ctx, cardID, feishuCardSummary(answer), closeSeq)
+	err := s.pumpSends(pump, closeOp)
+	return err
 }
 
 // deliverAnswerRemainder sends the clamped-off tail of an oversized answer
@@ -1003,7 +1176,6 @@ func (s *feishuCardStreamer) CancelWithReason(ctx context.Context, reason string
 	msgID := s.msgID
 	emptyCard := strings.TrimSpace(answer) == "" &&
 		!state.hasPanelContent() && len(state.Narration) == 0
-	seq := s.nextSeqLocked()
 	streamingLost := s.streamingLost
 	if reason != "" {
 		s.cancelReasn = reason
@@ -1014,50 +1186,62 @@ func (s *feishuCardStreamer) CancelWithReason(ctx context.Context, reason string
 	s.mu.Unlock()
 	defer s.ch.streams.CompareAndDelete(streamMapKey(s.chatID, s.sessionKey), s)
 
-	if emptyCard && msgID != "" {
-		derr := s.deleteMessage(ctx, s.chatID, msgID)
-		if derr == nil {
-			logger.DebugCF("feishu", "empty streaming card deleted instead of sealed", map[string]any{
+	// Cancel errors are best-effort (logged, never propagated) and done=true
+	// stopped the other enqueuers, so the delete-or-seal + close pair queues
+	// at the tail of the send pump in seq order.
+	cancelOp := &feishuSendOp{}
+	var cancelSeq int
+	cancelOp.run = func() {
+		if emptyCard && msgID != "" {
+			derr := s.deleteMessage(ctx, s.chatID, msgID)
+			if derr == nil {
+				logger.DebugCF("feishu", "empty streaming card deleted instead of sealed", map[string]any{
+					"chat_id": s.chatID,
+					"reason":  reason,
+				})
+				return
+			}
+			logger.WarnCF("feishu", "empty streaming card delete failed; sealing instead", map[string]any{
 				"chat_id": s.chatID,
-				"reason":  reason,
+				"error":   derr.Error(),
 			})
-			return
 		}
-		logger.WarnCF("feishu", "empty streaming card delete failed; sealing instead", map[string]any{
-			"chat_id": s.chatID,
-			"error":   derr.Error(),
-		})
-	}
 
-	card := buildFeishuFinalCardComposed(&state, inCard, answer, true, elapsed, reason)
-	if err := s.updateCard(ctx, cardID, card, seq); err != nil {
-		// Minimal-seal fallback (B1-B): retry without the panel so an
-		// oversized cancel card cannot leave the card streaming forever.
-		hardIn, _ := clampFeishuAnswerForCard(composed, feishuAnswerHardBudget, feishuAnswerCancelNote)
-		minimal := buildFeishuMinimalFinalCard(&state, hardIn, true, elapsed, reason)
-		s.mu.Lock()
-		retrySeq := s.nextSeqLocked()
-		s.mu.Unlock()
-		if retryErr := s.updateCard(ctx, cardID, minimal, retrySeq); retryErr != nil {
-			logger.WarnCF("feishu", "streaming card cancel seal failed", map[string]any{
+		card := buildFeishuFinalCardComposed(&state, inCard, answer, true, elapsed, reason)
+		if err := s.updateCard(ctx, cardID, card, cancelSeq); err != nil {
+			// Minimal-seal fallback (B1-B): retry without the panel so an
+			// oversized cancel card cannot leave the card streaming forever.
+			hardIn, _ := clampFeishuAnswerForCard(composed, feishuAnswerHardBudget, feishuAnswerCancelNote)
+			minimal := buildFeishuMinimalFinalCard(&state, hardIn, true, elapsed, reason)
+			s.mu.Lock()
+			retrySeq := s.nextSeqLocked()
+			s.mu.Unlock()
+			if retryErr := s.updateCard(ctx, cardID, minimal, retrySeq); retryErr != nil {
+				logger.WarnCF("feishu", "streaming card cancel seal failed", map[string]any{
+					"chat_id": s.chatID,
+					"error":   err.Error(),
+				})
+				return
+			}
+			logger.WarnCF("feishu", "cancel seal card rejected; sealed via minimal card", map[string]any{
 				"chat_id": s.chatID,
+				"card_id": cardID,
 				"error":   err.Error(),
 			})
-			return
 		}
-		logger.WarnCF("feishu", "cancel seal card rejected; sealed via minimal card", map[string]any{
-			"chat_id": s.chatID,
-			"card_id": cardID,
-			"error":   err.Error(),
-		})
-	}
-	if streamingLost {
-		return // streaming mode was already closed by the server
+		if streamingLost {
+			return // streaming mode was already closed by the server
+		}
+		s.mu.Lock()
+		closeSeq := s.nextSeqLocked()
+		s.mu.Unlock()
+		_ = s.closeStreaming(ctx, cardID, feishuCardSummary(answer), closeSeq)
 	}
 	s.mu.Lock()
-	closeSeq := s.nextSeqLocked()
+	cancelSeq = s.nextSeqLocked()
+	pump := s.enqueueSendLocked(cancelOp)
 	s.mu.Unlock()
-	_ = s.closeStreaming(ctx, cardID, feishuCardSummary(answer), closeSeq)
+	s.pumpSends(pump, nil)
 }
 
 func (s *feishuCardStreamer) SetModelName(modelName string) {
