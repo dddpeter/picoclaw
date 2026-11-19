@@ -154,12 +154,24 @@ function scheduleGatewayPoll(delay = nextGatewayPollInterval()) {
     return
   }
 
+  // Pause polling in background tabs — the sidebar session poller set the
+  // precedent. The visibilitychange hook below resumes with an immediate
+  // refresh, so no state is lost, only the idle-tab request churn.
+  if (typeof document !== "undefined" && document.hidden) {
+    return
+  }
+
   if (gatewayPollingTimer !== null) {
     clearTimeout(gatewayPollingTimer)
   }
 
   gatewayPollingTimer = setTimeout(() => {
     gatewayPollingTimer = null
+    // The timer may have been scheduled while visible and fire after the
+    // tab went hidden: skip the beat, the visibilitychange hook resumes.
+    if (typeof document !== "undefined" && document.hidden) {
+      return
+    }
     void refreshGatewayState()
   }, delay)
 }
@@ -199,9 +211,26 @@ export async function refreshGatewayState(
   return getDefaultStore().get(gatewayAtom)
 }
 
+let gatewayVisibilityHooked = false
+
+function ensureGatewayVisibilityHook() {
+  if (gatewayVisibilityHooked || typeof document === "undefined") {
+    return
+  }
+  gatewayVisibilityHooked = true
+  document.addEventListener("visibilitychange", () => {
+    // Returning to a visible tab must not wait out the stale paused delay:
+    // refresh immediately and let the normal loop reschedule.
+    if (!document.hidden && gatewayPollingSubscribers > 0) {
+      void refreshGatewayState()
+    }
+  })
+}
+
 export function subscribeGatewayPolling() {
   gatewayPollingSubscribers += 1
   if (gatewayPollingSubscribers === 1) {
+    ensureGatewayVisibilityHook()
     void refreshGatewayState()
   }
 
