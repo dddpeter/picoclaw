@@ -7,6 +7,60 @@
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-19
+
+> 本版本为 fork 自有推进，未同步上游新提交；含 Web Chat 对齐 LobeHub、会话级模型切换、文件能力，以及三批性能优化。
+
+### Added
+
+- **Web Chat 对齐 LobeHub（cut-1 ~ cut-5，REQ-011/016/019/020/023/024）**：
+  - **cut-1**：最小闭环——消息 chrome、工具调用图标与操作栏骨架落地
+  - **cut-2 / cut-3 / cut-3B**：组件语义对齐，`LOBE_SCOPE_TOKENS` 共享常量消除令牌映射重复，purity 存量债清零
+  - **cut-4**：样式收口——字体基线、动效 token、响应式断点统一
+  - **cut-5**：复制交互收敛 + 折叠可达性收口
+  - **REQ-023 断点体系**：按口径 B 落地——幂等固化 + 契约测试守门
+  - 聊天区视觉量值统一走 `chat-pi/tokens.css` 的 `--lobe-*` 语义 token，`.pi-chat` 外组件只按权威映射表桥接变量
+- **会话级模型切换（fork §28）**：只对本会话生效，不改全局配置——评审 5 条 yellow 全部修复：并发三修（TOCTOU、busy 拒绝、LRU 淘汰）、前端跨会话串扰守卫与重连重拉、并发/集成用例 9 + 前端 hook 3 例补充
+- **文件能力**：
+  - 支持任意文件上传，随会话持久化并可回放
+  - 新增文件预览面板、「我的文件」跨会话聚合与增量缓存、文件预览与工作区目录端点
+  - 文件列表最小列宽支持，优化响应式布局
+- **TUI P2/P4 迭代**：无色模式、历史时序重建、语义色板
+- **新增 `powershell-expert` 内置技能**
+
+### Changed
+
+- **Web 布局**：对话区占满布局、输入区贴底、历史卡片视觉调整；上下文环常驻显示、刷新恢复与口径统一
+- **会话列表轮询收敛单一 owner**：双实例不再各跑 interval
+
+### Fixed
+
+- **C-1 自死锁修复**：web 后端 `config/reset` 与 pico token 旋转的锁序收敛——消除 `gateway.mu → configWriteMu` 与 `configWriteMu → gateway.mu` 的 ABBA 死锁链
+- **Pico WebSocket 写路径加 10s deadline**，写失败关连自清
+- **流式空闲超时包装器单 Timer 复用**，消除每 Read 分配与误报窗口
+- **gateway 退出监视器与状态读点的 ProcessState 数据竞争**：`exitSeen` 改 atomic 发布被收割的 cmd
+- **`al.cfg` 裸读数据竞争收口**：turn 内用 `p.Cfg`、turn 外走 `GetConfig`
+- **状态轮询不再复活已停止/重启中的 gateway**
+- **seahorse 补 `message_parts` 索引**，修复 gateway 启动卡顿
+- **shell 守卫 Windows 路径校验三缺口**；web 文件端点与上传清理补 Windows 路径语义
+- **web-chat 可达性与健壮性**：折叠态摘除悬空 `aria-controls`、`copyText` 永不 reject + hook 卸载保护、`isSingleLine` CRLF 归一与纯空白不渲染空徽章、历史会话不再登记工具反馈时刻、`BubblesLoading` 走 i18n + `role=status`、会话侧栏三态可见性
+- **文件行悬停指针手型**（按钮默认 `cursor:default`）
+
+### Performance
+
+三批共 25 个提交，附全量功能分析与前后端优化点报告（`docs/design/2026-11-19-optimization-analysis.zh.md`）。
+
+- **第一批（P0 五项 + 持久化）**：流式热路径去 O(N²)（增量清洗扫描 + 零分配 rune 计数）、`ResolveSessionKey` 进程内缓存（含冒号会话键不再全目录扫描）、会话 meta 内存累积 + turn 尾批量落盘（追加降频 fsync）
+- **第二批（八项）**：飞书流式卡串行发送队列（CardKit 调用移出 `s.mu`）、dispatcher 满队分级（慢渠道不再队头阻塞全渠道）、`/api/gateway/status` 降本（config mtime 缓存 + pid 归类 TTL 缓存）、前端 memo 链修复 + chat store 相等性熔断、消息列表尾部窗口裁剪、gateway 轮询后台标签页暂停
+- **第三批（前端为主）**：入口 chunk 1.24MB → 644KB（gzip 368 → 205KB）、会话消息 LRU 缓存 + SWR、会话列表分页下推（只解析当前页转录）、Skills 目录 TTL 缓存、迭代边界压缩复用已缓存的工具 schema token 估算、会话历史计数走 meta 缓存
+
+生产实测（318 个生产会话、36.8MB 转录）：B7 status 冷调用 5.4ms / 温调用 134µs；B8 旧全量解析 380ms → 新分页 116ms；B1 会话键解析冷调用 7ms / 温调用 2.4µs。
+
+### Notes
+
+- 66 commits 自 v0.6.0
+- 对应 tag：`v0.6.1`
+
 ## [0.6.0] - 2026-11-14
 
 > 本版本合并了 v0.5.6 之后的全部变更（A2UI 一期/二期/三期 + 全部修复）。
@@ -303,6 +357,7 @@
 - 11 commits 自 v0.3.2
 - 对应 tag：`v0.3.3`
 
-[Unreleased]: https://github.com/dddpeter/picoclaw/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/dddpeter/picoclaw/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/dddpeter/picoclaw/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/dddpeter/picoclaw/compare/v0.5.6...v0.6.0
 [0.5.6]: https://github.com/dddpeter/picoclaw/compare/v0.5.5...v0.5.6
