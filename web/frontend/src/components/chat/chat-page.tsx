@@ -10,7 +10,9 @@ import {
   type ChangeEvent,
   type ClipboardEvent,
   type DragEvent,
+  useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react"
@@ -134,18 +136,18 @@ export function ChatPage() {
     assistantDetailVisibilityAtom,
   )
 
-  const assistantDetailVisibilityOptions: Array<{
-    value: AssistantDetailVisibility
-    label: string
-  }> = [
-    { value: "none", label: t("chat.assistantDetailVisibility.none") },
-    { value: "thought", label: t("chat.assistantDetailVisibility.thought") },
-    {
-      value: "tool_calls",
-      label: t("chat.assistantDetailVisibility.toolCalls"),
-    },
-    { value: "all", label: t("chat.assistantDetailVisibility.all") },
-  ]
+  const assistantDetailVisibilityOptions = useMemo(
+    () => [
+      { value: "none", label: t("chat.assistantDetailVisibility.none") },
+      { value: "thought", label: t("chat.assistantDetailVisibility.thought") },
+      {
+        value: "tool_calls",
+        label: t("chat.assistantDetailVisibility.toolCalls"),
+      },
+      { value: "all", label: t("chat.assistantDetailVisibility.all") },
+    ],
+    [t],
+  )
 
   const {
     messages,
@@ -184,10 +186,18 @@ export function ChatPage() {
   } = useSessionModel({ activeSessionId, isConnected: isGatewayRunning })
 
   // 常驻元信息：会话模型 → 末次回合模型 → 末条助手消息 → 配置主模型。
+  // 末条 modelName 几乎总在尾部附近：从尾向前扫，避免整数组拷贝反转。
+  let lastMessageModelName: string | undefined
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].modelName) {
+      lastMessageModelName = messages[i].modelName
+      break
+    }
+  }
   const model =
     sessionModel ||
     turnStats?.modelName ||
-    [...messages].reverse().find((m) => m.modelName)?.modelName ||
+    lastMessageModelName ||
     defaultModelName
   // 活动模型的上下文窗口总量：
   //   1. 会话模型已绑定 → 用会话模型的窗口（切换模型后立即生效；实时用量
@@ -379,6 +389,16 @@ export function ChatPage() {
 
   const canSubmit =
     canInput && (Boolean(input.trim()) || attachments.length > 0)
+
+  // 稳定回调：ChatComposer 包 memo 后，匿名内联闭包会击穿浅比较。
+  const handleStopTurn = useCallback(() => {
+    sendMessage({ content: "/stop", attachments: [] })
+  }, [sendMessage])
+  const handleContextDetail = useCallback(() => {
+    if (sendMessage({ content: "/context", attachments: [] })) {
+      setInput("")
+    }
+  }, [sendMessage])
 
   const handleTemplateFill = (text: string) => {
     if (!canInput) return
@@ -626,14 +646,8 @@ export function ChatPage() {
               onRemoveAttachment={handleRemoveAttachment}
               onSend={handleSend}
               isTyping={isTyping}
-              onStop={() => {
-                sendMessage({ content: "/stop", attachments: [] })
-              }}
-              onContextDetail={() => {
-                if (sendMessage({ content: "/context", attachments: [] })) {
-                  setInput("")
-                }
-              }}
+              onStop={handleStopTurn}
+              onContextDetail={handleContextDetail}
               inputDisabledReason={inputDisabledReason}
               canSend={canSubmit}
               isDragActive={isDragActive}

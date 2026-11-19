@@ -198,6 +198,21 @@ export function updateChatStore(
 ) {
   store.set(chatAtom, (prev) => {
     const nextPatch = typeof patch === "function" ? patch(prev) : patch
+    // 相等性熔断（对齐 gateway store 的 normalize 范式）：patch 的每个字段
+    // 与现值全等时返回原 state 对象——冗余 patch（重复 hydrate、未变的
+    // contextUsage、同值 turnStatus 等）不再产生新引用、不触发整树重渲。
+    // 流式帧（messages/lastTurnActivityAt 每帧必变）不受影响。
+    let changed = false
+    for (const key of Object.keys(nextPatch) as (keyof ChatStoreState)[]) {
+      if (prev[key] !== nextPatch[key]) {
+        changed = true
+        break
+      }
+    }
+    if (!changed) {
+      return prev
+    }
+
     const next = { ...prev, ...nextPatch }
 
     if (next.activeSessionId !== prev.activeSessionId) {

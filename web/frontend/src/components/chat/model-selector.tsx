@@ -1,3 +1,4 @@
+import { memo } from "react"
 import { useTranslation } from "react-i18next"
 
 import type { ModelInfo } from "@/api/models"
@@ -27,7 +28,7 @@ interface ModelSelectorProps {
   onValueChange: (modelName: string) => void
 }
 
-export function ModelSelector({
+export const ModelSelector = memo(function ModelSelector({
   defaultModelName,
   sessionModel,
   apiKeyModels,
@@ -177,4 +178,4 @@ export function ModelSelector({
       </SelectContent>
     </Select>
   )
-}
+})

@@ -10,6 +10,7 @@ import {
   type ClipboardEvent as ReactClipboardEvent,
   type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
+  memo,
   useRef,
 } from "react"
 import { useTranslation } from "react-i18next"
@@ -66,7 +67,7 @@ interface ChatComposerProps {
   inputTokens?: number
 }
 
-export function ChatComposer({
+export const ChatComposer = memo(function ChatComposer({
   input,
   attachments,
   onInputChange,
@@ -313,4 +314,4 @@ export function ChatComposer({
       </div>
     </div>
   )
-}
+})
