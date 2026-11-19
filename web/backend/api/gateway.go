@@ -280,7 +280,7 @@ func (h *Handler) validateGatewayPidData(
 		return false, true, "invalid pid data"
 	}
 
-	if gatewayProcess, inspected := gatewayProcessMatcher(pidData.PID); inspected {
+	if gatewayProcess, inspected := classifyGatewayProcessCached(pidData.PID); inspected {
 		if !gatewayProcess {
 			return false, true, "pid process command is not picoclaw gateway"
 		}
@@ -423,12 +423,13 @@ func (h *Handler) GatewayUserStopped() bool {
 }
 
 // gatewayStartReady validates whether current config can start the gateway.
+// Reads go through cachedConfigFor: the 2s status poll is the dominant
+// caller, and model-name normalization already happened at cache fill.
 func (h *Handler) gatewayStartReady() (bool, string, error) {
-	cfg, err := config.LoadConfig(h.configPath)
+	cfg, err := cachedConfigFor(h.configPath)
 	if err != nil {
 		return false, "", fmt.Errorf("failed to load config: %w", err)
 	}
-	normalizeStoredModelNames(cfg)
 
 	modelName := strings.TrimSpace(cfg.Agents.Defaults.GetModelName())
 	if modelName == "" {
@@ -1513,7 +1514,7 @@ func (h *Handler) handleGatewayStatus(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) gatewayStatusData() map[string]any {
 	data := map[string]any{}
 	var configDefaultModel string
-	cfg, cfgErr := config.LoadConfig(h.configPath)
+	cfg, cfgErr := cachedConfigFor(h.configPath)
 	if cfgErr == nil && cfg != nil {
 		configDefaultModel = strings.TrimSpace(cfg.Agents.Defaults.GetModelName())
 		if configDefaultModel != "" {

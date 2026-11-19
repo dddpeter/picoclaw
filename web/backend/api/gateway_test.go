@@ -103,6 +103,7 @@ func resetGatewayTestState(t *testing.T) {
 	originalRestartGracePeriod := gatewayRestartGracePeriod
 	originalRestartForceKillWindow := gatewayRestartForceKillWindow
 	originalRestartPollInterval := gatewayRestartPollInterval
+	resetGatewayCachesForTest()
 	t.Setenv("PICOCLAW_HOME", t.TempDir())
 	t.Cleanup(func() {
 		gatewayHealthGet = originalHealthGet
