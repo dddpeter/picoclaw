@@ -1,15 +1,5 @@
 import { IconCheck, IconChevronDown, IconCopy } from "@tabler/icons-react"
 import hljs from "highlight.js/lib/core"
-import bash from "highlight.js/lib/languages/bash"
-import go from "highlight.js/lib/languages/go"
-import java from "highlight.js/lib/languages/java"
-import javascript from "highlight.js/lib/languages/javascript"
-import json from "highlight.js/lib/languages/json"
-import python from "highlight.js/lib/languages/python"
-import sql from "highlight.js/lib/languages/sql"
-import typescript from "highlight.js/lib/languages/typescript"
-import xml from "highlight.js/lib/languages/xml"
-import yaml from "highlight.js/lib/languages/yaml"
 import { useAtom } from "jotai"
 import {
   type CSSProperties,
@@ -21,6 +11,7 @@ import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard"
+import { codeLanguages } from "@/lib/code-languages"
 import { cn } from "@/lib/utils"
 import { codeBlockWrapAtom } from "@/store/code-block"
 
@@ -39,16 +30,9 @@ import {
 const CODE_LABEL_FONT_FAMILY =
   'ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", monospace'
 
-hljs.registerLanguage("json", json)
-hljs.registerLanguage("javascript", javascript)
-hljs.registerLanguage("typescript", typescript)
-hljs.registerLanguage("python", python)
-hljs.registerLanguage("go", go)
-hljs.registerLanguage("java", java)
-hljs.registerLanguage("bash", bash)
-hljs.registerLanguage("sql", sql)
-hljs.registerLanguage("yaml", yaml)
-hljs.registerLanguage("xml", xml)
+for (const [name, language] of Object.entries(codeLanguages)) {
+  hljs.registerLanguage(name, language)
+}
 
 interface MessageCodeBlockProps {
   code: string

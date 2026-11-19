@@ -14,6 +14,7 @@ import remarkMath from "remark-math"
 import type { PluggableList } from "unified"
 
 import { isSingleLine } from "@/components/chat/message-code-block.utils"
+import { codeLanguages } from "@/lib/code-languages"
 import { openFilePreview } from "@/store/file-preview"
 
 import { splitCodeLines } from "./code-lines"
@@ -36,7 +37,9 @@ const rehypePlugins: PluggableList = [
   // KaTeX 在 highlight 之前：两者目标节点不相交（.math vs pre code），
   // 公式解析失败时只显示红色源码（throwOnError: false），不打断整条消息。
   [rehypeKatex, { strict: false, throwOnError: false }],
-  [rehypeHighlight, { detect: true, ignoreMissing: true }],
+  // 统一 10 语言子集（lib/code-languages）替代 lowlight common 全集：
+  // 无语言标注的围栏不再猜语言（detect 关闭），未注册语言原样渲染。
+  [rehypeHighlight, { detect: false, ignoreMissing: true, languages: codeLanguages }],
 ]
 
 /** Inline file tags → clickable markdown links (design §5.4 render hook):

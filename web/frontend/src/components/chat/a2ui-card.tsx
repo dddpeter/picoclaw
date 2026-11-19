@@ -28,8 +28,14 @@ import { Markdown } from "@/chat-pi/markdown"
 import { sendChatMessage } from "@/features/chat/controller"
 import type { A2uiInfo } from "@/store/chat"
 
-import { buildActionMessage } from "./a2ui-catalog"
+import { buildActionMessage, initA2uiBasicCatalog } from "./a2ui-catalog"
 import { catalogWithVegaChart } from "./a2ui-vega-catalog"
+
+// A2UI basic catalog 一次性初始化（注册 custom elements + 注入样式，幂等）。
+// 从入口 chunk 迁到本模块顶层：本模块只在首个 render_ui 卡片的聊天页
+// chunk 里被求值，basic_catalog 的注册面（components/functions 全集）
+// 不再进 entry bundle。测试文件仍直接调 initA2uiBasicCatalog，不受影响。
+initA2uiBasicCatalog()
 
 /**
  * A2UI 渲染卡（D5 设计）：聊天流内渲染 agent 经 render_ui 工具产出的
