@@ -33,7 +33,7 @@ import (
 )
 
 const (
-	defaultChannelQueueSize = 16
+	defaultChannelQueueSize = 64
 	defaultRateLimit        = 10 // default 10 msg/s
 	maxRetries              = 3
 	rateLimitDelay          = 1 * time.Second
@@ -1709,6 +1709,95 @@ func (m *Manager) sendWithRetry(
 	return nil, false
 }
 
+// Outbound dispatch wait bounds for the full-queue policy (vars so tests
+// can shrink them). The single outbound dispatcher serves every channel:
+// an unbounded block on one wedged channel's queue would stall dispatch
+// for all channels and, cascading through the bus (blocking publish),
+// freeze the agent turn goroutines themselves — the gateway-wide
+// head-of-line blocking this policy replaces.
+var (
+	// secondary (tool_feedback): display bubble only — the final message
+	// dismisses tracked feedback regardless, so losing one under pressure
+	// costs a stale bubble, not information.
+	outboundDropWaitSecondary = 250 * time.Millisecond
+	// critical (final answers, tool_calls, approval/ask cards, plain
+	// replies): bounded wait, then drop with an ERROR log and a runtime
+	// event — sustained wedge on one channel degrades to loud message loss
+	// instead of a gateway-wide stall.
+	outboundDropWaitCritical = 2 * time.Second
+)
+
+// outboundMessageIsDroppableBeat reports whether the message is pure
+// narration (progress heartbeat / thought) whose next beat always carries
+// fresher state — safe to drop at once when the queue is full.
+func outboundMessageIsDroppableBeat(msg bus.OutboundMessage) bool {
+	if len(msg.Context.Raw) == 0 {
+		return false
+	}
+	kind := strings.TrimSpace(msg.Context.Raw["message_kind"])
+	return strings.EqualFold(kind, "progress_note") || strings.EqualFold(kind, "thought")
+}
+
+// enqueueOutboundForDispatch enqueues one outbound message onto a channel
+// worker's queue with the tiered full-queue policy above. Returns false
+// only when the dispatcher should shut down (context cancelled).
+func (m *Manager) enqueueOutboundForDispatch(
+	ctx context.Context,
+	w *channelWorker,
+	msg bus.OutboundMessage,
+) bool {
+	channel := outboundMessageChannel(msg)
+	// Fast path: space available.
+	select {
+	case w.queue <- msg:
+		m.publishOutboundQueued(channel, msg)
+		return true
+	default:
+	}
+
+	if outboundMessageIsDroppableBeat(msg) {
+		logger.DebugCF("channels", "Outbound beat dropped on full channel queue", map[string]any{
+			"channel": channel,
+			"chat_id": outboundMessageChatID(msg),
+			"queued":  len(w.queue),
+		})
+		return true
+	}
+
+	wait := outboundDropWaitCritical
+	severity := "error"
+	if outboundMessageIsToolFeedback(msg) {
+		wait = outboundDropWaitSecondary
+		severity = "warn"
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case w.queue <- msg:
+		m.publishOutboundQueued(channel, msg)
+		return true
+	case <-timer.C:
+		err := fmt.Errorf("outbound channel queue full after %s wait (queued=%d)", wait, len(w.queue))
+		logAttrs := map[string]any{
+			"channel": channel,
+			"chat_id": outboundMessageChatID(msg),
+			"kind":    strings.TrimSpace(msg.Context.Raw["message_kind"]),
+			"queued":  len(w.queue),
+			"wait":    wait.String(),
+			"error":   err.Error(),
+		}
+		if severity == "warn" {
+			logger.WarnCF("channels", "Outbound tool feedback dropped on full channel queue", logAttrs)
+		} else {
+			logger.ErrorCF("channels", "Outbound message dropped on full channel queue", logAttrs)
+			m.publishOutboundFailed(channel, msg, err, false)
+		}
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
 func dispatchLoop[M any](
 	ctx context.Context,
 	m *Manager,
@@ -1764,15 +1853,7 @@ func (m *Manager) dispatchOutbound(ctx context.Context) {
 		ctx, m,
 		m.bus.OutboundChan(),
 		func(msg bus.OutboundMessage) string { return outboundMessageChannel(msg) },
-		func(ctx context.Context, w *channelWorker, msg bus.OutboundMessage) bool {
-			select {
-			case w.queue <- msg:
-				m.publishOutboundQueued(outboundMessageChannel(msg), msg)
-				return true
-			case <-ctx.Done():
-				return false
-			}
-		},
+		m.enqueueOutboundForDispatch,
 		"Outbound dispatcher started",
 		"Outbound dispatcher stopped",
 		"Unknown channel for outbound message",
