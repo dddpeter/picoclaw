@@ -131,7 +131,7 @@ const AssistantCard = memo(function AssistantCard({
       )}
     </div>
   )
-}
+})
 
 /** pi-web-ui Block 的 text 分支：用户气泡保留单个换行；助手流式走
  *  StreamMarkdown。复制统一由 MessageActionsBar 承载。 */

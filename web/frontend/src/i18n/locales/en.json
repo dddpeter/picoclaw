@@ -1180,7 +1180,8 @@
     "moreActions": "More actions",
     "backToLatest": "Back to latest",
     "backToTop": "Back to top",
-    "copyFailed": "Copy failed, please retry"
+    "copyFailed": "Copy failed, please retry",
+    "showEarlierTurns": "Show {{count}} earlier replies"
   },
   "tpl": {
     "hint": "Click a card to fill the input; ✏️ to edit or delete; add your own too",
