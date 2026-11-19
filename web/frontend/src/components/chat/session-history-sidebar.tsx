@@ -13,6 +13,7 @@ import { LOBE_SCOPE_TOKENS } from "@/chat-pi/tokens"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
+import { setSessionPollBusy, subscribeSessionPolling } from "@/store/session-poll"
 
 interface SessionHistorySidebarProps {
   sessions: SessionSummary[]
@@ -30,6 +31,9 @@ interface SessionHistorySidebarProps {
   onRefresh: () => void
   onAutoRefresh: () => void
 }
+
+// 初始加载单例标记（模块级，双实例共享；见组件内 mount effect）。
+let sidebarInitialLoadDone = false
 
 export function SessionHistorySidebar({
   sessions,
@@ -50,7 +54,6 @@ export function SessionHistorySidebar({
   const { t } = useTranslation()
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState("")
-  const loadedRef = useRef(false)
   const onRefreshRef = useRef(onRefresh)
   const onAutoRefreshRef = useRef(onAutoRefresh)
   const sentinelRef = useRef<HTMLDivElement | null>(null)
@@ -59,11 +62,13 @@ export function SessionHistorySidebar({
     onAutoRefreshRef.current = onAutoRefresh
   })
 
+  // 初始加载单例（F7）：桌面内联 + 抽屉双实例共享一个标记——抽屉打开
+  // 不再触发第二份 onRefresh（那会把已加载的分页折叠回第一页）。
   useEffect(() => {
-    if (loadedRef.current) {
+    if (sidebarInitialLoadDone) {
       return
     }
-    loadedRef.current = true
+    sidebarInitialLoadDone = true
     onRefresh()
   }, [onRefresh])
 
@@ -71,25 +76,16 @@ export function SessionHistorySidebar({
   // ...) without any websocket event reaching this page, so poll and refresh
   // on focus to keep the list current without a manual reload. While any
   // listed session is mid-turn, poll faster so busy spinners settle promptly.
+  // 轮询单一 owner（F7）：interval/visibility/focus 全部收进
+  // store/session-poll，双实例只多一个订阅者、不再各跑一套。
   const anyBusy = sessions.some((s) => s.busy)
   useEffect(() => {
-    const refreshIfVisible = () => {
-      if (document.visibilityState === "visible") {
-        onAutoRefreshRef.current()
-      }
-    }
-    const interval = window.setInterval(
-      refreshIfVisible,
-      anyBusy ? 5_000 : 30_000,
-    )
-    window.addEventListener("focus", refreshIfVisible)
-    document.addEventListener("visibilitychange", refreshIfVisible)
-    return () => {
-      window.clearInterval(interval)
-      window.removeEventListener("focus", refreshIfVisible)
-      document.removeEventListener("visibilitychange", refreshIfVisible)
-    }
+    setSessionPollBusy(anyBusy)
   }, [anyBusy])
+  useEffect(
+    () => subscribeSessionPolling(() => onAutoRefreshRef.current()),
+    [],
+  )
 
   // Infinite-scroll trigger. Owned per-instance (M-3): when this sidebar is
   // rendered twice (desktop inline + mobile drawer), each copy observes its
