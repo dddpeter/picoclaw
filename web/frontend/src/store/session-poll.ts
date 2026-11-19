@@ -3,7 +3,6 @@
 // 分页进度被第二次首载折叠）。本模块引用计数订阅、单 timer，节拍随
 // busy 加速（5s/30s），后台标签页暂停 + 回到可见/窗口聚焦立即刷新——
 // 结构复用 store/gateway.ts 的成熟范式（注释同源）。
-import type { SessionSummary } from "@/api/sessions"
 
 const SESSION_POLL_INTERVAL_MS = 30_000
 const SESSION_POLL_BUSY_INTERVAL_MS = 5_000
