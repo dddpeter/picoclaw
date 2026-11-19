@@ -54,7 +54,13 @@ func (p *Pipeline) compactBeforeLLMCall(
 	for _, m := range exec.callMessages {
 		msgTokens += EstimateMessageTokens(m)
 	}
-	toolTokens := EstimateToolDefsTokens(exec.providerToolDefs)
+	// Reuse the tool-schema estimate cached at the iteration's beforeLLM
+	// stage (pipeline_llm sets exec.toolDefTokens) — recomputing here would
+	// re-marshal the whole tool schema set a third time per iteration.
+	toolTokens := exec.toolDefTokens
+	if toolTokens <= 0 {
+		toolTokens = EstimateToolDefsTokens(exec.providerToolDefs)
+	}
 	if !forced && msgTokens+toolTokens+ts.agent.MaxTokens+iterationCompactSafetyTokens <= window {
 		return false
 	}
