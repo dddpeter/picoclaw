@@ -212,7 +212,7 @@ func (al *AgentLoop) publishPicoToolCallInterim(
 
 	visibleToolCalls := utils.BuildVisibleToolCalls(
 		toolCalls,
-		al.cfg.Agents.Defaults.GetToolFeedbackMaxArgsLength(),
+		al.GetConfig().Agents.Defaults.GetToolFeedbackMaxArgsLength(),
 	)
 	duplicateToolCallContent := len(visibleToolCalls) > 0 &&
 		utils.ToolCallExplanationDuplicatesContent(content, toolCalls)

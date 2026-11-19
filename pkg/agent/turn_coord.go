@@ -165,7 +165,7 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 			select {
 			case result, ok := <-ts.pendingResults:
 				if ok && result != nil && result.ForLLM != "" {
-					content := al.cfg.FilterSensitiveData(result.ForLLM)
+					content := pipeline.Cfg.FilterSensitiveData(result.ForLLM)
 					msg := subTurnResultPromptMessage(content)
 					pendingMessages = append(pendingMessages, msg)
 				}
@@ -391,7 +391,7 @@ func (al *AgentLoop) selectCandidates(
 }
 
 func (al *AgentLoop) resolveContextManager() ContextManager {
-	name := al.cfg.Agents.Defaults.ContextManager
+	name := al.GetConfig().Agents.Defaults.ContextManager
 	if name == "" || name == "legacy" {
 		return &legacyContextManager{al: al}
 	}
@@ -402,7 +402,7 @@ func (al *AgentLoop) resolveContextManager() ContextManager {
 		})
 		return &legacyContextManager{al: al}
 	}
-	cm, err := factory(al.cfg.Agents.Defaults.ContextManagerConfig, al)
+	cm, err := factory(al.GetConfig().Agents.Defaults.ContextManagerConfig, al)
 	if err != nil {
 		logger.WarnCF("agent", "Failed to create context manager, falling back to legacy", map[string]any{
 			"name":  name,

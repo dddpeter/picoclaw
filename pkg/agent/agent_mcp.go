@@ -98,14 +98,14 @@ func (r *mcpRuntime) getManager() *mcp.Manager {
 // ensureMCPInitialized loads MCP servers/tools once so both Run() and direct
 // agent mode share the same initialization path.
 func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
-	if !al.cfg.Tools.IsToolEnabled("mcp") {
+	if !al.GetConfig().Tools.IsToolEnabled("mcp") {
 		return nil
 	}
 
 	// Merge Agent Plugins MCP servers into an in-memory copy BEFORE the
 	// empty check: a user with zero configured servers plus a plugin with a
 	// server must still initialize MCP (design D1 — merge, never persist).
-	merged := mergePluginServers(&al.cfg.Tools.MCP)
+	merged := mergePluginServers(&al.GetConfig().Tools.MCP)
 
 	if len(merged.Servers) == 0 {
 		logger.WarnCF("agent", "MCP is enabled but no servers are configured, skipping MCP initialization", nil)
@@ -138,7 +138,7 @@ func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
 		mcpManager := mcp.NewManager(mcp.WithRuntimeEvents(al.runtimeEvents))
 
 		defaultAgent := al.registry.GetDefaultAgent()
-		workspacePath := al.cfg.WorkspacePath()
+		workspacePath := al.GetConfig().WorkspacePath()
 		if defaultAgent != nil && defaultAgent.Workspace != "" {
 			workspacePath = defaultAgent.Workspace
 		}
@@ -171,7 +171,7 @@ func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
 			// Determine whether this server's tools should be deferred (hidden).
 			// Per-server "deferred" field takes precedence over the global Discovery.Enabled.
 			serverCfg := mcpCfg.Servers[serverName]
-			registerAsHidden := serverIsDeferred(al.cfg.Tools.MCP.Discovery.Enabled, serverCfg)
+			registerAsHidden := serverIsDeferred(al.GetConfig().Tools.MCP.Discovery.Enabled, serverCfg)
 			registeredToolsByAgent := make(map[string]map[string]struct{}, len(agentIDs))
 
 			for _, tool := range conn.Tools {
@@ -193,7 +193,7 @@ func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
 					mcpTool := tools.NewMCPTool(mcpManager, serverName, tool)
 					toolName := mcpTool.Name()
 					mcpTool.SetWorkspace(agent.Workspace)
-					mcpTool.SetMaxInlineTextRunes(al.cfg.Tools.MCP.GetMaxInlineTextChars())
+					mcpTool.SetMaxInlineTextRunes(al.GetConfig().Tools.MCP.GetMaxInlineTextChars())
 					mcpTool.SetEventPublisher(al.runtimeEvents)
 
 					if registerAsHidden {
@@ -241,9 +241,9 @@ func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
 			})
 
 		// Initializes Discovery Tools only if enabled by configuration
-		if al.cfg.Tools.MCP.Enabled && al.cfg.Tools.MCP.Discovery.Enabled {
-			useBM25 := al.cfg.Tools.MCP.Discovery.UseBM25
-			useRegex := al.cfg.Tools.MCP.Discovery.UseRegex
+		if al.GetConfig().Tools.MCP.Enabled && al.GetConfig().Tools.MCP.Discovery.Enabled {
+			useBM25 := al.GetConfig().Tools.MCP.Discovery.UseBM25
+			useRegex := al.GetConfig().Tools.MCP.Discovery.UseRegex
 
 			// Fail fast: If discovery is enabled but no search method is turned on
 			if !useBM25 && !useRegex {
@@ -259,12 +259,12 @@ func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
 				return
 			}
 
-			ttl := al.cfg.Tools.MCP.Discovery.TTL
+			ttl := al.GetConfig().Tools.MCP.Discovery.TTL
 			if ttl <= 0 {
 				ttl = 5 // Default value
 			}
 
-			maxSearchResults := al.cfg.Tools.MCP.Discovery.MaxSearchResults
+			maxSearchResults := al.GetConfig().Tools.MCP.Discovery.MaxSearchResults
 			if maxSearchResults <= 0 {
 				maxSearchResults = 5 // Default value
 			}
@@ -278,7 +278,7 @@ func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
 				if !ok {
 					continue
 				}
-				if !agentHasDiscoverableMCPServers(al.cfg, agent.MCPServerAllowlist) {
+				if !agentHasDiscoverableMCPServers(al.GetConfig(), agent.MCPServerAllowlist) {
 					continue
 				}
 
@@ -562,5 +562,5 @@ func (al *AgentLoop) MCPStatusSnapshot() any {
 	if initialized {
 		servers = manager.GetServers()
 	}
-	return buildMCPStatusSnapshot(al.cfg, servers, initialized)
+	return buildMCPStatusSnapshot(al.GetConfig(), servers, initialized)
 }

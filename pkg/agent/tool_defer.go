@@ -128,10 +128,10 @@ func (d *toolDeferState) isLoaded(sessionKey, toolName string) bool {
 // deferralThreshold resolves the configured threshold: 0/absent = the
 // recommended default (doc §六 "超过阈值自动启用"), negative = disabled.
 func (al *AgentLoop) deferralThreshold() int {
-	if al == nil || al.cfg == nil {
+	if al == nil || al.GetConfig() == nil {
 		return 0
 	}
-	switch v := al.cfg.Tools.MCP.DeferredThreshold; {
+	switch v := al.GetConfig().Tools.MCP.DeferredThreshold; {
 	case v < 0:
 		return 0 // explicit off
 	case v == 0:

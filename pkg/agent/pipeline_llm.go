@@ -81,8 +81,8 @@ func (p *Pipeline) CallLLM(
 	exec.providerToolDefs = al.appendMetaToolDefs(ts.sessionKey, exec.providerToolDefs)
 
 	// Native web search support
-	webSearchEnabled := al.cfg.Tools.IsToolEnabled("web") && turnProfileToolAllowed(ts.profile, "web_search")
-	exec.useNativeSearch = webSearchEnabled && al.cfg.Tools.Web.PreferNative &&
+	webSearchEnabled := p.Cfg.Tools.IsToolEnabled("web") && turnProfileToolAllowed(ts.profile, "web_search")
+	exec.useNativeSearch = webSearchEnabled && p.Cfg.Tools.Web.PreferNative &&
 		func() bool {
 			if ns, ok := exec.activeProvider.(providers.NativeSearchCapable); ok {
 				return ns.SupportsNativeSearch()
@@ -194,7 +194,7 @@ func (p *Pipeline) CallLLM(
 			return ControlBreak, nil
 		}
 	}
-	exec.useNativeSearch = webSearchEnabled && al.cfg.Tools.Web.PreferNative &&
+	exec.useNativeSearch = webSearchEnabled && p.Cfg.Tools.Web.PreferNative &&
 		func() bool {
 			if ns, ok := exec.activeProvider.(providers.NativeSearchCapable); ok {
 				return ns.SupportsNativeSearch()
@@ -304,7 +304,7 @@ func (p *Pipeline) CallLLM(
 			callOpts := shallowCloneLLMOptions(exec.llmOpts)
 			delete(callOpts, "thinking_level")
 			candidateTools := toolDefsForCall
-			candidateNativeSearch := webSearchEnabled && al.cfg.Tools.Web.PreferNative &&
+			candidateNativeSearch := webSearchEnabled && p.Cfg.Tools.Web.PreferNative &&
 				func() bool {
 					if ns, ok := candidateProvider.(providers.NativeSearchCapable); ok {
 						return ns.SupportsNativeSearch()

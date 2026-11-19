@@ -77,7 +77,7 @@ func (al *AgentLoop) sendTranscriptionFeedback(
 	channel, chatID, messageID string,
 	validTexts []string,
 ) {
-	if !al.cfg.Voice.EchoTranscription {
+	if !al.GetConfig().Voice.EchoTranscription {
 		return
 	}
 	if al.channelManager == nil {

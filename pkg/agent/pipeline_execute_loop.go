@@ -266,16 +266,16 @@ func (p *Pipeline) handleHookRespond(
 	}
 
 	contentForLLM := hookResult.ContentForLLM()
-	if al.cfg.Tools.IsFilterSensitiveDataEnabled() {
-		contentForLLM = al.cfg.FilterSensitiveData(contentForLLM)
+	if p.Cfg.Tools.IsFilterSensitiveDataEnabled() {
+		contentForLLM = p.Cfg.FilterSensitiveData(contentForLLM)
 	}
 
 	var toolResultMedia []string
 	if len(hookResult.Media) > 0 && !hookResult.ResponseHandled {
 		hookResult.ArtifactTags = buildArtifactTags(al.mediaStore, hookResult.Media)
 		contentForLLM = hookResult.ContentForLLM()
-		if al.cfg.Tools.IsFilterSensitiveDataEnabled() {
-			contentForLLM = al.cfg.FilterSensitiveData(contentForLLM)
+		if p.Cfg.Tools.IsFilterSensitiveDataEnabled() {
+			contentForLLM = p.Cfg.FilterSensitiveData(contentForLLM)
 		}
 		toolResultMedia = append(toolResultMedia, hookResult.Media...)
 	}
@@ -355,10 +355,10 @@ func (p *Pipeline) handleAfterToolDecision(
 func (p *Pipeline) publishToolFeedback(ls *toolLoopState, tc providers.ToolCall, toolName string, toolArgs map[string]any) {
 	al := ls.al
 	ts := ls.ts
-	if !(shouldPublishToolFeedback(al.cfg, ts) && ts.channel != "pico" && ls.exec.streamingPublisher == nil) {
+	if !(shouldPublishToolFeedback(p.Cfg, ts) && ts.channel != "pico" && ls.exec.streamingPublisher == nil) {
 		return
 	}
-	toolFeedbackMaxLen := al.cfg.Agents.Defaults.GetToolFeedbackMaxArgsLength()
+	toolFeedbackMaxLen := p.Cfg.Agents.Defaults.GetToolFeedbackMaxArgsLength()
 	toolFeedbackExplanation := toolFeedbackExplanationForToolCall(
 		ls.exec.response,
 		tc,
@@ -498,7 +498,7 @@ func (p *Pipeline) runToolInvocation(
 		// output budget backstop (with offload) is applied here too.
 		content = tools.ApplyOutputBudgetWithOffload(asyncToolName, content, ts.agent.Tools.OutputBudget(), ts.workspace)
 
-		content = al.cfg.FilterSensitiveData(content)
+		content = p.Cfg.FilterSensitiveData(content)
 
 		logger.InfoCF("agent", "Async tool completed, publishing result",
 			map[string]any{
@@ -634,8 +634,8 @@ func (p *Pipeline) handleToolResult(
 	}
 	contentForLLM := toolResult.ContentForLLM()
 
-	if al.cfg.Tools.IsFilterSensitiveDataEnabled() {
-		contentForLLM = al.cfg.FilterSensitiveData(contentForLLM)
+	if p.Cfg.Tools.IsFilterSensitiveDataEnabled() {
+		contentForLLM = p.Cfg.FilterSensitiveData(contentForLLM)
 	}
 
 	// Low-progress loop detection (Try-Best, minimal): prefix the tool
@@ -764,7 +764,7 @@ func (p *Pipeline) drainPendingSubTurnResults(ls *toolLoopState, gateOnToolPersi
 	select {
 	case result, ok := <-ls.ts.pendingResults:
 		if ok && result != nil && result.ForLLM != "" {
-			content := ls.al.cfg.FilterSensitiveData(result.ForLLM)
+			content := p.Cfg.FilterSensitiveData(result.ForLLM)
 			msg := subTurnResultPromptMessage(content)
 			ls.appendSubTurnMessage(msg, gateOnToolPersist)
 		}

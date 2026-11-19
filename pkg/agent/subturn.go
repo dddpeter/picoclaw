@@ -35,7 +35,7 @@ var (
 
 // getSubTurnConfig returns the effective SubTurn configuration with defaults applied.
 func (al *AgentLoop) getSubTurnConfig() subTurnRuntimeConfig {
-	cfg := al.cfg.Agents.Defaults.SubTurn
+	cfg := al.GetConfig().Agents.Defaults.SubTurn
 
 	maxDepth := cfg.MaxDepth
 	if maxDepth <= 0 {
