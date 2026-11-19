@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/providers/common"
@@ -226,23 +227,32 @@ func withGeminiStreamingReadIdleTimeout(body io.ReadCloser, timeout time.Duratio
 type geminiStreamingReadIdleTimeoutBody struct {
 	body    io.ReadCloser
 	timeout time.Duration
+	timer   *time.Timer
+	// fired is set by the timer callback before it closes the body — see
+	// the openai_compat twin for the Stop()/fired rationale.
+	fired atomic.Bool
 }
 
 func (b *geminiStreamingReadIdleTimeoutBody) Read(p []byte) (int, error) {
-	timedOut := make(chan struct{})
-	timer := time.AfterFunc(b.timeout, func() {
-		close(timedOut)
-		_ = b.body.Close()
-	})
+	if b.timer == nil {
+		b.timer = time.AfterFunc(b.timeout, func() {
+			b.fired.Store(true)
+			_ = b.body.Close()
+		})
+	} else {
+		b.timer.Reset(b.timeout)
+	}
 	n, err := b.body.Read(p)
-	if !timer.Stop() {
-		<-timedOut
+	if !b.timer.Stop() && b.fired.Load() {
 		return n, fmt.Errorf("gemini stream idle timeout after %s", b.timeout)
 	}
 	return n, err
 }
 
 func (b *geminiStreamingReadIdleTimeoutBody) Close() error {
+	if b.timer != nil {
+		b.timer.Stop()
+	}
 	return b.body.Close()
 }
 
