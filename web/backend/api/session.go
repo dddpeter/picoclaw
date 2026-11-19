@@ -245,11 +245,19 @@ type jsonlSessionRef struct {
 	Channel string
 	// Busy: turn marker file present for this session's key base.
 	Busy bool
+	// Created/Updated carry the session timestamps with the same semantics
+	// readJSONLSession computes (meta values, jsonl mtime fallback) so the
+	// list handler can sort refs before parsing any transcript.
+	Created time.Time
+	Updated time.Time
 }
 
 type picoLegacySessionRef struct {
 	ID   string
 	Path string
+	// Updated mirrors the parsed legacy snapshot's Updated field so the
+	// list handler can sort refs without re-parsing.
+	Updated time.Time
 }
 
 func extractPicoSessionIDFromScope(scope session.SessionScope) (string, bool) {
@@ -361,6 +369,7 @@ func (h *Handler) findJSONLSessions(dir string) ([]jsonlSessionRef, error) {
 		if !ok || ref.Key == "" || ref.ID == "" {
 			continue
 		}
+		ref.Created, ref.Updated = sessionTimes(meta.CreatedAt, meta.UpdatedAt, filepath.Join(dir, base+".jsonl"))
 		if _, busy := busyBases[base]; busy {
 			ref.Busy = true
 		}
@@ -395,6 +404,9 @@ func (h *Handler) findJSONLSessions(dir string) ([]jsonlSessionRef, error) {
 		if _, busy := busyBases[base]; busy {
 			ref.Busy = true
 		}
+		if info, infoErr := entry.Info(); infoErr == nil {
+			ref.Created, ref.Updated = info.ModTime(), info.ModTime()
+		}
 		idKey := ref.Channel + "\x00" + ref.ID
 		if _, exists := seen[idKey]; exists {
 			continue
@@ -409,10 +421,79 @@ func (h *Handler) findJSONLSessions(dir string) ([]jsonlSessionRef, error) {
 	return refs, nil
 }
 
+// sessionTimes resolves the list sort timestamps with the same semantics
+// readJSONLSession applies: meta values, jsonl file mtime fallback.
+func sessionTimes(created, updated time.Time, jsonlPath string) (time.Time, time.Time) {
+	if created.IsZero() || updated.IsZero() {
+		if info, err := os.Stat(jsonlPath); err == nil {
+			if created.IsZero() {
+				created = info.ModTime()
+			}
+			if updated.IsZero() {
+				updated = info.ModTime()
+			}
+		}
+	}
+	return created, updated
+}
+
+// jsonlSessionEmpty reports whether the session has no visible messages
+// without parsing the transcript: a missing/empty jsonl file, or a skip
+// offset that covers every line (fully truncated). The line count skips
+// unmarshal — this is the cheap prefilter that lets the list handler
+// paginate refs before paying any full parse.
+func (h *Handler) jsonlSessionEmpty(dir string, ref jsonlSessionRef) bool {
+	jsonlPath := filepath.Join(dir, sanitizeSessionKey(ref.Key)+".jsonl")
+	info, err := os.Stat(jsonlPath)
+	if err != nil || info.Size() == 0 {
+		return true
+	}
+	meta, err := h.readSessionMeta(filepath.Join(dir, sanitizeSessionKey(ref.Key)+".meta.json"), ref.Key)
+	if err != nil || meta.Skip <= 0 {
+		return false
+	}
+	nonEmpty := 0
+	f, err := os.Open(jsonlPath)
+	if err != nil {
+		return true
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxSessionJSONLLineSize)
+	for scanner.Scan() {
+		if len(scanner.Bytes()) > 0 {
+			nonEmpty++
+			if nonEmpty > meta.Skip {
+				return false // an active line exists beyond the skip
+			}
+		}
+	}
+	return true
+}
+
 // findJSONLSession resolves a session by ID, optionally narrowed to a
 // channel. The channel hint disambiguates legacy pico sessions whose UUID
 // equals another channel's opaque session key (web-UI ghost sessions).
 func (h *Handler) findJSONLSession(dir, sessionID, channel string) (jsonlSessionRef, error) {
+	// Fast path: opaque keys have ID == Key == sanitized base, so a single
+	// meta read resolves them without the whole-directory scan. Legacy pico
+	// and alias sessions fall through to the full scan below.
+	if session.IsOpaqueSessionKey(sessionID) {
+		base := sanitizeSessionKey(sessionID)
+		metaPath := filepath.Join(dir, base+".meta.json")
+		if _, err := os.Stat(metaPath); err == nil {
+			if meta, err := h.readSessionMeta(metaPath, sessionID); err == nil {
+				if ref, ok := sessionRefFromMeta(meta, base); ok && ref.ID == sessionID {
+					matched := strings.TrimSpace(channel) == "" ||
+						strings.EqualFold(ref.Channel, channel)
+					if matched {
+						return ref, nil
+					}
+				}
+			}
+		}
+	}
+
 	refs, err := h.findJSONLSessions(dir)
 	if err != nil {
 		return jsonlSessionRef{}, err
@@ -460,7 +541,7 @@ func (h *Handler) findLegacyPicoSessions(dir string) ([]picoLegacySessionRef, er
 			continue
 		}
 		seen[sessionID] = struct{}{}
-		refs = append(refs, picoLegacySessionRef{ID: sessionID, Path: path})
+		refs = append(refs, picoLegacySessionRef{ID: sessionID, Path: path, Updated: sess.Updated})
 	}
 	return refs, nil
 }
@@ -1015,14 +1096,34 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	items := []sessionListItem{}
 	seen := make(map[string]struct{})
 
+	// Two-phase listing (B8): JSONL sessions are sorted by their meta
+	// timestamps BEFORE any transcript parse, and only the requested page
+	// window pays the full parse — the list needs MessageCount/preview from
+	// the transcript, so an unpaginated full parse made the endpoint
+	// O(all transcripts) per request.
+	type sessionCandidate struct {
+		build  func() (sessionListItem, bool)
+		updated time.Time
+	}
+	candidates := []sessionCandidate{}
+
 	if refs, findErr := h.findJSONLSessions(dir); findErr == nil {
 		for _, ref := range refs {
-			sess, loadErr := h.readJSONLSession(dir, ref.Key)
-			if loadErr != nil || isEmptySession(sess) {
+			if h.jsonlSessionEmpty(dir, ref) {
 				continue
 			}
 			seen[ref.ID] = struct{}{}
-			items = append(items, buildSessionListItem(ref.ID, sess, ref.Channel, toolFeedbackMaxArgsLength, ref.Busy))
+			ref := ref
+			candidates = append(candidates, sessionCandidate{
+				updated: ref.Updated,
+				build: func() (sessionListItem, bool) {
+					sess, loadErr := h.readJSONLSession(dir, ref.Key)
+					if loadErr != nil || isEmptySession(sess) {
+						return sessionListItem{}, false
+					}
+					return buildSessionListItem(ref.ID, sess, ref.Channel, toolFeedbackMaxArgsLength, ref.Busy), true
+				},
+			})
 		}
 	}
 
@@ -1031,18 +1132,26 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 			if _, exists := seen[ref.ID]; exists {
 				continue
 			}
-			sess, loadErr := h.readLegacySession(ref.Path)
-			if loadErr != nil || isEmptySession(sess) {
-				continue
-			}
 			seen[ref.ID] = struct{}{}
-			items = append(items, buildSessionListItem(ref.ID, sess, "pico", toolFeedbackMaxArgsLength, false))
+			ref := ref
+			candidates = append(candidates, sessionCandidate{
+				// findLegacyPicoSessions already parsed the snapshot for ID
+				// extraction; reuse its Updated for the sort key.
+				updated: ref.Updated,
+				build: func() (sessionListItem, bool) {
+					sess, loadErr := h.readLegacySession(ref.Path)
+					if loadErr != nil || isEmptySession(sess) {
+						return sessionListItem{}, false
+					}
+					return buildSessionListItem(ref.ID, sess, "pico", toolFeedbackMaxArgsLength, false), true
+				},
+			})
 		}
 	}
 
 	// Sort by updated descending (most recent first)
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].Updated > items[j].Updated
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].updated.After(candidates[j].updated)
 	})
 
 	// Pagination parameters
@@ -1059,16 +1168,24 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		limit = val
 	}
 
-	totalItems := len(items)
+	totalItems := len(candidates)
 
 	end := offset + limit
+	var window []sessionCandidate
 	if offset >= totalItems {
-		items = []sessionListItem{} // Out of bounds, return empty
+		window = nil // Out of bounds, return empty
 	} else {
 		if end > totalItems {
 			end = totalItems
 		}
-		items = items[offset:end]
+		window = candidates[offset:end]
+	}
+
+	// Parse only the page window (the expensive phase).
+	for _, cand := range window {
+		if item, ok := cand.build(); ok {
+			items = append(items, item)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
