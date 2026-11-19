@@ -154,6 +154,46 @@ function observeFeedbackEndedAt(key: string, now: number): number {
 /** 测试辅助：清空反馈观测注册表。 */
 export function resetFeedbackObservations(): void {
   feedbackSeenAt.clear()
+  resetTurnReuseCache()
+}
+
+/**
+ * turn 身份复用缓存（F1 结构共享）。buildTurns 在每条流式增量上都全量重建
+ * PiTurn 数组，而 TurnItem/PiTurnView 的 memo 按对象引用比较——引用每次全新，
+ * memo 恒失效，每个 token 触发整个消息列表的 O(N) 组件重渲。
+ *
+ * 这里在每次构建完成后记录「上一帧的最终形态 turn + 该 turn 消费的消息
+ * 引用区间」；下一帧对非末 turn 做区间逐引用比对（protocol.ts 的
+ * messages.map 保留未命中消息的对象身份），命中则把新构建的同槽位对象
+ * 替换为上一帧对象——值等价（turn 是消息区间 + detail 的纯函数），但引用
+ * 稳定 → memo 生效，只有末 turn（isTyping 活跃面）每帧重渲。
+ *
+ * 复用条件刻意排除含 approval/ask/a2ui 块的 turn：跨 turn 的 latest 标记
+ * 扫描会按「更晚的未封存卡」改写早先 turn 的块，其最终形态不纯是本区间
+ * 消息的函数。这类 turn 少见，重建即可。
+ */
+interface TurnReuseEntry {
+  turn: PiTurn
+  /** 该 turn 是否含 approval/ask/a2ui 块（此类 turn 不参与复用）。 */
+  hasCardBlock: boolean
+}
+
+let turnReuse: {
+  detail: AssistantDetailVisibility
+  firstMessageId: string
+  messages: ChatMessage[]
+  /** 每个 turn 的起始消息下标（与 turns 一一对应；pending 合成 turn 无）。 */
+  startIndices: number[]
+  turns: TurnReuseEntry[]
+} | null = null
+
+function resetTurnReuseCache(): void {
+  turnReuse = null
+}
+
+/** 测试辅助：上一帧复用缓存的引用数（供身份断言）。 */
+export function turnReuseCacheSize(): number {
+  return turnReuse?.turns.length ?? 0
 }
 
 const UNIX_MS_THRESHOLD = 1e12
@@ -227,10 +267,13 @@ export function buildTurns(
 ): PiTurn[] {
   const now = opts.now ?? Date.now()
   const turns: PiTurn[] = []
+  const startIndices: number[] = []
   let current: PiTurn | null = null
+  let walkIndex = -1
 
   const openTurn = (turn: PiTurn): void => {
     turns.push(turn)
+    startIndices.push(walkIndex)
     current = turn
   }
 
@@ -256,6 +299,7 @@ export function buildTurns(
 
   const lastIndex = messages.length - 1
   messages.forEach((message, index) => {
+    walkIndex = index
     // 本条消息是否处于流式（live 块 / running 工具只可能出现在这里）。
     const messageLive =
       opts.isTyping && index === lastIndex && message.role === "assistant"
@@ -422,6 +466,51 @@ export function buildTurns(
         break
       }
     }
+  }
+
+  // F1 身份复用：非末 turn 且消费的消息区间与上一帧逐引用一致时，用上一帧
+  // 的最终形态对象替换本帧新对象（值等价、引用稳定 → 下游 memo 生效）。
+  // 末 turn 永不复用（isTyping/active/pending 都作用于它）。
+  const prev = turnReuse
+  if (
+    prev !== null &&
+    prev.detail === opts.detail &&
+    (prev.messages[0]?.id ?? "") === (messages[0]?.id ?? "")
+  ) {
+    for (let i = 0; i < turns.length - 1 && i < startIndices.length; i++) {
+      const prevEntry = prev.turns[i]
+      if (!prevEntry || prevEntry.hasCardBlock) continue
+      const start = startIndices[i]
+      const prevStart = prev.startIndices[i]
+      if (prevStart === undefined) continue
+      const end = i + 1 < startIndices.length ? startIndices[i + 1] : messages.length
+      const prevEnd =
+        i + 1 < prev.startIndices.length ? prev.startIndices[i + 1] : prev.messages.length
+      if (end - start !== prevEnd - prevStart) continue
+      let match = true
+      for (let k = 0; k < end - start; k++) {
+        if (prev.messages[prevStart + k] !== messages[start + k]) {
+          match = false
+          break
+        }
+      }
+      if (match) {
+        turns[i] = prevEntry.turn
+      }
+    }
+  }
+  turnReuse = {
+    detail: opts.detail,
+    firstMessageId: messages[0]?.id ?? "",
+    messages,
+    startIndices,
+    turns: turns.map((turn) => ({
+      turn,
+      hasCardBlock: (turn.assistant?.blocks ?? []).some(
+        (block) =>
+          block.type === "approval" || block.type === "ask" || block.type === "a2ui",
+      ),
+    })),
   }
 
   return turns

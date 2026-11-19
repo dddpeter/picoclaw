@@ -70,18 +70,21 @@ function ToolIcon({ name }: { name: string }) {
   }
 }
 
-export const ToolCallBlock = memo(function ToolCallBlock({
-  name,
-  argumentsText,
-  view,
-  wrap = true,
-}: {
-  name: string
-  argumentsText?: string
-  view: PiToolView
-  /** 「完整显示工具」开关：true（开）→ 工具始终完整展开；false（关）→ 默认折叠。 */
-  wrap?: boolean
-}) {
+// 自定义比较器：PiBlockView 每次渲染都新建 view 对象（PiToolView 聚合层
+// 无法缓存），默认浅比较被 view 引用击穿——按 view 的实际字段逐项比较。
+export const ToolCallBlock = memo(
+  function ToolCallBlock({
+    name,
+    argumentsText,
+    view,
+    wrap = true,
+  }: {
+    name: string
+    argumentsText?: string
+    view: PiToolView
+    /** 「完整显示工具」开关：true（开）→ 工具始终完整展开；false（关）→ 默认折叠。 */
+    wrap?: boolean
+  }) {
   const { t } = useTranslation()
   // null = 未手动点过 → 跟随开关：wrap=true（开）→ 全部展开；wrap=false（关）→ 全部折叠。
   const [open, setOpen] = useState<boolean | null>(null)
@@ -251,7 +254,16 @@ export const ToolCallBlock = memo(function ToolCallBlock({
       )}
     </div>
   )
-})
+  },
+  (a, b) =>
+    a.name === b.name &&
+    a.argumentsText === b.argumentsText &&
+    a.wrap === b.wrap &&
+    a.view.streaming === b.view.streaming &&
+    a.view.resultText === b.view.resultText &&
+    a.view.resultIsError === b.view.resultIsError &&
+    a.view.durationMs === b.view.durationMs,
+)
 
 /** Pretty-print a bash tool call's command line as a terminal row. */
 function TerminalCommand({ command }: { command: string }) {

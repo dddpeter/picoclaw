@@ -9,7 +9,7 @@
 //  - [REQ-010] 图标统一 @tabler/icons-react；[REQ-001] 消息卡挂 role/tabIndex
 //    供 C1 hover-reveal 键盘可达（focus-within）。
 import { IconExternalLink, IconPaperclip } from "@tabler/icons-react"
-import { memo } from "react"
+import { memo, useMemo } from "react"
 import { useTranslation } from "react-i18next"
 
 import { A2uiCard } from "@/components/chat/a2ui-card"
@@ -82,15 +82,27 @@ function UserCard({ user, label }: { user: PiUserPart; label: string }) {
   )
 }
 
-function AssistantCard({ turn, label }: { turn: PiTurn; label: string }) {
+// memo：结构共享（turns.ts）后 turn 引用对非活跃 turn 保持稳定，包 memo
+// 让历史 turn 在每个流式增量上跳过重渲。
+const AssistantCard = memo(function AssistantCard({
+  turn,
+  label,
+}: {
+  turn: PiTurn
+  label: string
+}) {
   const assistant = turn.assistant
   if (!assistant) return null
   // 空流式占位：turn 活跃但一个可见块都没有（首 token 未到）——
   // pi-web-ui 的 isEmptyStreaming：thinking-wait 而非看不见的空气泡。
   const isEmptyStreaming = turn.active && assistant.blocks.length === 0
-  const actionText = assistant.blocks
-    .flatMap((block) => (block.type === "text" ? [block.text] : []))
-    .join("\n\n")
+  const actionText = useMemo(
+    () =>
+      assistant.blocks
+        .flatMap((block) => (block.type === "text" ? [block.text] : []))
+        .join("\n\n"),
+    [assistant.blocks],
+  )
   return (
     <div
       className="msg msg-assistant"

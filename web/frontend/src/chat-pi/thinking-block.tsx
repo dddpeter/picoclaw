@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // 适配点：i18n 由 pi-web-ui 的 useT() 换成 react-i18next 的 useTranslation()。
 import { IconChevronDown, IconChevronRight, IconCpu } from "@tabler/icons-react"
-import { useId, useState } from "react"
+import { memo, useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { MessageActionsBar } from "@/components/chat/message-actions-bar"
@@ -19,7 +19,8 @@ interface ThinkingBlockProps {
   wrap?: boolean
 }
 
-export function ThinkingBlock({
+// memo：props 全为原始值，长会话里历史 thinking 块在每个流式增量上跳过重渲。
+export const ThinkingBlock = memo(function ThinkingBlock({
   thinking,
   streaming,
   wrap = true,
@@ -97,4 +98,4 @@ export function ThinkingBlock({
       )}
     </div>
   )
-}
+})
