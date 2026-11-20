@@ -146,14 +146,23 @@ func GetLocalIP() string {
 
 // OpenBrowser automatically opens the given URL in the default browser.
 func OpenBrowser(url string) error {
+	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "linux":
-		return exec.Command("xdg-open", url).Start()
+		cmd = exec.Command("xdg-open", url)
 	case "windows":
-		return LauncherExecCommand("rundll32", "url.dll,FileProtocolHandler", url).Start()
+		cmd = LauncherExecCommand("rundll32", "url.dll,FileProtocolHandler", url)
 	case "darwin":
-		return exec.Command("open", url).Start()
+		cmd = exec.Command("open", url)
 	default:
 		return fmt.Errorf("unsupported platform")
 	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	// Reap the child in the background: browsers and xdg-open are
+	// fire-and-forget, but an unwaited child lingers as a zombie until
+	// the parent process exits.
+	go func() { _ = cmd.Wait() }()
+	return nil
 }
