@@ -7,6 +7,19 @@
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-11-21
+
+> 本版本为缺陷修复版（1 commit），未同步上游新提交。
+
+### Fixed
+
+- **OpenBrowser 子进程僵尸回收**：`pkg/auth/oauth.go` 与 `web/backend/utils/runtime.go` 两处 `OpenBrowser` 在 `Start()` 成功后由后台 goroutine `Wait()` 回收子进程。此前短命的 `xdg-open`/`open`/`rundll32` 退出后残留 `<defunct>` 僵尸（Go 运行时不自动回收、父进程无 reap 逻辑），长期运行的服务进程上持续累积、只有重启才消失——生产 launcher 实测 1 天 12 小时累积 2 条。缺陷记录与排查见 `docs/project/BUG-20261120-xdg-open-zombie-process.md`。
+
+### Notes
+
+- 1 commit 自 v0.6.1
+- 对应 tag：`v0.6.2`
+
 ## [0.6.1] - 2026-11-19
 
 > 本版本为 fork 自有推进，未同步上游新提交；含 Web Chat 对齐 LobeHub、会话级模型切换、文件能力，以及三批性能优化。
@@ -357,7 +370,8 @@
 - 11 commits 自 v0.3.2
 - 对应 tag：`v0.3.3`
 
-[Unreleased]: https://github.com/dddpeter/picoclaw/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/dddpeter/picoclaw/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/dddpeter/picoclaw/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/dddpeter/picoclaw/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/dddpeter/picoclaw/compare/v0.5.6...v0.6.0
 [0.5.6]: https://github.com/dddpeter/picoclaw/compare/v0.5.5...v0.5.6

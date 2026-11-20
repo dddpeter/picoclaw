@@ -20,7 +20,7 @@
 
 **中文** | [日本語](README.ja.md) | [한국어](README.ko.md) | [Português](README.pt-br.md) | [Tiếng Việt](README.vi.md) | [Français](README.fr.md) | [Italiano](README.it.md) | [Bahasa Indonesia](README.id.md) | [Malay](README.ms.md) | [English](../../README.md)
 
-> **关于本 fork（v0.6.1）** — 本仓库是 [sipeed/picoclaw](https://github.com/sipeed/picoclaw) 的个人分支，在上游基础上大幅增强：
+> **关于本 fork（v0.6.2）** — 本仓库是 [sipeed/picoclaw](https://github.com/sipeed/picoclaw) 的个人分支，在上游基础上大幅增强：
 >
 > - **HITL 审批门禁**——高危命令/工具先问后执行（超时 fail-closed、默认启用），web/飞书消息流内嵌审批卡，会话策略三档 `/approve always`/`/approve all`/`/approve off`（随时撤销），`/deny` 带理由，群聊答案钉住触发用户
 > - **ask_user 结构化问询**——agent 被用户决策卡住时发起 1-5 题选择题并阻塞等待（步进式 web 问询卡、刷新恢复；作答永不进模型上下文）
@@ -29,6 +29,7 @@
 > - **工作区快照与撤销**——turn 级文件快照（`tools.checkpoint`：文件工具写前留底 + exec 变更探测），`/revert` 一键撤销/级联回滚/列版本，超限诚实降级，web 只读版本与 diff 接口
 > - **`picoclaw tui` 终端客户端**——pi 式主屏滚动布局（默认，`--fullscreen` 保留全屏模式）、会话切换 + fuzzy 命令补全、问询/审批浮层、外部编辑器、OSC52 复制 + 图片粘贴、用量/模型浮层、断线缺口补发
 > - **工具与体验**——LSP 诊断/修复工具、`glob`/`grep` 文件工具、exec 超时引导与 per-call timeout、工具输出第三方 API key 掩码、web `/mcp` 管理页、跨渠道会话侧栏、回合状态栏、飞书流式卡（过程面板/用量条/缓存命中 footer）
+> - **v0.6.2 僵尸进程修复**——两处 `OpenBrowser` 在 `Start()` 后由后台 goroutine `Wait()` 回收短命子进程（`xdg-open`/`open`/`rundll32`），此前每开一次浏览器就在进程表残留一条 `<defunct>`、只有重启才清零；详见 CHANGELOG 0.6.2
 > - **v0.6.1 Web 聊天与性能**——Web Chat 对齐 LobeHub（cut-1~cut-5，REQ-011/016/019/020/023/024）、会话级模型切换（仅对当前会话生效，并发已加固）、文件上传/预览与跨会话「我的文件」，以及三批性能优化——入口 chunk 1.24MB → 644KB、流式热路径去 O(N²)、飞书卡片发送队列移出共享锁、长会话尾部窗口渲染；详见 CHANGELOG 0.6.1
 > - 此前 fork 能力：飞书 CardKit 流式卡片、OpenViking 共享记忆、`/new` 归档轮换 + 模型重置、非阻塞 `/switch`、流式响应头超时、命令输出 inline 清理、低收益循环检测、cron 热重载
 > - **v0.5.1 模块梳理加固**——全仓评审与加固：净删 ~4000 行死代码、`/drafts` 草稿审阅、doctor MCP 探测、spawn_status 真实接线（按会话隔离）、会话重命名 API + web 停止按钮、三渠道断线重连（matrix/deltachat/whatsapp）、config 写锁收敛（修复绑定确认死锁）、updater 供应链守卫；详见 CHANGELOG 0.5.1
