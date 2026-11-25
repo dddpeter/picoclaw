@@ -49,7 +49,7 @@ func TestStdioDirFromPluginBridge(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "cwd"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.MCPServerConfig{Enabled: true, Type: "stdio", Command: "go", Dir: filepath.Join(dir, "cwd")}
+	cfg := config.MCPServerConfig{Dir: filepath.Join(dir, "cwd")}
 	if cfg.Dir == "" {
 		t.Fatal("bridge sets Dir unconditionally; user config keeps it empty")
 	}

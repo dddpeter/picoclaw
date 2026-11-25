@@ -11,6 +11,7 @@ import (
 // inline. Behavior mirrors the /use interception pattern.
 
 func TestApplyLearnCommand_MatchesAndRewritesMessage(t *testing.T) {
+	//nolint:dogsled // helper returns 5 values; only loop and cleanup are needed here
 	al, _, _, _, cleanup := newTestAgentLoop(t)
 	defer cleanup()
 
@@ -47,6 +48,7 @@ func TestApplyLearnCommand_MatchesAndRewritesMessage(t *testing.T) {
 }
 
 func TestApplyLearnCommand_WorkspaceSubstituted(t *testing.T) {
+	//nolint:dogsled // helper returns 5 values; only loop and cleanup are needed here
 	al, _, _, _, cleanup := newTestAgentLoop(t)
 	defer cleanup()
 
@@ -69,6 +71,7 @@ func TestApplyLearnCommand_WorkspaceSubstituted(t *testing.T) {
 }
 
 func TestApplyLearnCommand_BareCommandShowsUsage(t *testing.T) {
+	//nolint:dogsled // helper returns 5 values; only loop and cleanup are needed here
 	al, _, _, _, cleanup := newTestAgentLoop(t)
 	defer cleanup()
 
@@ -87,6 +90,7 @@ func TestApplyLearnCommand_BareCommandShowsUsage(t *testing.T) {
 }
 
 func TestApplyLearnCommand_NonLearnUntouched(t *testing.T) {
+	//nolint:dogsled // helper returns 5 values; only loop and cleanup are needed here
 	al, _, _, _, cleanup := newTestAgentLoop(t)
 	defer cleanup()
 

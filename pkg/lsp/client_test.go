@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -164,8 +165,18 @@ func TestClientTouchFileSendsDidChangeOnSecondTouch(t *testing.T) {
 func TestDocumentKeyNormalizesWindowsEncodings(t *testing.T) {
 	a := DocumentKey("file:///C:/dir/A%20B.go")
 	b := DocumentKey("file:///c%3A/dir/A B.go")
-	if a != b {
-		t.Fatalf("keys differ: %q vs %q", a, b)
+	if runtime.GOOS == "windows" {
+		// Windows paths are case-insensitive: both encodings must yield the
+		// same normalized key.
+		if a != b {
+			t.Fatalf("keys differ: %q vs %q", a, b)
+		}
+		return
+	}
+	// POSIX paths are case-sensitive: case-distinct drive prefixes are
+	// legitimately distinct keys there.
+	if a == b {
+		t.Fatalf("case-distinct drive prefixes must stay distinct on POSIX, got %q", a)
 	}
 }
 
@@ -261,7 +272,9 @@ func TestPoolReapsIdleSessions(t *testing.T) {
 }
 
 func TestFramingHeaderParsing(t *testing.T) {
-	r := bufio.NewReader(strings.NewReader("Content-Type: application/vscode-jsonrpc; charset=utf-8\r\ncontent-length: 7\r\n\r\n{}"))
+	r := bufio.NewReader(
+		strings.NewReader("Content-Type: application/vscode-jsonrpc; charset=utf-8\r\ncontent-length: 7\r\n\r\n{}"),
+	)
 	n, err := readFrameHeader(r)
 	if err != nil || n != 7 {
 		t.Fatalf("readFrameHeader = %d, %v; want 7", n, err)
@@ -278,11 +291,16 @@ func TestFileURIUsesAuthorityLessForm(t *testing.T) {
 	if !strings.HasPrefix(uri, "file:///") {
 		t.Fatalf("FileURI = %q, want file:/// prefix", uri)
 	}
-	// Round trip: DocumentKey must resolve back to the same key regardless
-	// of encoding form.
+	// Round trip: on Windows, DocumentKey must resolve back to the same key
+	// regardless of encoding form (case-insensitive filesystem). On POSIX,
+	// case-distinct paths are legitimately distinct keys.
 	lower := strings.ToLower(uri)
-	if DocumentKey(uri) != DocumentKey(lower) {
-		t.Fatalf("DocumentKey case sensitivity mismatch: %q vs %q", DocumentKey(uri), DocumentKey(lower))
+	if runtime.GOOS == "windows" {
+		if DocumentKey(uri) != DocumentKey(lower) {
+			t.Fatalf("DocumentKey case sensitivity mismatch: %q vs %q", DocumentKey(uri), DocumentKey(lower))
+		}
+	} else if DocumentKey(uri) == DocumentKey(lower) {
+		t.Fatalf("case-distinct paths must stay distinct on POSIX: %q", DocumentKey(uri))
 	}
 }
 

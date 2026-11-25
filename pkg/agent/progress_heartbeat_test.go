@@ -243,7 +243,7 @@ func TestProgressHeartbeat_StallWatchdogInterrupts(t *testing.T) {
 	select {
 	case <-providerCancelled:
 	case <-time.After(time.Second):
-		t.Fatal("expected provider call to be cancelled")
+		t.Fatal("expected provider call to be canceled")
 	}
 	notices := 0
 	for _, s := range rs.steps {
@@ -333,7 +333,7 @@ func TestStreamingPublisherSetsSegmentLabel(t *testing.T) {
 	// publisher creation in tryConfiguredStreamingLLM; emulate that by
 	// invoking the same optional-interface branch directly.
 	if label := ts.getSegmentLabel(); label != "" {
-		if s, ok := p.streamer.(interface{ SetSegmentLabel(string) }); ok {
+		if s, ok := p.streamer.(interface{ SetSegmentLabel(label string) }); ok {
 			s.SetSegmentLabel(label)
 		}
 	}

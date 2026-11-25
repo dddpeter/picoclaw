@@ -87,7 +87,10 @@ func (oc *outboundCapture) waitForText(cond func(string) bool, timeout time.Dura
 	}
 }
 
-func newRestartRecoveryLoop(t *testing.T, cfgMutate func(*config.Config)) (*AgentLoop, *AgentInstance, *bus.MessageBus, *outboundCapture) {
+func newRestartRecoveryLoop(
+	t *testing.T,
+	cfgMutate func(*config.Config),
+) (*AgentLoop, *AgentInstance, *bus.MessageBus, *outboundCapture) {
 	t.Helper()
 	tmpDir := t.TempDir()
 	cfg := &config.Config{
@@ -226,6 +229,7 @@ func TestRunRestartRecovery_Disabled(t *testing.T) {
 }
 
 func TestRunRestartRecovery_ReminderCancelledByUserMessage(t *testing.T) {
+	//nolint:dogsled // helper returns 4 values; only loop is needed here
 	al, _, _, _ := newRestartRecoveryLoop(t, nil)
 
 	key := "agent_default:test:reminder"
@@ -233,7 +237,7 @@ func TestRunRestartRecovery_ReminderCancelledByUserMessage(t *testing.T) {
 	al.cancelRecoveryReminder(key)
 	time.Sleep(30 * time.Millisecond)
 	if n := al.recoveryReminderCount(key); n != 0 {
-		t.Fatalf("reminder should be cancelled, sent=%d", n)
+		t.Fatalf("reminder should be canceled, sent=%d", n)
 	}
 }
 

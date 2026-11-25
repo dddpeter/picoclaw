@@ -34,11 +34,16 @@ func dialRawConnPair(t *testing.T) (*websocket.Conn, *websocket.Conn) {
 	t.Cleanup(srv.Close)
 
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
-	client, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	client, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial raw websocket: %v", err)
 	}
-	t.Cleanup(func() { _ = client.Close() })
+	t.Cleanup(func() {
+		_ = client.Close()
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+	})
 
 	select {
 	case server := <-connCh:

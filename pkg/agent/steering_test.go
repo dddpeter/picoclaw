@@ -917,6 +917,27 @@ func TestAgentLoop_Run_QueuedVoiceMessageIsTranscribedBeforeSteering(t *testing.
 		t.Fatal("expected outbound response")
 	}
 
+	// The steering-triggered second provider call races cancelRun on a
+	// loaded machine; wait for it explicitly before reading the recorded
+	// messages (the outbound response is published at turn end, but the
+	// steering continuation must also have landed).
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer waitCancel()
+	for {
+		provider.mu.Lock()
+		secondCallRecorded := provider.calls >= 2
+		provider.mu.Unlock()
+		if secondCallRecorded {
+			break
+		}
+		select {
+		case <-waitCtx.Done():
+			t.Fatal("timeout waiting for steering-triggered second provider call")
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
 	cancelRun()
 	select {
 	case err := <-runErrCh:
@@ -1675,7 +1696,8 @@ func TestAgentLoop_InterruptHard_SealsAndPreservesSession(t *testing.T) {
 	// aborted turn's records stay (the old rollback wiped fresh sessions on
 	// /stop), and the dangling tool call is sealed with a synthetic result.
 	finalHistory := defaultAgent.Sessions.GetHistory(sessionKey)
-	if len(finalHistory) < len(originalHistory) || !reflect.DeepEqual(finalHistory[:len(originalHistory)], originalHistory) {
+	if len(finalHistory) < len(originalHistory) ||
+		!reflect.DeepEqual(finalHistory[:len(originalHistory)], originalHistory) {
 		t.Fatalf("expected pre-turn history preserved after hard abort, got %#v", finalHistory)
 	}
 	userMsgKept := false

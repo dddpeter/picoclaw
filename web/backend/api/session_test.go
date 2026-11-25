@@ -1916,7 +1916,9 @@ func TestHandleSessions_ChannelQualifiedIDDedup(t *testing.T) {
 		t.Fatalf("detail(feishu) status = %d", detailRec.Code)
 	}
 	var detail struct {
-		Messages []struct{ Content string } `json:"messages"`
+		Messages []struct {
+			Content string `json:"content"`
+		} `json:"messages"`
 	}
 	if err := json.Unmarshal(detailRec.Body.Bytes(), &detail); err != nil {
 		t.Fatalf("Unmarshal(detail) error = %v", err)
@@ -2128,8 +2130,10 @@ func TestHandleGetSession_PendingAskFromMarker(t *testing.T) {
 	}
 
 	questions, _ := json.Marshal([]map[string]any{
-		{"question": "部署到哪个环境？", "header": "环境",
-			"options": []map[string]any{{"label": "staging"}, {"label": "production"}}},
+		{
+			"question": "部署到哪个环境？", "header": "环境",
+			"options": []map[string]any{{"label": "staging"}, {"label": "production"}},
+		},
 	})
 	if err := store.WriteAskMarker(memory.AskMarker{
 		SessionKey: sessionKey,
@@ -2423,7 +2427,7 @@ func TestSessionA2UIHistoryReplayInvalidBatchNotResurfaced(t *testing.T) {
 
 	invalidBatch := []any{
 		map[string]any{
-			"version":      "v1.0", // wrong envelope family: rejected live
+			"version":       "v1.0", // wrong envelope family: rejected live
 			"createSurface": map[string]any{"surfaceId": "s", "components": []any{}},
 		},
 	}
@@ -2518,8 +2522,11 @@ func TestSessionA2UIHistoryFoldMergesUpdateIntoCard(t *testing.T) {
 
 	orphanBatch := []any{
 		map[string]any{
-			"version":          "v0.9",
-			"updateComponents": map[string]any{"surfaceId": "surface-9", "components": []any{map[string]any{"id": "w", "component": "Text", "text": "孤儿增量"}}},
+			"version": "v0.9",
+			"updateComponents": map[string]any{
+				"surfaceId":  "surface-9",
+				"components": []any{map[string]any{"id": "w", "component": "Text", "text": "孤儿增量"}},
+			},
 		},
 	}
 	sessionKey := legacyPicoSessionPrefix + "a2ui-fold"
@@ -2606,7 +2613,11 @@ func TestSessionA2UIHistoryFoldMergesUpdateIntoCard(t *testing.T) {
 			t.Fatalf("a2ui field is not a JSON frame array: %v (%s)", err, msg.A2UI)
 		}
 		if len(frames) != 4 {
-			t.Errorf("folded card frames = %d, want 4 (create + components + overwritten dataModel + appended delta components): %s", len(frames), msg.A2UI)
+			t.Errorf(
+				"folded card frames = %d, want 4 (create + components + overwritten dataModel + appended delta components): %s",
+				len(frames),
+				msg.A2UI,
+			)
 		}
 		if !strings.Contains(string(msg.A2UI), "追加行") || !strings.Contains(string(msg.A2UI), "2026 Q3: 172 人") {
 			t.Errorf("folded card missing the merged delta frames: %s", msg.A2UI)
@@ -2651,12 +2662,18 @@ func TestSessionA2UIHistoryFoldTwoCreatesKeepsLastCard(t *testing.T) {
 
 	secondCreate := []any{
 		map[string]any{
-			"version":       "v0.9",
-			"createSurface": map[string]any{"surfaceId": "surface-1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+			"version": "v0.9",
+			"createSurface": map[string]any{
+				"surfaceId": "surface-1",
+				"catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json",
+			},
 		},
 		map[string]any{
-			"version":          "v0.9",
-			"updateComponents": map[string]any{"surfaceId": "surface-1", "components": []any{map[string]any{"id": "root", "component": "Text", "text": "重画"}}},
+			"version": "v0.9",
+			"updateComponents": map[string]any{
+				"surfaceId":  "surface-1",
+				"components": []any{map[string]any{"id": "root", "component": "Text", "text": "重画"}},
+			},
 		},
 	}
 	sessionKey := legacyPicoSessionPrefix + "a2ui-fold-two-creates"
@@ -2730,7 +2747,11 @@ func TestSessionA2UIHistoryFoldTwoCreatesKeepsLastCard(t *testing.T) {
 		}
 	}
 	if a2uiCount != 1 {
-		t.Fatalf("messages carrying a2ui = %d, want 1 (the last create's card only; resp=%s)", a2uiCount, rec.Body.String())
+		t.Fatalf(
+			"messages carrying a2ui = %d, want 1 (the last create's card only; resp=%s)",
+			a2uiCount,
+			rec.Body.String(),
+		)
 	}
 	if cardContent != "第二张" {
 		t.Errorf("card content = %q, want the surviving create's summary", cardContent)

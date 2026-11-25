@@ -1,6 +1,7 @@
 package fstools
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -86,7 +87,7 @@ func TestEditFileTool_PreservesGB18030Encoding(t *testing.T) {
 	if want := "已修改的行\n第二行\n"; string(decoded) != want {
 		t.Fatalf("decoded = %q, want %q", decoded, want)
 	}
-	if !strings.Contains(string(data), string([]byte{0xB8, 0xC4})) { // "改" in GBK
+	if !bytes.Contains(data, []byte{0xB8, 0xC4}) { // "改" in GBK
 		t.Fatalf("file appears to have been rewritten as UTF-8: %q", data)
 	}
 }
