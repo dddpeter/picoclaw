@@ -507,7 +507,7 @@ Web 聊天页的模型选择器**只对当前会话生效**，不修改配置文
 |---|---|---|
 | `pkg/config/config.go`（2559） | → 6 文件 | `config.go`（顶层骨架 334）/`config_agents.go`（533）/`config_channels.go`（271）/`config_models.go`（485，含 ModelConfig/ModelStreamingConfig/搜索 provider key）/`config_tools.go`（477，ToolsConfig 族+MCP）/`config_load.go`（489，LoadConfig/SaveConfig/ResetToDefaults/MakeBackup） |
 | `pkg/tools/shell.go`（1911） | → 4 文件 | `shell.go`（执行入口 366）/`shell_run.go`（576，runSync/runBackground/execIOWaitDelay）/`shell_jobs.go`（400，list/poll/kill/sendKeys/PTY）/`shell_guard.go`（598，**defaultDenyPatterns**/guardCommand 族） |
-| `pkg/channels/manager.go`（2308） | → 5 文件 | `manager.go`（生命周期+公共 API 812）/`manager_dispatch.go`（983，派发+重试+streamer 装配）/`manager_http.go`（107）/`manager_feedback.go`（352，tool feedback+typing）/`manager_payload.go`（121，outboundMessage* 纯函数族） |
+| `pkg/channels/manager.go`（2308） | → 6 文件 | `manager.go`（生命周期+公共 API 812）/`manager_dispatch.go`（538，派发+重试）/`manager_streamer.go`（462，GetStreamer+streamer 装配）/`manager_http.go`（107）/`manager_feedback.go`（352，tool feedback+typing）/`manager_payload.go`（121，outboundMessage* 纯函数族） |
 | `pkg/tools/integration/web.go`（2324） | → 7 文件 | `web.go`（装配 631）/`web_fetch.go`（349）/`search_providers.go`（247，Brave+Tavily）/`search_kagi.go`（277）/`search_cjk.go`（334，Sogou/Gemini/Baidu）/`search_rest.go`（415，DDG/Perplexity/SearXNG/GLM）/`search_ranges.go`（156，时间范围映射） |
 | `pkg/channels/pico/pico.go`（2168） | → 6 文件 | `pico.go`（连接管理 312）/`pico_send.go`（507，发送+tool feedback 跟踪）/`pico_streamer.go`（239，流式语义——fork 红线）/`pico_ws.go`（646，WS+catchup+媒体下载路由）/`pico_a2ui.go`（167）/`pico_message.go`（355，判定+payload/媒体 helper） |
 
