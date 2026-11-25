@@ -12,6 +12,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/providers/messageutil"
+	"github.com/sipeed/picoclaw/pkg/session"
 	"github.com/sipeed/picoclaw/pkg/tools"
 )
 
@@ -619,21 +620,10 @@ func newEphemeralSession(initial []providers.Message) ephemeralSessionStoreIface
 	return s
 }
 
-// ephemeralSessionStoreIface is satisfied by *ephemeralSessionStore.
-// Declared so newEphemeralSession can return a typed interface.
-type ephemeralSessionStoreIface interface {
-	AddMessage(sessionKey, role, content string)
-	AddFullMessage(sessionKey string, msg providers.Message)
-	GetHistory(key string) []providers.Message
-	GetSummary(key string) string
-	SetSummary(key, summary string)
-	SetHistory(key string, history []providers.Message)
-	TruncateHistory(key string, keepLast int)
-	Save(key string) error
-	ListSessions() []string
-	LastModified(sessionKey string) (time.Time, bool)
-	Close() error
-}
+// ephemeralSessionStoreIface aliases session.SessionStore: the ephemeral
+// store implements the same contract the agent loop expects, without
+// duplicating the method set here.
+type ephemeralSessionStoreIface = session.SessionStore
 
 func (e *ephemeralSessionStore) AddMessage(_, role, content string) {
 	e.mu.Lock()

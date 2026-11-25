@@ -20,7 +20,7 @@ func (al *AgentLoop) maybePublishError(ctx context.Context, channel, chatID, ses
 	if errors.Is(err, context.Canceled) {
 		return false
 	}
-	var notified *turnErrorNotifiedError
+	var notified *turnNotifiedError
 	if errors.As(err, &notified) {
 		// Already surfaced to the user by publishTurnError (the "模型调用
 		// 失败，本轮已中止" message); publishing formatProcessingError here

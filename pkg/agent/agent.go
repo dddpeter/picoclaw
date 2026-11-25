@@ -760,7 +760,7 @@ func (al *AgentLoop) runAgentLoop(
 			if al.publishTurnError(ctx, ts, segErr) {
 				// The user already saw this failure; mark it so legacy error
 				// paths (maybePublishError) do not send a duplicate message.
-				segErr = &turnErrorNotifiedError{err: segErr}
+				segErr = &turnNotifiedError{err: segErr}
 			}
 			return "", segErr
 		}
@@ -876,16 +876,16 @@ func (al *AgentLoop) runAgentLoop(
 	return result.finalContent, nil
 }
 
-// turnErrorNotifiedError marks a turn error whose user-facing notification was
+// turnNotifiedError marks a turn error whose user-facing notification was
 // already published by publishTurnError. Legacy error paths (maybePublishError)
 // consult it via errors.As to avoid sending a duplicate message for the same
 // failure. Unwraps to the original error so classification keeps working.
-type turnErrorNotifiedError struct {
+type turnNotifiedError struct {
 	err error
 }
 
-func (e *turnErrorNotifiedError) Error() string { return e.err.Error() }
-func (e *turnErrorNotifiedError) Unwrap() error { return e.err }
+func (e *turnNotifiedError) Error() string { return e.err.Error() }
+func (e *turnNotifiedError) Unwrap() error { return e.err }
 
 // publishTurnError surfaces a failed turn to the user's chat. Without it a
 // turn that dies mid-flight (e.g. all fallback models rate-limited) leaves

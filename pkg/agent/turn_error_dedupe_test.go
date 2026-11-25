@@ -21,7 +21,7 @@ func TestMaybePublishErrorSkipsAlreadyNotified(t *testing.T) {
 	al := NewAgentLoop(cfg, msgBus, provider)
 
 	inner := errors.New("LLM call failed after retries: all candidates unavailable")
-	if !al.maybePublishError(context.Background(), "pico", "chat1", "sess1", &turnErrorNotifiedError{err: inner}) {
+	if !al.maybePublishError(context.Background(), "pico", "chat1", "sess1", &turnNotifiedError{err: inner}) {
 		t.Fatal("already-notified error must report continue (true), like other non-cancel errors")
 	}
 
@@ -58,7 +58,7 @@ func TestMaybePublishErrorStillPublishesUnknownErrors(t *testing.T) {
 // errors.Is/As so upstream classification and logging keep working.
 func TestTurnErrorNotifiedErrorUnwraps(t *testing.T) {
 	sentinel := errors.New("sentinel failure")
-	wrapped := &turnErrorNotifiedError{err: sentinel}
+	wrapped := &turnNotifiedError{err: sentinel}
 
 	if !errors.Is(wrapped, sentinel) {
 		t.Fatal("errors.Is must see through the marker")
