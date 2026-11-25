@@ -11,24 +11,6 @@ import (
 	"github.com/sipeed/picoclaw/pkg/tools"
 )
 
-type countingStatefulProvider struct {
-	closeCount int
-}
-
-func (p *countingStatefulProvider) Chat(
-	ctx context.Context,
-	messages []providers.Message,
-	tools []providers.ToolDefinition,
-	model string,
-	options map[string]any,
-) (*providers.LLMResponse, error) {
-	return &providers.LLMResponse{Content: "ok"}, nil
-}
-
-func (p *countingStatefulProvider) GetDefaultModel() string { return "test-model" }
-
-func (p *countingStatefulProvider) Close() { p.closeCount++ }
-
 // TestPopulateCandidateProviders_ResolvesProtocolPrefix verifies that a
 // model_list entry using full "provider/model" notation (e.g.
 // "gemini/gemma-3-27b-it") is matched correctly when referenced by model_name.

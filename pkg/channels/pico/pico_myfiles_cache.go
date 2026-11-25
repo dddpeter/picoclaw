@@ -3,7 +3,6 @@ package pico
 import (
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -160,14 +159,4 @@ func (fc *fileCache) stats() (scans int, cached int, last time.Time) {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
 	return fc.scans, len(fc.pathsByTranscript), fc.lastScan
-}
-
-// sortedPaths returns the cached path set in stable order.
-func sortedPaths(paths map[string]struct{}) []string {
-	out := make([]string, 0, len(paths))
-	for path := range paths {
-		out = append(out, path)
-	}
-	sort.Strings(out)
-	return out
 }

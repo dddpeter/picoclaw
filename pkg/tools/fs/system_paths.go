@@ -29,11 +29,6 @@ func SetSystemPathProtection(enabled bool) {
 	protectSystemPaths.Store(enabled)
 }
 
-// SystemPathProtectionEnabled reports the current guard state.
-func SystemPathProtectionEnabled() bool {
-	return protectSystemPaths.Load()
-}
-
 // systemPathPrefixes returns the protected OS system directory prefixes on
 // the current platform. /opt, /var, /tmp and user homes are deliberately NOT
 // protected: they hold user-managed software and data.

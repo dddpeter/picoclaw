@@ -116,7 +116,7 @@ func WithStreamResponseHeaderTimeout(timeout time.Duration) Option {
 // lifecycle and would kill long streams), but without any bound a gateway
 // that accepts the connection and never returns headers hangs the turn
 // forever — context cancellation is the only way out and not every caller
-// context gets cancelled. Cloning the transport with
+// context gets canceled. Cloning the transport with
 // ResponseHeaderTimeout covers exactly the vulnerable window: it stops at
 // the first response byte and leaves the (potentially long) body reads to
 // the streaming idle timeout.
@@ -156,12 +156,6 @@ func WithCustomHeaders(customHeaders map[string]string) Option {
 	}
 }
 
-func WithProviderName(providerName string) Option {
-	return func(p *Provider) {
-		p.providerName = strings.ToLower(strings.TrimSpace(providerName))
-	}
-}
-
 func NewProvider(apiKey, apiBase, proxy string, opts ...Option) *Provider {
 	p := &Provider{
 		apiKey:     apiKey,
@@ -176,19 +170,6 @@ func NewProvider(apiKey, apiBase, proxy string, opts ...Option) *Provider {
 	}
 
 	return p
-}
-
-func NewProviderWithMaxTokensFieldAndTimeout(
-	apiKey, apiBase, proxy, maxTokensField string,
-	requestTimeoutSeconds int,
-) *Provider {
-	return NewProvider(
-		apiKey,
-		apiBase,
-		proxy,
-		WithMaxTokensField(maxTokensField),
-		WithRequestTimeout(time.Duration(requestTimeoutSeconds)*time.Second),
-	)
 }
 
 // buildRequestBody constructs the common request body for Chat and ChatStream.
@@ -569,7 +550,9 @@ func (p *Provider) Chat(
 	// heavy turns (fork, 2026-10-05).
 	if isEmptyCompletionPayload(response) {
 		return nil, &common.EmptyCompletionError{Detail: fmt.Sprintf(
-			"non-stream response (finish_reason=%q) carried no content, tool calls, or reasoning", response.FinishReason)}
+			"non-stream response (finish_reason=%q) carried no content, tool calls, or reasoning",
+			response.FinishReason,
+		)}
 	}
 	return response, nil
 }
@@ -983,7 +966,9 @@ func parseStreamResponse(
 			// an upstream silently drops an over-limit prompt (200 + empty
 			// stream). Surface it as an error so the fallback chain rotates
 			// candidates instead of turning it into a silent empty response.
-			return nil, &common.EmptyCompletionError{Detail: "stream ended without finish_reason, content, tool calls, or reasoning"}
+			return nil, &common.EmptyCompletionError{
+				Detail: "stream ended without finish_reason, content, tool calls, or reasoning",
+			}
 		}
 		finishReason = "stop"
 	}

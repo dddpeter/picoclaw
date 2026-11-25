@@ -21,8 +21,7 @@ const (
 // so restrict mode and allow-read patterns apply unchanged (2026-10-31
 // review C3: 找文件此前只能依赖 exec 里的平台 shell).
 type GlobTool struct {
-	fs      fileSystem
-	pattern string
+	fs fileSystem
 }
 
 func NewGlobTool(workspace string, restrict bool, allowPaths ...[]*regexp.Regexp) *GlobTool {

@@ -78,15 +78,6 @@ func (m *markdownRenderer) render(md string, width int) string {
 	return out
 }
 
-// reset drops the cache (width change handled internally; :raw toggles don't
-// need it because raw rendering bypasses this type entirely).
-func (m *markdownRenderer) reset() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.cache = make(map[string]string)
-	m.order = nil
-}
-
 // stripTrailingSpaces removes trailing whitespace from every line.
 func stripTrailingSpaces(s string) string {
 	lines := strings.Split(s, "\n")

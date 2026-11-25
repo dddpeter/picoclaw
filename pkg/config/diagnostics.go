@@ -63,14 +63,6 @@ func decodeJSONTyped(data []byte, target any) error {
 	return nil
 }
 
-func DiagnosticSummary(err error) string {
-	if err == nil {
-		return ""
-	}
-	summary, _ := splitDiagnosticError(err.Error())
-	return stripANSISequences(summary)
-}
-
 func formatDiagnosticLogMessage(prefix string, err error) string {
 	if err == nil {
 		return prefix

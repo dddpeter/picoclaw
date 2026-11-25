@@ -63,15 +63,3 @@ func ErrorResult(message string) *ToolResult {
 func SilentResult(forLLM string) *ToolResult {
 	return toolshared.SilentResult(forLLM)
 }
-
-func NewToolResult(forLLM string) *ToolResult {
-	return toolshared.NewToolResult(forLLM)
-}
-
-func UserResult(content string) *ToolResult {
-	return toolshared.UserResult(content)
-}
-
-func MediaResult(forLLM string, mediaRefs []string) *ToolResult {
-	return toolshared.MediaResult(forLLM, mediaRefs)
-}

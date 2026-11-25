@@ -38,10 +38,6 @@ type Provider struct {
 // SupportsThinking implements providers.ThinkingCapable.
 func (p *Provider) SupportsThinking() bool { return true }
 
-func NewProvider(token string) *Provider {
-	return NewProviderWithBaseURL(token, "")
-}
-
 func NewProviderWithBaseURL(token, apiBase string) *Provider {
 	baseURL := common.NormalizeBaseURL(apiBase, defaultBaseURL, false)
 	client := anthropic.NewClient(
@@ -51,13 +47,6 @@ func NewProviderWithBaseURL(token, apiBase string) *Provider {
 	return &Provider{
 		client:  &client,
 		baseURL: baseURL,
-	}
-}
-
-func NewProviderWithClient(client *anthropic.Client) *Provider {
-	return &Provider{
-		client:  client,
-		baseURL: defaultBaseURL,
 	}
 }
 

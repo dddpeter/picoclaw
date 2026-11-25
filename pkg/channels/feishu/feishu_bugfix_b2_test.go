@@ -57,7 +57,12 @@ func newFakeFeishuServer(t *testing.T, log *reqLog) *FeishuChannel {
 	return &FeishuChannel{
 		BaseChannel: channels.NewBaseChannel("feishu", nil, bus.NewMessageBus(), []string{"*"}),
 		tokenCache:  newTokenCache(),
-		client:      lark.NewClient("app", "secret", lark.WithOpenBaseUrl(srv.URL), lark.WithTokenCache(newTokenCache())),
+		client: lark.NewClient(
+			"app",
+			"secret",
+			lark.WithOpenBaseUrl(srv.URL),
+			lark.WithTokenCache(newTokenCache()),
+		),
 	}
 }
 
@@ -70,18 +75,6 @@ func (l *reqLog) record(path string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.paths = append(l.paths, path)
-}
-
-func (l *reqLog) count(prefix string) int {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	n := 0
-	for _, p := range l.paths {
-		if strings.HasPrefix(p, prefix) {
-			n++
-		}
-	}
-	return n
 }
 
 // TestBeginStreamSealsStaleStreamer: when the reuse TTL refuses an unfinished

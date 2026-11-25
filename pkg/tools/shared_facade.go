@@ -42,10 +42,6 @@ func WithToolContext(ctx context.Context, channel, chatID string) context.Contex
 	return toolshared.WithToolContext(ctx, channel, chatID)
 }
 
-func WithToolMessageContext(ctx context.Context, messageID, replyToMessageID string) context.Context {
-	return toolshared.WithToolMessageContext(ctx, messageID, replyToMessageID)
-}
-
 func WithToolInboundContext(
 	ctx context.Context,
 	channel, chatID, messageID, replyToMessageID string,

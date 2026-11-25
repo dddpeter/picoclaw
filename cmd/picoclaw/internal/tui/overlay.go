@@ -164,10 +164,6 @@ func (o *overlayState) move(delta, window int) bool {
 	return true
 }
 
-// overlayScrollLines returns the scroll offset/window hint for content
-// overlays (0 for selectable ones, which use offset/selected).
-func (o *overlayState) scrollLines() int { return o.scroll }
-
 // visible returns the filtered indices within the current scroll window.
 func (o *overlayState) visible(window int) []int {
 	if window <= 0 {

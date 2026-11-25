@@ -33,22 +33,6 @@ func TestBindingSleeperHelperProcess(t *testing.T) {
 	<-time.After(10 * time.Minute)
 }
 
-// startBindingSleeper starts a helper process that stays alive until killed
-// and returns its PID.
-func startBindingSleeper(t *testing.T) int {
-	t.Helper()
-
-	cmd := _exec.Command(os.Args[0], "-test.run=TestBindingSleeperHelperProcess", "--", "binding-sleeper")
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("start binding sleeper: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
-	})
-	return cmd.Process.Pid
-}
-
 // startBindingHelperWriter replaces gatewayExecCommand with a canary that (a)
 // records whether configWriteMu is FREE at the moment the restart path spawns
 // the gateway process, and (b) re-execs the test binary as the harmless

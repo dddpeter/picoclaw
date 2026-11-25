@@ -9,23 +9,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/sipeed/picoclaw/pkg/logger"
 )
-
-// buildModelWithProtocol constructs a model string with protocol prefix.
-// If the model already contains a "/" (indicating it has a protocol prefix), it is returned as-is.
-// Otherwise, the protocol prefix is added.
-func buildModelWithProtocol(protocol, model string) string {
-	if strings.Contains(model, "/") {
-		// Model already has a protocol prefix, return as-is
-		return model
-	}
-	return protocol + "/" + model
-}
 
 type legacyDiagnosticConfig struct {
 	Version     int                    `json:"version"`
@@ -163,29 +151,6 @@ func configObjectHasField(data []byte, objectField, nestedField string) bool {
 	}
 	_, ok = object[nestedField]
 	return ok
-}
-
-func mergeAPIKeys(apiKey string, apiKeys []string) []string {
-	seen := make(map[string]struct{})
-	var all []string
-
-	if k := strings.TrimSpace(apiKey); k != "" {
-		if _, exists := seen[k]; !exists {
-			seen[k] = struct{}{}
-			all = append(all, k)
-		}
-	}
-
-	for _, k := range apiKeys {
-		if trimmed := strings.TrimSpace(k); trimmed != "" {
-			if _, exists := seen[trimmed]; !exists {
-				seen[trimmed] = struct{}{}
-				all = append(all, trimmed)
-			}
-		}
-	}
-
-	return all
 }
 
 func compareInt(v any, expected int) bool {

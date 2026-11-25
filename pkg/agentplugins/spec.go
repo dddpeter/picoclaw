@@ -33,9 +33,5 @@ func (r *Report) Warnf(format string, a ...any) {
 	r.Warnings = append(r.Warnings, fmt.Sprintf(format, a...))
 }
 
-func (r *Report) Fatalf(format string, a ...any) {
-	r.Fatals = append(r.Fatals, fmt.Sprintf(format, a...))
-}
-
 // OK reports whether no fatal diagnostic has been recorded.
 func (r *Report) OK() bool { return len(r.Fatals) == 0 }

@@ -387,10 +387,6 @@ func Warnf(message string, ss ...any) {
 	logMessage(WARN, "", fmt.Sprintf(message, ss...), nil)
 }
 
-func Error(message string) {
-	logMessage(ERROR, "", message, nil)
-}
-
 func ErrorC(component string, message string) {
 	logMessage(ERROR, component, message, nil)
 }

@@ -38,14 +38,6 @@ func NewMemoryStore(workspace string) *MemoryStore {
 	}
 }
 
-// getTodayFile returns the path to today's daily note file (memory/YYYYMM/YYYYMMDD.md).
-func (ms *MemoryStore) getTodayFile() string {
-	today := time.Now().Format("20060102") // YYYYMMDD
-	monthDir := today[:6]                  // YYYYMM
-	filePath := filepath.Join(ms.memoryDir, monthDir, today+".md")
-	return filePath
-}
-
 // ReadLongTerm reads the long-term memory (MEMORY.md).
 // Returns empty string if the file doesn't exist.
 func (ms *MemoryStore) ReadLongTerm() string {

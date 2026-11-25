@@ -25,7 +25,6 @@ const (
 	colRed       = "174" // error     okhsl(20 72% 67%)
 	colHeading   = "185" // heading   okhsl(83 88% 67%)
 	colWarning   = "179" // warning   amber（重试/进度/截断）
-	colBorder    = "104" // border    okhsl(231 57% 65%)
 	colBorderMut = "60"  // borderMuted okhsl(229 8% 53%)
 
 	colUserBg     = "24"  // userMessageBg  okhsl(233 41% 24%) 深蓝灰
@@ -63,7 +62,6 @@ var (
 	cRed    = lipgloss.Color(colRed)
 	cHead   = lipgloss.Color(colHeading)
 	cWarn   = lipgloss.Color(colWarning)
-	cBorder = lipgloss.Color(colBorder)
 	cBMut   = lipgloss.Color(colBorderMut)
 )
 

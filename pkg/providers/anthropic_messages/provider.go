@@ -48,11 +48,6 @@ type Provider struct {
 	userAgent  string
 }
 
-// NewProvider creates a new Anthropic Messages API provider.
-func NewProvider(apiKey, apiBase, userAgent string) *Provider {
-	return NewProviderWithTimeout(apiKey, apiBase, userAgent, 0, "")
-}
-
 // NewProviderWithTimeout creates a provider with custom request timeout.
 // proxy may be empty; when set, requests are routed through it (same
 // mounting as common.NewHTTPClient — the factory passes cfg.Proxy for

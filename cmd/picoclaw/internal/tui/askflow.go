@@ -15,7 +15,6 @@ type askFlow struct {
 	mode      string // "step" | "review" | "input"
 	current   int    // question index in step mode
 	selected  int    // option-row cursor (letters + special rows)
-	inputDone bool
 }
 
 // askOther is the free-text sentinel (web ask-flow.ts OTHER).

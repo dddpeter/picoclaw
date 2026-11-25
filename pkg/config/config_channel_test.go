@@ -398,77 +398,10 @@ func TestChannel_YAML_Marshal_OnlySecureFields(t *testing.T) {
 }
 
 // ═══════════════════════════════════════════════════
-//  extractSecureFieldNames
-// ═══════════════════════════════════════════════════
-
-func TestExtractSecureFieldNames(t *testing.T) {
-	t.Run("telegram extend", func(t *testing.T) {
-		names := extractSecureFieldNames(&testTelegramConfig{})
-		assert.Equal(t, map[string]struct{}{"token": {}}, names)
-	})
-
-	t.Run("discord extend", func(t *testing.T) {
-		names := extractSecureFieldNames(&testDiscordConfig{})
-		assert.Equal(t, map[string]struct{}{"token": {}, "api_keys": {}}, names)
-	})
-
-	t.Run("non-struct target", func(t *testing.T) {
-		names := extractSecureFieldNames("not a struct")
-		assert.Nil(t, names)
-	})
-
-	t.Run("struct without secure fields", func(t *testing.T) {
-		type NoSecure struct {
-			Name  string `json:"name"`
-			Count int    `json:"count"`
-		}
-		names := extractSecureFieldNames(&NoSecure{})
-		assert.Empty(t, names)
-	})
-}
-
-// ═══════════════════════════════════════════════════
-//  mergeRawJSON
-// ═══════════════════════════════════════════════════
-
-func TestMergeRawJSON(t *testing.T) {
-	t.Run("overlay overrides base", func(t *testing.T) {
-		base := RawNode(`{"base_url": "old", "token": "[NOT_HERE]"}`)
-		overlay := RawNode(`{"token": "REAL_TOKEN"}`)
-		merged, err := mergeRawJSON(base, overlay)
-		require.NoError(t, err)
-
-		var m map[string]any
-		json.Unmarshal(merged, &m)
-		assert.Equal(t, "old", m["base_url"])
-		assert.Equal(t, "REAL_TOKEN", m["token"])
-	})
-
-	t.Run("empty overlay", func(t *testing.T) {
-		base := RawNode(`{"base_url": "https://api.telegram.org"}`)
-		merged, err := mergeRawJSON(base, nil)
-		require.NoError(t, err)
-		// mergeRawJSON normalizes JSON through unmarshal→marshal, so compare parsed values
-		var orig, result map[string]any
-		json.Unmarshal(base, &orig)
-		json.Unmarshal(merged, &result)
-		assert.Equal(t, orig, result)
-	})
-
-	t.Run("empty base", func(t *testing.T) {
-		overlay := RawNode(`{"token": "NEW"}`)
-		merged, err := mergeRawJSON(nil, overlay)
-		require.NoError(t, err)
-		assert.Contains(t, string(merged), `"token":"NEW"`)
-	})
-}
-
-// ═══════════════════════════════════════════════════
 //  Full flow: extend.json + security.yml merge
 // ═══════════════════════════════════════════════════
 
 func TestChannel_FullFlow_JSON_YAML_Merge(t *testing.T) {
-	// Step 1: Load from extend.json
 	jsonData := `{
 		"enabled": true,
 		"type": "telegram",
@@ -773,61 +706,6 @@ channels:
 }
 
 // ═══════════════════════════════════════════════════
-//  removeSecureFields / filterSecureFields unit tests
-// ═══════════════════════════════════════════════════
-
-func TestRemoveSecureFields(t *testing.T) {
-	t.Run("removes known secure fields", func(t *testing.T) {
-		r := RawNode(`{"base_url": "https://api.telegram.org", "token": "SECRET"}`)
-		names := map[string]struct{}{"token": {}}
-		cleaned := removeSecureFields(r, names)
-
-		var m map[string]any
-		json.Unmarshal(cleaned, &m)
-		assert.Equal(t, "https://api.telegram.org", m["base_url"])
-		assert.NotContains(t, m, "token")
-	})
-
-	t.Run("nil secureFields returns as-is", func(t *testing.T) {
-		r := RawNode(`{"token": "SECRET"}`)
-		cleaned := removeSecureFields(r, nil)
-		assert.Equal(t, string(r), string(cleaned))
-	})
-
-	t.Run("empty raw returns as-is", func(t *testing.T) {
-		cleaned := removeSecureFields(nil, map[string]struct{}{"token": {}})
-		assert.Nil(t, cleaned)
-	})
-}
-
-func TestFilterSecureFields(t *testing.T) {
-	t.Run("keeps only secure fields", func(t *testing.T) {
-		r := RawNode(`{"base_url": "https://api.telegram.org", "token": "SECRET"}`)
-		names := map[string]struct{}{"token": {}}
-		filtered := filterSecureFields(r, names)
-
-		var m map[string]any
-		json.Unmarshal(filtered, &m)
-		assert.NotContains(t, m, "base_url")
-		assert.Equal(t, "SECRET", m["token"])
-	})
-
-	t.Run("nil secureFields returns nil", func(t *testing.T) {
-		r := RawNode(`{"token": "SECRET"}`)
-		filtered := filterSecureFields(r, nil)
-		assert.Nil(t, filtered)
-	})
-
-	t.Run("empty raw returns nil", func(t *testing.T) {
-		filtered := filterSecureFields(nil, map[string]struct{}{"token": {}})
-		assert.Nil(t, filtered)
-	})
-}
-
-// ═══════════════════════════════════════════════════
-//  SecureStrings (ApiKeys) full flow
-// ═══════════════════════════════════════════════════
-
 func TestChannel_SecureStrings_ApiKeys(t *testing.T) {
 	// Step 1: Load from extend.json
 	jsonData := `{

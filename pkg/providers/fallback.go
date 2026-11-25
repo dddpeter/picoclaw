@@ -91,11 +91,7 @@ func (fc *FallbackChain) Available(stableKey string) bool {
 	return fc.cooldown.IsAvailable(stableKey)
 }
 
-// ResolveCandidates parses model config into a deduplicated candidate list.
-func ResolveCandidates(cfg ModelConfig, defaultProvider string) []FallbackCandidate {
-	return ResolveCandidatesWithLookup(cfg, defaultProvider, nil)
-}
-
+// ResolveCandidatesWithLookup parses model config into a deduplicated candidate list.
 func ResolveCandidatesWithLookup(
 	cfg ModelConfig,
 	defaultProvider string,

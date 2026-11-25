@@ -12,20 +12,6 @@ import (
 	"github.com/sipeed/picoclaw/pkg/providers"
 )
 
-// sessionModelTestProvider is a no-op LLM provider for the session-model
-// tests (the feature never calls the model itself).
-type sessionModelTestProvider struct{}
-
-func (p *sessionModelTestProvider) Chat(
-	_ interface{ Done() <-chan struct{} },
-	_ []providers.Message,
-	_ []providers.ToolDefinition,
-	_ string,
-	_ map[string]any,
-) (*providers.LLMResponse, error) {
-	return &providers.LLMResponse{Content: "ok"}, nil
-}
-
 func newSessionModelTestLoop(t *testing.T) *AgentLoop {
 	t.Helper()
 	t.Setenv("PICOCLAW_BUILTIN_SKILLS", t.TempDir())
@@ -42,7 +28,12 @@ func newSessionModelTestLoop(t *testing.T) *AgentLoop {
 		},
 		ModelList: []*config.ModelConfig{
 			{ModelName: "primary", Model: "openai/primary-model", APIKeys: config.SimpleSecureStrings("k1")},
-			{ModelName: "small", Model: "openai/small-model", APIKeys: config.SimpleSecureStrings("k2"), ContextWindow: 32_000},
+			{
+				ModelName:     "small",
+				Model:         "openai/small-model",
+				APIKeys:       config.SimpleSecureStrings("k2"),
+				ContextWindow: 32_000,
+			},
 			{ModelName: "fallback", Model: "openai/fallback-model", APIKeys: config.SimpleSecureStrings("k3")},
 		},
 	}
@@ -555,7 +546,12 @@ func TestSetupTurn_AppliesSessionModel(t *testing.T) {
 		},
 		ModelList: []*config.ModelConfig{
 			{ModelName: "primary", Model: "openai/primary-model", APIKeys: config.SimpleSecureStrings("k1")},
-			{ModelName: "small", Model: "openai/small-model", APIKeys: config.SimpleSecureStrings("k2"), ContextWindow: 32_000},
+			{
+				ModelName:     "small",
+				Model:         "openai/small-model",
+				APIKeys:       config.SimpleSecureStrings("k2"),
+				ContextWindow: 32_000,
+			},
 			{ModelName: "fallback", Model: "openai/fallback-model", APIKeys: config.SimpleSecureStrings("k3")},
 		},
 	}
@@ -597,7 +593,8 @@ func TestSetupTurn_AppliesSessionModel(t *testing.T) {
 	if got := ts.effectiveContextWindow(); got != 32_000 {
 		t.Fatalf("turn window = %d, want 32000 (session model window)", got)
 	}
-	if len(exec.activeCandidates) == 0 || exec.activeCandidates[0].Model != "small-model" || exec.activeCandidates[0].DisplayName != "small" {
+	if len(exec.activeCandidates) == 0 || exec.activeCandidates[0].Model != "small-model" ||
+		exec.activeCandidates[0].DisplayName != "small" {
 		t.Fatalf("turn candidates = %+v, want the session model's chain", exec.activeCandidates)
 	}
 	if agent.Model != originalModel {

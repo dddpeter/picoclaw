@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
-	anthropicoption "github.com/anthropics/anthropic-sdk-go/option"
 
 	"github.com/sipeed/picoclaw/pkg/providers/common"
 )
@@ -328,7 +327,7 @@ func TestProvider_ChatRoundTrip(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewProviderWithClient(createAnthropicTestClient(server.URL, "test-token"))
+	provider := NewProviderWithBaseURL("test-token", server.URL)
 	messages := []Message{{Role: "user", Content: "Hello"}}
 	resp, err := provider.Chat(t.Context(), messages, nil, "claude-sonnet-4.6", map[string]any{"max_tokens": 1024})
 	if err != nil {
@@ -346,7 +345,7 @@ func TestProvider_ChatRoundTrip(t *testing.T) {
 }
 
 func TestProvider_GetDefaultModel(t *testing.T) {
-	p := NewProvider("test-token")
+	p := NewProviderWithBaseURL("test-token", "")
 	if got := p.GetDefaultModel(); got != "claude-sonnet-4.6" {
 		t.Errorf("GetDefaultModel() = %q, want %q", got, "claude-sonnet-4.6")
 	}
@@ -383,7 +382,10 @@ func TestProvider_ChatUsesTokenSource(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		flusher, _ := w.(http.Flusher)
 		events := []string{
-			fmt.Sprintf("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_ts\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":%q,\"stop_reason\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":0}}}\n\n", reqBody["model"]),
+			fmt.Sprintf(
+				"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_ts\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":%q,\"stop_reason\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":0}}}\n\n",
+				reqBody["model"],
+			),
 			"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
 			"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\n",
 			"event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
@@ -475,12 +477,4 @@ func TestProvider_ChatStreamingRoundTrip(t *testing.T) {
 	if resp.Usage.CompletionTokens != 5 {
 		t.Errorf("CompletionTokens = %d, want 5", resp.Usage.CompletionTokens)
 	}
-}
-
-func createAnthropicTestClient(baseURL, token string) *anthropic.Client {
-	c := anthropic.NewClient(
-		anthropicoption.WithAuthToken(token),
-		anthropicoption.WithBaseURL(baseURL),
-	)
-	return &c
 }

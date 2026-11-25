@@ -13,33 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Tests for buildModelWithProtocol helper function.
-
-func TestBuildModelWithProtocol_NoPrefix(t *testing.T) {
-	result := buildModelWithProtocol("openai", "gpt-5.4")
-	if result != "openai/gpt-5.4" {
-		t.Errorf("buildModelWithProtocol(openai, gpt-5.4) = %q, want %q", result, "openai/gpt-5.4")
-	}
-}
-
-func TestBuildModelWithProtocol_AlreadyHasPrefix(t *testing.T) {
-	result := buildModelWithProtocol("openrouter", "openrouter/auto")
-	if result != "openrouter/auto" {
-		t.Errorf("buildModelWithProtocol(openrouter, openrouter/auto) = %q, want %q", result, "openrouter/auto")
-	}
-}
-
-func TestBuildModelWithProtocol_DifferentPrefix(t *testing.T) {
-	result := buildModelWithProtocol("anthropic", "openrouter/claude-sonnet-4.6")
-	if result != "openrouter/claude-sonnet-4.6" {
-		t.Errorf(
-			"buildModelWithProtocol(anthropic, openrouter/claude-sonnet-4.6) = %q, want %q",
-			result,
-			"openrouter/claude-sonnet-4.6",
-		)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // V0/V1/V2 → V3 migration tests
 // ---------------------------------------------------------------------------
