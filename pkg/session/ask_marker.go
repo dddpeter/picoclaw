@@ -1,8 +1,7 @@
-package session
+package session //nolint:dupl // deliberate parallel structure: approval and ask marker contracts mirror each other by design (fork-overview)
 
 import (
 	"log"
-	"sync"
 
 	"github.com/sipeed/picoclaw/pkg/memory"
 )
@@ -53,22 +52,12 @@ func (b *JSONLBackend) ClearAskPending(sessionKey string) {
 	}
 }
 
-// askPendingMem backs the legacy SessionManager's in-memory fallback.
-type askPendingMem struct {
-	mu      sync.Mutex
-	pending map[string]memory.AskMarker
-}
-
-// MarkAskPending implements AskMarkerStore.
+// MarkAskPending implements AskMarkerStore (in-memory fallback).
 func (sm *SessionManager) MarkAskPending(marker memory.AskMarker) {
-	sm.askPending.mu.Lock()
-	defer sm.askPending.mu.Unlock()
-	sm.askPending.pending[marker.SessionKey] = marker
+	sm.askPending.mark(marker.SessionKey, marker)
 }
 
-// ClearAskPending implements AskMarkerStore.
+// ClearAskPending implements AskMarkerStore (in-memory fallback).
 func (sm *SessionManager) ClearAskPending(sessionKey string) {
-	sm.askPending.mu.Lock()
-	defer sm.askPending.mu.Unlock()
-	delete(sm.askPending.pending, sessionKey)
+	sm.askPending.clear(sessionKey)
 }

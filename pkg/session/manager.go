@@ -36,8 +36,8 @@ func NewSessionManager(storage string) *SessionManager {
 		sessions:        make(map[string]*Session),
 		storage:         storage,
 		inflight:        inflightTurnMem{turns: make(map[string]InflightTurn)},
-		approvalPending: approvalPendingMem{pending: make(map[string]memory.ApprovalMarker)},
-		askPending:      askPendingMem{pending: make(map[string]memory.AskMarker)},
+		approvalPending: newPendingMarkerStore[memory.ApprovalMarker](),
+		askPending:      newPendingMarkerStore[memory.AskMarker](),
 	}
 
 	if storage != "" {

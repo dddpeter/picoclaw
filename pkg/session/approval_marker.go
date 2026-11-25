@@ -1,8 +1,7 @@
-package session
+package session //nolint:dupl // deliberate parallel structure: approval and ask marker contracts mirror each other by design (fork-overview)
 
 import (
 	"log"
-	"sync"
 
 	"github.com/sipeed/picoclaw/pkg/memory"
 )
@@ -53,24 +52,12 @@ func (b *JSONLBackend) ClearApprovalPending(sessionKey string) {
 	}
 }
 
-// SessionManager (legacy fallback backend) tracks pending approvals in
-// memory only — after a restart the map is empty, matching the legacy
-// backend's degraded turn-marker behavior.
-type approvalPendingMem struct {
-	mu      sync.Mutex
-	pending map[string]memory.ApprovalMarker
-}
-
-// MarkApprovalPending implements ApprovalMarkerStore.
+// MarkApprovalPending implements ApprovalMarkerStore (in-memory fallback).
 func (sm *SessionManager) MarkApprovalPending(marker memory.ApprovalMarker) {
-	sm.approvalPending.mu.Lock()
-	defer sm.approvalPending.mu.Unlock()
-	sm.approvalPending.pending[marker.SessionKey] = marker
+	sm.approvalPending.mark(marker.SessionKey, marker)
 }
 
-// ClearApprovalPending implements ApprovalMarkerStore.
+// ClearApprovalPending implements ApprovalMarkerStore (in-memory fallback).
 func (sm *SessionManager) ClearApprovalPending(sessionKey string) {
-	sm.approvalPending.mu.Lock()
-	defer sm.approvalPending.mu.Unlock()
-	delete(sm.approvalPending.pending, sessionKey)
+	sm.approvalPending.clear(sessionKey)
 }
