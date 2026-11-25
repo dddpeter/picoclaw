@@ -120,7 +120,13 @@ type summarizeStubProvider struct {
 	fail       bool
 }
 
-func (p *summarizeStubProvider) Chat(_ context.Context, msgs []providers.Message, _ []providers.ToolDefinition, model string, _ map[string]any) (*providers.LLMResponse, error) {
+func (p *summarizeStubProvider) Chat(
+	_ context.Context,
+	msgs []providers.Message,
+	_ []providers.ToolDefinition,
+	model string,
+	_ map[string]any,
+) (*providers.LLMResponse, error) {
 	p.mu.Lock()
 	p.calls++
 	p.lastInput = msgs[0].Content
@@ -134,7 +140,11 @@ func (p *summarizeStubProvider) Chat(_ context.Context, msgs []providers.Message
 
 func (p *summarizeStubProvider) GetDefaultModel() string { return "stub" }
 
-func splitTurnTestExec(t *testing.T, prv providers.LLMProvider, tail []providers.Message) (*Pipeline, *turnState, *turnExecution) {
+func splitTurnTestExec(
+	t *testing.T,
+	prv providers.LLMProvider,
+	tail []providers.Message,
+) (*Pipeline, *turnState, *turnExecution) {
 	t.Helper()
 	al, agent, cleanup := newTurnCoordTestLoop(t, prv)
 	t.Cleanup(cleanup)

@@ -167,7 +167,7 @@ func TestIdempotencyDoesNotBreakSeqlessClients(t *testing.T) {
 // wiring: when delivery fails after the ID was recorded, the record is
 // removed so a client retry with the same ID can still be delivered.
 // The inbound publish policy has no drop timeout (blocks until ctx
-// cancellation), so a pre-filled bus plus a cancelled channel context makes
+// cancellation), so a pre-filled bus plus a canceled channel context makes
 // the delivery error deterministic.
 func TestMessageSendDeliveryFailureRollsBackIdempotency(t *testing.T) {
 	msgBus := bus.NewMessageBus()
@@ -184,7 +184,7 @@ func TestMessageSendDeliveryFailureRollsBackIdempotency(t *testing.T) {
 	ch.ctx = ctx
 
 	// Fill the inbound buffer so the next publish cannot succeed: with the
-	// channel full and the context cancelled, publish deterministically
+	// channel full and the context canceled, publish deterministically
 	// fails instead of delivering.
 	capacity := msgBus.Stats().Inbound.Capacity
 	if capacity <= 0 {

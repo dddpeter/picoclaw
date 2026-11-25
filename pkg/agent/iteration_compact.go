@@ -125,7 +125,10 @@ func (p *Pipeline) compactBeforeLLMCall(
 			exec.currentTurnStart = len(rebuilt) - len(activeTail)
 			exec.callMessages = exec.messages
 			if exec.gracefulTerminal {
-				exec.callMessages = append(append([]providers.Message(nil), exec.messages...), ts.interruptHintMessage())
+				exec.callMessages = append(
+					append([]providers.Message(nil), exec.messages...),
+					ts.interruptHintMessage(),
+				)
 			}
 		} else {
 			logger.WarnCF("agent", "Post-compact rebuild changed the turn tail shape; keeping current request view", map[string]any{

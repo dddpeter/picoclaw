@@ -26,9 +26,13 @@ func newProbeTestServer(t *testing.T) *httptest.Server {
 			Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: "ok"}},
 		}, nil, nil
 	})
-	sdkmcp.AddTool(server, &sdkmcp.Tool{Name: "second"}, func(ctx context.Context, req *sdkmcp.CallToolRequest, args map[string]any) (*sdkmcp.CallToolResult, any, error) {
-		return &sdkmcp.CallToolResult{}, nil, nil
-	})
+	sdkmcp.AddTool(
+		server,
+		&sdkmcp.Tool{Name: "second"},
+		func(ctx context.Context, req *sdkmcp.CallToolRequest, args map[string]any) (*sdkmcp.CallToolResult, any, error) {
+			return &sdkmcp.CallToolResult{}, nil, nil
+		},
+	)
 	handler := sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server {
 		return server
 	}, nil)

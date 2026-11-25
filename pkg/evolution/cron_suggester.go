@@ -40,7 +40,13 @@ type LLMCronSuggester struct {
 
 // NewLLMCronSuggester creates a suggester. storeFor receives the workspace and
 // must return a suggestion store for it (may return nil to disable).
-func NewLLMCronSuggester(provider providers.LLMProvider, model string, storeFor func(workspace string) SuggestionAdder, minEventCount int, minSuccessRate float64) *LLMCronSuggester {
+func NewLLMCronSuggester(
+	provider providers.LLMProvider,
+	model string,
+	storeFor func(workspace string) SuggestionAdder,
+	minEventCount int,
+	minSuccessRate float64,
+) *LLMCronSuggester {
 	if minEventCount < 1 {
 		minEventCount = 2
 	}
@@ -249,7 +255,8 @@ func extractJSONLoose(content string) string {
 
 func buildSuggestionPrompt(pattern LearningRecord) string {
 	var b strings.Builder
-	b.WriteString(`A user keeps successfully repeating the task pattern below. Propose ONE scheduled automation (cron job) that would run this task for them unattended.
+	b.WriteString(
+		`A user keeps successfully repeating the task pattern below. Propose ONE scheduled automation (cron job) that would run this task for them unattended.
 
 Rules:
 - The proposal must be genuinely recurring and self-contained: the job prompt must be executable WITHOUT the original conversation context.
@@ -259,7 +266,8 @@ Rules:
 Return JSON with fields:
 {"name": "...", "kind": "cron"|"every", "cron_expr": "M H * * *", "every_seconds": N, "message": "<self-contained job prompt>", "rationale": "<why this schedule>"}
 
-Task pattern:`)
+Task pattern:`,
+	)
 	b.WriteString("\n")
 	if s := strings.TrimSpace(pattern.Summary); s != "" {
 		b.WriteString("Summary: " + s + "\n")

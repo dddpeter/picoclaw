@@ -89,7 +89,7 @@ type Streamer interface {
 
 // CancelReasonStreamer can receive the cause of a cancellation (stable codes
 // like "stop_command" or "stream_error") so the channel can show why a
-// response was interrupted. Channels that don't implement it are cancelled
+// response was interrupted. Channels that don't implement it are canceled
 // through plain Cancel.
 type CancelReasonStreamer interface {
 	Streamer

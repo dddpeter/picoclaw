@@ -62,10 +62,14 @@ var (
 		// `rm file -rf`; plain `rm -r dir` stays allowed).
 		regexp.MustCompile(`\brm\s+-[a-z]*r[a-z]*f\b`),
 		regexp.MustCompile(`\brm\s+-[a-z]*f[a-z]*r\b`),
-		regexp.MustCompile(`\brm\s+(?:-{1,2}[a-z-]+\s+)*(?:-{1,2}[a-z]*r[a-z]*\s+(?:-{1,2}[a-z-]+\s+)*-{1,2}[a-z]*f[a-z]*|-{1,2}[a-z]*f[a-z]*\s+(?:-{1,2}[a-z-]+\s+)*-{1,2}[a-z]*r[a-z]*)\b`),
+		regexp.MustCompile(
+			`\brm\s+(?:-{1,2}[a-z-]+\s+)*(?:-{1,2}[a-z]*r[a-z]*\s+(?:-{1,2}[a-z-]+\s+)*-{1,2}[a-z]*f[a-z]*|-{1,2}[a-z]*f[a-z]*\s+(?:-{1,2}[a-z-]+\s+)*-{1,2}[a-z]*r[a-z]*)\b`,
+		),
 		regexp.MustCompile(`\brm\s+[^|;&<]*\s-[a-z]*r[a-z]*f\b`),
 		regexp.MustCompile(`\brm\s+[^|;&<]*\s-[a-z]*f[a-z]*r\b`),
-		regexp.MustCompile(`\brm\s+[^|;&<]*\s(?:-{1,2}[a-z-]+\s+)*(?:-{1,2}[a-z]*r[a-z]*\s+(?:-{1,2}[a-z-]+\s+)*-{1,2}[a-z]*f[a-z]*|-{1,2}[a-z]*f[a-z]*\s+(?:-{1,2}[a-z-]+\s+)*-{1,2}[a-z]*r[a-z]*)\b`),
+		regexp.MustCompile(
+			`\brm\s+[^|;&<]*\s(?:-{1,2}[a-z-]+\s+)*(?:-{1,2}[a-z]*r[a-z]*\s+(?:-{1,2}[a-z-]+\s+)*-{1,2}[a-z]*f[a-z]*|-{1,2}[a-z]*f[a-z]*\s+(?:-{1,2}[a-z-]+\s+)*-{1,2}[a-z]*r[a-z]*)\b`,
+		),
 		regexp.MustCompile(`\brm\s+(-\S+\s+)*(--\S+\s+)*/\w*(\s|$|\*)`),
 		regexp.MustCompile(`\brm\s+(-\S+\s+)*(--\S+\s+)*\.\s*$`),
 		regexp.MustCompile(`\brm\s+(-\S+\s+)*(--\S+\s+)*\*\s*$`),
@@ -89,7 +93,9 @@ var (
 		// addition (issue #964 pinned the same line for redirects). Quoted
 		// targets count; variable indirection (`of=$D`) is not statically
 		// catchable and stays a documented gap like `rm -rf $DIR`.
-		regexp.MustCompile(`\bdd\s+[^|;&]*\bof=("|')?/dev/(sd[a-z]|hd[a-z]|vd[a-z]|xvd[a-z]|nvme\d|mmcblk\d|loop\d|dm-\d|md\d|sr\d|nbd\d|mapper/|disk/|block/)`),
+		regexp.MustCompile(
+			`\bdd\s+[^|;&]*\bof=("|')?/dev/(sd[a-z]|hd[a-z]|vd[a-z]|xvd[a-z]|nvme\d|mmcblk\d|loop\d|dm-\d|md\d|sr\d|nbd\d|mapper/|disk/|block/)`,
+		),
 		// kill targeting every process (-1), PID 1, or the session's own
 		// process group (0) — machine-killing (octop
 		// dangerous_shell_commands.yaml CRITICAL); regular PIDs stay allowed.
@@ -109,8 +115,12 @@ var (
 		// never match. guardCommand lowercases, so -TERM arrives as -term.
 		// The second rule covers the bare-word KILL spellings (-kill/-s kill/
 		// -s9/-n 9).
-		regexp.MustCompile(`\bkill\s+(?:(?:--\s+|-[1-9]\d*\s+|-s\s+(?:kill|term|hup|int|quit|usr1|usr2|[1-9]\d*)\s+|-(?:term|hup|int|quit|usr1|usr2|kill|tstp|cont|pipe|alrm)\s+|-sig(?:term|hup|int|quit|usr1|usr2|kill)\s+)+(-1\b|-0\b|1\b|0\b)|(?:1|0)\b)`),
-		regexp.MustCompile(`\bkill\s+(-\w+\s+)*(--\s+)?(-kill\b|-s\s*kill\b|-s\s*9\b|-n\s+9\b)\s+(-\w+\s+)*(--\s+)?(-1\b|1\b|0\b)`),
+		regexp.MustCompile(
+			`\bkill\s+(?:(?:--\s+|-[1-9]\d*\s+|-s\s+(?:kill|term|hup|int|quit|usr1|usr2|[1-9]\d*)\s+|-(?:term|hup|int|quit|usr1|usr2|kill|tstp|cont|pipe|alrm)\s+|-sig(?:term|hup|int|quit|usr1|usr2|kill)\s+)+(-1\b|-0\b|1\b|0\b)|(?:1|0)\b)`,
+		),
+		regexp.MustCompile(
+			`\bkill\s+(-\w+\s+)*(--\s+)?(-kill\b|-s\s*kill\b|-s\s*9\b|-n\s+9\b)\s+(-\w+\s+)*(--\s+)?(-1\b|1\b|0\b)`,
+		),
 		// The third rule is the TARGET-ANYWHERE fallback (review round 2
 		// + 3): closes the shapes the flagged enumeration above structurally
 		// misses — a benign pid ahead of the dangerous target (`kill 123
@@ -135,7 +145,9 @@ var (
 		// `rm -rf $DIR` variable indirection). NOTE: the backtick in the
 		// terminator class is spliced via concatenation — a raw string
 		// literal cannot contain one.
-		regexp.MustCompile(`\bkill\s+(?:(?:[^\s;|&\r\n-][^\s;|&\r\n]*|-l[^\s;|&\r\n][^\s;|&\r\n]*|-0[^\s;|&\r\n][^\s;|&\r\n]*|-[^\s;|&\r\nl0][^\s;|&\r\n]*)\s+)+(?:-1\b|-0\b|1\b|0\b)(?:[\s;|&<>)'"` + "`" + `,\\\]]|$)`),
+		regexp.MustCompile(
+			`\bkill\s+(?:(?:[^\s;|&\r\n-][^\s;|&\r\n]*|-l[^\s;|&\r\n][^\s;|&\r\n]*|-0[^\s;|&\r\n][^\s;|&\r\n]*|-[^\s;|&\r\nl0][^\s;|&\r\n]*)\s+)+(?:-1\b|-0\b|1\b|0\b)(?:[\s;|&<>)'"` + "`" + `,\\\]]|$)`,
+		),
 		// Block writes to block devices (all common naming schemes).
 		regexp.MustCompile(
 			`>\s*/dev/(sd[a-z]|hd[a-z]|vd[a-z]|xvd[a-z]|nvme\d|mmcblk\d|loop\d|dm-\d|md\d|sr\d|nbd\d)`,
@@ -178,7 +190,9 @@ var (
 		regexp.MustCompile(`>+\s*"?[A-Za-z]:\\(?i:program files|progra~[0-9])\b`),
 		regexp.MustCompile(`>+\s*"?[A-Za-z]:\\(?i:programdata|progra~[0-9])\b`),
 		regexp.MustCompile(`\b(del|erase|rd|(?i:remove-item)|rmdir)\s+[^|;]*[A-Za-z]:\\(?i:windows)\b`),
-		regexp.MustCompile(`\b(del|erase|rd|(?i:remove-item)|rmdir)\s+[^|;]*[A-Za-z]:\\(?i:program files|progra~[0-9])\b`),
+		regexp.MustCompile(
+			`\b(del|erase|rd|(?i:remove-item)|rmdir)\s+[^|;]*[A-Za-z]:\\(?i:program files|progra~[0-9])\b`,
+		),
 		regexp.MustCompile(`\b((?i:copy-item)|(?i:move-item))\b[^|;]*[A-Za-z]:\\(?i:windows)\b`),
 		regexp.MustCompile(`\b((?i:copy-item)|(?i:move-item))\b[^|;]*[A-Za-z]:\\(?i:program files|progra~[0-9])\b`),
 		// Bash history substitution (e.g. ^rm^echo^ replays with edits).
@@ -394,7 +408,6 @@ func (t *ExecTool) Description() string {
 	return `Execute shell commands. Use background=true for long-running commands (returns sessionId). Use pty=true for interactive commands (can combine with background=true). Use poll/read/write/send-keys/kill with sessionId to manage background sessions. Pass timeout=<seconds> to extend the wait for a single run (0 = no timeout). Sessions auto-cleanup 30 minutes after process exits; use kill to terminate early. Output buffer limit: 1MB.`
 }
 
-//nolint:dupl // Tool parameter schemas intentionally use similar JSON-schema map literals.
 func (t *ExecTool) Parameters() map[string]any {
 	return map[string]any{
 		"type": "object",
@@ -669,7 +682,10 @@ func (b *cappedOutputBuffer) String() string {
 	if lost <= 0 {
 		return string(b.head) + string(tail)
 	}
-	marker := fmt.Sprintf("\n…[%s of output truncated; re-run with output redirected to a file for full capture]…\n", formatBytes(lost))
+	marker := fmt.Sprintf(
+		"\n…[%s of output truncated; re-run with output redirected to a file for full capture]…\n",
+		formatBytes(lost),
+	)
 	return string(b.head) + marker + string(tail)
 }
 
@@ -810,7 +826,10 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string, timeout tim
 			output += fmt.Sprintf("\n\n[Command failed: %v]", err)
 		}
 		if waitAbandoned {
-			output += fmt.Sprintf("\n\n[Note: background processes still hold the command's output pipes; waited %s and returned the output collected so far.]", execIOWaitDelay)
+			output += fmt.Sprintf(
+				"\n\n[Note: background processes still hold the command's output pipes; waited %s and returned the output collected so far.]",
+				execIOWaitDelay,
+			)
 			// A clean process exit whose io wait was abandoned is a success
 			// with a note; killed + abandoned stays an error via err.
 			if !hasExitErr {

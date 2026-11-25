@@ -16,8 +16,10 @@ func TestAskMarkerRoundtrip(t *testing.T) {
 	}
 
 	questions, _ := json.Marshal([]map[string]any{
-		{"question": "部署到哪个环境？", "header": "环境",
-			"options": []map[string]any{{"label": "staging"}, {"label": "production"}}},
+		{
+			"question": "部署到哪个环境？", "header": "环境",
+			"options": []map[string]any{{"label": "staging"}, {"label": "production"}},
+		},
 	})
 	if err := s.WriteAskMarker(AskMarker{
 		SessionKey: key,

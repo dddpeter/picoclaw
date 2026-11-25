@@ -90,7 +90,7 @@ func TestClassifyError_RateLimitPatterns(t *testing.T) {
 		"resource has been exhausted",
 		"resource_exhausted",
 		// Explicit per-minute throttles stay RateLimit even when the body
-		// carries quota-flavoured wording (Zhipu's rpm exhausted + type
+		// carries quota-flavored wording (Zhipu's rpm exhausted + type
 		// quota_exceeded_error): the quota recovers within a minute.
 		"rpm exhausted",
 		`{"error":{"message":"rpm exhausted","type":"quota_exceeded_error","code":"8"}}`,

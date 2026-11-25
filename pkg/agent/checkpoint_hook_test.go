@@ -17,7 +17,11 @@ func newTestCheckpointHook(t *testing.T, restrict bool) (*CheckpointHook, *snaps
 	return newTestCheckpointHookCfg(t, restrict, config.CheckpointConfig{})
 }
 
-func newTestCheckpointHookCfg(t *testing.T, restrict bool, cfg config.CheckpointConfig) (*CheckpointHook, *snapshot.Store, string) {
+func newTestCheckpointHookCfg(
+	t *testing.T,
+	restrict bool,
+	cfg config.CheckpointConfig,
+) (*CheckpointHook, *snapshot.Store, string) {
 	t.Helper()
 	t.Setenv(config.EnvHome, t.TempDir()) // isolate ~/.picoclaw (checkpoint root)
 	ws := t.TempDir()

@@ -48,12 +48,16 @@ func TestFallbackChainAvailableMatchesExecuteCandidate(t *testing.T) {
 	primary := candidates[0].StableKey()
 
 	// Exhaust the primary with a failure, let the walk succeed on backup.
-	_, err := fc.ExecuteCandidate(context.Background(), candidates, func(_ context.Context, c FallbackCandidate) (*LLMResponse, error) {
-		if c.Model == "primary" {
-			return nil, errors.New("Status: 429")
-		}
-		return &LLMResponse{Content: "ok"}, nil
-	})
+	_, err := fc.ExecuteCandidate(
+		context.Background(),
+		candidates,
+		func(_ context.Context, c FallbackCandidate) (*LLMResponse, error) {
+			if c.Model == "primary" {
+				return nil, errors.New("Status: 429")
+			}
+			return &LLMResponse{Content: "ok"}, nil
+		},
+	)
 	if err != nil {
 		t.Fatalf("ExecuteCandidate() error = %v", err)
 	}

@@ -678,7 +678,10 @@ func TestGatewayStartReady_LocalModelWithoutAPIKey(t *testing.T) {
 	// Model unreachability no longer blocks gateway start: the gateway boots
 	// anyway and the fallback chain handles model failures at runtime.
 	if !ready {
-		t.Fatalf("gatewayStartReady() ready = false, want true even when the local model service is down (reason = %q)", reason)
+		t.Fatalf(
+			"gatewayStartReady() ready = false, want true even when the local model service is down (reason = %q)",
+			reason,
+		)
 	}
 }
 

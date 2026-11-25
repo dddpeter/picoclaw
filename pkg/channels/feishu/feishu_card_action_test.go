@@ -58,7 +58,7 @@ func stopClickEvent(chatID string) *callback.CardActionTriggerEvent {
 		Event: &callback.CardActionTriggerRequest{
 			Operator: &callback.Operator{OpenID: "ou_test_operator"},
 			Action: &callback.CallBackAction{
-				Value: map[string]interface{}{"cmd": feishuStopCmd, "chat_id": chatID},
+				Value: map[string]any{"cmd": feishuStopCmd, "chat_id": chatID},
 			},
 		},
 	}
@@ -112,7 +112,7 @@ func TestHandleCardActionUnknownCommand(t *testing.T) {
 	event := &callback.CardActionTriggerEvent{
 		Event: &callback.CardActionTriggerRequest{
 			Operator: &callback.Operator{OpenID: "ou_test_operator"},
-			Action:   &callback.CallBackAction{Value: map[string]interface{}{"cmd": "spike_ping"}},
+			Action:   &callback.CallBackAction{Value: map[string]any{"cmd": "spike_ping"}},
 		},
 	}
 	resp, err := ch.handleCardAction(context.Background(), event)

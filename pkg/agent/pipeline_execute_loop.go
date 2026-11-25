@@ -352,7 +352,12 @@ func (p *Pipeline) handleAfterToolDecision(
 // publishToolFeedback sends the pre-execution tool feedback message on
 // channels that use message-based feedback (streaming panels render steps
 // instead, so they suppress it).
-func (p *Pipeline) publishToolFeedback(ls *toolLoopState, tc providers.ToolCall, toolName string, toolArgs map[string]any) {
+func (p *Pipeline) publishToolFeedback(
+	ls *toolLoopState,
+	tc providers.ToolCall,
+	toolName string,
+	toolArgs map[string]any,
+) {
 	al := ls.al
 	ts := ls.ts
 	if !(shouldPublishToolFeedback(p.Cfg, ts) && ts.channel != "pico" && ls.exec.streamingPublisher == nil) {
@@ -496,7 +501,12 @@ func (p *Pipeline) runToolInvocation(
 
 		// The async callback bypasses the registry's synchronous exit, so the
 		// output budget backstop (with offload) is applied here too.
-		content = tools.ApplyOutputBudgetWithOffload(asyncToolName, content, ts.agent.Tools.OutputBudget(), ts.workspace)
+		content = tools.ApplyOutputBudgetWithOffload(
+			asyncToolName,
+			content,
+			ts.agent.Tools.OutputBudget(),
+			ts.workspace,
+		)
 
 		content = p.Cfg.FilterSensitiveData(content)
 
@@ -607,7 +617,8 @@ func (p *Pipeline) handleToolResult(
 		p.deliverHandledMedia(ls, toolName, toolResult.Media,
 			"Failed to deliver handled tool media",
 			func(sendErr error) {
-				toolResult = tools.ErrorResult(fmt.Sprintf("failed to deliver attachment: %v", sendErr)).WithError(sendErr)
+				toolResult = tools.ErrorResult(fmt.Sprintf("failed to deliver attachment: %v", sendErr)).
+					WithError(sendErr)
 			}, func() {
 				toolResult.ResponseHandled = false
 			})

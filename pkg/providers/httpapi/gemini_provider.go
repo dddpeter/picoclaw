@@ -192,7 +192,7 @@ func (p *GeminiProvider) ChatStreamEvents(
 	// Streaming should not use a whole-request timeout; context cancellation is the guard.
 	// But without any bound a gateway that accepts the connection and never
 	// returns response headers hangs the turn forever (context cancellation
-	// is the only way out and not every caller context gets cancelled) —
+	// is the only way out and not every caller context gets canceled) —
 	// same trap openai_compat's streamRoundTripper fixes. A dedicated
 	// transport with ResponseHeaderTimeout covers exactly the vulnerable
 	// window: it stops at the first response byte and leaves the body reads

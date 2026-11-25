@@ -170,7 +170,7 @@ func TestApproval_NoInteractiveChannelDeniesImmediately(t *testing.T) {
 	}
 }
 
-// TestApproval_HardAbortReturnsImmediately: cancelling the turn context
+// TestApproval_HardAbortReturnsImmediately: canceling the turn context
 // (hard abort path) unblocks the waiter at once with a fail-closed denial.
 func TestApproval_HardAbortReturnsImmediately(t *testing.T) {
 	h := approvalTestHook(t, `{"ask_patterns":["git push"],"timeout_ms":600000}`)
@@ -183,9 +183,9 @@ func TestApproval_HardAbortReturnsImmediately(t *testing.T) {
 		t.Fatalf("ApproveTool: %v", err)
 	}
 	if d.Approved {
-		t.Fatal("cancelled wait must deny, not approve")
+		t.Fatal("canceled wait must deny, not approve")
 	}
-	if !strings.Contains(d.Reason, "cancelled") {
+	if !strings.Contains(d.Reason, "canceled") {
 		t.Fatalf("expected cancellation reason, got %q", d.Reason)
 	}
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
@@ -214,7 +214,11 @@ func TestApprovalReply_RoutedBeforeSteering(t *testing.T) {
 	}
 
 	ch := register("sess", "feishu", "c")
-	if !al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "/approve"}, "sess") {
+	if !al.tryHandleApprovalReply(
+		context.Background(),
+		bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "/approve"},
+		"sess",
+	) {
 		t.Fatal("/approve must be consumed while a waiter is pending")
 	}
 	if reply := <-ch; !reply.approved {
@@ -223,7 +227,11 @@ func TestApprovalReply_RoutedBeforeSteering(t *testing.T) {
 
 	// M1: a reply from a DIFFERENT channel/chat must not resolve the waiter.
 	ch = register("sess-x", "feishu", "c")
-	if al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{Channel: "telegram", ChatID: "other", Content: "/approve"}, "sess-x") {
+	if al.tryHandleApprovalReply(
+		context.Background(),
+		bus.InboundMessage{Channel: "telegram", ChatID: "other", Content: "/approve"},
+		"sess-x",
+	) {
 		t.Fatal("cross-chat reply must not be consumed as an approval answer")
 	}
 	if len(ch) != 0 {
@@ -232,7 +240,11 @@ func TestApprovalReply_RoutedBeforeSteering(t *testing.T) {
 
 	// L1: a command with trailing content is not an approval answer.
 	ch = register("sess-tail", "feishu", "c")
-	if al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "/approve 请继续删库"}, "sess-tail") {
+	if al.tryHandleApprovalReply(
+		context.Background(),
+		bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "/approve 请继续删库"},
+		"sess-tail",
+	) {
 		t.Fatal("command with trailing content must fall through to steering")
 	}
 	if len(ch) != 0 {
@@ -240,27 +252,43 @@ func TestApprovalReply_RoutedBeforeSteering(t *testing.T) {
 	}
 
 	ch = register("sess-deny", "feishu", "c")
-	al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "/deny"}, "sess-deny")
+	al.tryHandleApprovalReply(
+		context.Background(),
+		bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "/deny"},
+		"sess-deny",
+	)
 	if reply := <-ch; reply.approved {
 		t.Fatal("/deny must resolve as denied")
 	}
 
 	ch = register("sess-zh", "feishu", "c")
-	al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "拒绝"}, "sess-zh")
+	al.tryHandleApprovalReply(
+		context.Background(),
+		bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "拒绝"},
+		"sess-zh",
+	)
 	if reply := <-ch; reply.approved {
 		t.Fatal("拒绝 must resolve as denied")
 	}
 
 	// Non-reply content falls through to steering even with a pending waiter.
 	register("sess-other", "feishu", "c")
-	if al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "顺便看下进度"}, "sess-other") {
+	if al.tryHandleApprovalReply(
+		context.Background(),
+		bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "顺便看下进度"},
+		"sess-other",
+	) {
 		t.Fatal("free-form text must fall through to steering")
 	}
 
 	// Reply-shaped message with no waiter is an ORPHAN: dropped with a
 	// receipt so the protocol word never reaches steering or a fresh turn
 	// (stale button clicks land here after the question expired).
-	if !al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "/approve"}, "no-such-session") {
+	if !al.tryHandleApprovalReply(
+		context.Background(),
+		bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "/approve"},
+		"no-such-session",
+	) {
 		t.Fatal("orphan approval token must be consumed (dropped with receipt)")
 	}
 }
@@ -489,7 +517,12 @@ func TestApprovalWireFormatPinned(t *testing.T) {
 	}
 	for _, pin := range pins {
 		if pin.got != pin.want {
-			t.Errorf("%s drifted: got %q want %q (frontend approval.ts must be updated in lockstep)", pin.name, pin.got, pin.want)
+			t.Errorf(
+				"%s drifted: got %q want %q (frontend approval.ts must be updated in lockstep)",
+				pin.name,
+				pin.got,
+				pin.want,
+			)
 		}
 	}
 }
@@ -512,8 +545,10 @@ func TestApproval_DenyWithReason(t *testing.T) {
 		{"/DENY prod only", true, "prod only"},
 		{"/deny always", true, ""}, // bare "always" is not a reason
 		{"/approve 别执行", false, ""},
-		{"/deny " + strings.Repeat("长", approvalDenyReasonMaxRunes+50), true,
-			strings.Repeat("长", approvalDenyReasonMaxRunes) + "…"},
+		{
+			"/deny " + strings.Repeat("长", approvalDenyReasonMaxRunes+50), true,
+			strings.Repeat("长", approvalDenyReasonMaxRunes) + "…",
+		},
 	}
 	for _, tc := range cases {
 		ans := parseApprovalReply(tc.content)
@@ -600,7 +635,10 @@ func TestApproval_SessionAllowAll(t *testing.T) {
 		}
 	}
 
-	h := approvalTestHook(t, `{"ask_patterns":["git push","rm -rf"],"hard_deny_patterns":["cat /etc/shadow"],"timeout_ms":600000}`)
+	h := approvalTestHook(
+		t,
+		`{"ask_patterns":["git push","rm -rf"],"hard_deny_patterns":["cat /etc/shadow"],"timeout_ms":600000}`,
+	)
 
 	// Routing side: "/approve all" resolves the waiter with approved+allowAll.
 	al, _, cleanup := newTurnCoordTestLoop(t, &summarizeStubProvider{})
@@ -673,14 +711,22 @@ func TestApprovalReply_EmptySurfaceNotConsumed(t *testing.T) {
 
 	al.approvalHook = approvalTestHook(t, `{}`)
 	for _, content := range []string{"/approve", "同意", "批准", "拒绝"} {
-		if al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: content}, "sess-empty") {
+		if al.tryHandleApprovalReply(
+			context.Background(),
+			bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: content},
+			"sess-empty",
+		) {
 			t.Fatalf("empty ask surface must not consume %q (identical to disabled)", content)
 		}
 	}
 
 	// Contrast: a real ask surface still consumes orphans.
 	al.approvalHook = approvalTestHook(t, `{"ask_patterns":["git push"]}`)
-	if !al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "/approve"}, "sess-empty") {
+	if !al.tryHandleApprovalReply(
+		context.Background(),
+		bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "/approve"},
+		"sess-empty",
+	) {
 		t.Fatal("hook with ask patterns keeps the orphan consumption")
 	}
 }
@@ -703,7 +749,11 @@ func TestApprovalReply_LateReplyAfterRetirement(t *testing.T) {
 	waiter.mu.Unlock()
 	h.pending.Store("sess-late", waiter)
 
-	if !al.tryHandleApprovalReply(context.Background(), bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "/approve all"}, "sess-late") {
+	if !al.tryHandleApprovalReply(
+		context.Background(),
+		bus.InboundMessage{Channel: "feishu", ChatID: "c", Content: "/approve all"},
+		"sess-late",
+	) {
 		t.Fatal("retired waiter still consumes the late reply as an orphan (with receipt)")
 	}
 	select {
@@ -788,13 +838,18 @@ func TestApprovalReply_GroupSenderPinning(t *testing.T) {
 
 	register := func(key, sender string) chan approvalReply {
 		ch := make(chan approvalReply, 1)
-		h.pending.Store(key, &pendingApproval{resolve: ch, channel: "feishu", chatID: "c", senderID: sender, pattern: "git push"})
+		h.pending.Store(
+			key,
+			&pendingApproval{resolve: ch, channel: "feishu", chatID: "c", senderID: sender, pattern: "git push"},
+		)
 		return ch
 	}
 
 	ch := register("sess-apin", "ou_asked")
-	other := bus.InboundMessage{Channel: "feishu", ChatID: "c", SenderID: "ou_other",
-		Content: "/approve", Context: bus.InboundContext{ChatType: "group"}}
+	other := bus.InboundMessage{
+		Channel: "feishu", ChatID: "c", SenderID: "ou_other",
+		Content: "/approve", Context: bus.InboundContext{ChatType: "group"},
+	}
 	if al.tryHandleApprovalReply(context.Background(), other, "sess-apin") {
 		t.Fatal("another group member must not answer the approval")
 	}
@@ -804,8 +859,10 @@ func TestApprovalReply_GroupSenderPinning(t *testing.T) {
 	default:
 	}
 
-	asked := bus.InboundMessage{Channel: "feishu", ChatID: "c", SenderID: "ou_asked",
-		Content: "/approve", Context: bus.InboundContext{ChatType: "group"}}
+	asked := bus.InboundMessage{
+		Channel: "feishu", ChatID: "c", SenderID: "ou_asked",
+		Content: "/approve", Context: bus.InboundContext{ChatType: "group"},
+	}
 	if !al.tryHandleApprovalReply(context.Background(), asked, "sess-apin") {
 		t.Fatal("the asked user's approval must be consumed")
 	}
@@ -816,8 +873,10 @@ func TestApprovalReply_GroupSenderPinning(t *testing.T) {
 	// Direct chats stay permissive on sender mismatch (the peer is
 	// unambiguous); replies without sender identity stay permissive.
 	ch2 := register("sess-apin-d", "ou_asked")
-	direct := bus.InboundMessage{Channel: "feishu", ChatID: "c", SenderID: "ou_elsewhere",
-		Content: "/approve", Context: bus.InboundContext{ChatType: "direct"}}
+	direct := bus.InboundMessage{
+		Channel: "feishu", ChatID: "c", SenderID: "ou_elsewhere",
+		Content: "/approve", Context: bus.InboundContext{ChatType: "direct"},
+	}
 	if !al.tryHandleApprovalReply(context.Background(), direct, "sess-apin-d") {
 		t.Fatal("direct chat reply must be consumed regardless of sender pin")
 	}
@@ -826,8 +885,10 @@ func TestApprovalReply_GroupSenderPinning(t *testing.T) {
 	}
 
 	ch3 := register("sess-apin-anon", "ou_asked")
-	anon := bus.InboundMessage{Channel: "feishu", ChatID: "c",
-		Content: "/approve", Context: bus.InboundContext{ChatType: "group"}}
+	anon := bus.InboundMessage{
+		Channel: "feishu", ChatID: "c",
+		Content: "/approve", Context: bus.InboundContext{ChatType: "group"},
+	}
 	if !al.tryHandleApprovalReply(context.Background(), anon, "sess-apin-anon") {
 		t.Fatal("identity-less reply stays permissive")
 	}

@@ -8,13 +8,13 @@ type EventsConfig struct {
 // EventLoggingConfig controls centralized runtime event logging.
 type EventLoggingConfig struct {
 	// Enabled controls whether runtime events are printed by the built-in logger.
-	Enabled bool `json:"enabled" env:"ENABLED"`
+	Enabled bool `json:"enabled"                   env:"ENABLED"`
 	// Include contains exact event kinds or glob patterns such as "agent.*" or "*".
-	Include []string `json:"include,omitempty" env:"INCLUDE"`
+	Include []string `json:"include,omitempty"         env:"INCLUDE"`
 	// Exclude contains exact event kinds or glob patterns to suppress after Include matches.
-	Exclude []string `json:"exclude,omitempty" env:"EXCLUDE"`
+	Exclude []string `json:"exclude,omitempty"         env:"EXCLUDE"`
 	// MinSeverity filters out events below the configured severity: debug, info, warn, or error.
-	MinSeverity string `json:"min_severity,omitempty" env:"MIN_SEVERITY"`
+	MinSeverity string `json:"min_severity,omitempty"    env:"MIN_SEVERITY"`
 	// IncludePayload adds the raw payload to logs. Leave disabled unless detailed diagnostics are needed.
 	IncludePayload bool `json:"include_payload,omitempty" env:"INCLUDE_PAYLOAD"`
 }

@@ -1272,14 +1272,15 @@ func TestNormalizeModel_UsesAPIBase(t *testing.T) {
 }
 
 func TestProvider_RequestTimeoutDefault(t *testing.T) {
-	p := NewProviderWithMaxTokensFieldAndTimeout("key", "https://example.com/v1", "", "", 0)
+	p := NewProvider("key", "https://example.com/v1", "", WithMaxTokensField(""))
 	if p.httpClient.Timeout != defaultRequestTimeout {
 		t.Fatalf("http timeout = %v, want %v", p.httpClient.Timeout, defaultRequestTimeout)
 	}
 }
 
 func TestProvider_RequestTimeoutOverride(t *testing.T) {
-	p := NewProviderWithMaxTokensFieldAndTimeout("key", "https://example.com/v1", "", "", 300)
+	p := NewProvider("key", "https://example.com/v1", "",
+		WithMaxTokensField(""), WithRequestTimeout(300*time.Second))
 	if p.httpClient.Timeout != 300*time.Second {
 		t.Fatalf("http timeout = %v, want %v", p.httpClient.Timeout, 300*time.Second)
 	}
@@ -2258,7 +2259,9 @@ func TestProviderChatStream_HeaderTimeoutAllowsSlowBody(t *testing.T) {
 		}
 		// Body chunks arrive slower than the header timeout configured below.
 		time.Sleep(300 * time.Millisecond)
-		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"slow\"},\"finish_reason\":\"stop\"}]}\n\n"))
+		_, _ = w.Write(
+			[]byte("data: {\"choices\":[{\"delta\":{\"content\":\"slow\"},\"finish_reason\":\"stop\"}]}\n\n"),
+		)
 		_, _ = w.Write([]byte("data: [DONE]\n\n"))
 	}))
 	defer server.Close()
@@ -2294,8 +2297,16 @@ func TestChatStream_MalformedUsageSkipped(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n"))
-		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":[],\"prompt_cache_hit_tokens\":\"42\"}\n\n"))
-		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15,\"prompt_tokens_details\":{}}}\n\n"))
+		_, _ = w.Write(
+			[]byte(
+				"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":[],\"prompt_cache_hit_tokens\":\"42\"}\n\n",
+			),
+		)
+		_, _ = w.Write(
+			[]byte(
+				"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15,\"prompt_tokens_details\":{}}}\n\n",
+			),
+		)
 		_, _ = w.Write([]byte("data: [DONE]\n\n"))
 	}))
 	defer server.Close()

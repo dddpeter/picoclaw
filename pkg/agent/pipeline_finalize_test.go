@@ -54,7 +54,7 @@ func TestFinalize_SealsStreamingCardWhenToolHandledDelivery(t *testing.T) {
 		t.Fatalf("expected card sealed with the streamed content, got %q", recorder.finalized[0])
 	}
 	// The publisher must be consumed so the coordinator's last-resort
-	// cleanup becomes a no-op instead of cancelling the sealed card.
+	// cleanup becomes a no-op instead of canceling the sealed card.
 	if exec.streamingPublisher != nil {
 		t.Fatal("expected streamingPublisher to be cleared after finalize")
 	}

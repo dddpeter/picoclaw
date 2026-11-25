@@ -586,7 +586,10 @@ func (c *MatrixChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMess
 			})
 			// Earlier parts may already be in the room — never retry the
 			// batch (B6).
-			return nil, channels.MediaSendErr(len(eventIDs), fmt.Errorf("matrix upload media: %w", channels.ErrTemporary))
+			return nil, channels.MediaSendErr(
+				len(eventIDs),
+				fmt.Errorf("matrix upload media: %w", channels.ErrTemporary),
+			)
 		}
 
 		msgType := matrixOutboundMsgType(part.Type, filename, contentType)

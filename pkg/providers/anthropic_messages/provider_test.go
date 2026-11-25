@@ -376,7 +376,7 @@ func TestParseResponseBody(t *testing.T) {
 }
 
 func TestNewProvider(t *testing.T) {
-	provider := NewProvider("test-key", "https://api.example.com", "")
+	provider := NewProviderWithTimeout("test-key", "https://api.example.com", "", 0, "")
 	if provider == nil {
 		t.Fatal("NewProvider() returned nil")
 	}
@@ -389,7 +389,7 @@ func TestNewProvider(t *testing.T) {
 }
 
 func TestGetDefaultModel(t *testing.T) {
-	provider := NewProvider("test-key", "", "")
+	provider := NewProviderWithTimeout("test-key", "", "", 0, "")
 	got := provider.GetDefaultModel()
 	expected := "claude-sonnet-4.6"
 	if got != expected {
@@ -860,7 +860,7 @@ func TestProviderChatErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create provider using constructor to ensure proper initialization
-			provider := NewProvider(tt.apiKey, "https://api.example.com", "")
+			provider := NewProviderWithTimeout(tt.apiKey, "https://api.example.com", "", 0, "")
 
 			_, err := provider.Chat(context.Background(), tt.messages, nil, "test-model", nil)
 			if err == nil {

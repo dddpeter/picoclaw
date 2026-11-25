@@ -287,10 +287,16 @@ func TestApplyPanelTextBudgetTrimsOldestFirst(t *testing.T) {
 func TestFinalCardStaysUnderSizeLimit(t *testing.T) {
 	state := &feishuStreamState{}
 	for i := 0; i < feishuMaxReasoningRounds; i++ {
-		state.Rounds = append(state.Rounds, feishuReasoningRound{Text: strings.Repeat("思", feishuReasoningDisplayLimit)})
+		state.Rounds = append(
+			state.Rounds,
+			feishuReasoningRound{Text: strings.Repeat("思", feishuReasoningDisplayLimit)},
+		)
 	}
 	for i := 0; i < feishuMaxToolSteps; i++ {
-		state.Tools = append(state.Tools, bus.ToolStep{Tool: "tool", Args: strings.Repeat("参", 200), Result: strings.Repeat("果", 400)})
+		state.Tools = append(
+			state.Tools,
+			bus.ToolStep{Tool: "tool", Args: strings.Repeat("参", 200), Result: strings.Repeat("果", 400)},
+		)
 	}
 	card := buildFeishuFinalCard(state, strings.Repeat("答", 4000), false, time.Second, "")
 	data, err := json.Marshal(card)
@@ -445,7 +451,9 @@ func TestFeishuToolTitleMonospaceName(t *testing.T) {
 		t.Errorf("tool name should render monospaced, got %q", content)
 	}
 	// MCP names keep the mono span after the prefix strip.
-	mcp := feishuToolStepTitle(bus.ToolStep{Tool: "mcp_git_create_issue", Kind: bus.ToolStepKindMCP, Duration: time.Second})
+	mcp := feishuToolStepTitle(
+		bus.ToolStep{Tool: "mcp_git_create_issue", Kind: bus.ToolStepKindMCP, Duration: time.Second},
+	)
 	content = mcp["text"].(map[string]any)["content"].(string)
 	if !strings.Contains(content, "MCP `git_create_issue`") {
 		t.Errorf("mcp tool name should render monospaced without prefix, got %q", content)

@@ -142,7 +142,6 @@ func (t *RenderUITool) Parameters() map[string]any {
 					`Button fires an action; each event.context {"path"} binding resolves at click time from the CURRENT dataModel. The interaction reaches you as a user message: [A2UI 交互] surface="<surfaceId>" action="<name>" source="<componentId>" context=<json> (context= omitted when empty). ` +
 					`Minimal example: [createSurface s1 (envelope as above), {"version":"v0.9","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Card","child":"t1"},{"id":"t1","component":"Text","text":"hello"}]}}, updateDataModel s1 {"title":"hello"}] ` +
 					`VegaChart{spec} renders a vega-lite chart (inline spec or {"path"} binding; props ONLY "spec") — themed automatically: omit spec.width/background, no color configs; multi-series color via encoding.color.`,
-
 			},
 			"summary": map[string]any{
 				"type":        "string",
@@ -161,7 +160,10 @@ func (t *RenderUITool) Execute(ctx context.Context, args map[string]any) *ToolRe
 	}
 	items, ok := raw.([]any)
 	if !ok || len(items) == 0 {
-		return &ToolResult{ForLLM: "messages must be a non-empty array of A2UI message objects (not a JSON string)", IsError: true}
+		return &ToolResult{
+			ForLLM:  "messages must be a non-empty array of A2UI message objects (not a JSON string)",
+			IsError: true,
+		}
 	}
 
 	// Gate 1: the batch must be valid JSON.
@@ -194,7 +196,11 @@ func (t *RenderUITool) Execute(ctx context.Context, args map[string]any) *ToolRe
 	// Gate 3: size cap on the serialized batch.
 	if len(payload) > renderUIMaxBytes {
 		return &ToolResult{
-			ForLLM:  fmt.Sprintf("messages too large: %d bytes (max %d bytes); split the surface into smaller render_ui calls", len(payload), renderUIMaxBytes),
+			ForLLM: fmt.Sprintf(
+				"messages too large: %d bytes (max %d bytes); split the surface into smaller render_ui calls",
+				len(payload),
+				renderUIMaxBytes,
+			),
 			IsError: true,
 		}
 	}
@@ -281,12 +287,21 @@ func renderUIEnvelopeViolation(items []any) error {
 				continue
 			}
 			if len(payload) == 0 {
-				return fmt.Errorf("messages[%d]: exactly one of %s is required (non-empty object)", i, renderUIBranchKeysDoc)
+				return fmt.Errorf(
+					"messages[%d]: exactly one of %s is required (non-empty object)",
+					i,
+					renderUIBranchKeysDoc,
+				)
 			}
 			for k := range payload {
 				if !renderUIBranchAllowedKeys[key][k] {
-					return fmt.Errorf("messages[%d]: %s has invalid key %q (allowed: %s) — unknown keys make the renderer reject the whole batch",
-						i, key, k, renderUIAllowedKeysDoc(key))
+					return fmt.Errorf(
+						"messages[%d]: %s has invalid key %q (allowed: %s) — unknown keys make the renderer reject the whole batch",
+						i,
+						key,
+						k,
+						renderUIAllowedKeysDoc(key),
+					)
 				}
 			}
 			if key == "updateComponents" {
@@ -298,12 +313,21 @@ func renderUIEnvelopeViolation(items []any) error {
 			if key == "createSurface" {
 				hasCreateSurface = true
 				if cid, _ := payload["catalogId"].(string); cid != renderUIBasicCatalogID {
-					return fmt.Errorf("messages[%d]: createSurface.catalogId %q does not name a registered catalog — use exactly %q", i, cid, renderUIBasicCatalogID)
+					return fmt.Errorf(
+						"messages[%d]: createSurface.catalogId %q does not name a registered catalog — use exactly %q",
+						i,
+						cid,
+						renderUIBasicCatalogID,
+					)
 				}
 			}
 		}
 		if branches != 1 {
-			return fmt.Errorf("messages[%d]: exactly one of %s is required (non-empty object)", i, renderUIBranchKeysDoc)
+			return fmt.Errorf(
+				"messages[%d]: exactly one of %s is required (non-empty object)",
+				i,
+				renderUIBranchKeysDoc,
+			)
 		}
 	}
 	// Single-surfaceId gate: the pico layer merges streamed updates by
@@ -364,7 +388,11 @@ func renderUISurfaceID(items []any) (string, error) {
 			}
 			id, _ := payload["surfaceId"].(string)
 			if id == "" {
-				return "", fmt.Errorf("messages[%d]: %s.surfaceId must be a non-empty string — one render_ui call renders exactly one surface", i, key)
+				return "", fmt.Errorf(
+					"messages[%d]: %s.surfaceId must be a non-empty string — one render_ui call renders exactly one surface",
+					i,
+					key,
+				)
 			}
 			if surfaceID == "" {
 				surfaceID = id
@@ -380,7 +408,11 @@ func renderUISurfaceID(items []any) (string, error) {
 		for j, id := range order {
 			quoted[j] = fmt.Sprintf("%q", id)
 		}
-		return "", fmt.Errorf("batch mixes %d different surfaceIds (%s) — one render_ui call renders exactly one surface; split each surface into its own render_ui call", len(order), strings.Join(quoted, ", "))
+		return "", fmt.Errorf(
+			"batch mixes %d different surfaceIds (%s) — one render_ui call renders exactly one surface; split each surface into its own render_ui call",
+			len(order),
+			strings.Join(quoted, ", "),
+		)
 	}
 	if surfaceID == "" {
 		return "", fmt.Errorf("batch carries no surfaceId — every frame must target the same non-empty surfaceId")
@@ -419,7 +451,10 @@ func renderUIDuplicateComponentIDViolation(items []any) error {
 				continue // 缺 id 已由 renderUIComponentsViolation 拦截
 			}
 			if seen[id] {
-				return fmt.Errorf("duplicate component id %q — every component must have a unique id across the whole batch (the renderer rejects duplicates with \"Duplicate component ID\")", id)
+				return fmt.Errorf(
+					"duplicate component id %q — every component must have a unique id across the whole batch (the renderer rejects duplicates with \"Duplicate component ID\")",
+					id,
+				)
 			}
 			seen[id] = true
 		}
@@ -481,7 +516,9 @@ func renderUIComponentsByID(items []any) (byID map[string]map[string]any, order 
 func renderUIRootViolation(items []any) error {
 	byID, order := renderUIComponentsByID(items)
 	if _, ok := byID["root"]; !ok {
-		return fmt.Errorf(`batch must include a component with id "root" — the renderer renders the tree rooted at the component named "root"; rename the top-level component's id to "root"`)
+		return fmt.Errorf(
+			`batch must include a component with id "root" — the renderer renders the tree rooted at the component named "root"; rename the top-level component's id to "root"`,
+		)
 	}
 	visited := map[string]bool{"root": true}
 	queue := []string{"root"}
@@ -509,7 +546,10 @@ func renderUIRootViolation(items []any) error {
 		if len(unreachable) > 5 {
 			unreachable = append(unreachable[:5], fmt.Sprintf("… (+%d more)", len(unreachable)-5))
 		}
-		return fmt.Errorf("components not reachable from \"root\" never render: %s — wire them into a parent's child/children or remove them", strings.Join(unreachable, ", "))
+		return fmt.Errorf(
+			"components not reachable from \"root\" never render: %s — wire them into a parent's child/children or remove them",
+			strings.Join(unreachable, ", "),
+		)
 	}
 	return renderUIRefCountViolation(byID)
 }
@@ -584,7 +624,10 @@ func renderUIRefCountViolation(byID map[string]map[string]any) error {
 	}
 	if len(shared) > 0 {
 		sort.Strings(shared)
-		return fmt.Errorf("components referenced by more than one parent render once per reference: %s — A2UI components form a tree, each id may appear in at most one child/children list", strings.Join(shared, ", "))
+		return fmt.Errorf(
+			"components referenced by more than one parent render once per reference: %s — A2UI components form a tree, each id may appear in at most one child/children list",
+			strings.Join(shared, ", "),
+		)
 	}
 	return nil
 }
@@ -645,11 +688,19 @@ func renderUIButtonActionViolation(msgIdx, compIdx int, comp map[string]any) err
 	}
 	action, present := comp["action"]
 	if !present {
-		return fmt.Errorf("messages[%d].components[%d]: Button needs an \"action\" object — e.g. \"action\":{\"event\":{\"name\":\"open\"}}} (required even when the button is a Modal trigger)", msgIdx, compIdx)
+		return fmt.Errorf(
+			"messages[%d].components[%d]: Button needs an \"action\" object — e.g. \"action\":{\"event\":{\"name\":\"open\"}}} (required even when the button is a Modal trigger)",
+			msgIdx,
+			compIdx,
+		)
 	}
 	_, isObj := action.(map[string]any)
 	if !isObj {
-		return fmt.Errorf("messages[%d].components[%d]: Button \"action\" must be an object like {\"event\":{\"name\":\"...\"}}", msgIdx, compIdx)
+		return fmt.Errorf(
+			"messages[%d].components[%d]: Button \"action\" must be an object like {\"event\":{\"name\":\"...\"}}",
+			msgIdx,
+			compIdx,
+		)
 	}
 	return nil
 }
@@ -670,17 +721,31 @@ func renderUIChoicePickerOptionsViolation(msgIdx, compIdx int, comp map[string]a
 	}
 	arr, ok := opts.([]any)
 	if !ok {
-		return fmt.Errorf("messages[%d].components[%d]: ChoicePicker options must be an array of {\"label\": string, \"value\": string} objects", msgIdx, compIdx)
+		return fmt.Errorf(
+			"messages[%d].components[%d]: ChoicePicker options must be an array of {\"label\": string, \"value\": string} objects",
+			msgIdx,
+			compIdx,
+		)
 	}
 	for k, o := range arr {
 		om, ok := o.(map[string]any)
 		if !ok {
-			return fmt.Errorf("messages[%d].components[%d]: ChoicePicker options[%d] must be a {\"label\": string, \"value\": string} object (plain strings are not accepted)", msgIdx, compIdx, k)
+			return fmt.Errorf(
+				"messages[%d].components[%d]: ChoicePicker options[%d] must be a {\"label\": string, \"value\": string} object (plain strings are not accepted)",
+				msgIdx,
+				compIdx,
+				k,
+			)
 		}
 		lbl, _ := om["label"].(string)
 		val, _ := om["value"].(string)
 		if lbl == "" || val == "" {
-			return fmt.Errorf("messages[%d].components[%d]: ChoicePicker options[%d] needs string \"label\" and \"value\" keys", msgIdx, compIdx, k)
+			return fmt.Errorf(
+				"messages[%d].components[%d]: ChoicePicker options[%d] needs string \"label\" and \"value\" keys",
+				msgIdx,
+				compIdx,
+				k,
+			)
 		}
 	}
 	return nil

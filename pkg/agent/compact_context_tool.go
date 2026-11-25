@@ -75,7 +75,8 @@ func (t *CompactContextTool) Execute(ctx context.Context, args map[string]any) *
 	if ts.compactContextToolUses.Add(1) > compactContextToolMaxUses {
 		return tools.SilentResult(fmt.Sprintf(
 			"compact_context has already been used %d times this turn; automatic compaction still runs whenever the context approaches the window. Do not call it again this turn.",
-			compactContextToolMaxUses))
+			compactContextToolMaxUses,
+		))
 	}
 
 	usage := computeContextUsageWithWindows(
@@ -86,19 +87,24 @@ func (t *CompactContextTool) Execute(ctx context.Context, args map[string]any) *
 	)
 	if usage == nil {
 		return tools.SilentResult(
-			"No compaction was performed: current context usage could not be estimated for this session. Nothing was summarized and no detail was lost.")
+			"No compaction was performed: current context usage could not be estimated for this session. Nothing was summarized and no detail was lost.",
+		)
 	}
 	ratio, threshold := compactContextUsageRatio(ts.agent, usage, ts.effectiveContextWindow())
 	if ratio < threshold {
 		return tools.SilentResult(fmt.Sprintf(
 			"No compaction was performed: estimated history usage is about %.0f%% of the effective context window, below this tool's %.0f%% threshold. Nothing was summarized and no detail was lost.",
-			ratio*100, threshold*100))
+			ratio*100,
+			threshold*100,
+		))
 	}
 
 	ts.compactContextRequested.Store(true)
 	return tools.SilentResult(fmt.Sprintf(
 		"Compaction requested: history usage is about %.0f%% of the effective window (tool threshold %.0f%%). Compaction will run before your next model call and summarize older messages; if the attempt fails, nothing is summarized and the context stays unchanged. Summarized details stay recoverable via the short_expand tool — re-read them there if you need exact content again.",
-		ratio*100, threshold*100))
+		ratio*100,
+		threshold*100,
+	))
 }
 
 // compactContextUsageRatio returns the history-usage ratio on the same basis

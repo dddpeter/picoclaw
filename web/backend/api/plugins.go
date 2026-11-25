@@ -310,7 +310,13 @@ func loadPluginForReport(target, dataRoot string) (*agentplugins.Plugin, error) 
 }
 
 func reportFromPlugin(p *agentplugins.Plugin) pluginReportResponse {
-	resp := pluginReportResponse{OK: true, Name: p.Name, Version: p.Version, Skills: len(p.Skills), MCPServers: len(p.MCPServers)}
+	resp := pluginReportResponse{
+		OK:         true,
+		Name:       p.Name,
+		Version:    p.Version,
+		Skills:     len(p.Skills),
+		MCPServers: len(p.MCPServers),
+	}
 	if p.Report != nil {
 		resp.Warnings = p.Report.Warnings
 	}

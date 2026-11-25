@@ -397,7 +397,10 @@ func (c *DeltaChatChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaM
 			})
 			// Parts before this one are already in the chat — never retry the
 			// batch (B6).
-			return messageIDs, channels.MediaSendErr(len(messageIDs), fmt.Errorf("deltachat send media: %w", channels.ErrTemporary))
+			return messageIDs, channels.MediaSendErr(
+				len(messageIDs),
+				fmt.Errorf("deltachat send media: %w", channels.ErrTemporary),
+			)
 		}
 
 		// send_msg returns the new message id as a bare integer.

@@ -2,7 +2,6 @@ package commands
 
 import (
 	"context"
-
 	"strings"
 	"testing"
 
@@ -66,7 +65,12 @@ type cronRuntimeFixture struct {
 func newCronRuntimeFixture() *cronRuntimeFixture {
 	f := &cronRuntimeFixture{}
 	jobs := []cron.CronJob{
-		{Name: "every-hour", ID: "job1", Enabled: true, Schedule: cron.CronSchedule{Kind: "every", EveryMS: int64PtrCron(3600000)}},
+		{
+			Name:     "every-hour",
+			ID:       "job1",
+			Enabled:  true,
+			Schedule: cron.CronSchedule{Kind: "every", EveryMS: int64PtrCron(3600000)},
+		},
 		{Name: "disabled", ID: "job2", Enabled: false},
 	}
 	f.rt = &Runtime{
@@ -74,9 +78,11 @@ func newCronRuntimeFixture() *cronRuntimeFixture {
 		CronSuggestions: func() []cron.Suggestion {
 			every := int64PtrCron(86400000)
 			return []cron.Suggestion{
-				{ID: "sug_1", Name: "nightly", Message: "m", Source: "evolution",
+				{
+					ID: "sug_1", Name: "nightly", Message: "m", Source: "evolution",
 					Schedule:  cron.CronSchedule{Kind: "every", EveryMS: every},
-					Rationale: "repeats daily"},
+					Rationale: "repeats daily",
+				},
 			}
 		},
 		AcceptCronSuggestion: func(channel, chatID, id string) (string, error) {

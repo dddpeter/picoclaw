@@ -26,7 +26,11 @@ func validateForInstall(src string) (*Manifest, error) {
 		return nil, fmt.Errorf("source is not a valid plugin: %w", err)
 	}
 	if reservedInstallNames[m.Name] {
-		return nil, fmt.Errorf("plugin name %q collides with a reserved install-root path (data, %s)", m.Name, RegistryFileName)
+		return nil, fmt.Errorf(
+			"plugin name %q collides with a reserved install-root path (data, %s)",
+			m.Name,
+			RegistryFileName,
+		)
 	}
 	return m, nil
 }
@@ -50,7 +54,12 @@ func installValidated(src, installRoot string) (string, error) {
 	}
 	target := filepath.Join(installRoot, m.Name)
 	if _, err := os.Lstat(target); err == nil {
-		return "", fmt.Errorf("plugin %q already installed at %s (run `picoclaw plugin remove %s` first)", m.Name, target, m.Name)
+		return "", fmt.Errorf(
+			"plugin %q already installed at %s (run `picoclaw plugin remove %s` first)",
+			m.Name,
+			target,
+			m.Name,
+		)
 	} else if !os.IsNotExist(err) {
 		return "", err
 	}

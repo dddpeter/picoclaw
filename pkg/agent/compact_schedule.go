@@ -119,7 +119,13 @@ func (al *AgentLoop) scheduleCompact(agent *AgentInstance, sessionKey string, op
 // window fields directly (no snapshot helpers — a nested RLock from the turn
 // goroutine deadlocks against Close()'s blocking write lock) and takes the
 // session's window override into account.
-func (al *AgentLoop) scheduleCompactWithUsage(agent *AgentInstance, sessionKey string, budget int, opts processOptions, usage *bus.ContextUsage) {
+func (al *AgentLoop) scheduleCompactWithUsage(
+	agent *AgentInstance,
+	sessionKey string,
+	budget int,
+	opts processOptions,
+	usage *bus.ContextUsage,
+) {
 	if al.contextManager == nil || opts.NoHistory || !opts.EnableSummary {
 		return
 	}

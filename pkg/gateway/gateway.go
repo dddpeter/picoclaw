@@ -572,7 +572,12 @@ func setupAndStartServices(
 	return runningServices, nil
 }
 
-func stopAndCleanupServices(runningServices *services, shutdownTimeout time.Duration, isReload bool, stopIdleCompact func()) {
+func stopAndCleanupServices(
+	runningServices *services,
+	shutdownTimeout time.Duration,
+	isReload bool,
+	stopIdleCompact func(),
+) {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer shutdownCancel()
 

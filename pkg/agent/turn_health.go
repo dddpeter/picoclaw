@@ -95,7 +95,8 @@ func (h *turnHealth) note(toolName, command string, errMsg string, isError bool)
 			h.bashRetryRuns = 0
 			return fmt.Sprintf(
 				"⚠ Loop signal (bash_retry): command %q has now failed %d times in a row with unchanged output. Repeating it is unlikely to make progress — stop, inspect the actual error, check preconditions, and use a different approach.",
-				norm, h.cfg.BashRetryThreshold,
+				norm,
+				h.cfg.BashRetryThreshold,
 			)
 		}
 	case isEditClassTool(toolName):
@@ -106,7 +107,8 @@ func (h *turnHealth) note(toolName, command string, errMsg string, isError bool)
 			h.editStreak = 0
 			return fmt.Sprintf(
 				"⚠ Loop signal (edit_streak): %d consecutive %s calls with no other action in between. Step back before editing again — read the current file state or run a verification command, and reconsider whether the approach itself is working.",
-				h.cfg.EditStreakThreshold, toolName,
+				h.cfg.EditStreakThreshold,
+				toolName,
 			)
 		}
 	default:

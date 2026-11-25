@@ -32,7 +32,7 @@ func newCancelTestStreamer(t *testing.T, fake *cancelAPIFake) *feishuCardStreame
 	return s
 }
 
-// TestCancelDeletesEmptyCard: cancelling a card that never showed content (no
+// TestCancelDeletesEmptyCard: canceling a card that never showed content (no
 // answer, no reasoning/tool panel) deletes its message instead of sealing an
 // "⚠ 已中断" marker — transient pre-output failures (e.g. upstream 429) must
 // not litter the chat with interrupt cards.

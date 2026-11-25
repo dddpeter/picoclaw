@@ -30,7 +30,8 @@ func BuildLearnPrompt(source string) string {
 	}
 
 	var b strings.Builder
-	b.WriteString(`Create a reusable skill from the source below. Work autonomously with your tools and report what you built at the end.
+	b.WriteString(
+		`Create a reusable skill from the source below. Work autonomously with your tools and report what you built at the end.
 
 Process:
 1. CHECK FIRST. Review the skill catalog in your context (or /list skills). If an existing skill covers the same territory, UPDATE that skill (read its SKILL.md, then patch) instead of creating a near-duplicate. Prefer class-level skills over hyper-specific ones — a name only meaningful for today's task is wrong.
@@ -51,7 +52,8 @@ Source:
 ---
 ` + source + `
 ---
-`)
+`,
+	)
 	return b.String()
 }
 
@@ -70,5 +72,7 @@ func ParseLearnSource(input string) string {
 
 // FormatLearnUsage is the reply for a bare /learn.
 func FormatLearnUsage() string {
-	return fmt.Sprintf("Usage: /learn <topic | document | what we just did>\nExample: /learn how we just deployed the gateway — write it up as a repeatable skill")
+	return fmt.Sprintf(
+		"Usage: /learn <topic | document | what we just did>\nExample: /learn how we just deployed the gateway — write it up as a repeatable skill",
+	)
 }

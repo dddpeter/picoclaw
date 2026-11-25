@@ -27,10 +27,13 @@ func TestAgentLoop_PublishesRuntimeEvents(t *testing.T) {
 		}
 	}()
 
-	runtimeSub, runtimeCh, err := al.RuntimeEventBus().Channel().OfKind(runtimeevents.KindAgentToolExecStart).SubscribeChan(
-		context.Background(),
-		runtimeevents.SubscribeOptions{Name: "runtime", Buffer: 1},
-	)
+	runtimeSub, runtimeCh, err := al.RuntimeEventBus().
+		Channel().
+		OfKind(runtimeevents.KindAgentToolExecStart).
+		SubscribeChan(
+			context.Background(),
+			runtimeevents.SubscribeOptions{Name: "runtime", Buffer: 1},
+		)
 	if err != nil {
 		t.Fatalf("SubscribeChan failed: %v", err)
 	}

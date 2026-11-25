@@ -32,7 +32,8 @@ func TestProjectDocsInjectedFromWorkspaceRoot(t *testing.T) {
 	}
 	// Ordering: project docs follow the workspace instructions (AGENT.md) and
 	// precede the skill catalog / memory.
-	if agent, docs := strings.Index(prompt, "## AGENT.md"), strings.Index(prompt, "# Project Docs"); agent < 0 || docs < agent {
+	if agent, docs := strings.Index(prompt, "## AGENT.md"), strings.Index(prompt, "# Project Docs"); agent < 0 ||
+		docs < agent {
 		t.Errorf("project docs should render after the AGENT.md section (agent=%d docs=%d)", agent, docs)
 	}
 }
@@ -63,11 +64,18 @@ func TestProjectDocsDisabledAndMissing(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	// Empty list disables the section entirely.
-	if prompt := NewContextBuilder(tmpDir).WithProjectDocs(nil).BuildSystemPrompt(); strings.Contains(prompt, "Project Docs") || strings.Contains(prompt, "readme body") {
+	if prompt := NewContextBuilder(tmpDir).WithProjectDocs(nil).BuildSystemPrompt(); strings.Contains(
+		prompt,
+		"Project Docs",
+	) ||
+		strings.Contains(prompt, "readme body") {
 		t.Errorf("empty project_docs must not inject anything:\n%s", prompt)
 	}
 	// Configured but absent files render nothing.
-	if prompt := NewContextBuilder(tmpDir).WithProjectDocs([]string{"CONTRIBUTING.md"}).BuildSystemPrompt(); strings.Contains(prompt, "Project Docs") {
+	if prompt := NewContextBuilder(tmpDir).WithProjectDocs([]string{"CONTRIBUTING.md"}).BuildSystemPrompt(); strings.Contains(
+		prompt,
+		"Project Docs",
+	) {
 		t.Errorf("missing docs must not render a section:\n%s", prompt)
 	}
 	// Bootstrap files and paths are refused as doc names.

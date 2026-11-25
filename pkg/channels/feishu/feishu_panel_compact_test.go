@@ -42,7 +42,10 @@ func TestFeishuReasoningRoundsRenderFlat(t *testing.T) {
 			t.Fatalf("round %d thinking text should render as an indented div, got %#v", i+1, children[i*2+1])
 		}
 		md := body["text"].(map[string]any)
-		if c, _ := md["content"].(string); !strings.Contains(c, fmt.Sprintf("round %s", map[int]string{1: "one", 2: "two"}[i+1])) {
+		if c, _ := md["content"].(string); !strings.Contains(
+			c,
+			fmt.Sprintf("round %s", map[int]string{1: "one", 2: "two"}[i+1]),
+		) {
 			t.Errorf("round %d body should keep the thinking text, got %q", i+1, c)
 		}
 	}
@@ -66,7 +69,8 @@ func TestFeishuToolStepCompactShortResult(t *testing.T) {
 	rendered := string(data)
 	// Args contain double quotes, which json.Marshal escapes; assert the
 	// pieces and the join arrow instead of the exact literal.
-	if !strings.Contains(rendered, "picoclaw") || !strings.Contains(rendered, "3 results") || !strings.Contains(rendered, "→") {
+	if !strings.Contains(rendered, "picoclaw") || !strings.Contains(rendered, "3 results") ||
+		!strings.Contains(rendered, "→") {
 		t.Errorf("compact line should join args and result, got:\n%s", rendered)
 	}
 	if strings.Contains(rendered, "结果") {
@@ -154,7 +158,11 @@ func TestFeishuPanelElementBudgetUnderCaps(t *testing.T) {
 	}
 	card := buildFeishuFinalCard(state, "answer", false, time.Second, "")
 	if got := countFeishuTagObjects(card); got > feishuElementLimit-feishuElementLimitMargin {
-		t.Fatalf("maxed panel card uses %d tag objects, threshold is %d", got, feishuElementLimit-feishuElementLimitMargin)
+		t.Fatalf(
+			"maxed panel card uses %d tag objects, threshold is %d",
+			got,
+			feishuElementLimit-feishuElementLimitMargin,
+		)
 	}
 	panel := card["body"].(map[string]any)["elements"].([]any)[0].(map[string]any)
 	children := panel["elements"].([]any)

@@ -56,7 +56,9 @@ func TestProviderChatStream_EmptyWithFinishReasonStop(t *testing.T) {
 func TestProviderChatStream_WhitespaceOnlyContentIsEmpty(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"\\n\\n\"},\"finish_reason\":\"stop\"}]}\n\n"))
+		_, _ = w.Write(
+			[]byte("data: {\"choices\":[{\"delta\":{\"content\":\"\\n\\n\"},\"finish_reason\":\"stop\"}]}\n\n"),
+		)
 		_, _ = w.Write([]byte("data: [DONE]\n\n"))
 	}))
 	defer server.Close()
@@ -114,7 +116,11 @@ func TestProviderChat_NonStreamToolCallsOnlyNotAffected(t *testing.T) {
 	// 只有 tool_calls 没有正文是合法形态（模型请求执行工具），不得判空。
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"c1","type":"function","function":{"name":"exec","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}`))
+		_, _ = w.Write(
+			[]byte(
+				`{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"c1","type":"function","function":{"name":"exec","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}`,
+			),
+		)
 	}))
 	defer server.Close()
 

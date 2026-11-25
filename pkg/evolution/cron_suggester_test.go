@@ -46,7 +46,13 @@ type fakeSuggestionProvider struct {
 	calls   int
 }
 
-func (f *fakeSuggestionProvider) Chat(_ context.Context, _ []providers.Message, _ []providers.ToolDefinition, _ string, _ map[string]any) (*providers.LLMResponse, error) {
+func (f *fakeSuggestionProvider) Chat(
+	_ context.Context,
+	_ []providers.Message,
+	_ []providers.ToolDefinition,
+	_ string,
+	_ map[string]any,
+) (*providers.LLMResponse, error) {
 	f.calls++
 	if f.err != nil {
 		return nil, f.err

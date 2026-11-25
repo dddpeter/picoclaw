@@ -233,7 +233,10 @@ func (c *SlackChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMessa
 		if err := c.postTextFn(ctx, channelID, threadTS, caption); err != nil {
 			// All files are already posted; a failed caption must not
 			// trigger a full-batch retry (B6).
-			return nil, channels.MediaSendErr(sent, fmt.Errorf("slack send media caption fallback: %w", channels.ErrTemporary))
+			return nil, channels.MediaSendErr(
+				sent,
+				fmt.Errorf("slack send media caption fallback: %w", channels.ErrTemporary),
+			)
 		}
 	}
 

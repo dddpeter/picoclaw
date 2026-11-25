@@ -19,7 +19,8 @@ type gatedStreamProvider struct {
 }
 
 func (p *gatedStreamProvider) Chat(_ context.Context, _ []providers.Message,
-	_ []providers.ToolDefinition, _ string, _ map[string]any) (*providers.LLMResponse, error) {
+	_ []providers.ToolDefinition, _ string, _ map[string]any,
+) (*providers.LLMResponse, error) {
 	return &providers.LLMResponse{Content: "unused"}, nil
 }
 
@@ -69,7 +70,10 @@ func TestTryConfiguredStreamingOwnsPublisherDuringLLMCall(t *testing.T) {
 	exec.activeProvider = provider
 	exec.activeModel = "test-model"
 	exec.activeCandidates = []providers.FallbackCandidate{{Provider: "test", Model: "test-model"}}
-	exec.activeModelConfig = &config.ModelConfig{ModelName: "test-model", Streaming: config.ModelStreamingConfig{Enabled: boolPtr(true)}}
+	exec.activeModelConfig = &config.ModelConfig{
+		ModelName: "test-model",
+		Streaming: config.ModelStreamingConfig{Enabled: boolPtr(true)},
+	}
 	exec.llmModel = "test-model"
 
 	pipeline := NewPipeline(al)
@@ -107,6 +111,10 @@ func TestTryConfiguredStreamingOwnsPublisherDuringLLMCall(t *testing.T) {
 	// back to the caller's Chat fallback chain (streamed=false, err=nil),
 	// never surface as a turn error.
 	if res.streamed || res.err != nil {
-		t.Fatalf("expected stream failure before visible output to hand off to the fallback chain (streamed=false, err=nil), got streamed=%v err=%v", res.streamed, res.err)
+		t.Fatalf(
+			"expected stream failure before visible output to hand off to the fallback chain (streamed=false, err=nil), got streamed=%v err=%v",
+			res.streamed,
+			res.err,
+		)
 	}
 }

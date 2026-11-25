@@ -54,7 +54,11 @@ func TestEstimator_JSONDenser(t *testing.T) {
 	plainTokens := EstimateMessageTokens(plainMsg)
 
 	if jsonTokens <= plainTokens {
-		t.Fatalf("JSON-wrapped args should estimate denser than the same bytes as prose: json=%d plain=%d", jsonTokens, plainTokens)
+		t.Fatalf(
+			"JSON-wrapped args should estimate denser than the same bytes as prose: json=%d plain=%d",
+			jsonTokens,
+			plainTokens,
+		)
 	}
 	// len(args) ≈ 95 ASCII bytes → 95/3 ≈ 32 tokens; + name/id/type/framing ≈ 10.
 	if jsonTokens < 35 || jsonTokens > 50 {

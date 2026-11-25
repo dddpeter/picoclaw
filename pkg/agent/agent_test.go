@@ -1627,7 +1627,10 @@ func TestApplyExplicitSkillCommand_InlineMessageMutatesOptions(t *testing.T) {
 		t.Fatalf("opts.UserMessage = %q, want %q", opts.UserMessage, "dammi le ultime news")
 	}
 	if len(opts.ForcedSkills) != 1 || opts.ForcedSkills[0] != "Finance News" {
-		t.Fatalf("opts.ForcedSkills = %#v, want [Finance News] // resolved catalog name (dir-name fallback)", opts.ForcedSkills)
+		t.Fatalf(
+			"opts.ForcedSkills = %#v, want [Finance News] // resolved catalog name (dir-name fallback)",
+			opts.ForcedSkills,
+		)
 	}
 }
 
@@ -7970,7 +7973,10 @@ func TestRunAgentLoop_AutoContinuesOnIterationLimit(t *testing.T) {
 	}
 	agent := al.GetRegistry().GetDefaultAgent()
 	route := al.registry.ResolveRoute(bus.InboundContext{Channel: "test", ChatType: "direct", SenderID: "cron"})
-	key := al.allocateRouteSession(route, bus.InboundMessage{Channel: "test", SenderID: "cron", ChatID: "chat1"}).SessionKey
+	key := al.allocateRouteSession(
+		route,
+		bus.InboundMessage{Channel: "test", SenderID: "cron", ChatID: "chat1"},
+	).SessionKey
 	history := agent.Sessions.GetHistory(key)
 	foundContinue := false
 	foundFirstSegmentNote := false
@@ -8106,7 +8112,10 @@ func TestRunAgentLoop_AutoContinueDropsWhenSessionReclaimed(t *testing.T) {
 	al.RegisterTool(&toolLimitTestTool{})
 
 	route := al.registry.ResolveRoute(bus.InboundContext{Channel: "test", ChatType: "direct", SenderID: "cron"})
-	key := al.allocateRouteSession(route, bus.InboundMessage{Channel: "test", SenderID: "cron", ChatID: "chat1"}).SessionKey
+	key := al.allocateRouteSession(
+		route,
+		bus.InboundMessage{Channel: "test", SenderID: "cron", ChatID: "chat1"},
+	).SessionKey
 	provider.al = al
 	provider.sessionKey = key
 

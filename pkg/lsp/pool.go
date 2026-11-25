@@ -85,7 +85,12 @@ func (p *Pool) Acquire(ctx context.Context, cfg ServerConfig, root string) (*Cli
 	}
 }
 
-func (p *Pool) startSession(ctx context.Context, cfg ServerConfig, root, key string, started chan struct{}) (*Client, error) {
+func (p *Pool) startSession(
+	ctx context.Context,
+	cfg ServerConfig,
+	root, key string,
+	started chan struct{},
+) (*Client, error) {
 	client, err := Start(ctx, cfg, root, p.timeout)
 
 	p.mu.Lock()

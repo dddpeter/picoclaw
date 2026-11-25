@@ -12,10 +12,10 @@ import (
 const DefaultGatewayLogLevel = "warn"
 
 type GatewayConfig struct {
-	Host      string `json:"host"                env:"PICOCLAW_GATEWAY_HOST"`
-	Port      int    `json:"port"                env:"PICOCLAW_GATEWAY_PORT"`
-	HotReload bool   `json:"hot_reload"          env:"PICOCLAW_GATEWAY_HOT_RELOAD"`
-	LogLevel  string `json:"log_level,omitempty" env:"PICOCLAW_LOG_LEVEL"`
+	Host      string `json:"host"                 env:"PICOCLAW_GATEWAY_HOST"`
+	Port      int    `json:"port"                 env:"PICOCLAW_GATEWAY_PORT"`
+	HotReload bool   `json:"hot_reload"           env:"PICOCLAW_GATEWAY_HOT_RELOAD"`
+	LogLevel  string `json:"log_level,omitempty"  env:"PICOCLAW_LOG_LEVEL"`
 	// AutoStart controls the launcher watchdog that keeps the gateway running:
 	// probe on an interval, restart it when down, go silent after repeated
 	// failures. Default true (out-of-the-box); set false to disable.

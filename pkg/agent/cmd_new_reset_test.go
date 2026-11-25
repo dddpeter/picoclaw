@@ -105,8 +105,18 @@ func TestProcessMessage_NewPicksUpDiskConfigDefaultModel(t *testing.T) {
 			},
 		},
 		"model_list": []map[string]any{
-			{"model_name": "local", "model": "openai/local-model", "api_base": "https://local.example.invalid/v1", "api_keys": []string{"test-key"}},
-			{"model_name": "deepseek", "model": "openrouter/deepseek/deepseek-v3.2", "api_base": "https://openrouter.ai/api/v1", "api_keys": []string{"test-key"}},
+			{
+				"model_name": "local",
+				"model":      "openai/local-model",
+				"api_base":   "https://local.example.invalid/v1",
+				"api_keys":   []string{"test-key"},
+			},
+			{
+				"model_name": "deepseek",
+				"model":      "openrouter/deepseek/deepseek-v3.2",
+				"api_base":   "https://openrouter.ai/api/v1",
+				"api_keys":   []string{"test-key"},
+			},
 		},
 	}
 	raw, err := json.Marshal(diskCfg)

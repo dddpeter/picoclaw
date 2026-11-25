@@ -132,7 +132,10 @@ func TestRevertNotifierInvoked(t *testing.T) {
 		calls <- call{channel, chatID, sessionKey, result.Restored}
 	})
 
-	if reply := al.executeRevertCommand("sess-1", "default", "pico", "pico:1", ""); !strings.Contains(reply, "Reverted") {
+	if reply := al.executeRevertCommand("sess-1", "default", "pico", "pico:1", ""); !strings.Contains(
+		reply,
+		"Reverted",
+	) {
 		t.Fatalf("revert reply = %q", reply)
 	}
 	select {

@@ -103,7 +103,10 @@ func sessionsDirFromConfig(cfg *config.Config) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		workspace = filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(workspace, "~"), string(filepath.Separator)))
+		workspace = filepath.Join(
+			home,
+			strings.TrimPrefix(strings.TrimPrefix(workspace, "~"), string(filepath.Separator)),
+		)
 	}
 	return filepath.Join(workspace, "sessions"), nil
 }

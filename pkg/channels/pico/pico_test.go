@@ -1814,11 +1814,17 @@ func TestOutboundMessageIsProgressNote_CardsAndPicoKind(t *testing.T) {
 	if outboundMessageIsProgressNote(approvalCard) {
 		t.Fatal("approval cards stay unmarked on the wire (TUI timeline visibility)")
 	}
-	receipt := bus.OutboundMessage{Content: "📝 已收到回答", Context: bus.InboundContext{Raw: map[string]string{"pico_kind": "progress_note"}}}
+	receipt := bus.OutboundMessage{
+		Content: "📝 已收到回答",
+		Context: bus.InboundContext{Raw: map[string]string{"pico_kind": "progress_note"}},
+	}
 	if !outboundMessageIsProgressNote(receipt) {
 		t.Fatal("pico_kind=progress_note receipts must read as non-final beats")
 	}
-	heartbeat := bus.OutboundMessage{Content: "⏳", Context: bus.InboundContext{Raw: map[string]string{"message_kind": "progress_note"}}}
+	heartbeat := bus.OutboundMessage{
+		Content: "⏳",
+		Context: bus.InboundContext{Raw: map[string]string{"message_kind": "progress_note"}},
+	}
 	if !outboundMessageIsProgressNote(heartbeat) {
 		t.Fatal("message_kind=progress_note beats keep their existing meaning")
 	}

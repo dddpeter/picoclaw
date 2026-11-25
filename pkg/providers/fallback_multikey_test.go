@@ -17,7 +17,7 @@ func TestMultiKeyFailover(t *testing.T) {
 		Fallbacks: []string{"glm-4.7__key_1", "glm-4.7__key_2"},
 	}
 
-	candidates := ResolveCandidates(cfg, "zhipu")
+	candidates := ResolveCandidatesWithLookup(cfg, "zhipu", nil)
 
 	if len(candidates) != 3 {
 		t.Fatalf("expected 3 candidates, got %d: %v", len(candidates), candidates)
@@ -79,7 +79,7 @@ func TestMultiKeyFailoverAllFail(t *testing.T) {
 		Fallbacks: []string{"glm-4.7__key_1", "glm-4.7__key_2"},
 	}
 
-	candidates := ResolveCandidates(cfg, "zhipu")
+	candidates := ResolveCandidatesWithLookup(cfg, "zhipu", nil)
 
 	cooldown := NewCooldownTracker()
 	chain := NewFallbackChain(cooldown, nil)
@@ -124,7 +124,7 @@ func TestMultiKeyFailoverCooldown(t *testing.T) {
 		Fallbacks: []string{"glm-4.7__key_1"},
 	}
 
-	candidates := ResolveCandidates(cfg, "zhipu")
+	candidates := ResolveCandidatesWithLookup(cfg, "zhipu", nil)
 
 	cooldown := NewCooldownTracker()
 	chain := NewFallbackChain(cooldown, nil)
@@ -180,7 +180,7 @@ func TestMultiKeyFailoverWithFormatError(t *testing.T) {
 		Fallbacks: []string{"glm-4.7__key_1"},
 	}
 
-	candidates := ResolveCandidates(cfg, "zhipu")
+	candidates := ResolveCandidatesWithLookup(cfg, "zhipu", nil)
 
 	cooldown := NewCooldownTracker()
 	chain := NewFallbackChain(cooldown, nil)
@@ -232,7 +232,7 @@ func TestMultiKeyWithModelFallback(t *testing.T) {
 		Fallbacks: []string{"glm-4.7__key_1", "minimax/minimax"},
 	}
 
-	candidates := ResolveCandidates(cfg, "zhipu")
+	candidates := ResolveCandidatesWithLookup(cfg, "zhipu", nil)
 
 	// Should have 3 candidates: glm-4.7 (zhipu), glm-4.7__key_1 (zhipu), minimax (minimax)
 	if len(candidates) != 3 {
@@ -334,7 +334,7 @@ func TestMultiKeyFailoverMixedErrors(t *testing.T) {
 		Fallbacks: []string{"glm-4.7__key_1", "glm-4.7__key_2"},
 	}
 
-	candidates := ResolveCandidates(cfg, "zhipu")
+	candidates := ResolveCandidatesWithLookup(cfg, "zhipu", nil)
 
 	cooldown := NewCooldownTracker()
 	chain := NewFallbackChain(cooldown, nil)

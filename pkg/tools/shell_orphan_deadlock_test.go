@@ -149,7 +149,10 @@ func TestShellTool_CancelReturnsDespiteOrphanedPipeHolder(t *testing.T) {
 	select {
 	case <-resultCh:
 	case <-time.After(12 * time.Second):
-		t.Fatalf("deadlock reproduced: Execute did not return within 12s of cancellation; orphaned holder pid %d still holds the output pipes", holderPID)
+		t.Fatalf(
+			"deadlock reproduced: Execute did not return within 12s of cancellation; orphaned holder pid %d still holds the output pipes",
+			holderPID,
+		)
 	}
 
 	// The cancellation must actually kill the handle holder, not just abandon
@@ -234,7 +237,10 @@ func TestShellTool_DaemonHoldingPipesReturnsPromptly(t *testing.T) {
 			t.Fatalf("expected collected output, got: %s", res.ForLLM)
 		}
 	case <-time.After(15 * time.Second):
-		t.Fatalf("deadlock reproduced: Execute still waiting on pipes held by daemon pid %d 15s after the shell exited", holderPID)
+		t.Fatalf(
+			"deadlock reproduced: Execute still waiting on pipes held by daemon pid %d 15s after the shell exited",
+			holderPID,
+		)
 	}
 
 	// The daemon must survive the exec call's cleanup: intentionally

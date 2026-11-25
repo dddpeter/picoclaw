@@ -12,7 +12,11 @@ import (
 	"github.com/sipeed/picoclaw/pkg/providers"
 )
 
-func newDegradedTurnExecution(t *testing.T, al *AgentLoop, provider providers.LLMProvider) (*turnState, *turnExecution) {
+func newDegradedTurnExecution(
+	t *testing.T,
+	al *AgentLoop,
+	provider providers.LLMProvider,
+) (*turnState, *turnExecution) {
 	t.Helper()
 	agent := al.GetRegistry().GetDefaultAgent()
 	if agent == nil {
@@ -25,7 +29,10 @@ func newDegradedTurnExecution(t *testing.T, al *AgentLoop, provider providers.LL
 	exec.activeProvider = provider
 	exec.activeModel = "test-model"
 	exec.activeCandidates = []providers.FallbackCandidate{{Provider: "openai", Model: "openai/test-model"}}
-	exec.activeModelConfig = &config.ModelConfig{ModelName: "test-model", Streaming: config.ModelStreamingConfig{Enabled: boolPtr(true)}}
+	exec.activeModelConfig = &config.ModelConfig{
+		ModelName: "test-model",
+		Streaming: config.ModelStreamingConfig{Enabled: boolPtr(true)},
+	}
 	exec.llmModel = "test-model"
 	exec.messages = []providers.Message{{Role: "user", Content: "hello"}}
 	exec.callMessages = exec.messages

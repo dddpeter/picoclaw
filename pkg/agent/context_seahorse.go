@@ -166,7 +166,10 @@ func (m *seahorseContextManager) Compact(ctx context.Context, req *CompactReques
 // JSONL transcript never shrinks, so callers cannot derive them from message
 // counts — review P1-5). Manual compactions narrow the protected fresh tail
 // to manualCompactKeepTail (octop borrowing §五 keep-6).
-func (m *seahorseContextManager) CompactWithStats(ctx context.Context, req *CompactRequest) (*compactEngineStats, error) {
+func (m *seahorseContextManager) CompactWithStats(
+	ctx context.Context,
+	req *CompactRequest,
+) (*compactEngineStats, error) {
 	if req == nil {
 		return nil, nil
 	}
@@ -267,7 +270,11 @@ func (m *seahorseContextManager) lazyBootstrapSession(ctx context.Context, sessi
 // store) into seahorse SQLite. engine.Bootstrap is reconcile semantics:
 // longest matching prefix plus delta, clear-and-rebuild on mismatch — safe to
 // call against a DB that already holds part of the history.
-func (m *seahorseContextManager) bootstrapFromStore(ctx context.Context, store session.SessionStore, sessionKey string) {
+func (m *seahorseContextManager) bootstrapFromStore(
+	ctx context.Context,
+	store session.SessionStore,
+	sessionKey string,
+) {
 	if store == nil {
 		return
 	}

@@ -23,7 +23,10 @@ func TestSpawnRegistersOriginAndAcksTaskID(t *testing.T) {
 		t.Fatalf("spawn failed: %s", res.ForLLM)
 	}
 	if !strings.Contains(res.ForLLM, "subagent-") {
-		t.Fatalf("spawn ack must include the registered task ID (m-6: registration must precede the goroutine), got: %s", res.ForLLM)
+		t.Fatalf(
+			"spawn ack must include the registered task ID (m-6: registration must precede the goroutine), got: %s",
+			res.ForLLM,
+		)
 	}
 
 	tasks := manager.ListTaskCopies()
@@ -63,7 +66,10 @@ func TestSpawnStatusScopesTasksToCallingConversation(t *testing.T) {
 	}
 
 	// Direct task_id lookup is scoped the same way.
-	outID := status.Execute(WithToolContext(context.Background(), "slack", "chat-B"), map[string]any{"task_id": tasks0ID(manager)})
+	outID := status.Execute(
+		WithToolContext(context.Background(), "slack", "chat-B"),
+		map[string]any{"task_id": tasks0ID(manager)},
+	)
 	if !outID.IsError {
 		t.Fatalf("cross-conversation task_id lookup must fail, got: %s", outID.ForLLM)
 	}

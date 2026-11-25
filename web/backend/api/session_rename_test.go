@@ -58,7 +58,11 @@ func TestRenameSessionLegacyPicoPrefixedJSONL(t *testing.T) {
 		t.Fatalf("write legacy session: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPut, "/api/sessions/"+legacyTestUUID+"/title", strings.NewReader(`{"title":"legacy renamed"}`))
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/api/sessions/"+legacyTestUUID+"/title",
+		strings.NewReader(`{"title":"legacy renamed"}`),
+	)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -98,7 +102,11 @@ func TestRenameSessionLegacyJSONRefused(t *testing.T) {
 		t.Fatalf("write legacy session: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPut, "/api/sessions/"+legacyTestUUID+"/title", strings.NewReader(`{"title":"nope"}`))
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/api/sessions/"+legacyTestUUID+"/title",
+		strings.NewReader(`{"title":"nope"}`),
+	)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 

@@ -591,7 +591,13 @@ func (h *Handler) findLegacyPicoSession(dir, sessionID string) (picoLegacySessio
 	return picoLegacySessionRef{}, os.ErrNotExist
 }
 
-func buildSessionListItem(sessionID string, sess sessionFile, channel string, toolFeedbackMaxArgsLength int, busy bool) sessionListItem {
+func buildSessionListItem(
+	sessionID string,
+	sess sessionFile,
+	channel string,
+	toolFeedbackMaxArgsLength int,
+	busy bool,
+) sessionListItem {
 	transcript := visibleSessionMessages(sess.Messages, toolFeedbackMaxArgsLength)
 
 	preview := ""
@@ -744,7 +750,12 @@ func sessionTranscriptMessages(
 				toolFeedbackMaxArgsLength,
 				msg.CreatedAt,
 			)
-			visibleToolMessages := visibleAssistantToolMessages(msg.ToolCalls, msg.ModelName, msg.CreatedAt, nextRenderUIFold)
+			visibleToolMessages := visibleAssistantToolMessages(
+				msg.ToolCalls,
+				msg.ModelName,
+				msg.CreatedAt,
+				nextRenderUIFold,
+			)
 
 			// Pico web chat can persist both visible `message` tool output and a
 			// later plain assistant reply in the same turn. Hide only the fixed
@@ -1102,7 +1113,7 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	// the transcript, so an unpaginated full parse made the endpoint
 	// O(all transcripts) per request.
 	type sessionCandidate struct {
-		build  func() (sessionListItem, bool)
+		build   func() (sessionListItem, bool)
 		updated time.Time
 	}
 	candidates := []sessionCandidate{}
@@ -1113,7 +1124,7 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			seen[ref.ID] = struct{}{}
-			ref := ref
+
 			candidates = append(candidates, sessionCandidate{
 				updated: ref.Updated,
 				build: func() (sessionListItem, bool) {
@@ -1133,7 +1144,7 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			seen[ref.ID] = struct{}{}
-			ref := ref
+
 			candidates = append(candidates, sessionCandidate{
 				// findLegacyPicoSessions already parsed the snapshot for ID
 				// extraction; reuse its Updated for the sort key.
@@ -1308,7 +1319,7 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 			if jErr := json.Unmarshal(data, &marker); jErr == nil && marker.SessionKey != "" {
 				stale := marker.StartedAt > 0 && marker.TimeoutMs > 0 &&
 					time.Now().UnixMilli() > marker.StartedAt+marker.TimeoutMs+staleApprovalGraceMs
-				questions := json.RawMessage(marker.Questions)
+				questions := marker.Questions
 				if len(questions) == 0 {
 					questions = json.RawMessage("[]")
 				}

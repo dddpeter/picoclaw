@@ -208,7 +208,10 @@ func TestSanitizeUploadFilename(t *testing.T) {
 		{"..", "upload.bin"},
 		{"  ", "upload.bin"},
 		{"a\u0000b.txt", "ab.txt"},
-		{"c:\\windows\\system32\\x.dll", "cwindowssystem32x.dll"}, // Linux Base keeps the whole string; separators stripped
+		{
+			"c:\\windows\\system32\\x.dll",
+			"cwindowssystem32x.dll",
+		}, // Linux Base keeps the whole string; separators stripped
 	}
 	for _, tc := range cases {
 		if got := sanitizeUploadFilename(tc.in); got != tc.want {

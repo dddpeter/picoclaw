@@ -44,7 +44,7 @@ func TestProcessMessage_NewArchivesPreviousConversation(t *testing.T) {
 
 	// Identify the live session (the only one carrying history so far).
 	var liveKey string
-	var liveHistory = map[string]int{}
+	liveHistory := map[string]int{}
 	for _, key := range agent.Sessions.ListSessions() {
 		liveHistory[key] = len(agent.Sessions.GetHistory(key))
 		if liveHistory[key] > 0 && liveKey == "" {
@@ -56,7 +56,12 @@ func TestProcessMessage_NewArchivesPreviousConversation(t *testing.T) {
 	}
 	liveTitle, liveSource, ok := titleReader.GetSessionTitle(liveKey)
 	if !ok || strings.TrimSpace(liveTitle) == "" {
-		t.Fatalf("live session should carry a derived title before /new (title=%q source=%q ok=%v)", liveTitle, liveSource, ok)
+		t.Fatalf(
+			"live session should carry a derived title before /new (title=%q source=%q ok=%v)",
+			liveTitle,
+			liveSource,
+			ok,
+		)
 	}
 
 	newResp := helper.executeAndGetResponse(t, context.Background(), bus.InboundMessage{

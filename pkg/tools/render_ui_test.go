@@ -162,8 +162,11 @@ func TestRenderUIToolValidBatchPublishesUI(t *testing.T) {
 func renderUIMixedSurfaceMessages() []any {
 	return []any{
 		map[string]any{
-			"version":       "v0.9",
-			"createSurface": map[string]any{"surfaceId": "surface-a", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+			"version": "v0.9",
+			"createSurface": map[string]any{
+				"surfaceId": "surface-a",
+				"catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json",
+			},
 		},
 		map[string]any{
 			"version": "v0.9",
@@ -298,8 +301,11 @@ func TestRenderUIToolInvalidBatchRejected(t *testing.T) {
 		{
 			name: "message carries two branch payloads",
 			args: map[string]any{"messages": []any{map[string]any{
-				"version":       "v0.9",
-				"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+				"version": "v0.9",
+				"createSurface": map[string]any{
+					"surfaceId": "s1",
+					"catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json",
+				},
 				"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{
 					map[string]any{"id": "c1", "component": "Text", "text": "x"},
 				}},
@@ -334,8 +340,11 @@ func TestRenderUIToolInvalidBatchRejected(t *testing.T) {
 			name: "updateComponents carries an unknown key",
 			args: map[string]any{"messages": []any{
 				map[string]any{
-					"version":       "v0.9",
-					"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+					"version": "v0.9",
+					"createSurface": map[string]any{
+						"surfaceId": "s1",
+						"catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json",
+					},
 				},
 				map[string]any{
 					"version":          "v0.9",
@@ -348,8 +357,11 @@ func TestRenderUIToolInvalidBatchRejected(t *testing.T) {
 			name: "unknown component name",
 			args: map[string]any{"messages": []any{
 				map[string]any{
-					"version":       "v0.9",
-					"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+					"version": "v0.9",
+					"createSurface": map[string]any{
+						"surfaceId": "s1",
+						"catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json",
+					},
 				},
 				map[string]any{
 					"version": "v0.9",
@@ -364,8 +376,11 @@ func TestRenderUIToolInvalidBatchRejected(t *testing.T) {
 			name: "component missing id",
 			args: map[string]any{"messages": []any{
 				map[string]any{
-					"version":       "v0.9",
-					"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+					"version": "v0.9",
+					"createSurface": map[string]any{
+						"surfaceId": "s1",
+						"catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json",
+					},
 				},
 				map[string]any{
 					"version": "v0.9",
@@ -380,8 +395,11 @@ func TestRenderUIToolInvalidBatchRejected(t *testing.T) {
 			name: "updateComponents with empty components array",
 			args: map[string]any{"messages": []any{
 				map[string]any{
-					"version":       "v0.9",
-					"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+					"version": "v0.9",
+					"createSurface": map[string]any{
+						"surfaceId": "s1",
+						"catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json",
+					},
 				},
 				map[string]any{
 					"version":          "v0.9",
@@ -398,8 +416,11 @@ func TestRenderUIToolInvalidBatchRejected(t *testing.T) {
 			name: "no component named root",
 			args: map[string]any{"messages": []any{
 				map[string]any{
-					"version":       "v0.9",
-					"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+					"version": "v0.9",
+					"createSurface": map[string]any{
+						"surfaceId": "s1",
+						"catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json",
+					},
 				},
 				map[string]any{
 					"version": "v0.9",
@@ -418,8 +439,11 @@ func TestRenderUIToolInvalidBatchRejected(t *testing.T) {
 			name: "components unreachable from root",
 			args: map[string]any{"messages": []any{
 				map[string]any{
-					"version":       "v0.9",
-					"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+					"version": "v0.9",
+					"createSurface": map[string]any{
+						"surfaceId": "s1",
+						"catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json",
+					},
 				},
 				map[string]any{
 					"version": "v0.9",
@@ -439,8 +463,11 @@ func TestRenderUIToolInvalidBatchRejected(t *testing.T) {
 			name: "duplicate component id",
 			args: map[string]any{"messages": []any{
 				map[string]any{
-					"version":       "v0.9",
-					"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+					"version": "v0.9",
+					"createSurface": map[string]any{
+						"surfaceId": "s1",
+						"catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json",
+					},
 				},
 				map[string]any{
 					"version": "v0.9",
@@ -471,14 +498,23 @@ func TestRenderUIToolInvalidBatchRejected(t *testing.T) {
 			name: "ChoicePicker options are plain strings",
 			args: map[string]any{"messages": []any{
 				map[string]any{
-					"version":       "v0.9",
-					"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+					"version": "v0.9",
+					"createSurface": map[string]any{
+						"surfaceId": "s1",
+						"catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json",
+					},
 				},
 				map[string]any{
 					"version": "v0.9",
 					"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{
 						map[string]any{"id": "root", "component": "Card", "child": "l"},
-						map[string]any{"id": "l", "component": "ChoicePicker", "label": "语言", "options": []any{"中文", "English"}, "value": map[string]any{"path": "/p"}},
+						map[string]any{
+							"id":        "l",
+							"component": "ChoicePicker",
+							"label":     "语言",
+							"options":   []any{"中文", "English"},
+							"value":     map[string]any{"path": "/p"},
+						},
 					}},
 				},
 			}},
@@ -488,14 +524,23 @@ func TestRenderUIToolInvalidBatchRejected(t *testing.T) {
 			name: "ChoicePicker option missing label",
 			args: map[string]any{"messages": []any{
 				map[string]any{
-					"version":       "v0.9",
-					"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+					"version": "v0.9",
+					"createSurface": map[string]any{
+						"surfaceId": "s1",
+						"catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json",
+					},
 				},
 				map[string]any{
 					"version": "v0.9",
 					"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{
 						map[string]any{"id": "root", "component": "Card", "child": "l"},
-						map[string]any{"id": "l", "component": "ChoicePicker", "label": "语言", "options": []any{map[string]any{"value": "zh"}}, "value": map[string]any{"path": "/p"}},
+						map[string]any{
+							"id":        "l",
+							"component": "ChoicePicker",
+							"label":     "语言",
+							"options":   []any{map[string]any{"value": "zh"}},
+							"value":     map[string]any{"path": "/p"},
+						},
 					}},
 				},
 			}},
@@ -508,8 +553,11 @@ func TestRenderUIToolInvalidBatchRejected(t *testing.T) {
 			name: "Button missing action",
 			args: map[string]any{"messages": []any{
 				map[string]any{
-					"version":       "v0.9",
-					"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+					"version": "v0.9",
+					"createSurface": map[string]any{
+						"surfaceId": "s1",
+						"catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json",
+					},
 				},
 				map[string]any{
 					"version": "v0.9",
@@ -531,8 +579,11 @@ func TestRenderUIToolInvalidBatchRejected(t *testing.T) {
 			name: "branch payload with empty surfaceId",
 			args: map[string]any{"messages": []any{
 				map[string]any{
-					"version":       "v0.9",
-					"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+					"version": "v0.9",
+					"createSurface": map[string]any{
+						"surfaceId": "s1",
+						"catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json",
+					},
 				},
 				map[string]any{
 					"version": "v0.9",
@@ -546,8 +597,10 @@ func TestRenderUIToolInvalidBatchRejected(t *testing.T) {
 		{
 			name: "createSurface without surfaceId",
 			args: map[string]any{"messages": []any{map[string]any{
-				"version":       "v0.9",
-				"createSurface": map[string]any{"catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+				"version": "v0.9",
+				"createSurface": map[string]any{
+					"catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json",
+				},
 			}}},
 			want: "non-empty",
 		},
@@ -558,8 +611,11 @@ func TestRenderUIToolInvalidBatchRejected(t *testing.T) {
 			name: "component referenced by multiple parents",
 			args: map[string]any{"messages": []any{
 				map[string]any{
-					"version":       "v0.9",
-					"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+					"version": "v0.9",
+					"createSurface": map[string]any{
+						"surfaceId": "s1",
+						"catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json",
+					},
 				},
 				map[string]any{
 					"version": "v0.9",
@@ -895,25 +951,37 @@ func TestRenderUIToolModalCardReachable(t *testing.T) {
 
 	messages := []any{
 		map[string]any{
-			"version":       "v0.9",
-			"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+			"version": "v0.9",
+			"createSurface": map[string]any{
+				"surfaceId": "s1",
+				"catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json",
+			},
 		},
 		map[string]any{
 			"version": "v0.9",
 			"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{
 				map[string]any{"id": "root", "component": "Card", "child": "m"},
 				map[string]any{"id": "m", "component": "Modal", "trigger": "openBtn", "content": "mc"},
-				map[string]any{"id": "openBtn", "component": "Button", "variant": "primary", "child": "obl", "action": map[string]any{"event": map[string]any{"name": "open"}}},
+				map[string]any{
+					"id":        "openBtn",
+					"component": "Button",
+					"variant":   "primary",
+					"child":     "obl",
+					"action":    map[string]any{"event": map[string]any{"name": "open"}},
+				},
 				map[string]any{"id": "obl", "component": "Text", "text": "打开弹窗"},
 				map[string]any{"id": "mc", "component": "Column", "children": []any{"mt", "mh"}},
 				map[string]any{"id": "mt", "component": "Text", "text": "弹窗内容"},
-				map[string]any{"id": "mh", "component": "Text", "text": "点外侧关闭", },
+				map[string]any{"id": "mh", "component": "Text", "text": "点外侧关闭"},
 			}},
 		},
 	}
 	result := tool.Execute(ctx, map[string]any{"messages": messages})
 	if result.IsError {
-		t.Fatalf("Execute() IsError = true (Modal trigger/content must count as reference edges), ForLLM: %s", result.ForLLM)
+		t.Fatalf(
+			"Execute() IsError = true (Modal trigger/content must count as reference edges), ForLLM: %s",
+			result.ForLLM,
+		)
 	}
 	waitOutboundMessage(t, msgBus)
 }
@@ -924,8 +992,11 @@ func TestRenderUIToolTabsChildrenReachable(t *testing.T) {
 
 	messages := []any{
 		map[string]any{
-			"version":       "v0.9",
-			"createSurface": map[string]any{"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+			"version": "v0.9",
+			"createSurface": map[string]any{
+				"surfaceId": "s1",
+				"catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json",
+			},
 		},
 		map[string]any{
 			"version": "v0.9",
@@ -1055,16 +1126,22 @@ func TestRenderUIToolUpdateOnlyDeltaStillGated(t *testing.T) {
 		{
 			name: "unknown component name in delta",
 			messages: []any{map[string]any{
-				"version":          "v0.9",
-				"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{map[string]any{"id": "t1", "component": "Table", "text": "x"}}},
+				"version": "v0.9",
+				"updateComponents": map[string]any{
+					"surfaceId":  "s1",
+					"components": []any{map[string]any{"id": "t1", "component": "Table", "text": "x"}},
+				},
 			}},
 			want: "unknown component",
 		},
 		{
 			name: "delta component missing id",
 			messages: []any{map[string]any{
-				"version":          "v0.9",
-				"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{map[string]any{"component": "Text", "text": "x"}}},
+				"version": "v0.9",
+				"updateComponents": map[string]any{
+					"surfaceId":  "s1",
+					"components": []any{map[string]any{"component": "Text", "text": "x"}},
+				},
 			}},
 			want: `"id"`,
 		},
@@ -1131,8 +1208,13 @@ func TestRenderUIToolUpdateOnlyDeltaStillGated(t *testing.T) {
 		{
 			name: "oversized delta",
 			messages: []any{map[string]any{
-				"version":          "v0.9",
-				"updateComponents": map[string]any{"surfaceId": "s1", "components": []any{map[string]any{"id": "t1", "component": "Text", "text": strings.Repeat("x", 256*1024)}}},
+				"version": "v0.9",
+				"updateComponents": map[string]any{
+					"surfaceId": "s1",
+					"components": []any{
+						map[string]any{"id": "t1", "component": "Text", "text": strings.Repeat("x", 256*1024)},
+					},
+				},
 			}},
 			want: "large",
 		},
@@ -1173,7 +1255,11 @@ func TestRenderUIHistoryFold(t *testing.T) {
 		// The update call merged into the card: nothing resurfaces at its
 		// own position.
 		if len(items[1].A2UI) != 0 || items[1].Fallback != "" {
-			t.Errorf("update item = {a2ui:%s fallback:%q}, want empty (frames ride the card)", items[1].A2UI, items[1].Fallback)
+			t.Errorf(
+				"update item = {a2ui:%s fallback:%q}, want empty (frames ride the card)",
+				items[1].A2UI,
+				items[1].Fallback,
+			)
 		}
 		if len(items[0].A2UI) == 0 {
 			t.Fatal("create item carries no folded card")
@@ -1183,7 +1269,11 @@ func TestRenderUIHistoryFold(t *testing.T) {
 			t.Fatalf("folded card is not a frame array: %v (%s)", err, items[0].A2UI)
 		}
 		if len(frames) != 4 {
-			t.Fatalf("folded frames = %d, want 4 (create + components + overwritten dataModel + appended delta components): %s", len(frames), items[0].A2UI)
+			t.Fatalf(
+				"folded frames = %d, want 4 (create + components + overwritten dataModel + appended delta components): %s",
+				len(frames),
+				items[0].A2UI,
+			)
 		}
 		if _, ok := frames[0]["createSurface"]; !ok {
 			t.Errorf("frames[0] = %s, want the createSurface envelope", frames[0])
@@ -1225,12 +1315,18 @@ func TestRenderUIHistoryFold(t *testing.T) {
 	t.Run("second create for the same surfaceId keeps the last card", func(t *testing.T) {
 		secondCreate := []any{
 			map[string]any{
-				"version":       "v0.9",
-				"createSurface": map[string]any{"surfaceId": "surface-1", "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"},
+				"version": "v0.9",
+				"createSurface": map[string]any{
+					"surfaceId": "surface-1",
+					"catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json",
+				},
 			},
 			map[string]any{
-				"version":          "v0.9",
-				"updateComponents": map[string]any{"surfaceId": "surface-1", "components": []any{map[string]any{"id": "root", "component": "Text", "text": "重画"}}},
+				"version": "v0.9",
+				"updateComponents": map[string]any{
+					"surfaceId":  "surface-1",
+					"components": []any{map[string]any{"id": "root", "component": "Text", "text": "重画"}},
+				},
 			},
 		}
 		secondJSON := `{"messages":` + marshalForTest(t, secondCreate) + `,"summary":"第二张"}`
@@ -1239,10 +1335,18 @@ func TestRenderUIHistoryFold(t *testing.T) {
 			t.Fatalf("items length = %d, want 3", len(items))
 		}
 		if len(items[0].A2UI) != 0 || items[0].Fallback != "" {
-			t.Errorf("first create item = {a2ui:%s fallback:%q}, want empty (superseded by the last create)", items[0].A2UI, items[0].Fallback)
+			t.Errorf(
+				"first create item = {a2ui:%s fallback:%q}, want empty (superseded by the last create)",
+				items[0].A2UI,
+				items[0].Fallback,
+			)
 		}
 		if len(items[1].A2UI) != 0 || items[1].Fallback != "" {
-			t.Errorf("update item = {a2ui:%s fallback:%q}, want empty (merged into the discarded card)", items[1].A2UI, items[1].Fallback)
+			t.Errorf(
+				"update item = {a2ui:%s fallback:%q}, want empty (merged into the discarded card)",
+				items[1].A2UI,
+				items[1].Fallback,
+			)
 		}
 		if len(items[2].A2UI) == 0 {
 			t.Fatal("second create item carries no card")
@@ -1284,8 +1388,13 @@ func TestRenderUIHistoryFold(t *testing.T) {
 			}},
 		}}
 		oversized := []any{map[string]any{
-			"version":          "v0.9",
-			"updateComponents": map[string]any{"surfaceId": "s", "components": []any{map[string]any{"id": "t", "component": "Text", "text": strings.Repeat("x", 256*1024)}}},
+			"version": "v0.9",
+			"updateComponents": map[string]any{
+				"surfaceId": "s",
+				"components": []any{
+					map[string]any{"id": "t", "component": "Text", "text": strings.Repeat("x", 256*1024)},
+				},
+			},
 		}}
 		items := RenderUIHistoryFold([]string{
 			`{not json`,

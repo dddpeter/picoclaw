@@ -1039,7 +1039,7 @@ func TestTrimHistoryToFitContextWindow_RebuildsAreSublinear(t *testing.T) {
 		t.Fatalf("expected a logarithmic number of rebuilds, got %d", newBuilds)
 	}
 	if referenceBuilds < turns/2 {
-		t.Fatalf("reference scan should show the quadratic behaviour, got %d rebuilds", referenceBuilds)
+		t.Fatalf("reference scan should show the quadratic behavior, got %d rebuilds", referenceBuilds)
 	}
 
 	t.Logf("prompt rebuilds: binary search %d, linear scan %d (dropped %d turns)",

@@ -98,7 +98,13 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 					if strings.TrimSpace(ts.userMessage) != "" || len(ts.media) > 0 {
 						rebuiltCurrentTurnStart = len(rebuilt) - 1
 					}
-					return resolveMediaRefs(rebuilt, p.MediaStore, maxMediaSize, maxContextImages, rebuiltCurrentTurnStart)
+					return resolveMediaRefs(
+						rebuilt,
+						p.MediaStore,
+						maxMediaSize,
+						maxContextImages,
+						rebuiltCurrentTurnStart,
+					)
 				},
 				ts.effectiveContextWindow(),
 				toolDefs,

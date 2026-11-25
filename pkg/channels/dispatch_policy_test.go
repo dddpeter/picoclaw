@@ -60,7 +60,11 @@ func TestEnqueueOutboundDropsBeatOnFullQueue(t *testing.T) {
 		t.Fatal("droppable beat blocked on a full queue — zero-wait policy missing")
 	}
 	if len(w.queue) != defaultChannelQueueSize {
-		t.Fatalf("queue length = %d, want %d (beat must not displace queued messages)", len(w.queue), defaultChannelQueueSize)
+		t.Fatalf(
+			"queue length = %d, want %d (beat must not displace queued messages)",
+			len(w.queue),
+			defaultChannelQueueSize,
+		)
 	}
 }
 
@@ -92,7 +96,11 @@ func TestEnqueueOutboundCriticalDropsAfterBoundedWait(t *testing.T) {
 		t.Fatalf("critical drop took %s, want ≈ the %s bound", elapsed, oldWait)
 	}
 	if len(w.queue) != defaultChannelQueueSize {
-		t.Fatalf("queue length = %d, want %d (dropped message must not displace queued ones)", len(w.queue), defaultChannelQueueSize)
+		t.Fatalf(
+			"queue length = %d, want %d (dropped message must not displace queued ones)",
+			len(w.queue),
+			defaultChannelQueueSize,
+		)
 	}
 }
 
@@ -103,7 +111,7 @@ func TestEnqueueOutboundEnqueuesWhenSpaceAvailable(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		if ok := m.enqueueOutboundForDispatch(context.Background(), w, dispatchTestMsg("msg", "")); !ok {
-			t.Fatalf("enqueue %d signalled shutdown", i)
+			t.Fatalf("enqueue %d signaled shutdown", i)
 		}
 	}
 	if len(w.queue) != 5 {
@@ -119,7 +127,7 @@ func TestEnqueueOutboundEnqueuesWhenSpaceAvailable(t *testing.T) {
 }
 
 // TestEnqueueOutboundCancelledContextReturnsFalse pins the shutdown
-// contract: a cancelled dispatcher context makes the bounded-wait enqueue
+// contract: a canceled dispatcher context makes the bounded-wait enqueue
 // return false (dispatcher exit), even on a full queue.
 func TestEnqueueOutboundCancelledContextReturnsFalse(t *testing.T) {
 	m, w := newDispatchTestManager(t)
@@ -129,6 +137,6 @@ func TestEnqueueOutboundCancelledContextReturnsFalse(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if ok := m.enqueueOutboundForDispatch(ctx, w, dispatchTestMsg("最终回答", "")); ok {
-		t.Fatal("cancelled context must signal dispatcher shutdown")
+		t.Fatal("canceled context must signal dispatcher shutdown")
 	}
 }

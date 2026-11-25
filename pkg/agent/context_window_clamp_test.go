@@ -38,7 +38,10 @@ func TestNewAgentInstance_ContextWindowClamp(t *testing.T) {
 	// (Feishu card, pico/web usage, /context): the clamp must bind gating
 	// internals only, not what UIs report as the model's context size.
 	if agent.DeclaredContextWindow != 1_000_000 {
-		t.Fatalf("DeclaredContextWindow = %d, want 1000000 (display keeps configured value)", agent.DeclaredContextWindow)
+		t.Fatalf(
+			"DeclaredContextWindow = %d, want 1000000 (display keeps configured value)",
+			agent.DeclaredContextWindow,
+		)
 	}
 
 	// Opt-out flag restores the configured value verbatim.

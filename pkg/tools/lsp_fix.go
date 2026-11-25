@@ -118,8 +118,10 @@ func (t *LspFixTool) Execute(ctx context.Context, args map[string]any) *ToolResu
 		}
 	}
 	if len(candidates) == 0 {
-		return ErrorResult(fmt.Sprintf("no configured LSP server supports %s (routing is by file extension; servers: %s)",
-			rawPath, strings.Join(serverNames(t.servers), ", ")))
+		return ErrorResult(
+			fmt.Sprintf("no configured LSP server supports %s (routing is by file extension; servers: %s)",
+				rawPath, strings.Join(serverNames(t.servers), ", ")),
+		)
 	}
 	if len(candidates) > 1 {
 		return ErrorResult("multiple servers support " + rawPath + ": " +

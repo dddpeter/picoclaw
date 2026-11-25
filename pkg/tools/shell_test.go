@@ -2306,7 +2306,10 @@ func TestShellTool_DenyProfileOpenKeepsForkDefaults(t *testing.T) {
 		}
 	}
 	// Destructive commands stay blocked even under open.
-	result := tool.Execute(ctx, map[string]any{"action": "run", "command": "rm -rf /tmp/definitely-nonexistent-picoclaw-test"})
+	result := tool.Execute(
+		ctx,
+		map[string]any{"action": "run", "command": "rm -rf /tmp/definitely-nonexistent-picoclaw-test"},
+	)
 	if !result.IsError {
 		t.Error("open profile: expected rm -rf to be blocked")
 	}
@@ -2339,7 +2342,10 @@ func TestShellTool_DenyProfileStrictAppliesUpstreamSet(t *testing.T) {
 			t.Errorf("strict profile: expected %q to be blocked", cmd)
 		}
 	}
-	result := tool.Execute(ctx, map[string]any{"action": "run", "command": "rm -rf /tmp/definitely-nonexistent-picoclaw-test"})
+	result := tool.Execute(
+		ctx,
+		map[string]any{"action": "run", "command": "rm -rf /tmp/definitely-nonexistent-picoclaw-test"},
+	)
 	if !result.IsError {
 		t.Error("strict profile: expected rm -rf to be blocked")
 	}

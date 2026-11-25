@@ -170,7 +170,8 @@ func TestViewMainScreen(t *testing.T) {
 	}
 	// footer 两行（末尾两行：L1 连接态 / L2 统计）
 	l1, l2 := lines[len(lines)-2], lines[len(lines)-1]
-	if !strings.Contains(l1, "connected") && !strings.Contains(l1, "connecting") && !strings.Contains(l1, "disconnected") {
+	if !strings.Contains(l1, "connected") && !strings.Contains(l1, "connecting") &&
+		!strings.Contains(l1, "disconnected") {
 		t.Fatalf("footer L1 must carry connection state: %q", l1)
 	}
 	_ = l2

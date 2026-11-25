@@ -195,10 +195,14 @@ func (c *FeishuChannel) ShowApprovalPrompt(ctx context.Context, chatID string, p
 
 	cardID, createErr := c.createCardkitCard(ctx, cardJSON)
 	if createErr != nil {
-		logger.WarnCF("feishu", "Approval card CardKit create failed; sending inline (card will not seal)", map[string]any{
-			"chat_id": chatID,
-			"error":   createErr.Error(),
-		})
+		logger.WarnCF(
+			"feishu",
+			"Approval card CardKit create failed; sending inline (card will not seal)",
+			map[string]any{
+				"chat_id": chatID,
+				"error":   createErr.Error(),
+			},
+		)
 	}
 
 	var content string
@@ -374,7 +378,11 @@ func (c *FeishuChannel) sealApprovalCard(ctx context.Context, ref *feishuApprova
 }
 
 // sealApprovalCardVerdict replaces the prompt card with the given verdict.
-func (c *FeishuChannel) sealApprovalCardVerdict(ctx context.Context, ref *feishuApprovalCardRef, verdict feishuApprovalSealVerdict) {
+func (c *FeishuChannel) sealApprovalCardVerdict(
+	ctx context.Context,
+	ref *feishuApprovalCardRef,
+	verdict feishuApprovalSealVerdict,
+) {
 	if ref == nil {
 		return
 	}

@@ -466,4 +466,3 @@ func (al *AgentLoop) HardAbort(sessionKey string) error {
 
 	return nil
 }
-

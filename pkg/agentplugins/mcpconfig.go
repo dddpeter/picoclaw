@@ -35,8 +35,10 @@ var mcpTopFields = map[string]bool{"$schema": true, "mcpServers": true}
 
 // Closed per-variant field sets (§7.2.1): a field belonging to another
 // variant, or an unknown field, makes the entry invalid.
-var stdioEntryFields = map[string]bool{"type": true, "command": true, "args": true, "env": true, "cwd": true}
-var remoteEntryFields = map[string]bool{"type": true, "url": true, "headers": true}
+var (
+	stdioEntryFields  = map[string]bool{"type": true, "command": true, "args": true, "env": true, "cwd": true}
+	remoteEntryFields = map[string]bool{"type": true, "url": true, "headers": true}
+)
 
 // headerNameRe accepts RFC 7230 field-name token characters.
 var headerNameRe = regexp.MustCompile(`^[A-Za-z0-9!#$%&'*+\-.^_` + "`" + `|~]+$`)
@@ -93,10 +95,18 @@ func LoadMCPConfig(root, manifestSchemaURL string, v Vars, r *Report) (map[strin
 		return nil, fmt.Errorf("mcp.json: field %q must be a string", "$schema")
 	}
 	if schemaURL != MCPConfigSchemaURL {
-		return nil, fmt.Errorf("mcp.json $schema %q is not a supported Agent Plugins version (supported: %s)", schemaURL, MCPConfigSchemaURL)
+		return nil, fmt.Errorf(
+			"mcp.json $schema %q is not a supported Agent Plugins version (supported: %s)",
+			schemaURL,
+			MCPConfigSchemaURL,
+		)
 	}
 	if specVersionOf(schemaURL) != specVersionOf(manifestSchemaURL) {
-		return nil, fmt.Errorf("mcp.json $schema version %q does not match plugin.json version %q", specVersionOf(schemaURL), specVersionOf(manifestSchemaURL))
+		return nil, fmt.Errorf(
+			"mcp.json $schema version %q does not match plugin.json version %q",
+			specVersionOf(schemaURL),
+			specVersionOf(manifestSchemaURL),
+		)
 	}
 
 	serversRaw, ok := raw["mcpServers"]

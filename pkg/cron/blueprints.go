@@ -58,7 +58,13 @@ var blueprintCatalog = []Blueprint{
 		MessageTemplate:  "Every day at {time}: {text}",
 		Slots: []BlueprintSlot{
 			{Name: "time", Label: "Time of day", Type: SlotTypeTime, Required: true, Description: "24h HH:MM"},
-			{Name: "text", Label: "What to do", Type: SlotTypeText, Required: true, Description: "the task or report to produce"},
+			{
+				Name:        "text",
+				Label:       "What to do",
+				Type:        SlotTypeText,
+				Required:    true,
+				Description: "the task or report to produce",
+			},
 		},
 	},
 	{
@@ -80,7 +86,25 @@ var blueprintCatalog = []Blueprint{
 		MessageTemplate:  "Every {weekdays} at {time}: {text}",
 		Slots: []BlueprintSlot{
 			{Name: "time", Label: "Time of day", Type: SlotTypeTime, Required: true},
-			{Name: "weekdays", Label: "Day of week", Type: SlotTypeWeekdays, Required: false, Default: "monday", Options: []string{"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "weekdays", "weekends", "everyday"}},
+			{
+				Name:     "weekdays",
+				Label:    "Day of week",
+				Type:     SlotTypeWeekdays,
+				Required: false,
+				Default:  "monday",
+				Options: []string{
+					"monday",
+					"tuesday",
+					"wednesday",
+					"thursday",
+					"friday",
+					"saturday",
+					"sunday",
+					"weekdays",
+					"weekends",
+					"everyday",
+				},
+			},
 			{Name: "text", Label: "What to do", Type: SlotTypeText, Required: true},
 		},
 	},
@@ -91,7 +115,13 @@ var blueprintCatalog = []Blueprint{
 		ScheduleTemplate: "every:{hours}",
 		MessageTemplate:  "Every {hours} hours: {text}",
 		Slots: []BlueprintSlot{
-			{Name: "hours", Label: "Interval hours", Type: SlotTypeText, Required: true, Description: "positive integer"},
+			{
+				Name:        "hours",
+				Label:       "Interval hours",
+				Type:        SlotTypeText,
+				Required:    true,
+				Description: "positive integer",
+			},
 			{Name: "text", Label: "What to check", Type: SlotTypeText, Required: true},
 		},
 	},
@@ -140,7 +170,12 @@ func FillBlueprint(bp Blueprint, values map[string]string) (CronSchedule, string
 		}
 		if raw == "" {
 			if slot.Required {
-				return CronSchedule{}, "", fmt.Errorf("blueprint %q requires slot %q (%s)", bp.Name, slot.Name, slot.Label)
+				return CronSchedule{}, "", fmt.Errorf(
+					"blueprint %q requires slot %q (%s)",
+					bp.Name,
+					slot.Name,
+					slot.Label,
+				)
 			}
 			continue
 		}
@@ -245,7 +280,10 @@ func parseSlotWeekday(raw string) (string, error) {
 	// Raw cron day-of-week: digits, commas, ranges, *, / — validated by use.
 	for _, r := range raw {
 		if !(r >= '0' && r <= '9') && r != ',' && r != '-' && r != '*' && r != '/' && r != ' ' {
-			return "", fmt.Errorf("unknown weekday %q (use a name like monday/weekdays/everyday, or a cron day list like 1-5)", raw)
+			return "", fmt.Errorf(
+				"unknown weekday %q (use a name like monday/weekdays/everyday, or a cron day list like 1-5)",
+				raw,
+			)
 		}
 	}
 	if strings.TrimSpace(raw) == "" {

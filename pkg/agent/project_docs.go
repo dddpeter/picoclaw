@@ -80,7 +80,10 @@ func (cb *ContextBuilder) loadProjectDocs() string {
 		return ""
 	}
 	return "# Project Docs\n\nThese files live at the workspace root and describe the project's own conventions. Follow them.\n\n" +
-		strings.Join(sections, "\n\n")
+		strings.Join(
+			sections,
+			"\n\n",
+		)
 }
 
 // truncateUTF8 cuts s to at most maxBytes without splitting a rune.

@@ -794,7 +794,8 @@ func (c *PicoChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]stri
 				PayloadKeyContent: state.content,
 				PayloadKeyA2UI:    merged,
 			}
-			if err := c.editMessagePayload(ctx, msg.ChatID, state.messageID, updatePayload, nil); err != nil && !errors.Is(err, errFrameRetainedNoDelivery) {
+			if err := c.editMessagePayload(ctx, msg.ChatID, state.messageID, updatePayload, nil); err != nil &&
+				!errors.Is(err, errFrameRetainedNoDelivery) {
 				// Real failure — the frame never entered the session seq
 				// ring, so no client will ever receive it. Keep the
 				// pre-merge registry frames so the delta stays retryable
@@ -1508,7 +1509,12 @@ func (c *PicoChannel) broadcastToSession(chatID string, msg PicoMessage) error {
 	}
 
 	if !sent {
-		return fmt.Errorf("no active connections for session %s (%w): %w", sessionID, errFrameRetainedNoDelivery, channels.ErrSendFailed)
+		return fmt.Errorf(
+			"no active connections for session %s (%w): %w",
+			sessionID,
+			errFrameRetainedNoDelivery,
+			channels.ErrSendFailed,
+		)
 	}
 	return nil
 }

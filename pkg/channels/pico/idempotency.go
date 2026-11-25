@@ -78,9 +78,13 @@ func (w *sessionDedupWindow) seen(tick uint64, msgID string) bool {
 		delete(w.ids, oldest)
 		if !w.evicting {
 			w.evicting = true
-			logger.DebugCF("pico", "Idempotency window full, oldest IDs evicted — duplicate detection degraded", map[string]any{
-				"capacity": w.capacity,
-			})
+			logger.DebugCF(
+				"pico",
+				"Idempotency window full, oldest IDs evicted — duplicate detection degraded",
+				map[string]any{
+					"capacity": w.capacity,
+				},
+			)
 		}
 	}
 	return false

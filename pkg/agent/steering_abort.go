@@ -121,11 +121,14 @@ func (al *AgentLoop) watchHardAbortUnwind(sessionKey string, ts *turnState) {
 		// next write on this session replaces/closes it normally.
 		ts.zombieReleased.Store(true)
 		al.releaseSessionTurnState(sessionKey, ts)
-		logger.ErrorCF("agent", "hard abort watchdog: turn goroutine failed to unwind; force-released session registration",
+		logger.ErrorCF(
+			"agent",
+			"hard abort watchdog: turn goroutine failed to unwind; force-released session registration",
 			map[string]any{
 				"session_key": sessionKey,
 				"turn_id":     ts.snapshot().TurnID,
 				"grace":       hardAbortUnwindGrace.String(),
-			})
+			},
+		)
 	}
 }

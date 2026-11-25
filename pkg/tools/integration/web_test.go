@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
 const (
@@ -921,7 +922,7 @@ func TestNewSafeDialContext_BlocksPrivateDNSResolutionWithoutWhitelist(t *testin
 		t.Fatalf("failed to split listener address: %v", err)
 	}
 
-	dialContext := newSafeDialContext(&net.Dialer{Timeout: time.Second}, nil)
+	dialContext := utils.NewSafeDialContext(&net.Dialer{Timeout: time.Second}, nil, func() bool { return false })
 	_, err = dialContext(context.Background(), "tcp", net.JoinHostPort("localhost", port))
 	if err == nil {
 		t.Fatal("expected localhost DNS resolution to be blocked without whitelist")
@@ -953,12 +954,12 @@ func TestNewSafeDialContext_AllowsWhitelistedPrivateDNSResolution(t *testing.T) 
 		t.Fatalf("failed to split listener address: %v", err)
 	}
 
-	whitelist, err := newPrivateHostWhitelist([]string{"127.0.0.0/8"})
+	whitelist, err := utils.NewPrivateHostWhitelist([]string{"127.0.0.0/8"})
 	if err != nil {
 		t.Fatalf("failed to parse whitelist: %v", err)
 	}
 
-	dialContext := newSafeDialContext(&net.Dialer{Timeout: time.Second}, whitelist)
+	dialContext := utils.NewSafeDialContext(&net.Dialer{Timeout: time.Second}, whitelist, func() bool { return false })
 	conn, err := dialContext(context.Background(), "tcp", net.JoinHostPort("localhost", port))
 	if err != nil {
 		t.Fatalf("expected localhost DNS resolution to succeed with whitelist, got %v", err)
@@ -1017,9 +1018,9 @@ func TestIsPrivateOrRestrictedIP_Table(t *testing.T) {
 			if ip == nil {
 				t.Fatalf("failed to parse IP: %s", tt.ip)
 			}
-			got := isPrivateOrRestrictedIP(ip)
+			got := utils.IsPrivateOrRestrictedIP(ip)
 			if got != tt.blocked {
-				t.Errorf("isPrivateOrRestrictedIP(%s) = %v, want %v", tt.ip, got, tt.blocked)
+				t.Errorf("IsPrivateOrRestrictedIP(%s) = %v, want %v", tt.ip, got, tt.blocked)
 			}
 		})
 	}

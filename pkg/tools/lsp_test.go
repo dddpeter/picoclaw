@@ -177,7 +177,10 @@ func TestLspFixToolPreviewAndWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	uri := lsp.FileURI(file)
-	actions := fmt.Sprintf(`[{"title":"fix spaces","kind":"source.fixAll","uri":%q,"edits":[{"sl":2,"sc":6,"el":2,"ec":7,"newText":""}]}]`, uri)
+	actions := fmt.Sprintf(
+		`[{"title":"fix spaces","kind":"source.fixAll","uri":%q,"edits":[{"sl":2,"sc":6,"el":2,"ec":7,"newText":""}]}]`,
+		uri,
+	)
 	env := fakeserver.Env(nil, true, false)
 	env["PICOCLAW_FAKESERVER_ACTIONS"] = actions
 	serverCfg := config.LspServerConfig{
@@ -217,7 +220,10 @@ func TestLspFixToolPreviewAndWrite(t *testing.T) {
 	}
 
 	// Unchanged case: a kind with no matching actions → "left unchanged".
-	res = tool.Execute(context.Background(), map[string]any{"path": file, "server": "fake", "write": true, "kind": "source.organizeImports"})
+	res = tool.Execute(
+		context.Background(),
+		map[string]any{"path": file, "server": "fake", "write": true, "kind": "source.organizeImports"},
+	)
 	if res.IsError {
 		t.Fatalf("third call: %s", res.ForLLM)
 	}

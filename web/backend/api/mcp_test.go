@@ -18,9 +18,8 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/sipeed/picoclaw/pkg/config"
-	ppid "github.com/sipeed/picoclaw/pkg/pid"
-
 	mcp "github.com/sipeed/picoclaw/pkg/mcp"
+	ppid "github.com/sipeed/picoclaw/pkg/pid"
 )
 
 func newMCPTestServer(t *testing.T) (string, *http.ServeMux) {
@@ -81,12 +80,16 @@ func TestMCPConfigPutThenGetRoundTrip(t *testing.T) {
 			UseBM25: false, UseRegex: true,
 		},
 		Servers: []mcpServerDTO{
-			{Name: "ov", Type: "http", Enabled: true, Deferred: &deferred,
+			{
+				Name: "ov", Type: "http", Enabled: true, Deferred: &deferred,
 				URL: "https://example.com/mcp", Headers: map[string]string{"Authorization": "Bearer x"},
-				Args: []string{}, Env: map[string]string{}},
-			{Name: "local", Type: "stdio", Enabled: false, Deferred: nil,
+				Args: []string{}, Env: map[string]string{},
+			},
+			{
+				Name: "local", Type: "stdio", Enabled: false, Deferred: nil,
 				Command: "npx", Args: []string{"-y", "server-foo"}, Env: map[string]string{"K": "V"},
-				EnvFile: ".env"},
+				EnvFile: ".env",
+			},
 		},
 	}
 	rec := doJSON(t, mux, http.MethodPut, "/api/mcp/config", putBody)

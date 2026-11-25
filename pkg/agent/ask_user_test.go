@@ -525,8 +525,10 @@ func TestAskReply_GroupSenderPinning(t *testing.T) {
 	}
 	al.pendingAsks.Store("sess-pin", waiter)
 
-	other := bus.InboundMessage{Channel: "feishu", ChatID: "c", SenderID: "ou_other", Content: "我觉得都行吧",
-		Context: bus.InboundContext{ChatType: "group"}}
+	other := bus.InboundMessage{
+		Channel: "feishu", ChatID: "c", SenderID: "ou_other", Content: "我觉得都行吧",
+		Context: bus.InboundContext{ChatType: "group"},
+	}
 	if al.tryHandleAskReply(context.Background(), other, "sess-pin") {
 		t.Fatal("another group member's chat must not be consumed as the answer")
 	}
@@ -536,19 +538,25 @@ func TestAskReply_GroupSenderPinning(t *testing.T) {
 	default:
 	}
 
-	asked := bus.InboundMessage{Channel: "feishu", ChatID: "c", SenderID: "ou_asked", Content: "yes please",
-		Context: bus.InboundContext{ChatType: "group"}}
+	asked := bus.InboundMessage{
+		Channel: "feishu", ChatID: "c", SenderID: "ou_asked", Content: "yes please",
+		Context: bus.InboundContext{ChatType: "group"},
+	}
 	if !al.tryHandleAskReply(context.Background(), asked, "sess-pin") {
 		t.Fatal("the asked user's answer must be consumed")
 	}
 
 	// Direct chats stay permissive on sender mismatch (the peer is
 	// unambiguous), and channels without sender identity stay permissive.
-	waiter2 := &pendingAsk{resolve: make(chan askReply, 1), channel: "feishu", chatID: "c2",
-		senderID: "ou_asked", questions: []bus.AskQuestion{{Question: "Proceed?"}}}
+	waiter2 := &pendingAsk{
+		resolve: make(chan askReply, 1), channel: "feishu", chatID: "c2",
+		senderID: "ou_asked", questions: []bus.AskQuestion{{Question: "Proceed?"}},
+	}
 	al.pendingAsks.Store("sess-direct", waiter2)
-	direct := bus.InboundMessage{Channel: "feishu", ChatID: "c2", SenderID: "ou_elsewhere", Content: "yes",
-		Context: bus.InboundContext{ChatType: "direct"}}
+	direct := bus.InboundMessage{
+		Channel: "feishu", ChatID: "c2", SenderID: "ou_elsewhere", Content: "yes",
+		Context: bus.InboundContext{ChatType: "direct"},
+	}
 	if !al.tryHandleAskReply(context.Background(), direct, "sess-direct") {
 		t.Fatal("direct chat reply must be consumed regardless of sender pin")
 	}

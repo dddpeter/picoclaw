@@ -166,7 +166,9 @@ func TestTurnMarker_MigrationSkipsMarkerFiles(t *testing.T) {
 	if err != nil || len(markers) != 1 {
 		t.Fatalf("markers after migration = %v, %v; want the marker intact", markers, err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, sanitizeKey("agent_default:test:mid")+TurnMarkerSuffix+".migrated")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, sanitizeKey("agent_default:test:mid")+TurnMarkerSuffix+".migrated")); !os.IsNotExist(
+		err,
+	) {
 		t.Fatal("marker must not be renamed to .migrated")
 	}
 	for _, key := range store.ListSessions() {

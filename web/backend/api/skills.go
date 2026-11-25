@@ -893,14 +893,22 @@ func normalizeImportedSkillContent(content []byte, skillName string) []byte {
 	return []byte(builder.String())
 }
 
-func (h *Handler) importUploadedSkill(cfg *config.Config, filename string, content []byte) (*skillSupportItem, int, error) {
+func (h *Handler) importUploadedSkill(
+	cfg *config.Config,
+	filename string,
+	content []byte,
+) (*skillSupportItem, int, error) {
 	if isImportedSkillArchive(filename, content) {
 		return h.importUploadedSkillArchive(cfg, filename, content)
 	}
 	return h.importUploadedMarkdownSkill(cfg, filename, content)
 }
 
-func (h *Handler) importUploadedMarkdownSkill(cfg *config.Config, filename string, content []byte) (*skillSupportItem, int, error) {
+func (h *Handler) importUploadedMarkdownSkill(
+	cfg *config.Config,
+	filename string,
+	content []byte,
+) (*skillSupportItem, int, error) {
 	skillName, err := normalizeImportedSkillName(filename, content)
 	if err != nil {
 		return nil, http.StatusBadRequest, err
@@ -925,7 +933,11 @@ func (h *Handler) importUploadedMarkdownSkill(cfg *config.Config, filename strin
 	return h.finalizeImportedSkill(cfg, skillDir, skillName, false)
 }
 
-func (h *Handler) importUploadedSkillArchive(cfg *config.Config, filename string, content []byte) (*skillSupportItem, int, error) {
+func (h *Handler) importUploadedSkillArchive(
+	cfg *config.Config,
+	filename string,
+	content []byte,
+) (*skillSupportItem, int, error) {
 	tmpDir, tempDirErr := os.MkdirTemp("", "picoclaw-skill-import-*")
 	if tempDirErr != nil {
 		return nil, http.StatusInternalServerError, fmt.Errorf("Failed to create temp directory: %v", tempDirErr)

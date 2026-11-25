@@ -215,15 +215,15 @@ func (sl *SkillsLoader) ListSkills() []SkillInfo {
 			if depth > maxDepth {
 				return
 			}
-			real, err := filepath.EvalSymlinks(dir)
+			realPath, err := filepath.EvalSymlinks(dir)
 			if err != nil {
 				return
 			}
-			if visited[real] {
+			if visited[realPath] {
 				return // symlink cycle guard
 			}
-			visited[real] = true
-			entries, err := os.ReadDir(real)
+			visited[realPath] = true
+			entries, err := os.ReadDir(realPath)
 			if err != nil {
 				return
 			}
@@ -548,11 +548,6 @@ func (sl *SkillsLoader) parseSimpleYAML(content string) map[string]string {
 	}
 
 	return result
-}
-
-func (sl *SkillsLoader) extractFrontmatter(content string) string {
-	frontmatter, _ := splitFrontmatter(content)
-	return frontmatter
 }
 
 func (sl *SkillsLoader) stripFrontmatter(content string) string {

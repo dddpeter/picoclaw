@@ -131,7 +131,9 @@ func TestHardAbort_ForceReleasesWedgedTurnRegistration(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	if al.getActiveTurnState(sessionKey) != nil {
-		t.Fatal("deadlock reproduced: HardAbort left the wedged turn registered — the session stays busy forever and only a restart recovers")
+		t.Fatal(
+			"deadlock reproduced: HardAbort left the wedged turn registered — the session stays busy forever and only a restart recovers",
+		)
 	}
 }
 
@@ -185,7 +187,9 @@ func TestRunTurn_HardAbortDuringLLMCall_PreservesHistory(t *testing.T) {
 
 	history := agent.Sessions.GetHistory(sessionKey)
 	if len(history) == 0 {
-		t.Fatal("defect reproduced: responsive /stop wiped the session history — restoreSession rolled back to a snapshot taken before the user message")
+		t.Fatal(
+			"defect reproduced: responsive /stop wiped the session history — restoreSession rolled back to a snapshot taken before the user message",
+		)
 	}
 	if history[0].Role != "user" {
 		t.Fatalf("expected the user message to survive the abort, first role=%s", history[0].Role)
@@ -239,7 +243,10 @@ func TestZombieTurn_LateUnwindPreservesNewTurnHistory(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("defect reproduced: late zombie unwind wiped the new turn's history (history now %d messages)", len(history))
+		t.Fatalf(
+			"defect reproduced: late zombie unwind wiped the new turn's history (history now %d messages)",
+			len(history),
+		)
 	}
 }
 
@@ -333,7 +340,10 @@ func TestRunTurn_HardAbortMidTool_LateResultNotDuplicated(t *testing.T) {
 		}
 	}
 	if toolCount != 1 {
-		t.Fatalf("defect reproduced: expected exactly one tool message for call-block (the sealed synthetic), got %d", toolCount)
+		t.Fatalf(
+			"defect reproduced: expected exactly one tool message for call-block (the sealed synthetic), got %d",
+			toolCount,
+		)
 	}
 	if toolContent != abortedToolResultNote {
 		t.Fatalf("expected the synthetic seal content, got %q", toolContent)

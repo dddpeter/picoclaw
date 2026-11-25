@@ -293,7 +293,9 @@ func (al *AgentLoop) runAskUser(ctx context.Context, ts *turnState, args map[str
 				return askResultFor(questions, reply)
 			default:
 			}
-			return tools.NewToolResult("The turn was aborted before the user answered; treat the questions as unanswered.")
+			return tools.NewToolResult(
+				"The turn was aborted before the user answered; treat the questions as unanswered.",
+			)
 		case <-timer.C:
 			// Retire FIRST, then drain (review P3-A): the drain-first order
 			// left a window where a reply sneaking between the empty drain and
@@ -324,7 +326,9 @@ func (al *AgentLoop) runAskUser(ctx context.Context, ts *turnState, args map[str
 // askResultFor renders the deterministic answer list the model receives.
 func askResultFor(questions []bus.AskQuestion, reply askReply) *tools.ToolResult {
 	if reply.skipped {
-		return tools.NewToolResult("The user skipped the questions. Decide how to proceed, or finish with what you have.")
+		return tools.NewToolResult(
+			"The user skipped the questions. Decide how to proceed, or finish with what you have.",
+		)
 	}
 	var b strings.Builder
 	b.WriteString("The user answered:")
@@ -361,7 +365,7 @@ func askMarkerStoreFor(al *AgentLoop, agentID string) session.AskMarkerStore {
 
 // publishAskQuestion sends the question card: structured payload for
 // channels that render it (pico "ask" payload → web card) with a plain-text
-// fallback every channel can display. Detached context so a cancelled turn
+// fallback every channel can display. Detached context so a canceled turn
 // cannot also cancel the question the user still needs to see.
 func (al *AgentLoop) publishAskQuestion(ts *turnState, questions []bus.AskQuestion, timeout time.Duration) {
 	if al.bus == nil {
@@ -661,7 +665,8 @@ func (al *AgentLoop) askStallThreshold(ts *turnState) time.Duration {
 		return 0
 	}
 	if al != nil && al.GetConfig() != nil {
-		if interval := time.Duration(al.GetConfig().Agents.Defaults.GetProgressHeartbeatSeconds()) * time.Second; interval > 0 && stall < 2*interval {
+		if interval := time.Duration(al.GetConfig().Agents.Defaults.GetProgressHeartbeatSeconds()) * time.Second; interval > 0 &&
+			stall < 2*interval {
 			stall = 2 * interval
 		}
 	}

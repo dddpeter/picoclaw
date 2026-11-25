@@ -11,7 +11,7 @@ import (
 
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
-	"charm.land/bubbletea/v2"
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/google/uuid"
 
@@ -19,38 +19,40 @@ import (
 	"github.com/sipeed/picoclaw/pkg/picoclient"
 )
 
-type eventMsg picoclient.Event
-type stateMsg picoclient.ConnState
-type spinnerTickMsg struct{}
-type streamClosedMsg struct{}
-type pasteImageMsg struct {
-	img *clipboardImage
-	err error
-}
+type (
+	eventMsg        picoclient.Event
+	stateMsg        picoclient.ConnState
+	spinnerTickMsg  struct{}
+	streamClosedMsg struct{}
+	pasteImageMsg   struct {
+		img *clipboardImage
+		err error
+	}
+)
+
 type editorDoneMsg struct {
 	err error
 	dir string
 }
 
 type appModel struct {
-	client          *picoclient.Client
-	state           *State
-	connState       picoclient.ConnState
-	composer        textarea.Model
-	viewport        viewport.Model
-	width           int
-	height          int
-	ready           bool
-	spinnerIdx      int
-	lastCtrlC       time.Time
-	stopRequestedAt time.Time
-	sessionFile     string
-	gatewayURL      string
-	version         string
-	historyLoad     func(sessionID string) SessionHistory
-	historyDone     bool
-	composerLines   int
-	initCmd         tea.Cmd
+	client        *picoclient.Client
+	state         *State
+	connState     picoclient.ConnState
+	composer      textarea.Model
+	viewport      viewport.Model
+	width         int
+	height        int
+	ready         bool
+	spinnerIdx    int
+	lastCtrlC     time.Time
+	sessionFile   string
+	gatewayURL    string
+	version       string
+	historyLoad   func(sessionID string) SessionHistory
+	historyDone   bool
+	composerLines int
+	initCmd       tea.Cmd
 
 	// P2（docs/design/2026-11-07-tui-p2-design.zh.md）
 	completion   completionState   // "/" 与 ":" 补全浮层（§3）
@@ -59,7 +61,6 @@ type appModel struct {
 	histIdx      int               // 输入回溯游标；-1 = 未在回溯（§1）
 	histDraft    string            // 回溯前的草稿
 	listSessions func() []SessionEntry
-	historyByKey func(key string) SessionHistory
 	models       []string
 
 	// P3：终端焦点跟踪（bell 只在失焦时响）与剪贴板读取器
@@ -76,7 +77,11 @@ type appModel struct {
 	defaultModel string
 }
 
-func newAppModel(client *picoclient.Client, sessionFile, gatewayURL, version string, historyLoad func(sessionID string) SessionHistory) *appModel {
+func newAppModel(
+	client *picoclient.Client,
+	sessionFile, gatewayURL, version string,
+	historyLoad func(sessionID string) SessionHistory,
+) *appModel {
 	ta := textarea.New()
 	ta.Placeholder = "给 picoclaw 发消息…（:help 查看指令）"
 	ta.Prompt = "❯ "
@@ -97,15 +102,19 @@ func newAppModel(client *picoclient.Client, sessionFile, gatewayURL, version str
 		composerLines: 1,
 		histIdx:       -1,
 		md:            newMarkdownRenderer(),
-		initCmd:       tea.Batch(focusCmd, waitForEvent(client), waitForState(client), spin(), loadHistory(client, historyLoad)),
+		initCmd: tea.Batch(
+			focusCmd,
+			waitForEvent(client),
+			waitForState(client),
+			spin(),
+			loadHistory(client, historyLoad),
+		),
 	}
 }
 
-// setListSources wires the disk-backed session catalog and the config model
-// list (both optional; nil/empty just disables the pickers' data).
-func (m *appModel) setListSessions(fn func() []SessionEntry)       { m.listSessions = fn }
-func (m *appModel) setHistoryByKey(fn func(string) SessionHistory) { m.historyByKey = fn }
-func (m *appModel) setModels(models []string)                      { m.models = models }
+// setListSessions wires the disk-backed session catalog (optional; nil just
+// disables the picker).
+func (m *appModel) setListSessions(fn func() []SessionEntry) { m.listSessions = fn }
 
 // setFullscreen switches the render mode (P4)：主屏滚动（默认）或 --fullscreen。
 func (m *appModel) setFullscreen(v bool) { m.fullscreen = v }
@@ -712,11 +721,6 @@ func (m *appModel) activateOverlayPick() (tea.Model, tea.Cmd) {
 			m.state = NewState()
 			m.state.ReadOnly = true
 			m.state.ReadOnlyChannel = entry.Channel
-			if m.historyByKey != nil {
-				if h := m.historyByKey(entry.Key); h.Found {
-					m.state.ApplyHistory(h.Title, h.Items)
-				}
-			}
 			m.composer.Blur()
 			m.syncViewport()
 			if !m.fullscreen {

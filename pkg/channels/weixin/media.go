@@ -1148,7 +1148,10 @@ func (c *WeixinChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMess
 				"error":   err.Error(),
 			})
 			if c.remainingPause() > 0 {
-				return nil, basechannels.MediaSendErr(sent, fmt.Errorf("weixin send media: %w", basechannels.ErrSendFailed))
+				return nil, basechannels.MediaSendErr(
+					sent,
+					fmt.Errorf("weixin send media: %w", basechannels.ErrSendFailed),
+				)
 			}
 			// Earlier parts may already be in the chat — never retry the
 			// batch (B6).

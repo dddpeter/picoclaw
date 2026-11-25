@@ -70,7 +70,12 @@ branch is cloned.`,
 			}
 			p, err := loadInstalled(target, dataRoot)
 			if err != nil {
-				return fmt.Errorf("installed at %s, but the plugin failed to load: %w (run `picoclaw plugin remove %s` to clean up)", target, err, filepath.Base(target))
+				return fmt.Errorf(
+					"installed at %s, but the plugin failed to load: %w (run `picoclaw plugin remove %s` to clean up)",
+					target,
+					err,
+					filepath.Base(target),
+				)
 			}
 
 			// Register in the registry (install ⇒ enabled).

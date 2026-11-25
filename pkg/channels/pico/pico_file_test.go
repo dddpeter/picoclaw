@@ -42,7 +42,8 @@ func TestHandleFileRead_TextPreview(t *testing.T) {
 	if got := rec.Header().Get("X-Picoclaw-File-Kind"); got != "text" {
 		t.Fatalf("kind = %q, want text", got)
 	}
-	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "text/markdown") && !strings.Contains(ct, "text/plain") {
+	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "text/markdown") &&
+		!strings.Contains(ct, "text/plain") {
 		t.Fatalf("content-type = %q", ct)
 	}
 	if disp := rec.Header().Get("Content-Disposition"); !strings.Contains(disp, "inline") {

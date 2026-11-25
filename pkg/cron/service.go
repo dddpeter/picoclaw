@@ -364,7 +364,12 @@ func (cs *CronService) computeNextRun(schedule *CronSchedule, nowMS int64) *int6
 		if tz := strings.TrimSpace(schedule.TZ); tz != "" {
 			loc, err := time.LoadLocation(tz)
 			if err != nil {
-				log.Printf("[cron] invalid timezone %q for expr '%s': %v (falling back to server-local)", tz, schedule.Expr, err)
+				log.Printf(
+					"[cron] invalid timezone %q for expr '%s': %v (falling back to server-local)",
+					tz,
+					schedule.Expr,
+					err,
+				)
 			} else {
 				now = now.In(loc)
 				nextTime, err := gronx.NextTickAfter(schedule.Expr, now, false)

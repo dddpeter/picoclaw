@@ -29,8 +29,10 @@ type completionState struct {
 	dismissed bool // Esc closed it; re-arm only after the prefix goes away
 }
 
-const completionTrigger = '/'
-const localTrigger = ':'
+const (
+	completionTrigger = '/'
+	localTrigger      = ':'
+)
 
 // maxCompletionRows bounds the popup height.
 const maxCompletionRows = 8
@@ -81,7 +83,8 @@ var localCommands = []localCommand{
 // (so chat prose containing "/path" never pops it up).
 func updateCompletion(cs *completionState, text string) {
 	trimmed := strings.TrimLeft(text, " ")
-	if trimmed == "" || !strings.HasPrefix(trimmed, string(completionTrigger)) && !strings.HasPrefix(trimmed, string(localTrigger)) {
+	if trimmed == "" ||
+		!strings.HasPrefix(trimmed, string(completionTrigger)) && !strings.HasPrefix(trimmed, string(localTrigger)) {
 		cs.reset()
 		return
 	}

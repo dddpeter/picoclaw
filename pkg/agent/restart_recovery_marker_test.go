@@ -52,9 +52,13 @@ func TestRunRestartRecovery_NotifiesCleanTailInterruption(t *testing.T) {
 	key := "agent_default:test:midgen"
 	history := []providers.Message{
 		{Role: "user", Content: "big task"},
-		{Role: "assistant", Content: "working on it",
-			ToolCalls: []providers.ToolCall{{ID: "c1", Type: "function", Name: "exec",
-				Arguments: map[string]any{"command": "ls"}}}},
+		{
+			Role: "assistant", Content: "working on it",
+			ToolCalls: []providers.ToolCall{{
+				ID: "c1", Type: "function", Name: "exec",
+				Arguments: map[string]any{"command": "ls"},
+			}},
+		},
 		{Role: "tool", ToolCallID: "c1", Content: "ok"},
 		{Role: "user", Content: "继续"},
 		// The turn died while generating the answer: tail is the user
@@ -210,10 +214,14 @@ func TestRunRestartRecovery_RestoresInterruptedModel(t *testing.T) {
 			},
 		},
 		ModelList: []*config.ModelConfig{
-			{ModelName: "primary", Model: "openai/primary-model", APIBase: server.URL,
-				APIKeys: config.SimpleSecureStrings("k1")},
-			{ModelName: "alt", Model: "openai/alt-model", APIBase: server.URL,
-				APIKeys: config.SimpleSecureStrings("k1")},
+			{
+				ModelName: "primary", Model: "openai/primary-model", APIBase: server.URL,
+				APIKeys: config.SimpleSecureStrings("k1"),
+			},
+			{
+				ModelName: "alt", Model: "openai/alt-model", APIBase: server.URL,
+				APIKeys: config.SimpleSecureStrings("k1"),
+			},
 		},
 	}
 	msgBus := bus.NewMessageBus()

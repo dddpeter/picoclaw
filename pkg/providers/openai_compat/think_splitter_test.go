@@ -27,7 +27,7 @@ func feedAll(t *testing.T, ts *thinkSplitter, deltas []string) (reasoning, answe
 		reasoning += r
 		answer += a
 	}
-	return
+	return reasoning, answer
 }
 
 func TestThinkSplitterTagSplitAcrossChunks(t *testing.T) {

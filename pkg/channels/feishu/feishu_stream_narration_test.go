@@ -57,7 +57,11 @@ func TestNarrationLinesAppendAboveLiveAnswer(t *testing.T) {
 		t.Fatalf("iteration 2 update: %v", err)
 	}
 	if fake.streamContentCalls != writesBefore+1 {
-		t.Fatalf("first update after a pin must not be throttled, writes %d -> %d", writesBefore, fake.streamContentCalls)
+		t.Fatalf(
+			"first update after a pin must not be throttled, writes %d -> %d",
+			writesBefore,
+			fake.streamContentCalls,
+		)
 	}
 	want := greyLine("第一轮：我先查一下仓库结构") + "\n\n第二轮：找到了三个文件"
 	if fake.lastContent != want {
@@ -91,7 +95,11 @@ func TestNarrationLineCaps(t *testing.T) {
 	}
 	long := strings.Repeat("字", feishuNarrationLineRunes+10)
 	if got := []rune(feishuNarrationLine(long)); len(got) != feishuNarrationLineRunes+1 || got[len(got)-1] != '…' {
-		t.Errorf("over-long line should be cut to %d runes plus ellipsis, got %d runes", feishuNarrationLineRunes, len(got))
+		t.Errorf(
+			"over-long line should be cut to %d runes plus ellipsis, got %d runes",
+			feishuNarrationLineRunes,
+			len(got),
+		)
 	}
 
 	s := newDegradeTestStreamer(t, &degradeAPIFake{})
@@ -131,6 +139,6 @@ func TestNarrationTrailSurvivesCancel(t *testing.T) {
 	}
 	s.CancelWithReason(ctx, "stop_command")
 	if got := answerElementContent(t, fake.lastCard); got != greyLine("先看一下")+"\n\n写到一半" {
-		t.Errorf("cancelled answer element = %q, want trail + partial answer", got)
+		t.Errorf("canceled answer element = %q, want trail + partial answer", got)
 	}
 }

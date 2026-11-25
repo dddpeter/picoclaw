@@ -183,7 +183,7 @@ func TestExtractFrontmatter(t *testing.T) {
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Extract frontmatter
-			frontmatter := sl.extractFrontmatter(tc.content)
+			frontmatter, _ := splitFrontmatter(tc.content)
 			assert.NotEmpty(t, frontmatter, "Frontmatter should be extracted for %s line endings", tc.lineEndingType)
 
 			// Parse YAML to get name and description (parseSimpleYAML now handles all line ending types)
@@ -592,7 +592,8 @@ func TestDisableModelInvocationHidesFromCatalog(t *testing.T) {
 	hidden := filepath.Join(ws, "skills", "manual-only")
 	require.NoError(t, os.MkdirAll(hidden, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(hidden, "SKILL.md"), []byte(
-		"---\nname: manual-only\ndescription: explicit invocation only\ndisable-model-invocation: true\n---\n\n# manual"), 0o644))
+		"---\nname: manual-only\ndescription: explicit invocation only\ndisable-model-invocation: true\n---\n\n# manual",
+	), 0o644))
 
 	sl := NewSkillsLoader(ws, "", "")
 	skills := sl.ListSkills()

@@ -52,7 +52,7 @@ func TestNewOpenAITTSProvider_APIBaseNormalization(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			provider := NewOpenAITTSProvider("key", tc.input, "", "")
+			provider := NewOpenAITTSProviderWithOptions("key", tc.input, "", "", OpenAITTSOptions{})
 			if provider.apiBase != tc.expect {
 				t.Fatalf("apiBase mismatch: got %q, want %q", provider.apiBase, tc.expect)
 			}
@@ -82,7 +82,7 @@ func TestOpenAITTSProvider_SynthesizeSuccess(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewOpenAITTSProvider("k123", server.URL, "", "")
+	provider := NewOpenAITTSProviderWithOptions("k123", server.URL, "", "", OpenAITTSOptions{})
 	stream, err := provider.Synthesize(context.Background(), "hello")
 	if err != nil {
 		t.Fatalf("Synthesize failed: %v", err)
@@ -122,7 +122,7 @@ func TestOpenAITTSProvider_SynthesizeNon200(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewOpenAITTSProvider("k123", server.URL, "", "")
+	provider := NewOpenAITTSProviderWithOptions("k123", server.URL, "", "", OpenAITTSOptions{})
 	_, err := provider.Synthesize(context.Background(), "hello")
 	if err == nil {
 		t.Fatal("expected error")
@@ -153,7 +153,7 @@ func TestOpenAITTSProvider_SynthesizeRetriesWithoutResponseFormat(t *testing.T) 
 	}))
 	defer server.Close()
 
-	provider := NewOpenAITTSProvider("k123", server.URL, "", "x-ai/grok-voice-tts-1.0")
+	provider := NewOpenAITTSProviderWithOptions("k123", server.URL, "", "x-ai/grok-voice-tts-1.0", OpenAITTSOptions{})
 	stream, err := provider.Synthesize(context.Background(), "hello")
 	if err != nil {
 		t.Fatalf("Synthesize failed: %v", err)
@@ -193,7 +193,13 @@ func TestOpenAITTSProvider_SynthesizeRetriesWithoutResponseFormat(t *testing.T) 
 func TestNewOpenAITTSProvider_UsesConfiguredModel(t *testing.T) {
 	t.Parallel()
 
-	provider := NewOpenAITTSProvider("key", "https://api.xiaomimimo.com/v1", "", "mimo-v2-tts")
+	provider := NewOpenAITTSProviderWithOptions(
+		"key",
+		"https://api.xiaomimimo.com/v1",
+		"",
+		"mimo-v2-tts",
+		OpenAITTSOptions{},
+	)
 	if provider.model != "mimo-v2-tts" {
 		t.Fatalf("model mismatch: got %q, want %q", provider.model, "mimo-v2-tts")
 	}
@@ -374,7 +380,7 @@ func TestSynthesizeAndStore_UsesStreamProvidedAudioMetadata(t *testing.T) {
 	defer server.Close()
 
 	store := media.NewFileMediaStore()
-	provider := NewOpenAITTSProvider("k123", server.URL, "", "x-ai/grok-voice-tts-1.0")
+	provider := NewOpenAITTSProviderWithOptions("k123", server.URL, "", "x-ai/grok-voice-tts-1.0", OpenAITTSOptions{})
 	ref, err := SynthesizeAndStore(
 		context.Background(),
 		provider,

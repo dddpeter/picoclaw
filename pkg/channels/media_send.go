@@ -15,7 +15,12 @@ func MediaSendErr(sent int, err error) error {
 		return nil
 	}
 	if sent > 0 {
-		return fmt.Errorf("%w (after %d part(s) already delivered; not retried to avoid duplicates): %w", ErrSendFailed, sent, err)
+		return fmt.Errorf(
+			"%w (after %d part(s) already delivered; not retried to avoid duplicates): %w",
+			ErrSendFailed,
+			sent,
+			err,
+		)
 	}
 	return err
 }

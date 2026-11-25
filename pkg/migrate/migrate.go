@@ -11,12 +11,12 @@ import (
 )
 
 type (
-	Options        = internal.Options
-	Operation      = internal.Operation
-	ActionType     = internal.ActionType
-	Action         = internal.Action
-	Result         = internal.Result
-	)
+	Options    = internal.Options
+	Operation  = internal.Operation
+	ActionType = internal.ActionType
+	Action     = internal.Action
+	Result     = internal.Result
+)
 
 const (
 	ActionCopy          = internal.ActionCopy

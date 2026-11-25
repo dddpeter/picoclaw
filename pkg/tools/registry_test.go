@@ -273,7 +273,7 @@ func TestToolRegistry_ExecuteWithContext_PreservesMessageContext(t *testing.T) {
 	}
 	r.Register(ct)
 
-	baseCtx := WithToolMessageContext(context.Background(), "msg-123", "msg-100")
+	baseCtx := WithToolInboundContext(context.Background(), "telegram", "chat-42", "msg-123", "msg-100")
 	r.ExecuteWithContext(baseCtx, "ctx_tool", nil, "telegram", "chat-42", nil)
 
 	if ct.lastCtx == nil {

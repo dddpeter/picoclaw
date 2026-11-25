@@ -5,7 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"charm.land/bubbletea/v2"
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/sipeed/picoclaw/pkg/picoclient"
 )
 

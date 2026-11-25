@@ -41,7 +41,7 @@ func TestLogLevelFiltering(t *testing.T) {
 			case WARN:
 				Warn(tt.name)
 			case ERROR:
-				Error(tt.name)
+				Errorf("%s", tt.name)
 			case FATAL:
 				if tt.shouldLog {
 					t.Logf("FATAL test skipped to prevent program exit")
@@ -135,7 +135,7 @@ func TestLoggerHelperFunctions(t *testing.T) {
 	Debugf("this should not log")
 	Info("This should log")
 	Warn("This should log")
-	Error("This should log")
+	Errorf("%s", "This should log")
 
 	InfoC("test", "Component message")
 	InfoF("Fields message", map[string]any{"key": "value"})

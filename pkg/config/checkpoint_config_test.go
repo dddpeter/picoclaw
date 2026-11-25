@@ -62,7 +62,9 @@ func TestCheckpointConfigEffectiveDefaults(t *testing.T) {
 	}
 
 	c = CheckpointConfig{MaxVersions: 3, MaxTotalBytes: 10, MaxFileSize: 20, ScanDepth: 5, ScanMaxFiles: 6}
-	if c.EffectiveMaxVersions() != 3 || c.EffectiveMaxTotalBytes() != 10 || c.EffectiveMaxFileSize() != 20 || c.EffectiveScanDepth() != 5 || c.EffectiveScanMaxFiles() != 6 {
+	if c.EffectiveMaxVersions() != 3 || c.EffectiveMaxTotalBytes() != 10 || c.EffectiveMaxFileSize() != 20 ||
+		c.EffectiveScanDepth() != 5 ||
+		c.EffectiveScanMaxFiles() != 6 {
 		t.Fatal("explicit values must be preserved")
 	}
 }

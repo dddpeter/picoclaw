@@ -188,7 +188,8 @@ func TestState_UsageAndContextCapture(t *testing.T) {
 		},
 		"usage": map[string]any{"input_tokens": 900, "output_tokens": 100},
 	}))
-	if s.ModelName != "glm-4.7" || s.CtxUsage == nil || s.CtxUsage.UsedTokens != 1000 || s.Usage == nil || s.Usage.OutputTokens != 100 {
+	if s.ModelName != "glm-4.7" || s.CtxUsage == nil || s.CtxUsage.UsedTokens != 1000 || s.Usage == nil ||
+		s.Usage.OutputTokens != 100 {
 		t.Fatalf("usage capture wrong: model=%q ctx=%+v usage=%+v", s.ModelName, s.CtxUsage, s.Usage)
 	}
 }
@@ -246,7 +247,9 @@ func TestState_CatchupIncompleteMarksStale(t *testing.T) {
 	if s.Apply(picoclient.Event{Type: "stream.catchup", Catchup: &picoclient.CatchupInfo{Complete: true}}) {
 		t.Fatal("complete catchup must be a no-op")
 	}
-	if !s.Apply(picoclient.Event{Type: "stream.catchup", Catchup: &picoclient.CatchupInfo{Complete: false, Dropped: 7}}) {
+	if !s.Apply(
+		picoclient.Event{Type: "stream.catchup", Catchup: &picoclient.CatchupInfo{Complete: false, Dropped: 7}},
+	) {
 		t.Fatal("incomplete catchup must change state")
 	}
 	if !s.HistoryStale {
@@ -543,7 +546,14 @@ func TestState_DeletionMaintainsCommitBoundary(t *testing.T) {
 					{Kind: ItemAction, Content: "tail"},
 				}
 				s.CommitIndex = committed
-				s.Apply(picoclient.Event{Type: eventType, MessageID: "removed", RequestID: "removed", ErrMessage: "rejected"})
+				s.Apply(
+					picoclient.Event{
+						Type:       eventType,
+						MessageID:  "removed",
+						RequestID:  "removed",
+						ErrMessage: "rejected",
+					},
+				)
 				want := max(0, committed-1)
 				if s.CommitIndex != want {
 					t.Fatalf("CommitIndex = %d, want %d after deleting the first item", s.CommitIndex, want)

@@ -306,7 +306,13 @@ func (h *Handler) handleTestMCPServer(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 
-	res, probeErr := mcpProbeFunc(ctx, strings.TrimSpace(req.Name), mcpServerDTOToConfig(req), cfg.WorkspacePath(), 15*time.Second)
+	res, probeErr := mcpProbeFunc(
+		ctx,
+		strings.TrimSpace(req.Name),
+		mcpServerDTOToConfig(req),
+		cfg.WorkspacePath(),
+		15*time.Second,
+	)
 
 	resp := mcpServerTestResponse{Tools: []mcpToolInfoDTO{}}
 	if probeErr != nil {

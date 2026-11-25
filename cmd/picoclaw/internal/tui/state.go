@@ -582,8 +582,10 @@ func askReceipt(content string) (verdict, text string) {
 }
 
 // v0 审批问文本特征（approval_hook.go publishAsk 锁定文案，勿改词）。
-const v0ApprovalAskPrefix = "⚠️ 需要批准：即将执行工具 "
-const v0ApprovalReplyPrefix = "回复 /approve"
+const (
+	v0ApprovalAskPrefix   = "⚠️ 需要批准：即将执行工具 "
+	v0ApprovalReplyPrefix = "回复 /approve"
+)
 
 // isV0ApprovalAsk 报告 content 是否 v0 审批问文本。
 func isV0ApprovalAsk(content string) bool {

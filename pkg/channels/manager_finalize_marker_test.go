@@ -75,8 +75,8 @@ func TestFinalizeHookStreamerCancelFlag(t *testing.T) {
 	var flags []bool
 	wrapper := &finalizeHookStreamer{
 		Streamer: &mockStreamer{},
-		onFinalize: func(_ context.Context, _ string, cancelled bool) {
-			flags = append(flags, cancelled)
+		onFinalize: func(_ context.Context, _ string, canceled bool) {
+			flags = append(flags, canceled)
 		},
 	}
 	if err := wrapper.Finalize(context.Background(), ""); err != nil {
@@ -87,6 +87,6 @@ func TestFinalizeHookStreamerCancelFlag(t *testing.T) {
 	}
 	wrapper.CancelWithReason(context.Background(), "stop_command")
 	if len(flags) != 3 || flags[0] || flags[1] || !flags[2] {
-		t.Fatalf("cancelled flags = %v, want [false false true]", flags)
+		t.Fatalf("canceled flags = %v, want [false false true]", flags)
 	}
 }

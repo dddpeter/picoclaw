@@ -350,10 +350,14 @@ func NewAgentInstance(
 	// usage gate, seahorse condensed compaction, assemble budget) from a
 	// config value the model cannot actually serve.
 	if defaults.ContextWindow > defaultContextWindowFloor && !defaults.TrustConfiguredContextWindow {
-		logger.WarnCF("agent", "context_window exceeds sanity clamp; clamping (set trust_configured_context_window=true to override)", map[string]any{
-			"configured": contextWindow,
-			"clamped_to": defaultContextWindowFloor,
-		})
+		logger.WarnCF(
+			"agent",
+			"context_window exceeds sanity clamp; clamping (set trust_configured_context_window=true to override)",
+			map[string]any{
+				"configured": contextWindow,
+				"clamped_to": defaultContextWindowFloor,
+			},
+		)
 		contextWindow = defaultContextWindowFloor
 	}
 
@@ -396,13 +400,21 @@ func NewAgentInstance(
 			// Loud, not silent (review P2): a broken model_list entry used to
 			// skip the per-model cap without a trace, leaving the window at
 			// the un-capped (possibly wildly oversized) value.
-			logger.WarnCF("agent", "per-model context_window cap skipped: model entry failed to resolve", map[string]any{
-				"model": model,
-				"error": capErr.Error(),
-			})
+			logger.WarnCF(
+				"agent",
+				"per-model context_window cap skipped: model entry failed to resolve",
+				map[string]any{
+					"model": model,
+					"error": capErr.Error(),
+				},
+			)
 		}
 		if capErr == nil && capCfg != nil {
-			capped, cappedDeclared := applyModelContextWindowCap(capCfg.ContextWindow, contextWindow, declaredContextWindow)
+			capped, cappedDeclared := applyModelContextWindowCap(
+				capCfg.ContextWindow,
+				contextWindow,
+				declaredContextWindow,
+			)
 			if capped != contextWindow {
 				logger.InfoCF("agent", "per-model context_window caps agent window", map[string]any{
 					"model":        model,

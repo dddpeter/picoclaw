@@ -3373,7 +3373,8 @@ func TestEvolutionConfig_MarshalKeepsLifecycleDays(t *testing.T) {
 	if err := json.Unmarshal(data, &back); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if back.Evolution.ColdAfterDays != 30 || back.Evolution.ArchiveAfterDays != 60 || back.Evolution.DeleteAfterDays != 90 {
+	if back.Evolution.ColdAfterDays != 30 || back.Evolution.ArchiveAfterDays != 60 ||
+		back.Evolution.DeleteAfterDays != 90 {
 		t.Fatalf("lifecycle days lost in round-trip: %+v", back.Evolution)
 	}
 }

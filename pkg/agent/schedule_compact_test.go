@@ -107,7 +107,11 @@ func TestShouldCompactNow(t *testing.T) {
 		{"above compacts", &bus.ContextUsage{HistoryTokens: window + 5_000}, true},
 		// UsedTokens alone (system+tools inflation) must not trigger the gate:
 		// the engine-side budget it feeds compares history tokens only.
-		{"used tokens high but history low skips", &bus.ContextUsage{HistoryTokens: window / 10, UsedTokens: window * 2}, false},
+		{
+			"used tokens high but history low skips",
+			&bus.ContextUsage{HistoryTokens: window / 10, UsedTokens: window * 2},
+			false,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

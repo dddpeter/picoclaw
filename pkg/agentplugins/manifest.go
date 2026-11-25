@@ -92,7 +92,11 @@ func LoadManifest(root string, r *Report) (*Manifest, error) {
 		return nil, err
 	}
 	if !SupportedManifestSchema(schemaURL) {
-		return nil, fmt.Errorf("plugin.json $schema %q is not a supported Agent Plugins version (supported: %s)", schemaURL, ManifestSchemaURL)
+		return nil, fmt.Errorf(
+			"plugin.json $schema %q is not a supported Agent Plugins version (supported: %s)",
+			schemaURL,
+			ManifestSchemaURL,
+		)
 	}
 
 	// name: required and must satisfy §5.5.

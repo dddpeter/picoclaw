@@ -6,6 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
 	"github.com/sipeed/picoclaw/pkg/picoclient"
 )
 
@@ -51,8 +52,11 @@ func TestSemanticPaletteSeparatesFooterRoles(t *testing.T) {
 	m.state.CtxUsage = &picoclient.ContextUsage{UsedPercent: 25, TotalTokens: 10000}
 	out := renderFooterPi(m)
 	for _, role := range []struct{ text, color string }{
-		{"SESSIONTITLE", "180"}, {"MODELNAME", "117"},
-		{"↑123", "110"}, {"↓456", "151"}, {"25%/10k", "150"},
+		{"SESSIONTITLE", "180"},
+		{"MODELNAME", "117"},
+		{"↑123", "110"},
+		{"↓456", "151"},
+		{"25%/10k", "150"},
 	} {
 		want := lipgloss.NewStyle().Foreground(lipgloss.Color(role.color)).Render(role.text)
 		if !strings.Contains(out, want) {

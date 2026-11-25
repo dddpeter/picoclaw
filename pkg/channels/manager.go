@@ -659,7 +659,7 @@ func (m *Manager) GetStreamer(ctx context.Context, channelName, chatID, sessionK
 	clearMarker := func() {
 		m.streamActive.Delete(streamKey)
 	}
-	onFinalize := func(finalizeCtx context.Context, finalContent string, cancelled bool) {
+	onFinalize := func(finalizeCtx context.Context, finalContent string, canceled bool) {
 		if m.toolFeedbackSeparateMessagesEnabled() {
 			clearTrackedToolFeedbackMessage(
 				ch,
@@ -689,7 +689,7 @@ func (m *Manager) GetStreamer(ctx context.Context, channelName, chatID, sessionK
 				}
 			}
 		}
-		// A cancelled stream must not arm the suppression marker: the normal
+		// A canceled stream must not arm the suppression marker: the normal
 		// outbound that delivers a fallback (non-streamed) response still has
 		// to go through. A genuine Finalize arms the marker even with empty
 		// content — display-side filters (e.g. tool-call parrot stripping)
@@ -698,7 +698,7 @@ func (m *Manager) GetStreamer(ctx context.Context, channelName, chatID, sessionK
 		// feishu: the parrot dump arrived as a second card next to the sealed
 		// streaming card). Cancellation is therefore an explicit flag, not
 		// inferred from empty content.
-		if cancelled {
+		if canceled {
 			return
 		}
 		m.streamActive.Store(streamKey, true)
@@ -942,13 +942,13 @@ func (s *splitMarkerStreamer) ensureCurrentLocked(ctx context.Context) error {
 	return nil
 }
 
-func (s *splitMarkerStreamer) runFinalizeHook(ctx context.Context, content string, cancelled bool) {
+func (s *splitMarkerStreamer) runFinalizeHook(ctx context.Context, content string, canceled bool) {
 	if s.finalized {
 		return
 	}
 	s.finalized = true
 	if s.onFinalize != nil {
-		s.onFinalize(ctx, content, cancelled)
+		s.onFinalize(ctx, content, canceled)
 	}
 }
 
@@ -1049,9 +1049,9 @@ func (s *finalizeHookStreamer) CancelWithReason(ctx context.Context, reason stri
 	s.runFinalizeHook(ctx, "", true)
 }
 
-func (s *finalizeHookStreamer) runFinalizeHook(ctx context.Context, content string, cancelled bool) {
+func (s *finalizeHookStreamer) runFinalizeHook(ctx context.Context, content string, canceled bool) {
 	if s.onFinalize != nil {
-		s.onFinalize(ctx, content, cancelled)
+		s.onFinalize(ctx, content, canceled)
 	}
 }
 
@@ -1740,7 +1740,7 @@ func outboundMessageIsDroppableBeat(msg bus.OutboundMessage) bool {
 
 // enqueueOutboundForDispatch enqueues one outbound message onto a channel
 // worker's queue with the tiered full-queue policy above. Returns false
-// only when the dispatcher should shut down (context cancelled).
+// only when the dispatcher should shut down (context canceled).
 func (m *Manager) enqueueOutboundForDispatch(
 	ctx context.Context,
 	w *channelWorker,

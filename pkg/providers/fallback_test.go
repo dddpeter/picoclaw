@@ -629,7 +629,7 @@ func TestResolveCandidates_Simple(t *testing.T) {
 		Fallbacks: []string{"anthropic/claude-opus", "groq/llama-3"},
 	}
 
-	candidates := ResolveCandidates(cfg, "openai")
+	candidates := ResolveCandidatesWithLookup(cfg, "openai", nil)
 	if len(candidates) != 3 {
 		t.Fatalf("candidates = %d, want 3", len(candidates))
 	}
@@ -651,7 +651,7 @@ func TestResolveCandidates_Deduplication(t *testing.T) {
 		Fallbacks: []string{"openai/gpt-4", "anthropic/claude"},
 	}
 
-	candidates := ResolveCandidates(cfg, "default")
+	candidates := ResolveCandidatesWithLookup(cfg, "default", nil)
 	if len(candidates) != 2 {
 		t.Errorf("candidates = %d, want 2 (duplicate removed)", len(candidates))
 	}
@@ -663,7 +663,7 @@ func TestResolveCandidates_EmptyFallbacks(t *testing.T) {
 		Fallbacks: nil,
 	}
 
-	candidates := ResolveCandidates(cfg, "openai")
+	candidates := ResolveCandidatesWithLookup(cfg, "openai", nil)
 	if len(candidates) != 1 {
 		t.Errorf("candidates = %d, want 1", len(candidates))
 	}
@@ -675,7 +675,7 @@ func TestResolveCandidates_EmptyPrimary(t *testing.T) {
 		Fallbacks: []string{"anthropic/claude"},
 	}
 
-	candidates := ResolveCandidates(cfg, "openai")
+	candidates := ResolveCandidatesWithLookup(cfg, "openai", nil)
 	if len(candidates) != 1 {
 		t.Errorf("candidates = %d, want 1", len(candidates))
 	}

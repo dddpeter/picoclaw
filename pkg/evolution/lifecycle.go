@@ -30,7 +30,11 @@ func NextLifecycleState(profile SkillProfile, now time.Time) SkillStatus {
 
 // NextLifecycleStateWithThresholds is NextLifecycleState with configurable
 // idle-day thresholds (non-positive values keep the transition unreachable).
-func NextLifecycleStateWithThresholds(profile SkillProfile, now time.Time, coldDays, archiveDays, deleteDays int) SkillStatus {
+func NextLifecycleStateWithThresholds(
+	profile SkillProfile,
+	now time.Time,
+	coldDays, archiveDays, deleteDays int,
+) SkillStatus {
 	if profile.Origin == "manual" || profile.LastUsedAt.IsZero() {
 		return profile.Status
 	}
@@ -78,7 +82,13 @@ func ApplyLifecycleState(paths Paths, profile SkillProfile, next SkillStatus) er
 	return err
 }
 
-func RunLifecycleOnceWithThresholds(store *Store, paths Paths, workspace string, now time.Time, coldDays, archiveDays, deleteDays int) (LifecycleRunSummary, error) {
+func RunLifecycleOnceWithThresholds(
+	store *Store,
+	paths Paths,
+	workspace string,
+	now time.Time,
+	coldDays, archiveDays, deleteDays int,
+) (LifecycleRunSummary, error) {
 	if store == nil {
 		return LifecycleRunSummary{}, nil
 	}

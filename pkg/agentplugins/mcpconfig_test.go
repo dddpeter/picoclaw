@@ -274,7 +274,11 @@ func TestLoadMCPConfig(t *testing.T) {
 }
 
 func TestLoadMCPConfig_PluginDataCWD(t *testing.T) {
-	dir := writeMCPConfig(t, `{"$schema":"`+mcpSchema+`","mcpServers":{"ok":{"type":"stdio","command":"npx","cwd":"${PLUGIN_DATA}/run"}}}`, "")
+	dir := writeMCPConfig(
+		t,
+		`{"$schema":"`+mcpSchema+`","mcpServers":{"ok":{"type":"stdio","command":"npx","cwd":"${PLUGIN_DATA}/run"}}}`,
+		"",
+	)
 	v := Vars{Root: dir, Data: filepath.Join(dir, "..", "data", "mcp-plugin")}
 	// Data dir exists so containment can resolve it.
 	if err := os.MkdirAll(v.Data, 0o755); err != nil {

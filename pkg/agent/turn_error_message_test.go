@@ -15,8 +15,20 @@ func TestMapTurnErrorToUserMessage(t *testing.T) {
 		{Provider: "p1", Model: "m1", Skipped: true, Reason: providers.FailoverRateLimit},
 	}}
 	exhaustedWithCooldown := &providers.FallbackExhaustedError{Attempts: []providers.FallbackAttempt{
-		{Provider: "p1", Model: "m1", Skipped: true, Reason: providers.FailoverRateLimit, CooldownRemaining: 30 * time.Second},
-		{Provider: "p2", Model: "m2", Skipped: true, Reason: providers.FailoverRateLimit, CooldownRemaining: 90 * time.Second},
+		{
+			Provider:          "p1",
+			Model:             "m1",
+			Skipped:           true,
+			Reason:            providers.FailoverRateLimit,
+			CooldownRemaining: 30 * time.Second,
+		},
+		{
+			Provider:          "p2",
+			Model:             "m2",
+			Skipped:           true,
+			Reason:            providers.FailoverRateLimit,
+			CooldownRemaining: 90 * time.Second,
+		},
 	}}
 
 	cases := []struct {
@@ -24,32 +36,58 @@ func TestMapTurnErrorToUserMessage(t *testing.T) {
 		err       error
 		wantFirst string // complete first line (prefix + optional recovery suffix)
 	}{
-		{"fallback exhausted", exhaustedNoCooldown,
-			"⚠ 模型暂时不可用：所有候选模型均失败或限流"},
-		{"fallback exhausted with cooldown rounds up minutes", exhaustedWithCooldown,
-			"⚠ 模型暂时不可用：所有候选模型均失败或限流，最早约 2 分钟后可恢复"},
-		{"wrapped fallback exhausted still classified", fmt.Errorf("call llm: %w", exhaustedWithCooldown),
-			"⚠ 模型暂时不可用：所有候选模型均失败或限流，最早约 2 分钟后可恢复"},
-		{"context window", errors.New("API Error: maximum Context Window exceeded"),
-			"⚠ 上下文超限且自动压缩失败，建议发送 /new 开启新会话"},
-		{"fallback degraded streak", fmt.Errorf("fallback degraded streak: primary model skipped for 6 consecutive iterations, aborting turn early"),
-			"⚠ 模型持续限流，本轮已提前中止以保护配额，稍后自动重试"},
-		{"auth 401", errors.New("API request failed: Status: 401 Body: invalid token"),
-			"⚠ 模型鉴权失败，请检查 API Key 配置"},
-		{"auth unauthorized", errors.New("403 Forbidden: unauthorized"),
-			"⚠ 模型鉴权失败，请检查 API Key 配置"},
-		{"auth invalid api key", errors.New("Invalid API key provided"),
-			"⚠ 模型鉴权失败，请检查 API Key 配置"},
-		{"rate limit 429", errors.New("API request failed: Status: 429 Body: too many requests"),
-			"⚠ 模型限流中，已稍后自动恢复，请稍后重试"},
-		{"rate limit text", errors.New("Rate limit exceeded, retry later"),
-			"⚠ 模型限流中，已稍后自动恢复，请稍后重试"},
-		{"bad request 400", errors.New("API request failed: Status: 400 Body: bad request"),
-			"⚠ 模型返回异常请求，请稍后重试或切换模型"},
-		{"bad request text", errors.New("400 Bad Request: invalid parameter"),
-			"⚠ 模型返回异常请求，请稍后重试或切换模型"},
-		{"generic fallback", errors.New("read tcp 1.2.3.4:443: connection reset by peer"),
-			"⚠ 模型调用失败，本轮已中止"},
+		{
+			"fallback exhausted", exhaustedNoCooldown,
+			"⚠ 模型暂时不可用：所有候选模型均失败或限流",
+		},
+		{
+			"fallback exhausted with cooldown rounds up minutes", exhaustedWithCooldown,
+			"⚠ 模型暂时不可用：所有候选模型均失败或限流，最早约 2 分钟后可恢复",
+		},
+		{
+			"wrapped fallback exhausted still classified", fmt.Errorf("call llm: %w", exhaustedWithCooldown),
+			"⚠ 模型暂时不可用：所有候选模型均失败或限流，最早约 2 分钟后可恢复",
+		},
+		{
+			"context window", errors.New("API Error: maximum Context Window exceeded"),
+			"⚠ 上下文超限且自动压缩失败，建议发送 /new 开启新会话",
+		},
+		{
+			"fallback degraded streak", fmt.Errorf("fallback degraded streak: primary model skipped for 6 consecutive iterations, aborting turn early"),
+			"⚠ 模型持续限流，本轮已提前中止以保护配额，稍后自动重试",
+		},
+		{
+			"auth 401", errors.New("API request failed: Status: 401 Body: invalid token"),
+			"⚠ 模型鉴权失败，请检查 API Key 配置",
+		},
+		{
+			"auth unauthorized", errors.New("403 Forbidden: unauthorized"),
+			"⚠ 模型鉴权失败，请检查 API Key 配置",
+		},
+		{
+			"auth invalid api key", errors.New("Invalid API key provided"),
+			"⚠ 模型鉴权失败，请检查 API Key 配置",
+		},
+		{
+			"rate limit 429", errors.New("API request failed: Status: 429 Body: too many requests"),
+			"⚠ 模型限流中，已稍后自动恢复，请稍后重试",
+		},
+		{
+			"rate limit text", errors.New("Rate limit exceeded, retry later"),
+			"⚠ 模型限流中，已稍后自动恢复，请稍后重试",
+		},
+		{
+			"bad request 400", errors.New("API request failed: Status: 400 Body: bad request"),
+			"⚠ 模型返回异常请求，请稍后重试或切换模型",
+		},
+		{
+			"bad request text", errors.New("400 Bad Request: invalid parameter"),
+			"⚠ 模型返回异常请求，请稍后重试或切换模型",
+		},
+		{
+			"generic fallback", errors.New("read tcp 1.2.3.4:443: connection reset by peer"),
+			"⚠ 模型调用失败，本轮已中止",
+		},
 	}
 
 	for _, tc := range cases {

@@ -46,7 +46,13 @@ type optsRecordingProvider struct {
 	calls      int
 }
 
-func (p *optsRecordingProvider) Chat(_ context.Context, _ []providers.Message, _ []providers.ToolDefinition, _ string, opts map[string]any) (*providers.LLMResponse, error) {
+func (p *optsRecordingProvider) Chat(
+	_ context.Context,
+	_ []providers.Message,
+	_ []providers.ToolDefinition,
+	_ string,
+	opts map[string]any,
+) (*providers.LLMResponse, error) {
 	p.mu.Lock()
 	p.calls++
 	callNo := p.calls
@@ -124,7 +130,13 @@ type summarizeAwareProvider struct {
 	summaryCalled int
 }
 
-func (p *summarizeAwareProvider) Chat(_ context.Context, msgs []providers.Message, _ []providers.ToolDefinition, _ string, _ map[string]any) (*providers.LLMResponse, error) {
+func (p *summarizeAwareProvider) Chat(
+	_ context.Context,
+	msgs []providers.Message,
+	_ []providers.ToolDefinition,
+	_ string,
+	_ map[string]any,
+) (*providers.LLMResponse, error) {
 	if len(msgs) > 0 && strings.Contains(msgs[0].Content, "对话压缩助手") {
 		p.mu.Lock()
 		p.summaryCalled++

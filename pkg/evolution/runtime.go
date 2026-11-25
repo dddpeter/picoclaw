@@ -1425,7 +1425,10 @@ func (rt *Runtime) DecideDraft(ctx context.Context, workspace, draftID string, a
 		}
 		if !accept {
 			if draft.Status == DraftStatusAccepted {
-				return draft, fmt.Errorf("draft %s is already accepted and live in the skill library; it cannot be rejected", draftID)
+				return draft, fmt.Errorf(
+					"draft %s is already accepted and live in the skill library; it cannot be rejected",
+					draftID,
+				)
 			}
 			draft.Status = DraftStatusRejected
 			draft.ReviewNotes = appendUniqueStrings(draft.ReviewNotes, "rejected via /drafts reject")

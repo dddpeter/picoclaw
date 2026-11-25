@@ -110,14 +110,26 @@ Use 'suggestions' to review proposed automations and accept_suggestion/dismiss_s
 
 // Parameters returns the tool parameters schema
 //
-//nolint:dupl // Tool parameter schemas intentionally use similar JSON-schema map literals.
+
 func (t *CronTool) Parameters() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"action": map[string]any{
-				"type":        "string",
-				"enum":        []string{"add", "list", "get", "update", "remove", "enable", "disable", "blueprints", "suggestions", "accept_suggestion", "dismiss_suggestion"},
+				"type": "string",
+				"enum": []string{
+					"add",
+					"list",
+					"get",
+					"update",
+					"remove",
+					"enable",
+					"disable",
+					"blueprints",
+					"suggestions",
+					"accept_suggestion",
+					"dismiss_suggestion",
+				},
 				"description": "Action to perform. Use 'get' before editing and 'update' to change existing jobs without losing their payload. Remote channels can only list/get/update jobs for the current channel/chat_id. 'blueprints' lists preset automations; 'suggestions' lists proposed automations waiting for a decision.",
 			},
 			"name": map[string]any{
@@ -238,7 +250,9 @@ func (t *CronTool) addJob(ctx context.Context, args map[string]any) *ToolResult 
 	if hasBlueprint {
 		bp, ok := cron.GetBlueprint(blueprintName)
 		if !ok {
-			return ErrorResult(fmt.Sprintf("unknown blueprint %q; use action=blueprints to list the catalog", blueprintName))
+			return ErrorResult(
+				fmt.Sprintf("unknown blueprint %q; use action=blueprints to list the catalog", blueprintName),
+			)
 		}
 		values := map[string]string{}
 		if raw, ok := args["blueprint_values"].(map[string]any); ok {

@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-
 	"strings"
 	"testing"
 
@@ -153,6 +152,7 @@ func TestCronTool_AddJobScriptGuard(t *testing.T) {
 		t.Fatalf("script payload not persisted, got %q", updated.Payload.Script)
 	}
 }
+
 func TestCronTool_UpdateScript(t *testing.T) {
 	executor := &stubJobExecutor{}
 	tool := newTestCronToolWithExecutorAndConfig(t, executor, config.DefaultConfig())

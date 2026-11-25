@@ -2,7 +2,7 @@ package common
 
 import "testing"
 
-func TestSanitizeSchemaForGemini_DereferencesRefsAndFlattensUnions(t *testing.T) {
+func TestSanitizeSchemaForGoogle_DereferencesRefsAndFlattensUnions(t *testing.T) {
 	schema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -64,7 +64,7 @@ func TestSanitizeSchemaForGemini_DereferencesRefsAndFlattensUnions(t *testing.T)
 		},
 	}
 
-	got := SanitizeSchemaForGemini(schema)
+	got := SanitizeSchemaForGoogle(schema)
 	assertSchemaKeyAbsent(t, got, "$defs")
 	assertSchemaKeyAbsent(t, got, "$ref")
 	assertSchemaKeyAbsent(t, got, "anyOf")
@@ -140,7 +140,7 @@ func TestSanitizeSchemaForGemini_DereferencesRefsAndFlattensUnions(t *testing.T)
 	}
 }
 
-func TestSanitizeSchemaForGemini_MergesAllOfAndFiltersRequired(t *testing.T) {
+func TestSanitizeSchemaForGoogle_MergesAllOfAndFiltersRequired(t *testing.T) {
 	schema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -172,7 +172,7 @@ func TestSanitizeSchemaForGemini_MergesAllOfAndFiltersRequired(t *testing.T) {
 		},
 	}
 
-	got := SanitizeSchemaForGemini(schema)
+	got := SanitizeSchemaForGoogle(schema)
 	props := got["properties"].(map[string]any)
 	payload := props["payload"].(map[string]any)
 
@@ -201,7 +201,7 @@ func TestSanitizeSchemaForGemini_MergesAllOfAndFiltersRequired(t *testing.T) {
 	assertSchemaKeyAbsent(t, payload, "minimum")
 }
 
-func TestSanitizeSchemaForGemini_HandlesRecursiveRefs(t *testing.T) {
+func TestSanitizeSchemaForGoogle_HandlesRecursiveRefs(t *testing.T) {
 	schema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -224,7 +224,7 @@ func TestSanitizeSchemaForGemini_HandlesRecursiveRefs(t *testing.T) {
 		},
 	}
 
-	got := SanitizeSchemaForGemini(schema)
+	got := SanitizeSchemaForGoogle(schema)
 	props := got["properties"].(map[string]any)
 	tree := props["tree"].(map[string]any)
 	if tree["type"] != "object" {

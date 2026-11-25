@@ -274,7 +274,11 @@ func (al *AgentLoop) interceptDeferredTool(
 // filtered catalog is memoized on the turnState (review P2: re-cloning
 // and re-filtering the whole registry on EVERY tool call was hot-path
 // waste; the catalog is static for the turn's lifetime).
-func (al *AgentLoop) interceptDeferredToolCached(ts *turnState, toolName string, args map[string]any) (*tools.ToolResult, bool) {
+func (al *AgentLoop) interceptDeferredToolCached(
+	ts *turnState,
+	toolName string,
+	args map[string]any,
+) (*tools.ToolResult, bool) {
 	if ts == nil || ts.agent == nil || ts.agent.Tools == nil {
 		return nil, false
 	}

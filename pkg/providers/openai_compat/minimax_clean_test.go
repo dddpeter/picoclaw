@@ -29,7 +29,11 @@ func TestSanitizeMinimaxToolLeak(t *testing.T) {
 		{"no boundary token left untouched", "PYEOF</command></tool_call>", "PYEOF</command></tool_call>"},
 		{"plain text untouched", "hello world", "hello world"},
 		{"boundary only, no tail tags, no cut", "hello " + minimaxBoundaryToken + " world", "hello  world"},
-		{"tail tags without start marker trim tags only", "answer tail" + minimaxBoundaryToken + "</tool_call>", "answer tail"},
+		{
+			"tail tags without start marker trim tags only",
+			"answer tail" + minimaxBoundaryToken + "</tool_call>",
+			"answer tail",
+		},
 		{
 			"native xml block cut from open tag",
 			"好的。\n<tool_call>\n<invoke name=\"exec\">do it</invoke>" + minimaxBoundaryToken + "</tool_call>",
@@ -107,7 +111,9 @@ func TestProviderChat_StripsMinimaxToolLeak(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(
-			`{"choices":[{"message":{"role":"assistant","content":` + jsonString("我先测一下网关连通性。\n"+realWorldLeak()) + `},"finish_reason":"stop"}]}`,
+			`{"choices":[{"message":{"role":"assistant","content":` + jsonString(
+				"我先测一下网关连通性。\n"+realWorldLeak(),
+			) + `},"finish_reason":"stop"}]}`,
 		))
 	}))
 	defer server.Close()

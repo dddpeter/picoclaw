@@ -18,7 +18,12 @@ func TestCleanupOldSessionsKeysOnFinishedAt(t *testing.T) {
 	recentExit := now.Add(-time.Minute).Unix()
 
 	staleDone := &ProcessSession{ID: "stale-done", Status: "done", StartTime: old, finishedAt: old}
-	longTaskJustExited := &ProcessSession{ID: "long-just-exited", Status: "done", StartTime: old, finishedAt: recentExit}
+	longTaskJustExited := &ProcessSession{
+		ID:         "long-just-exited",
+		Status:     "done",
+		StartTime:  old,
+		finishedAt: recentExit,
+	}
 	stillRunning := &ProcessSession{ID: "still-running", Status: "running", StartTime: old}
 	doneNoFinishedAt := &ProcessSession{ID: "done-no-finishedat", Status: "done", StartTime: old}
 	for _, s := range []*ProcessSession{staleDone, longTaskJustExited, stillRunning, doneNoFinishedAt} {

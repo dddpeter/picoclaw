@@ -73,7 +73,9 @@ func cronSuggestHandler(_ context.Context, req Request, rt *Runtime) error {
 	}
 	suggestions := rt.CronSuggestions()
 	if len(suggestions) == 0 {
-		return req.Reply("No pending automation suggestions. When a repeating pattern emerges from your tasks, a proposal will appear here.")
+		return req.Reply(
+			"No pending automation suggestions. When a repeating pattern emerges from your tasks, a proposal will appear here.",
+		)
 	}
 	var b strings.Builder
 	b.WriteString("Automation suggestions (accept or dismiss):\n")

@@ -186,7 +186,8 @@ func TestToolSearchIntercept(t *testing.T) {
 	out := al.applyToolDeferral("s-ts", append(mcpDefs(21), builtinDef("issue_tracker_local")))
 	full := 0
 	for _, d := range out {
-		if strings.HasPrefix(d.Function.Name, "mcp_srv_issue_") && !strings.Contains(d.Function.Description, deferredToolHint) {
+		if strings.HasPrefix(d.Function.Name, "mcp_srv_issue_") &&
+			!strings.Contains(d.Function.Description, deferredToolHint) {
 			full++
 		}
 	}

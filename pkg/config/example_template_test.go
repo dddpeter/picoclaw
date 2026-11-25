@@ -91,7 +91,11 @@ func TestWebSearchLegacyAPIKeyAliasFold(t *testing.T) {
 		expect string
 	}{
 		{"brave", `"brave": {"enabled": true, "api_key": "brave-key", "max_results": 5}`, "brave-key"},
-		{"tavily", `"tavily": {"enabled": true, "api_key": "tavily-key", "base_url": "https://example.invalid"}`, "tavily-key"},
+		{
+			"tavily",
+			`"tavily": {"enabled": true, "api_key": "tavily-key", "base_url": "https://example.invalid"}`,
+			"tavily-key",
+		},
 		{"kagi", `"kagi": {"enabled": true, "api_key": "kagi-key"}`, "kagi-key"},
 		{"perplexity", `"perplexity": {"enabled": true, "api_key": "pplx-key"}`, "pplx-key"},
 	}

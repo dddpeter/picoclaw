@@ -116,8 +116,8 @@ type Runtime struct {
 	// RevertTurn undoes workspace checkpoint versions (trae borrowing
 	// 增量清单 §2.1). arg: "" (undo newest), "list", or a version id.
 	// When nil, /revert replies that snapshots are unavailable.
-	RevertTurn  func(channel, chatID string, arg string) (string, error)
-	ReloadConfig func() error
+	RevertTurn     func(channel, chatID string, arg string) (string, error)
+	ReloadConfig   func() error
 	StopActiveTurn func() (StopResult, error)
 	// Cron automation surface (all optional; nil entries make /cron
 	// sub-commands reply with unavailableMsg).

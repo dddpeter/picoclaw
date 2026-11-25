@@ -17,7 +17,13 @@ func TestBuildFeishuPanelSkillAndMCPSteps(t *testing.T) {
 		Tools: []bus.ToolStep{
 			{Tool: "pdf-reader, web-lookup", Kind: bus.ToolStepKindSkill},
 			{Tool: "web_search", Args: `{"q":"picoclaw"}`, Result: "3 results", Duration: time.Second},
-			{Tool: "mcp_fetch_search", Args: `{"url":"https://example.com"}`, Result: "page text", Duration: 2 * time.Second, Kind: bus.ToolStepKindMCP},
+			{
+				Tool:     "mcp_fetch_search",
+				Args:     `{"url":"https://example.com"}`,
+				Result:   "page text",
+				Duration: 2 * time.Second,
+				Kind:     bus.ToolStepKindMCP,
+			},
 		},
 		// Real chronology: skills seed first, then reasoning, then tools.
 		ToolSeqs: []int{1, 3, 4},
@@ -114,7 +120,12 @@ func TestMidTurnTextStepsRenderWithoutToolCount(t *testing.T) {
 		}
 	}
 	if labels != 2 || bodies != 2 {
-		t.Fatalf("mid-turn texts should render as 2 labels + 2 bodies, got %d/%d in %d children", labels, bodies, len(children))
+		t.Fatalf(
+			"mid-turn texts should render as 2 labels + 2 bodies, got %d/%d in %d children",
+			labels,
+			bodies,
+			len(children),
+		)
 	}
 	if execTitles != 2 {
 		t.Fatalf("tool steps should still render, got %d", execTitles)

@@ -61,9 +61,16 @@ func TestLoadSessionHistory_ScopeBasedPico(t *testing.T) {
 		},
 	}
 	metaJSON, _ := json.Marshal(meta)
-	writeSessionFiles(t, cfg, "sk_v1_abc123", string(metaJSON),
+	writeSessionFiles(
+		t,
+		cfg,
+		"sk_v1_abc123",
+		string(metaJSON),
 		msgLine(t, protocoltypes.Message{Role: "user", Content: "帮我看下 429"}),
-		msgLine(t, protocoltypes.Message{Role: "assistant", Content: "正在分析", ReasoningContent: "先看日志", ModelName: "glm-4.7"}),
+		msgLine(
+			t,
+			protocoltypes.Message{Role: "assistant", Content: "正在分析", ReasoningContent: "先看日志", ModelName: "glm-4.7"},
+		),
 	)
 
 	h := LoadSessionHistory(cfg, "11111111-2222-3333-4444-555555555555")

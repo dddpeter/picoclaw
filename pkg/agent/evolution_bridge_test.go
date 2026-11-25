@@ -1290,7 +1290,12 @@ func assertNotExists(t *testing.T, path string) {
 	}
 }
 
-func waitForEvent(t *testing.T, ch <-chan runtimeevents.Event, timeout time.Duration, match func(runtimeevents.Event) bool) runtimeevents.Event {
+func waitForEvent(
+	t *testing.T,
+	ch <-chan runtimeevents.Event,
+	timeout time.Duration,
+	match func(runtimeevents.Event) bool,
+) runtimeevents.Event {
 	t.Helper()
 
 	timer := time.NewTimer(timeout)

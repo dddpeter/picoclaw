@@ -133,16 +133,36 @@ func normalizePromptTemplates(templates []storedPromptTemplate) ([]storedPromptT
 			return nil, fmt.Errorf("templates[%d] (%s): prompt is required", i, tpl.ID)
 		}
 		if len([]rune(tpl.Icon)) > promptTemplatesMaxIcon {
-			return nil, fmt.Errorf("templates[%d] (%s): icon too long (max %d chars)", i, tpl.ID, promptTemplatesMaxIcon)
+			return nil, fmt.Errorf(
+				"templates[%d] (%s): icon too long (max %d chars)",
+				i,
+				tpl.ID,
+				promptTemplatesMaxIcon,
+			)
 		}
 		if len([]rune(tpl.Title)) > promptTemplatesMaxTitle {
-			return nil, fmt.Errorf("templates[%d] (%s): title too long (max %d chars)", i, tpl.ID, promptTemplatesMaxTitle)
+			return nil, fmt.Errorf(
+				"templates[%d] (%s): title too long (max %d chars)",
+				i,
+				tpl.ID,
+				promptTemplatesMaxTitle,
+			)
 		}
 		if len([]rune(tpl.Desc)) > promptTemplatesMaxDesc {
-			return nil, fmt.Errorf("templates[%d] (%s): desc too long (max %d chars)", i, tpl.ID, promptTemplatesMaxDesc)
+			return nil, fmt.Errorf(
+				"templates[%d] (%s): desc too long (max %d chars)",
+				i,
+				tpl.ID,
+				promptTemplatesMaxDesc,
+			)
 		}
 		if len([]rune(tpl.Prompt)) > promptTemplatesMaxBody {
-			return nil, fmt.Errorf("templates[%d] (%s): prompt too long (max %d chars)", i, tpl.ID, promptTemplatesMaxBody)
+			return nil, fmt.Errorf(
+				"templates[%d] (%s): prompt too long (max %d chars)",
+				i,
+				tpl.ID,
+				promptTemplatesMaxBody,
+			)
 		}
 		out = append(out, tpl)
 	}

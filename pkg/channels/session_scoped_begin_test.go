@@ -22,7 +22,10 @@ func (c *sessionScopedMockChannel) BeginStream(ctx context.Context, chatID strin
 	return &mockStreamer{}, nil
 }
 
-func (c *sessionScopedMockChannel) BeginStreamForSession(ctx context.Context, chatID, sessionKey string) (Streamer, error) {
+func (c *sessionScopedMockChannel) BeginStreamForSession(
+	ctx context.Context,
+	chatID, sessionKey string,
+) (Streamer, error) {
 	c.begunSessions = append(c.begunSessions, sessionKey)
 	return &mockStreamer{}, nil
 }
@@ -63,7 +66,9 @@ func (c *legacyMockChannelOnlyBegin) BeginStream(ctx context.Context, chatID str
 
 func TestGetStreamerFallsBackToUnscopedBegin(t *testing.T) {
 	m := newTestManager()
-	ch := &legacyMockChannelOnlyBegin{mockStreamingChannel: mockStreamingChannel{mockMessageEditor: mockMessageEditor{}}}
+	ch := &legacyMockChannelOnlyBegin{
+		mockStreamingChannel: mockStreamingChannel{mockMessageEditor: mockMessageEditor{}},
+	}
 	m.channels["legacy"] = ch
 
 	if _, ok := m.GetStreamer(context.Background(), "legacy", "chat-1", "sess-A"); !ok {

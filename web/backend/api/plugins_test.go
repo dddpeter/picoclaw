@@ -53,7 +53,10 @@ func writeTestPluginFiles(t *testing.T, dir, name string) {
 	skill := "---\nname: alpha\ndescription: test\n---\n\nbody\n"
 	files := map[string]string{
 		"plugin.json": fmt.Sprintf(`{"$schema":%q,"name":%q,"version":"1.2.0"}`, agentplugins.ManifestSchemaURL, name),
-		"mcp.json":    fmt.Sprintf(`{"$schema":%q,"mcpServers":{"echo":{"type":"stdio","command":"node","args":["-e","process.exit(0)"]}}}`, agentplugins.MCPConfigSchemaURL),
+		"mcp.json": fmt.Sprintf(
+			`{"$schema":%q,"mcpServers":{"echo":{"type":"stdio","command":"node","args":["-e","process.exit(0)"]}}}`,
+			agentplugins.MCPConfigSchemaURL,
+		),
 	}
 	for file, body := range files {
 		if err := os.WriteFile(filepath.Join(root, file), []byte(body), 0o644); err != nil {
@@ -99,8 +102,11 @@ func TestPluginsList_EmptyInstallRoot(t *testing.T) {
 func TestPluginsList_MergesRegistryAndScan(t *testing.T) {
 	mux, installRoot := newPluginsTestServer(t)
 	writeTestPlugin(t, installRoot, "golden")
-	writeTestRegistry(t, installRoot,
-		`{"golden":{"name":"golden","version":"1.2.0","source":"https://github.com/example/golden","ref":"v1","installedAt":"2026-09-19T10:00:00Z","enabled":true}}`)
+	writeTestRegistry(
+		t,
+		installRoot,
+		`{"golden":{"name":"golden","version":"1.2.0","source":"https://github.com/example/golden","ref":"v1","installedAt":"2026-09-19T10:00:00Z","enabled":true}}`,
+	)
 
 	rec := doJSON(t, mux, http.MethodGet, "/api/plugins", nil)
 	if rec.Code != http.StatusOK {
@@ -242,7 +248,13 @@ func TestPluginsEnable_GuardsAndNotFound(t *testing.T) {
 	writeTestRegistry(t, installRoot, `{"golden":{"name":"golden","enabled":true}}`)
 
 	for _, name := range []string{"data", "registry.json", "Golden", "a/b"} {
-		rec := doJSON(t, mux, http.MethodPut, "/api/plugins/"+url.PathEscape(name)+"/enabled", map[string]bool{"enabled": true})
+		rec := doJSON(
+			t,
+			mux,
+			http.MethodPut,
+			"/api/plugins/"+url.PathEscape(name)+"/enabled",
+			map[string]bool{"enabled": true},
+		)
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("enable(%q) status = %d, want 400", name, rec.Code)
 		}
@@ -368,7 +380,13 @@ func TestPluginsValidate(t *testing.T) {
 	})
 
 	t.Run("missing path is 400", func(t *testing.T) {
-		rec := doJSON(t, mux, http.MethodPost, "/api/plugins/validate", map[string]string{"path": filepath.Join(t.TempDir(), "nope")})
+		rec := doJSON(
+			t,
+			mux,
+			http.MethodPost,
+			"/api/plugins/validate",
+			map[string]string{"path": filepath.Join(t.TempDir(), "nope")},
+		)
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("status = %d, want 400", rec.Code)
 		}
@@ -423,7 +441,13 @@ func TestPluginsInstall(t *testing.T) {
 
 	t.Run("invalid source shape is 400", func(t *testing.T) {
 		mux, _ := newPluginsTestServer(t)
-		rec := doJSON(t, mux, http.MethodPost, "/api/plugins/install", map[string]string{"source": "ftp://example.com/plugin"})
+		rec := doJSON(
+			t,
+			mux,
+			http.MethodPost,
+			"/api/plugins/install",
+			map[string]string{"source": "ftp://example.com/plugin"},
+		)
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("status = %d, want 400", rec.Code)
 		}
@@ -491,7 +515,10 @@ func TestPluginsVisibleInMCPConfig(t *testing.T) {
 	t.Run("enabled plugin servers are listed read-only", func(t *testing.T) {
 		mux, installRoot := newPluginsTestServer(t)
 		root := writeTestPlugin(t, installRoot, "golden")
-		both := fmt.Sprintf(`{"$schema":%q,"mcpServers":{"echo":{"type":"stdio","command":"node","args":["-e","process.exit(0)"]},"remote":{"type":"streamable-http","url":"https://deploy.example.com/mcp"}}}`, agentplugins.MCPConfigSchemaURL)
+		both := fmt.Sprintf(
+			`{"$schema":%q,"mcpServers":{"echo":{"type":"stdio","command":"node","args":["-e","process.exit(0)"]},"remote":{"type":"streamable-http","url":"https://deploy.example.com/mcp"}}}`,
+			agentplugins.MCPConfigSchemaURL,
+		)
 		if err := os.WriteFile(filepath.Join(root, "mcp.json"), []byte(both), 0o644); err != nil {
 			t.Fatal(err)
 		}

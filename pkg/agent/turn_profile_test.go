@@ -432,7 +432,11 @@ func TestTurnProfile_SubTurnInheritsParentToolProfile(t *testing.T) {
 	// Child (sub-turn) inherits the same shape: allowlisted tool + the
 	// always-on ask_user meta tool (see the parent-profile test above).
 	if len(provider.tools) != 2 {
-		t.Fatalf("child provider tools len = %d, want 2 (echo_text + ask_user): %#v", len(provider.tools), provider.tools)
+		t.Fatalf(
+			"child provider tools len = %d, want 2 (echo_text + ask_user): %#v",
+			len(provider.tools),
+			provider.tools,
+		)
 	}
 	if provider.tools[0].Function.Name != "echo_text" {
 		t.Fatalf("child provider tool = %q, want echo_text", provider.tools[0].Function.Name)

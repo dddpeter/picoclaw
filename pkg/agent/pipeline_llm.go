@@ -68,7 +68,13 @@ func (p *Pipeline) CallLLM(
 
 	// PreLLM: resolve media refs (except on iteration 1 where user media is already resolved)
 	if iteration > 1 {
-		exec.messages = resolveMediaRefs(exec.messages, p.MediaStore, maxMediaSize, maxContextImages, exec.currentTurnStart)
+		exec.messages = resolveMediaRefs(
+			exec.messages,
+			p.MediaStore,
+			maxMediaSize,
+			maxContextImages,
+			exec.currentTurnStart,
+		)
 	}
 
 	// PreLLM: graceful terminal handling
@@ -381,7 +387,13 @@ func (p *Pipeline) CallLLM(
 			ts.recordLLMFallbackOutcome(fbResult.DegradedFromPrimary(exec.activeCandidates))
 			return fbResult.Response, nil
 		}
-		resp, chatErr := exec.activeProvider.Chat(providerCtx, messagesForCall, toolDefsForCall, exec.llmModel, exec.llmOpts)
+		resp, chatErr := exec.activeProvider.Chat(
+			providerCtx,
+			messagesForCall,
+			toolDefsForCall,
+			exec.llmModel,
+			exec.llmOpts,
+		)
 		if chatErr == nil {
 			// No fallback chain (single candidate): the primary served this
 			// iteration directly.
@@ -424,13 +436,13 @@ func (p *Pipeline) CallLLM(
 			exec.abortedByHardAbort = true
 			return ControlBreak, nil
 		}
-		// Stall watchdog gracefully cancelled the in-flight call to unblock
+		// Stall watchdog gracefully canceled the in-flight call to unblock
 		// the turn: treat it as a checkpoint, not an LLM failure. Continuing
 		// re-enters the loop with a fresh provider context so the model gets
 		// its promised wrap-up call; if it stalls again the watchdog's
 		// hard-abort escalation bounds the loop.
 		if graceful, hint := ts.gracefulInterruptRequested(); graceful && errors.Is(err, context.Canceled) {
-			logger.WarnCF("agent", "LLM call cancelled by graceful interrupt; continuing turn for wrap-up",
+			logger.WarnCF("agent", "LLM call canceled by graceful interrupt; continuing turn for wrap-up",
 				map[string]any{
 					"agent_id": ts.agent.ID,
 					"hint":     hint,
@@ -459,16 +471,17 @@ func (p *Pipeline) CallLLM(
 		// the likelier cause).
 		var emptyCompletion *common.EmptyCompletionError
 		isEmptyCompletion := !ts.opts.NoHistory && errors.As(err, &emptyCompletion)
-		isContextError := isEmptyCompletion || (!isTransientError && (strings.Contains(errMsg, "context_length_exceeded") ||
-			strings.Contains(errMsg, "context window") ||
-			strings.Contains(errMsg, "context_window") ||
-			strings.Contains(errMsg, "maximum context length") ||
-			strings.Contains(errMsg, "token limit") ||
-			strings.Contains(errMsg, "too many tokens") ||
-			strings.Contains(errMsg, "max_tokens") ||
-			strings.Contains(errMsg, "invalidparameter") ||
-			strings.Contains(errMsg, "prompt is too long") ||
-			strings.Contains(errMsg, "request too large")))
+		isContextError := isEmptyCompletion ||
+			(!isTransientError && (strings.Contains(errMsg, "context_length_exceeded") ||
+				strings.Contains(errMsg, "context window") ||
+				strings.Contains(errMsg, "context_window") ||
+				strings.Contains(errMsg, "maximum context length") ||
+				strings.Contains(errMsg, "token limit") ||
+				strings.Contains(errMsg, "too many tokens") ||
+				strings.Contains(errMsg, "max_tokens") ||
+				strings.Contains(errMsg, "invalidparameter") ||
+				strings.Contains(errMsg, "prompt is too long") ||
+				strings.Contains(errMsg, "request too large")))
 
 		if isTransientError && !isEmptyCompletion && retry < maxRetries {
 			backoff := time.Duration(retry+1) * time.Duration(backoffSecs) * time.Second
@@ -621,10 +634,14 @@ func (p *Pipeline) CallLLM(
 				// context failure, and total attempts stay bounded by
 				// maxRetries.
 				if p.doSplitTurnCompact(ctx, ts, exec, true) {
-					logger.WarnCF("agent", "Active turn tail still over budget after retry compaction; split-turn summarized and retrying", map[string]any{
-						"session_key": ts.sessionKey,
-						"retry":       retry,
-					})
+					logger.WarnCF(
+						"agent",
+						"Active turn tail still over budget after retry compaction; split-turn summarized and retrying",
+						map[string]any{
+							"session_key": ts.sessionKey,
+							"retry":       retry,
+						},
+					)
 					continue
 				}
 				err = fmt.Errorf(

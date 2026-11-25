@@ -524,9 +524,8 @@ func (cb *ContextBuilder) estimateSystemTokenSegments(summary string, activeSkil
 	staticPrompt := cb.BuildSystemPromptWithCache()
 
 	// Dynamic context is small and varies per request; use a representative estimate.
-	// Actual buildDynamicContext produces ~200-400 chars of time/runtime/session info.
-	const dynamicContextChars = 300
-	// dynamicContextEstimateTokens = ceil(dynamicContextChars / 4)
+	// Actual buildDynamicContext produces ~200-400 chars of time/runtime/session info
+	// (~300 chars ≈ 75 tokens at the 4-chars/token ratio).
 	const dynamicContextEstimateTokens = 75
 
 	base = tokenizer.EstimateTextTokens(staticPrompt)

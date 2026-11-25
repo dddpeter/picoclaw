@@ -120,10 +120,26 @@ func TestPromptTemplatesPutValidation(t *testing.T) {
 		body promptTemplatesResponse
 		want string
 	}{
-		{"missing id", promptTemplatesResponse{Templates: []storedPromptTemplate{{Title: "x", Prompt: "y"}}}, "id is required"},
-		{"blank id", promptTemplatesResponse{Templates: []storedPromptTemplate{{ID: "  ", Title: "x", Prompt: "y"}}}, "id is required"},
-		{"missing title", promptTemplatesResponse{Templates: []storedPromptTemplate{{ID: "a", Prompt: "y"}}}, "title is required"},
-		{"missing prompt", promptTemplatesResponse{Templates: []storedPromptTemplate{{ID: "a", Title: "x"}}}, "prompt is required"},
+		{
+			"missing id",
+			promptTemplatesResponse{Templates: []storedPromptTemplate{{Title: "x", Prompt: "y"}}},
+			"id is required",
+		},
+		{
+			"blank id",
+			promptTemplatesResponse{Templates: []storedPromptTemplate{{ID: "  ", Title: "x", Prompt: "y"}}},
+			"id is required",
+		},
+		{
+			"missing title",
+			promptTemplatesResponse{Templates: []storedPromptTemplate{{ID: "a", Prompt: "y"}}},
+			"title is required",
+		},
+		{
+			"missing prompt",
+			promptTemplatesResponse{Templates: []storedPromptTemplate{{ID: "a", Title: "x"}}},
+			"prompt is required",
+		},
 		{
 			"duplicate id",
 			promptTemplatesResponse{Templates: []storedPromptTemplate{
@@ -134,27 +150,47 @@ func TestPromptTemplatesPutValidation(t *testing.T) {
 		},
 		{
 			"id too long",
-			promptTemplatesResponse{Templates: []storedPromptTemplate{{ID: strings.Repeat("a", promptTemplatesMaxIDLen+1), Title: "x", Prompt: "y"}}},
+			promptTemplatesResponse{
+				Templates: []storedPromptTemplate{
+					{ID: strings.Repeat("a", promptTemplatesMaxIDLen+1), Title: "x", Prompt: "y"},
+				},
+			},
 			"id too long",
 		},
 		{
 			"prompt too long",
-			promptTemplatesResponse{Templates: []storedPromptTemplate{{ID: "a", Title: "x", Prompt: strings.Repeat("p", promptTemplatesMaxBody+1)}}},
+			promptTemplatesResponse{
+				Templates: []storedPromptTemplate{
+					{ID: "a", Title: "x", Prompt: strings.Repeat("p", promptTemplatesMaxBody+1)},
+				},
+			},
 			"prompt too long",
 		},
 		{
 			"title too long",
-			promptTemplatesResponse{Templates: []storedPromptTemplate{{ID: "a", Title: strings.Repeat("t", promptTemplatesMaxTitle+1), Prompt: "y"}}},
+			promptTemplatesResponse{
+				Templates: []storedPromptTemplate{
+					{ID: "a", Title: strings.Repeat("t", promptTemplatesMaxTitle+1), Prompt: "y"},
+				},
+			},
 			"title too long",
 		},
 		{
 			"desc too long",
-			promptTemplatesResponse{Templates: []storedPromptTemplate{{ID: "a", Title: "x", Desc: strings.Repeat("d", promptTemplatesMaxDesc+1), Prompt: "y"}}},
+			promptTemplatesResponse{
+				Templates: []storedPromptTemplate{
+					{ID: "a", Title: "x", Desc: strings.Repeat("d", promptTemplatesMaxDesc+1), Prompt: "y"},
+				},
+			},
 			"desc too long",
 		},
 		{
 			"icon too long",
-			promptTemplatesResponse{Templates: []storedPromptTemplate{{ID: "a", Icon: strings.Repeat("i", promptTemplatesMaxIcon+1), Title: "x", Prompt: "y"}}},
+			promptTemplatesResponse{
+				Templates: []storedPromptTemplate{
+					{ID: "a", Icon: strings.Repeat("i", promptTemplatesMaxIcon+1), Title: "x", Prompt: "y"},
+				},
+			},
 			"icon too long",
 		},
 	}
@@ -175,7 +211,13 @@ func TestPromptTemplatesPutValidation(t *testing.T) {
 	for i := 0; i <= promptTemplatesMaxCount; i++ {
 		tooMany = append(tooMany, storedPromptTemplate{ID: fmt.Sprintf("t%d", i), Title: "x", Prompt: "y"})
 	}
-	rec := doPromptTemplatesJSON(t, mux, http.MethodPut, "/api/prompt-templates", promptTemplatesResponse{Templates: tooMany})
+	rec := doPromptTemplatesJSON(
+		t,
+		mux,
+		http.MethodPut,
+		"/api/prompt-templates",
+		promptTemplatesResponse{Templates: tooMany},
+	)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("too-many status = %d", rec.Code)
 	}

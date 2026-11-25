@@ -22,7 +22,11 @@ type fakePicoServer struct {
 	dials  atomic.Int32
 }
 
-func newFakePicoServer(t *testing.T, checkAuth bool, handler func(t *testing.T, conn *websocket.Conn, r *http.Request)) *fakePicoServer {
+func newFakePicoServer(
+	t *testing.T,
+	checkAuth bool,
+	handler func(t *testing.T, conn *websocket.Conn, r *http.Request),
+) *fakePicoServer {
 	t.Helper()
 	fs := &fakePicoServer{}
 	up := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}

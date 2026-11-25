@@ -75,7 +75,9 @@ var (
 	// so the path key and its value appear escaped (\"path\":\"...\").
 	// The value must stop at the closing quote — including its escaped form
 	// — otherwise the following JSON fields leak into the captured path.
-	toolArgsPathRe = regexp.MustCompile(`(?:\\?)"(?:` + strings.Join(toolArgsPathKeys, "|") + `)(?:\\?)"\s*:\s*(?:\\?)"((?:[^"\\\n]|\\.)*?)(?:\\?)"`)
+	toolArgsPathRe = regexp.MustCompile(
+		`(?:\\?)"(?:` + strings.Join(toolArgsPathKeys, "|") + `)(?:\\?)"\s*:\s*(?:\\?)"((?:[^"\\\n]|\\.)*?)(?:\\?)"`,
+	)
 )
 
 // collectMyFiles aggregates uploads and generated files.

@@ -57,7 +57,11 @@ func (c *WhatsAppChannel) Start(ctx context.Context) error {
 
 	c.ctx, c.cancel = context.WithCancel(ctx)
 
-	logger.WarnCF("whatsapp", "The external-bridge whatsapp channel is deprecated: it depends on an out-of-tree bridge process, cannot deliver media, and whatsapp_native is the recommended replacement", nil)
+	logger.WarnCF(
+		"whatsapp",
+		"The external-bridge whatsapp channel is deprecated: it depends on an out-of-tree bridge process, cannot deliver media, and whatsapp_native is the recommended replacement",
+		nil,
+	)
 
 	if err := c.dial(); err != nil {
 		c.cancel()

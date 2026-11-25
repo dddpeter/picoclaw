@@ -83,7 +83,11 @@ func TestSanitizeFastPathEquivalence(t *testing.T) {
 	}
 	for _, c := range cases {
 		if got := sanitizeFeishuMarkdownImages(c); got != c {
-			t.Errorf("fast path must be identity for image-free content, got divergence (len %d -> %d)", len(c), len(got))
+			t.Errorf(
+				"fast path must be identity for image-free content, got divergence (len %d -> %d)",
+				len(c),
+				len(got),
+			)
 		}
 	}
 }

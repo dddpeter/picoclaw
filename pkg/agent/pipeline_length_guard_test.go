@@ -351,7 +351,11 @@ func TestSeedSkillPanelStep(t *testing.T) {
 		t.Fatal("expected default agent")
 	}
 
-	ts := newTurnState(agent, processOptions{SessionKey: "session-skills"}, al.newTurnEventScope(agent.ID, "session-skills", nil))
+	ts := newTurnState(
+		agent,
+		processOptions{SessionKey: "session-skills"},
+		al.newTurnEventScope(agent.ID, "session-skills", nil),
+	)
 	ts.recordSkillContextSnapshot("initial", []string{"pdf-reader", "web-lookup"})
 
 	streamer := &toolStepRecordingStreamer{}
@@ -380,7 +384,11 @@ func TestSeedSkillPanelStep_NoSkills(t *testing.T) {
 		t.Fatal("expected default agent")
 	}
 
-	ts := newTurnState(agent, processOptions{SessionKey: "session-noskills"}, al.newTurnEventScope(agent.ID, "session-noskills", nil))
+	ts := newTurnState(
+		agent,
+		processOptions{SessionKey: "session-noskills"},
+		al.newTurnEventScope(agent.ID, "session-noskills", nil),
+	)
 
 	streamer := &toolStepRecordingStreamer{}
 	publisher := &streamingChunkPublisher{streamer: streamer}

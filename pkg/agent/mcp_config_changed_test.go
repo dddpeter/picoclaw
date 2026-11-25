@@ -28,7 +28,12 @@ func TestMCPConfigChanged(t *testing.T) {
 		want bool
 	}{
 		{"identical configs", singleServerCfg("ctx7", "npx"), singleServerCfg("ctx7", "npx"), false},
-		{"nil servers vs empty map", config.MCPConfig{}, config.MCPConfig{Servers: map[string]config.MCPServerConfig{}}, false},
+		{
+			"nil servers vs empty map",
+			config.MCPConfig{},
+			config.MCPConfig{Servers: map[string]config.MCPServerConfig{}},
+			false,
+		},
 		{"both empty", config.MCPConfig{}, config.MCPConfig{}, false},
 		{"spawn command changed", singleServerCfg("ctx7", "npx"), singleServerCfg("ctx7", "node"), true},
 		{"server added", func() config.MCPConfig {
@@ -36,7 +41,12 @@ func TestMCPConfigChanged(t *testing.T) {
 			c.Servers["fetch"] = config.MCPServerConfig{Enabled: true, Command: "uvx", Args: []string{"fetch"}}
 			return c
 		}(), singleServerCfg("ctx7", "npx"), true},
-		{"server removed", singleServerCfg("ctx7", "npx"), config.MCPConfig{Servers: map[string]config.MCPServerConfig{}}, true},
+		{
+			"server removed",
+			singleServerCfg("ctx7", "npx"),
+			config.MCPConfig{Servers: map[string]config.MCPServerConfig{}},
+			true,
+		},
 		{"threshold field changed", func() config.MCPConfig {
 			c := singleServerCfg("ctx7", "npx")
 			c.MaxInlineTextChars = 9999

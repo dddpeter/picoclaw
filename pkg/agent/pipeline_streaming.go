@@ -98,7 +98,7 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 	// panel header shows "续 k/N". Optional interface — non-feishu channels
 	// simply don't implement it.
 	if label := ts.getSegmentLabel(); label != "" {
-		if s, ok := publisher.streamer.(interface{ SetSegmentLabel(string) }); ok {
+		if s, ok := publisher.streamer.(interface{ SetSegmentLabel(label string) }); ok {
 			s.SetSegmentLabel(label)
 		}
 	}

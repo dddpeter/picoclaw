@@ -20,7 +20,7 @@ func approvalClickEvent(chatID, cmd string) *callback.CardActionTriggerEvent {
 		Event: &callback.CardActionTriggerRequest{
 			Operator: &callback.Operator{OpenID: "ou_test_operator"},
 			Action: &callback.CallBackAction{
-				Value: map[string]interface{}{"cmd": cmd, "chat_id": chatID},
+				Value: map[string]any{"cmd": cmd, "chat_id": chatID},
 			},
 			Context: &callback.Context{OpenMessageID: "om_seal_me", OpenChatID: chatID},
 		},
@@ -35,7 +35,7 @@ func approvalClickEventNoQIDContext(chatID, qid, cmd string) *callback.CardActio
 		Event: &callback.CardActionTriggerRequest{
 			Operator: &callback.Operator{OpenID: "ou_test_operator"},
 			Action: &callback.CallBackAction{
-				Value: map[string]interface{}{"cmd": cmd, "chat_id": chatID, "qid": qid},
+				Value: map[string]any{"cmd": cmd, "chat_id": chatID, "qid": qid},
 			},
 		},
 	}

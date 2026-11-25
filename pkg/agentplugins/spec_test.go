@@ -17,7 +17,7 @@ func TestSupportedManifestSchema(t *testing.T) {
 func TestReportSeverity(t *testing.T) {
 	var r Report
 	r.Warnf("ignored field %q", "bogus")
-	r.Fatalf("manifest invalid: %s", "bad name")
+	r.Fatals = append(r.Fatals, "manifest invalid: bad name")
 	if r.OK() {
 		t.Fatal("report with fatal must not be OK")
 	}

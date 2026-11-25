@@ -79,7 +79,11 @@ func onReady() {
 	// "Auto-start Gateway" = gateway.auto_start watchdog (config file);
 	// "Launch at Login" = launcher autostart at OS login (startup.go APIs).
 	mAutoStart := systray.AddMenuItemCheckbox(T(MenuAutoStart), T(MenuAutoStartHint), trayGatewayAutoStart())
-	mLaunchAtLogin := systray.AddMenuItemCheckbox(T(MenuLaunchAtLogin), T(MenuLaunchAtLoginH), trayLaunchAtLoginEnabled())
+	mLaunchAtLogin := systray.AddMenuItemCheckbox(
+		T(MenuLaunchAtLogin),
+		T(MenuLaunchAtLoginH),
+		trayLaunchAtLoginEnabled(),
+	)
 
 	systray.AddSeparator()
 

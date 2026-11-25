@@ -143,7 +143,12 @@ func (al *AgentLoop) startProgressHeartbeat(turnCtx context.Context, ts *turnSta
 // step, falling back to a plain outbound message tagged progress_note.
 // Beats use ToolStepKindProgress (B3): a transient, replaceable status —
 // not a narration pin, not a timeline archive.
-func (al *AgentLoop) publishProgressBeat(ctx context.Context, ts *turnState, publisher *streamingChunkPublisher, text string) {
+func (al *AgentLoop) publishProgressBeat(
+	ctx context.Context,
+	ts *turnState,
+	publisher *streamingChunkPublisher,
+	text string,
+) {
 	if publisher != nil {
 		publisher.AppendToolStep(ctx, bus.ToolStep{
 			Kind:   bus.ToolStepKindProgress,

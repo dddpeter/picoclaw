@@ -37,7 +37,7 @@ var (
 		substr("429"),
 		// Explicit per-minute/per-second throttles: the quota recovers by
 		// itself within a minute, so these must stay RateLimit even when the
-		// body carries quota-flavoured wording (e.g. Zhipu's
+		// body carries quota-flavored wording (e.g. Zhipu's
 		// "rpm exhausted" + type quota_exceeded_error).
 		substr("rpm exhausted"),
 		substr("tpm exhausted"),

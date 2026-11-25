@@ -180,7 +180,11 @@ func (c *PicoChannel) handleUpload(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(opts.maxUploadBytes); err != nil {
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
-			http.Error(w, fmt.Sprintf("upload too large (max %d bytes)", opts.maxUploadBytes), http.StatusRequestEntityTooLarge)
+			http.Error(
+				w,
+				fmt.Sprintf("upload too large (max %d bytes)", opts.maxUploadBytes),
+				http.StatusRequestEntityTooLarge,
+			)
 			return
 		}
 		http.Error(w, "malformed multipart upload", http.StatusBadRequest)
@@ -274,7 +278,10 @@ type inboundFilePayload struct {
 // workspace-relative, clean to inside inbound/, and resolve inside the
 // workspace (no ../ escapes, no absolute paths, no symlinks out). Returns
 // the bus payload plus the [file:<path>] tags to embed in content.
-func (c *PicoChannel) parseInboundFiles(payload map[string]any, workspace string) ([]inboundFilePayload, []string, error) {
+func (c *PicoChannel) parseInboundFiles(
+	payload map[string]any,
+	workspace string,
+) ([]inboundFilePayload, []string, error) {
 	raw, ok := payload["files"]
 	if !ok || raw == nil {
 		return nil, nil, nil

@@ -211,6 +211,9 @@ func TestRefreshAnswerSnapshotClamped(t *testing.T) {
 	}
 	content := sealedAnswerElementContent(t, card)
 	if !strings.Contains(content, "以封卡为准") {
-		t.Errorf("clamped refresh snapshot must note where the full text lives, got tail %.80s", content[len(content)-80:])
+		t.Errorf(
+			"clamped refresh snapshot must note where the full text lives, got tail %.80s",
+			content[len(content)-80:],
+		)
 	}
 }

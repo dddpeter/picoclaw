@@ -14,12 +14,23 @@ func TestValidatePluginName(t *testing.T) {
 		name    string
 		wantErr bool
 	}{
-		{"my-plugin", false}, {"acme.tools", false}, {"lint3r", false}, {"a", false},
-		{"a.b", false}, {"a.b.c", false},
-		{"My-Plugin", true}, {"-start", true}, {"end-", true}, {".dot", true},
-		{"has--double", true}, {"too.many..dots", true}, {"", true},
-		{"has_underscore", true}, {"has space", true},
-		{strings.Repeat("a", 65), true}, {strings.Repeat("a", 64), false},
+		{"my-plugin", false},
+		{"acme.tools", false},
+		{"lint3r", false},
+		{"a", false},
+		{"a.b", false},
+		{"a.b.c", false},
+		{"My-Plugin", true},
+		{"-start", true},
+		{"end-", true},
+		{".dot", true},
+		{"has--double", true},
+		{"too.many..dots", true},
+		{"", true},
+		{"has_underscore", true},
+		{"has space", true},
+		{strings.Repeat("a", 65), true},
+		{strings.Repeat("a", 64), false},
 	}
 	for _, c := range cases {
 		err := ValidatePluginName(c.name)
@@ -64,9 +75,24 @@ func TestLoadManifest(t *testing.T) {
 			checkName: "plugin-name",
 		},
 		{name: "missing schema", plugin: `{"name":"hello"}`, file: true, wantErr: true},
-		{name: "missing name", plugin: `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"}`, file: true, wantErr: true},
-		{name: "schema 1.1.0 rejected", plugin: `{"$schema":"https://agent-plugins.org/schemas/1.1.0/plugin.schema.json","name":"hello-plugin"}`, file: true, wantErr: true},
-		{name: "invalid name", plugin: `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"Bad-Name"}`, file: true, wantErr: true},
+		{
+			name:    "missing name",
+			plugin:  `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"}`,
+			file:    true,
+			wantErr: true,
+		},
+		{
+			name:    "schema 1.1.0 rejected",
+			plugin:  `{"$schema":"https://agent-plugins.org/schemas/1.1.0/plugin.schema.json","name":"hello-plugin"}`,
+			file:    true,
+			wantErr: true,
+		},
+		{
+			name:    "invalid name",
+			plugin:  `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"Bad-Name"}`,
+			file:    true,
+			wantErr: true,
+		},
 		{
 			name:     "unknown top-level field warns",
 			plugin:   `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"hello-plugin","bogus":true}`,
@@ -133,10 +159,13 @@ func TestLoadManifest(t *testing.T) {
 }
 
 func TestLoadManifestFullFields(t *testing.T) {
-	dir := writeManifestDir(t, `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"plugin-name",
+	dir := writeManifestDir(
+		t,
+		`{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"plugin-name",
 		"version":"1.2.0","description":"d","license":"MIT","homepage":"https://h.example.com",
 		"repository":"https://github.com/example/plugin","author":{"name":"A","email":"a@example.com","url":"https://u.example.com"},
-		"keywords":["x","y"]}`)
+		"keywords":["x","y"]}`,
+	)
 	var r Report
 	m, err := LoadManifest(dir, &r)
 	if err != nil {
@@ -146,7 +175,8 @@ func TestLoadManifestFullFields(t *testing.T) {
 		m.Homepage != "https://h.example.com" || m.Repository != "https://github.com/example/plugin" {
 		t.Errorf("scalar fields mismatch: %+v", m)
 	}
-	if m.Author == nil || m.Author.Name != "A" || m.Author.Email != "a@example.com" || m.Author.URL != "https://u.example.com" {
+	if m.Author == nil || m.Author.Name != "A" || m.Author.Email != "a@example.com" ||
+		m.Author.URL != "https://u.example.com" {
 		t.Errorf("author mismatch: %+v", m.Author)
 	}
 	if len(m.Keywords) != 2 || m.Keywords[0] != "x" {

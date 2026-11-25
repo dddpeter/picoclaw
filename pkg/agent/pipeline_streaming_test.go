@@ -373,7 +373,13 @@ func TestConfiguredStreamingEligibilityGates(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := newConfiguredStreamingTestConfig(t, tt.channelStreaming, tt.modelStreaming, tt.fallbacks, tt.modelStreamingOmit)
+			cfg := newConfiguredStreamingTestConfig(
+				t,
+				tt.channelStreaming,
+				tt.modelStreaming,
+				tt.fallbacks,
+				tt.modelStreamingOmit,
+			)
 			msgBus := bus.NewMessageBus()
 			if tt.streamDelegate {
 				msgBus.SetStreamDelegate(configuredStreamingDelegate{streamer: &recordingStreamer{}})

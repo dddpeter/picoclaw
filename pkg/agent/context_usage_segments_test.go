@@ -22,6 +22,7 @@ func (m *segTestTool) Description() string { return m.desc }
 func (m *segTestTool) Parameters() map[string]any {
 	return map[string]any{"type": "object"}
 }
+
 func (m *segTestTool) Execute(_ context.Context, _ map[string]any) *tools.ToolResult {
 	return tools.SilentResult("ok")
 }
