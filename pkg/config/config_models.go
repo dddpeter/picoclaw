@@ -347,3 +347,139 @@ type BaiduSearchConfig struct {
 	BaseURL    string       `json:"base_url"         yaml:"-"                 env:"PICOCLAW_TOOLS_WEB_BAIDU_BASE_URL"`
 	MaxResults int          `json:"max_results"      yaml:"-"                 env:"PICOCLAW_TOOLS_WEB_BAIDU_MAX_RESULTS"`
 }
+
+func toNameIndex(list []*ModelConfig) []string {
+	nameList := make([]string, 0, len(list))
+	countMap := make(map[string]int)
+	for _, model := range list {
+		name := model.ModelName
+		index := countMap[name]
+		nameList = append(nameList, fmt.Sprintf("%s:%d", name, index))
+		countMap[name]++
+	}
+	return nameList
+}
+
+// GetModelConfig returns the ModelConfig for the given model name.
+// If multiple configs exist with the same model_name, it uses round-robin
+// selection for load balancing. Returns an error if the model is not found.
+func (c *Config) GetModelConfig(modelName string) (*ModelConfig, error) {
+	matches := c.findMatches(modelName)
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("model %q not found in model_list or providers", modelName)
+	}
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+
+	// Multiple configs - use round-robin for load balancing
+	idx := (rrCounter.Add(1) - 1) % uint64(len(matches))
+	return matches[idx], nil
+}
+
+// findMatches finds all ModelConfig entries with the given model_name.
+func (c *Config) findMatches(modelName string) []*ModelConfig {
+	var matches []*ModelConfig
+	for i := range c.ModelList {
+		if c.ModelList[i].ModelName == modelName {
+			matches = append(matches, c.ModelList[i])
+		}
+	}
+	return matches
+}
+
+// ValidateModelList validates all ModelConfig entries in the model_list.
+// It checks that each model config is valid.
+// Note: Multiple entries with the same model_name are allowed for load balancing.
+func (c *Config) ValidateModelList() error {
+	for i := range c.ModelList {
+		if err := c.ModelList[i].Validate(); err != nil {
+			return fmt.Errorf("model_list[%d]: %w", i, err)
+		}
+	}
+	return nil
+}
+
+func expandMultiKeyModels(models []*ModelConfig) []*ModelConfig {
+	var expanded []*ModelConfig
+
+	for _, m := range models {
+		keys := m.APIKeys.Values()
+
+		// Single key or no keys: keep as-is
+		if len(keys) <= 1 {
+			expanded = append(expanded, m)
+			continue
+		}
+
+		// Multiple keys: expand
+		originalName := m.ModelName
+
+		// Create entries for additional keys (key_1, key_2, ...)
+		var fallbackNames []string
+		for i := 1; i < len(keys); i++ {
+			suffix := fmt.Sprintf("__key_%d", i)
+			expandedName := originalName + suffix
+
+			// Create a copy for the additional key
+			additionalEntry := &ModelConfig{
+				ModelName:           expandedName,
+				Provider:            m.Provider,
+				Model:               m.Model,
+				APIBase:             m.APIBase,
+				APIKeys:             SimpleSecureStrings(keys[i]),
+				Proxy:               m.Proxy,
+				AuthMethod:          m.AuthMethod,
+				ConnectMode:         m.ConnectMode,
+				Workspace:           m.Workspace,
+				RPM:                 m.RPM,
+				MaxTokensField:      m.MaxTokensField,
+				RequestTimeout:      m.RequestTimeout,
+				ContextWindow:       m.ContextWindow,
+				ThinkingLevel:       m.ThinkingLevel,
+				ToolSchemaTransform: m.ToolSchemaTransform,
+				Streaming:           m.Streaming,
+				ExtraBody:           m.ExtraBody,
+				CustomHeaders:       m.CustomHeaders,
+				UserAgent:           m.UserAgent,
+				isVirtual:           true,
+			}
+			expanded = append(expanded, additionalEntry)
+			fallbackNames = append(fallbackNames, expandedName)
+		}
+
+		// Create the primary entry with first key and fallbacks
+		primaryEntry := &ModelConfig{
+			ModelName:           originalName,
+			Provider:            m.Provider,
+			Model:               m.Model,
+			APIBase:             m.APIBase,
+			Proxy:               m.Proxy,
+			AuthMethod:          m.AuthMethod,
+			ConnectMode:         m.ConnectMode,
+			Workspace:           m.Workspace,
+			RPM:                 m.RPM,
+			MaxTokensField:      m.MaxTokensField,
+			RequestTimeout:      m.RequestTimeout,
+			ContextWindow:       m.ContextWindow,
+			ThinkingLevel:       m.ThinkingLevel,
+			ToolSchemaTransform: m.ToolSchemaTransform,
+			Streaming:           m.Streaming,
+			ExtraBody:           m.ExtraBody,
+			CustomHeaders:       m.CustomHeaders,
+			UserAgent:           m.UserAgent,
+			APIKeys:             SimpleSecureStrings(keys[0]),
+		}
+
+		// Prepend new fallbacks to existing ones
+		if len(fallbackNames) > 0 {
+			primaryEntry.Fallbacks = append(fallbackNames, m.Fallbacks...)
+		} else if len(m.Fallbacks) > 0 {
+			primaryEntry.Fallbacks = m.Fallbacks
+		}
+
+		expanded = append(expanded, primaryEntry)
+	}
+
+	return expanded
+}
