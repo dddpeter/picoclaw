@@ -184,7 +184,13 @@ func (s *Store) ExecPostScan(tc *TurnCapture) {
 			if complete {
 				s.recordExecEntry(tc, cand.path, cand.rel, OpCreated, "", false, "")
 			}
-			idx.Entries[cand.key] = scanEntry{Path: cand.path, Rel: cand.rel, MtimeNS: cand.mtimeNS, Size: cand.size, LastSeen: now}
+			idx.Entries[cand.key] = scanEntry{
+				Path:     cand.path,
+				Rel:      cand.rel,
+				MtimeNS:  cand.mtimeNS,
+				Size:     cand.size,
+				LastSeen: now,
+			}
 			continue
 		}
 		if entry.MtimeNS == cand.mtimeNS && entry.Size == cand.size {
@@ -203,7 +209,13 @@ func (s *Store) ExecPostScan(tc *TurnCapture) {
 		// Post-exec content becomes the next baseline — but the cache must
 		// not claim to hold it: clearing Cached forces the next pre-scan to
 		// re-read, keeping the hash ↔ content pairing honest.
-		idx.Entries[cand.key] = scanEntry{Path: entry.Path, Rel: entry.Rel, MtimeNS: cand.mtimeNS, Size: cand.size, LastSeen: now}
+		idx.Entries[cand.key] = scanEntry{
+			Path:     entry.Path,
+			Rel:      entry.Rel,
+			MtimeNS:  cand.mtimeNS,
+			Size:     cand.size,
+			LastSeen: now,
+		}
 	}
 
 	// Present in the index, missing now: deleted by the exec run. Same
@@ -232,7 +244,14 @@ func (s *Store) ExecPostScan(tc *TurnCapture) {
 // recordExecEntry adds a scan-detected change to the turn capture without
 // overriding an existing entry (an fs tool's earlier capture of the same
 // file wins — it observed the true pre-turn state).
-func (s *Store) recordExecEntry(tc *TurnCapture, absPath, relPath string, op Op, hash string, stored bool, reason string) {
+func (s *Store) recordExecEntry(
+	tc *TurnCapture,
+	absPath, relPath string,
+	op Op,
+	hash string,
+	stored bool,
+	reason string,
+) {
 	tc.addEntry(&pendingEntry{
 		path:    filepath.Clean(absPath),
 		rel:     relPath,
@@ -317,12 +336,12 @@ func (s *Store) walkWorkspace(workspace string) ([]walkCandidate, bool) {
 	walkErr := filepath.WalkDir(workspace, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			complete = false // unreadable subtree: the seen-set is not exhaustive
-			return nil
+			return nil       //nolint:nilerr // intentional: walk errors degrade completeness, never fatal
 		}
 		rel, relErr := filepath.Rel(workspace, path)
 		if relErr != nil {
 			complete = false
-			return nil
+			return nil //nolint:nilerr // intentional: path errors degrade completeness, never fatal
 		}
 		if d.IsDir() {
 			if rel == "." {
@@ -351,7 +370,7 @@ func (s *Store) walkWorkspace(workspace string) ([]walkCandidate, bool) {
 		info, statErr := d.Info()
 		if statErr != nil {
 			complete = false
-			return nil
+			return nil //nolint:nilerr // intentional: stat errors degrade completeness, never fatal
 		}
 		relSlash := filepath.ToSlash(rel)
 		out = append(out, walkCandidate{

@@ -592,7 +592,6 @@ func (r *ToolRegistry) Clone() *ToolRegistry {
 	return clone
 }
 
-// Count returns the number of registered tools.
 // GetAll returns all registered tools (both core and non-core with TTL > 0).
 // Used by SubTurn to inherit parent's tool set.
 func (r *ToolRegistry) GetAll() []Tool {

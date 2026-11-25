@@ -89,15 +89,29 @@ func grepIncludeMatcher(include string) (func(string) bool, error) {
 	return func(name string) bool { return re.MatchString(name) }, nil
 }
 
-func (t *GrepTool) searchFile(ctx context.Context, path string, re *regexp.Regexp, out *strings.Builder, count *int) error {
+func (t *GrepTool) searchFile(
+	ctx context.Context,
+	path string,
+	re *regexp.Regexp,
+	out *strings.Builder,
+	count *int,
+) error {
 	data, err := t.fs.ReadFile(path)
 	if err != nil {
-		return nil // unreadable files are skipped, not fatal
+		//nolint:nilerr // intentional: unreadable files are skipped, not fatal
+		return nil
 	}
 	return searchBytes(ctx, path, re, data, out, count)
 }
 
-func searchBytes(ctx context.Context, path string, re *regexp.Regexp, data []byte, out *strings.Builder, count *int) error {
+func searchBytes(
+	ctx context.Context,
+	path string,
+	re *regexp.Regexp,
+	data []byte,
+	out *strings.Builder,
+	count *int,
+) error {
 	if looksBinary(data[:min(len(data), grepBinaryProbeSize)]) {
 		return nil
 	}

@@ -113,7 +113,11 @@ const feishuPanelTextBudget = 16000
 
 // applyPanelTextBudget shrinks reasoning/tool display texts (oldest first)
 // until the assembled panel body fits feishuPanelTextBudget bytes.
-func applyPanelTextBudget(rounds []feishuReasoningRound, tools []bus.ToolStep, budget int) ([]feishuReasoningRound, []bus.ToolStep) {
+func applyPanelTextBudget(
+	rounds []feishuReasoningRound,
+	tools []bus.ToolStep,
+	budget int,
+) ([]feishuReasoningRound, []bus.ToolStep) {
 	// Copy so the live stream state is never mutated by display trimming.
 	rounds = append([]feishuReasoningRound(nil), rounds...)
 	tools = append([]bus.ToolStep(nil), tools...)
@@ -315,8 +319,15 @@ func degradeFeishuCardConfig(card map[string]any) {
 // the dynamic status line, while keeping the streaming config so the answer
 // element's typewriter survives the replacement. spinnerKey, when non-empty,
 // swaps the status line icon for the animated amber spinner.
-func buildFeishuRefreshCard(state *feishuStreamState, answer, phase string, panelBudget int, spinnerKey string) map[string]any {
-	answerContent := clampFeishuRefreshSnapshot(sanitizeFeishuMarkdownImages(composeFeishuAnswer(state.Narration, answer)))
+func buildFeishuRefreshCard(
+	state *feishuStreamState,
+	answer, phase string,
+	panelBudget int,
+	spinnerKey string,
+) map[string]any {
+	answerContent := clampFeishuRefreshSnapshot(
+		sanitizeFeishuMarkdownImages(composeFeishuAnswer(state.Narration, answer)),
+	)
 	card := map[string]any{
 		"schema": "2.0",
 		"config": feishuStreamingCardConfig(),
@@ -443,8 +454,13 @@ func feishuPanelHeader(rounds int, hasCur bool, tools int, elapsedMs int64, segm
 			"text_color":   "grey",
 			"text_size":    "notation",
 		},
-		"vertical_align":      "center",
-		"icon":                map[string]any{"tag": "standard_icon", "token": "down-small-ccm_outlined", "size": "16px 16px", "color": "grey"},
+		"vertical_align": "center",
+		"icon": map[string]any{
+			"tag":   "standard_icon",
+			"token": "down-small-ccm_outlined",
+			"size":  "16px 16px",
+			"color": "grey",
+		},
 		"icon_position":       "right",
 		"icon_expanded_angle": -180,
 	}
@@ -584,7 +600,7 @@ func buildFeishuPanelBudget(state *feishuStreamState, expanded bool, textBudget 
 	}
 
 	header := feishuPanelHeader(len(state.Rounds), strings.TrimSpace(state.CurReasoning) != "", totalExecTools,
-		int64((state.reasoningTotal()).Milliseconds())+toolElapsedMs, state.SegmentLabel)
+		state.reasoningTotal().Milliseconds()+toolElapsedMs, state.SegmentLabel)
 	return map[string]any{
 		"tag":              "collapsible_panel",
 		"expanded":         expanded,
@@ -887,15 +903,34 @@ func feishuIndentedLarkMD(content string) map[string]any {
 // full answer, and a footer with turn statistics. The loading element is gone.
 // The panel folds on seal ("收起来即可"): reasoning text stays flat inside,
 // one click on the header reveals every round.
-func buildFeishuFinalCard(state *feishuStreamState, answer string, aborted bool, elapsed time.Duration, cancelReason string) map[string]any {
-	return buildFeishuFinalCardComposed(state, composeFeishuAnswer(state.Narration, answer), answer, aborted, elapsed, cancelReason)
+func buildFeishuFinalCard(
+	state *feishuStreamState,
+	answer string,
+	aborted bool,
+	elapsed time.Duration,
+	cancelReason string,
+) map[string]any {
+	return buildFeishuFinalCardComposed(
+		state,
+		composeFeishuAnswer(state.Narration, answer),
+		answer,
+		aborted,
+		elapsed,
+		cancelReason,
+	)
 }
 
 // buildFeishuFinalCardComposed seals with pre-composed answer content: the
 // narration trail and answer already joined (and typically clamped to the
 // card budget) by the caller. summarySource is the un-clamped answer used
 // for the card summary preview.
-func buildFeishuFinalCardComposed(state *feishuStreamState, composed, summarySource string, aborted bool, elapsed time.Duration, cancelReason string) map[string]any {
+func buildFeishuFinalCardComposed(
+	state *feishuStreamState,
+	composed, summarySource string,
+	aborted bool,
+	elapsed time.Duration,
+	cancelReason string,
+) map[string]any {
 	return buildFeishuCardWithinSize(func(panelBudget int) map[string]any {
 		return buildFeishuFinalCardBudget(state, composed, summarySource, aborted, elapsed, cancelReason, panelBudget)
 	})
@@ -906,7 +941,13 @@ func buildFeishuFinalCardComposed(state *feishuStreamState, composed, summarySou
 // caller so the card always fits the 30KB cap. Used when the regular seal
 // card is rejected (panel scaffolding + answer overflowed): a sealed
 // minimal card beats a card stuck in streaming mode forever.
-func buildFeishuMinimalFinalCard(state *feishuStreamState, content string, aborted bool, elapsed time.Duration, cancelReason string) map[string]any {
+func buildFeishuMinimalFinalCard(
+	state *feishuStreamState,
+	content string,
+	aborted bool,
+	elapsed time.Duration,
+	cancelReason string,
+) map[string]any {
 	elements := []any{}
 	if strings.TrimSpace(content) != "" {
 		elements = append(elements, map[string]any{
@@ -960,7 +1001,14 @@ func feishuCancelReasonText(reason string) string {
 	}
 }
 
-func buildFeishuFinalCardBudget(state *feishuStreamState, composed, summarySource string, aborted bool, elapsed time.Duration, cancelReason string, panelBudget int) map[string]any {
+func buildFeishuFinalCardBudget(
+	state *feishuStreamState,
+	composed, summarySource string,
+	aborted bool,
+	elapsed time.Duration,
+	cancelReason string,
+	panelBudget int,
+) map[string]any {
 	elements := []any{}
 	if state.hasPanelContent() {
 		elements = append(elements, buildFeishuPanelBudget(state, false, panelBudget))
@@ -1176,7 +1224,8 @@ func enforceFeishuElementLimit(card map[string]any) {
 	elements, _ := body["elements"].([]any)
 	panelIdx := -1
 	for i, elem := range elements {
-		if m, ok := elem.(map[string]any); ok && m["element_id"] == feishuPanelElementID && m["tag"] == "collapsible_panel" {
+		if m, ok := elem.(map[string]any); ok && m["element_id"] == feishuPanelElementID &&
+			m["tag"] == "collapsible_panel" {
 			panelIdx = i
 			break
 		}
@@ -1191,7 +1240,8 @@ func enforceFeishuElementLimit(card map[string]any) {
 	hintIdx := -1
 	for i, child := range children {
 		if m, ok := child.(map[string]any); ok {
-			if content, _ := m["content"].(string); strings.HasPrefix(content, "⚡") && strings.Contains(content, "已折叠") {
+			if content, _ := m["content"].(string); strings.HasPrefix(content, "⚡") &&
+				strings.Contains(content, "已折叠") {
 				hintIdx = i
 				break
 			}
@@ -1318,15 +1368,15 @@ func truncateFeishuReasoning(text string) string {
 
 // cutOnRuneBoundary trims up to 3 trailing bytes so the cut does not split a
 // multi-byte UTF-8 rune (which would surface as U+FFFD in Feishu).
-func cutOnRuneBoundary(s string, max int) string {
-	if max >= len(s) {
+func cutOnRuneBoundary(s string, limit int) string {
+	if limit >= len(s) {
 		return s
 	}
-	for n := 0; n < 3 && max > 0; n++ {
-		if utf8.RuneStart(s[max]) {
+	for n := 0; n < 3 && limit > 0; n++ {
+		if utf8.RuneStart(s[limit]) {
 			break
 		}
-		max--
+		limit--
 	}
-	return s[:max]
+	return s[:limit]
 }

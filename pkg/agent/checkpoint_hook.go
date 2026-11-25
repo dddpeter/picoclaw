@@ -18,12 +18,11 @@ import (
 	"strings"
 	"sync"
 
-	fstools "github.com/sipeed/picoclaw/pkg/tools/fs"
-
 	"github.com/sipeed/picoclaw/pkg/config"
 	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/snapshot"
+	fstools "github.com/sipeed/picoclaw/pkg/tools/fs"
 )
 
 // checkpointWriteTools maps the file-writing tools to the argument that
@@ -70,7 +69,10 @@ func newCheckpointHook(
 // BeforeTool snapshots the pre-turn content of the tool's target file. Runs
 // before validation-sensitive hooks are affected: a path the tool itself
 // would reject simply produces no capture.
-func (h *CheckpointHook) BeforeTool(ctx context.Context, call *ToolCallHookRequest) (*ToolCallHookRequest, HookDecision, error) {
+func (h *CheckpointHook) BeforeTool(
+	ctx context.Context,
+	call *ToolCallHookRequest,
+) (*ToolCallHookRequest, HookDecision, error) {
 	if call.Tool == "exec" {
 		// exec change detection (trae borrowing 增量清单 §2.1, TrackExec):
 		// only the run action touches the filesystem; wrap it with a
@@ -104,6 +106,9 @@ func (h *CheckpointHook) BeforeTool(ctx context.Context, call *ToolCallHookReque
 	// than the tools can.
 	abs, err := fstools.ValidatePathWithAllowPaths(path, workspace, h.restrict, h.allowWrite)
 	if err != nil {
+		// Validation failure means the path is not snapshot-eligible; the
+		// turn itself must continue. This is an intentional soft skip.
+		//nolint:nilerr // intentional: invalid path just skips the snapshot
 		return call, HookDecision{Action: HookActionContinue}, nil
 	}
 	rel, err := filepath.Rel(workspace, abs)
@@ -119,7 +124,10 @@ func (h *CheckpointHook) BeforeTool(ctx context.Context, call *ToolCallHookReque
 
 // AfterTool closes the exec wrap: the post-scan turns everything the run
 // changed into pending turn entries. It never modifies results.
-func (h *CheckpointHook) AfterTool(ctx context.Context, result *ToolResultHookResponse) (*ToolResultHookResponse, HookDecision, error) {
+func (h *CheckpointHook) AfterTool(
+	ctx context.Context,
+	result *ToolResultHookResponse,
+) (*ToolResultHookResponse, HookDecision, error) {
 	if result != nil && result.Tool == "exec" && h.cfg.TrackExec {
 		if action, _ := result.Arguments["action"].(string); action == "run" {
 			workspace := h.workspaceFor(h.agentIDFor(result.Meta))

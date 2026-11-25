@@ -164,12 +164,6 @@ func (tc *TurnCapture) addEntry(entry *pendingEntry) {
 	tc.order = append(tc.order, key)
 }
 
-func (tc *TurnCapture) setExecUsed() {
-	tc.mu.Lock()
-	tc.ExecUsed = true
-	tc.mu.Unlock()
-}
-
 // snapshotEntries returns the entries in capture order (shared *pendingEntry
 // pointers: entries are immutable once inserted — finalizeEntry never
 // mutates them).
@@ -281,7 +275,11 @@ func (s *Store) CaptureFile(tc *TurnCapture, absPath, relPath string) {
 		entry.preSize = info.Size()
 		if info.Size() > s.cfg.effectiveMaxFileSize() {
 			entry.stored = false
-			entry.reason = fmt.Sprintf("file size %d exceeds max_file_size %d", info.Size(), s.cfg.effectiveMaxFileSize())
+			entry.reason = fmt.Sprintf(
+				"file size %d exceeds max_file_size %d",
+				info.Size(),
+				s.cfg.effectiveMaxFileSize(),
+			)
 		} else if hash, _, storeErr := s.storePreImageFile(tc.SessionKey, absPath); storeErr != nil {
 			entry.stored = false
 			entry.reason = fmt.Sprintf("capture failed: %v", storeErr)
@@ -562,13 +560,13 @@ func (s *Store) nextVersionNum(sessionKey string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	max := 0
+	maxNum := 0
 	for _, id := range ids {
-		if n := versionNum(id); n > max {
-			max = n
+		if n := versionNum(id); n > maxNum {
+			maxNum = n
 		}
 	}
-	return max + 1, nil
+	return maxNum + 1, nil
 }
 
 // evictLocked enforces MaxVersions and MaxTotalBytes for the session by
@@ -661,7 +659,7 @@ func (s *Store) deleteVersionLocked(sessionKey, id string) error {
 	// Remove pre-images that no surviving version references.
 	ids, err := s.versionIDs(sessionKey)
 	if err != nil {
-		return nil
+		return nil //nolint:nilerr // intentional: the delete already succeeded; orphan pre-image cleanup is best-effort
 	}
 	live := make(map[string]struct{})
 	for _, other := range ids {

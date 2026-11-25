@@ -37,7 +37,7 @@ type ServerConfig struct {
 	Disabled bool
 }
 
-// RequestTimeout is the per-request cap for JSON-RPC calls. Default.
+// DefaultRequestTimeout is the per-request cap for JSON-RPC calls.
 const DefaultRequestTimeout = 20 * time.Second
 
 // DiagnosticsSettle is the quiet period after a publish before push

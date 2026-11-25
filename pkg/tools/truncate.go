@@ -86,7 +86,6 @@ func TruncateTail(content string, opts TruncationOptions) TruncationResult {
 			truncatedBy = TruncatedByBytes
 			if len(kept) == 0 {
 				kept = append(kept, truncateStringToBytesFromEnd(lines[i], maxBytes))
-				outputBytes = len(kept[0])
 				lastLinePartial = true
 			}
 			break

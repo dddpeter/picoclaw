@@ -205,7 +205,10 @@ func (t *LspDiagnosticsTool) Execute(ctx context.Context, args map[string]any) *
 	out := sb.String()
 	if lines := strings.Count(out, "\n"); lines > lspDiagnosticsLineCap {
 		out = truncateLines(out, lspDiagnosticsLineCap) +
-			fmt.Sprintf("\n... output truncated (%d lines shown; narrow the path for full results)", lspDiagnosticsLineCap)
+			fmt.Sprintf(
+				"\n... output truncated (%d lines shown; narrow the path for full results)",
+				lspDiagnosticsLineCap,
+			)
 	}
 	if firstErr != "" && totalFiles == 0 {
 		return ErrorResult(out)
@@ -279,12 +282,12 @@ func relTo(root, path string) string {
 	return filepath.ToSlash(path)
 }
 
-func truncateLines(s string, max int) string {
+func truncateLines(s string, limit int) string {
 	lines := strings.Split(s, "\n")
-	if len(lines) <= max {
+	if len(lines) <= limit {
 		return s
 	}
-	return strings.Join(lines[:max], "\n")
+	return strings.Join(lines[:limit], "\n")
 }
 
 // lspValidateReadPath applies the fs read-side path rules for the LSP tool.

@@ -11,7 +11,6 @@ const (
 
 	// KindAgentLLMRequest is emitted before an LLM request.
 	KindAgentLLMRequest Kind = "agent.llm.request"
-	// KindAgentLLMDelta is emitted for streaming LLM deltas.
 	// KindAgentLLMResponse is emitted after an LLM response.
 	KindAgentLLMResponse Kind = "agent.llm.response"
 	// KindAgentLLMRetry is emitted before retrying an LLM request.

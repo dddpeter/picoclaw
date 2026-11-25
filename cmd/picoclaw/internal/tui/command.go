@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	bubbletea "charm.land/bubbletea/v2"
@@ -195,7 +197,7 @@ func gatewayURLFromConfig(cfg *config.Config) string {
 	if port <= 0 {
 		port = defaultGatewayPort
 	}
-	return fmt.Sprintf("ws://%s:%d/pico/ws", host, port)
+	return "ws://" + net.JoinHostPort(host, strconv.Itoa(port)) + "/pico/ws"
 }
 
 func isLocalhostURL(raw string) bool {

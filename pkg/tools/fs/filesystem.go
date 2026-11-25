@@ -67,7 +67,9 @@ func validatePathWithAllowPaths(
 	// default-on): with the sandbox off by default this is the floor that
 	// keeps OS system directories off-limits to file tools.
 	if protectSystemPaths.Load() && IsProtectedSystemPath(absPath) {
-		return "", fmt.Errorf("access denied: path is inside a protected system directory (disable tools.protect_system_paths to override)")
+		return "", fmt.Errorf(
+			"access denied: path is inside a protected system directory (disable tools.protect_system_paths to override)",
+		)
 	}
 
 	if restrict {
@@ -604,7 +606,9 @@ func (t *ReadFileLinesTool) Execute(ctx context.Context, args map[string]any) *T
 	encodingNote := ""
 	if info, statErr := file.Stat(); statErr == nil && info.Size() <= maxDecodeFileSize {
 		if rest, readAllErr := io.ReadAll(file); readAllErr == nil {
-			full := append(sample, rest...)
+			full := make([]byte, 0, len(sample)+len(rest))
+			full = append(full, sample...)
+			full = append(full, rest...)
 			text, enc := decodeText(full)
 			switch enc {
 			case encGB18030:
@@ -1155,7 +1159,9 @@ func (h *hostFs) resolveRelative(path string) string {
 // file tools go straight through this implementation.
 func (h *hostFs) checkProtectedSystemPath(path string) error {
 	if protectSystemPaths.Load() && IsProtectedSystemPath(path) {
-		return fmt.Errorf("access denied: path is inside a protected system directory (disable tools.protect_system_paths to override)")
+		return fmt.Errorf(
+			"access denied: path is inside a protected system directory (disable tools.protect_system_paths to override)",
+		)
 	}
 	return nil
 }

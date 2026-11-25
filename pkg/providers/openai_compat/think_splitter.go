@@ -77,11 +77,11 @@ func (t *thinkSplitter) Close() (reasoning, answer string) {
 // chunk boundary inside the tag then stays buffered instead of leaking tag
 // bytes into the output.
 func splitPartialTagSuffix(data, tag string) (heldBack, emit string) {
-	max := len(tag) - 1
-	if max > len(data) {
-		max = len(data)
+	limit := len(tag) - 1
+	if limit > len(data) {
+		limit = len(data)
 	}
-	for n := max; n > 0; n-- {
+	for n := limit; n > 0; n-- {
 		if strings.HasPrefix(tag, data[len(data)-n:]) {
 			return data[len(data)-n:], data[:len(data)-n]
 		}

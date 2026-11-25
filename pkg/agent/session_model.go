@@ -441,7 +441,7 @@ func (al *AgentLoop) resolveSessionModelOnce(
 	// Window: min(per-model entry, agent-level window) — same rule as the
 	// /switch path (fork §24), so a session-scoped model cannot claim a
 	// larger window than the agent was configured for.
-	contextWindow, declaredContextWindow := agent.baseGatingWindow, agent.baseDeclaredWindow
+	var contextWindow, declaredContextWindow int
 	if agent.baseGatingWindow > 0 {
 		contextWindow, declaredContextWindow = applyModelContextWindowCap(
 			modelCfg.ContextWindow,

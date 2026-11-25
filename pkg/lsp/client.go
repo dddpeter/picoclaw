@@ -337,7 +337,12 @@ func (c *Client) removeWaiter(key string, ch chan struct{}) {
 
 // CodeActions requests code actions of the given kind covering the whole
 // document (pi-lsp semantics: full-document range + only filter).
-func (c *Client) CodeActions(ctx context.Context, uri, text string, diags []Diagnostic, kind string) ([]CodeAction, error) {
+func (c *Client) CodeActions(
+	ctx context.Context,
+	uri, text string,
+	diags []Diagnostic,
+	kind string,
+) ([]CodeAction, error) {
 	endLine, endChar := OffsetToPosition(text, len(text))
 	var actions []CodeAction
 	if err := c.request(ctx, "textDocument/codeAction", map[string]any{
@@ -357,8 +362,8 @@ func (c *Client) CodeActions(ctx context.Context, uri, text string, diags []Diag
 // codeAction/resolve (only when the server advertised resolveProvider).
 func (c *Client) ResolveActions(ctx context.Context, actions []CodeAction) ([]CodeAction, error) {
 	canResolve := false
-	if cap, ok := c.capabilities["codeActionProvider"].(map[string]any); ok {
-		canResolve, _ = cap["resolveProvider"].(bool)
+	if capObj, ok := c.capabilities["codeActionProvider"].(map[string]any); ok {
+		canResolve, _ = capObj["resolveProvider"].(bool)
 	}
 	out := make([]CodeAction, 0, len(actions))
 	for _, a := range actions {

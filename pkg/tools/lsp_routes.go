@@ -285,7 +285,7 @@ func collectLspFiles(s lsp.ServerConfig, root string, inputs []string, limit int
 		}
 		filepath.WalkDir(abs, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
-				return nil
+				return nil //nolint:nilerr // intentional: unreadable walk entries are skipped
 			}
 			if d.IsDir() {
 				if path != abs && skips[d.Name()] {

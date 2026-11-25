@@ -1226,7 +1226,6 @@ func (s *JSONLStore) rewriteJSONL(
 	return fileutil.WriteFileAtomic(s.jsonlPath(sessionKey), buf.Bytes(), 0o644)
 }
 
-// ListSessions returns all known session keys by reading .meta.json files.
 // LastModified returns the mtime of the session's jsonl file. It backs the
 // restart-recovery notification window (fresh sessions notify, stale ones
 // seal silently). ok=false when the file does not exist.

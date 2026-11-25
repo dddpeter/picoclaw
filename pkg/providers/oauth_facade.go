@@ -1,8 +1,5 @@
-// Compatibility facade: re-exports pkg/providers/oauth types and
-// constructors under the historic root-package import path. The
-// implementations live in pkg/providers/oauth — new code should import that
-// package directly; this facade exists so external configs / plugins with the
-// old import path keep compiling and is not extended with new symbols.
+// Package providers is a compatibility facade: re-exports pkg/providers/oauth types and constructors under the historic root-package import path. The implementations live in pkg/providers/oauth — new code should import that package directly; this facade exists so external configs / plugins with the old import path keep compiling and is not extended with new symbols.
+
 package providers
 
 import (
@@ -20,26 +17,8 @@ func NewAntigravityProvider() *AntigravityProvider {
 	return oauthprovider.NewAntigravityProvider()
 }
 
-func NewClaudeProvider(token string) *ClaudeProvider {
-	return oauthprovider.NewClaudeProvider(token)
-}
-
-func NewClaudeProviderWithBaseURL(token, apiBase string) *ClaudeProvider {
-	return oauthprovider.NewClaudeProviderWithBaseURL(token, apiBase)
-}
-
 func NewClaudeProviderWithTokenSource(token string, tokenSource func() (string, error)) *ClaudeProvider {
 	return oauthprovider.NewClaudeProviderWithTokenSource(token, tokenSource)
-}
-
-func NewClaudeProviderWithTokenSourceAndBaseURL(
-	token string, tokenSource func() (string, error), apiBase string,
-) *ClaudeProvider {
-	return oauthprovider.NewClaudeProviderWithTokenSourceAndBaseURL(token, tokenSource, apiBase)
-}
-
-func NewCodexProvider(token, accountID string) *CodexProvider {
-	return oauthprovider.NewCodexProvider(token, accountID)
 }
 
 func NewCodexProviderWithTokenSource(

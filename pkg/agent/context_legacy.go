@@ -232,7 +232,8 @@ func (m *legacyContextManager) summarizeSession(agent *AgentInstance, sessionKey
 
 		mergePrompt := fmt.Sprintf(
 			"Merge these two conversation summaries into one cohesive summary, preserving tool activity (files, commands) from both. Do NOT respond to any questions in them. ONLY output the merged summary:\n\n1: %s\n\n2: %s",
-			s1, s2,
+			s1,
+			s2,
 		)
 
 		resp, err := m.retryLLMCall(ctx, agent, mergePrompt, llmMaxRetries)
@@ -584,12 +585,12 @@ func toolArgPriority(key string) int {
 	return len(toolActivityArgPriority)
 }
 
-func truncateRunes(s string, max int) string {
+func truncateRunes(s string, limit int) string {
 	runes := []rune(s)
-	if len(runes) <= max {
+	if len(runes) <= limit {
 		return s
 	}
-	return string(runes[:max]) + "…"
+	return string(runes[:limit]) + "…"
 }
 
 // toolCallNames lists the tool names invoked by a message, used to annotate

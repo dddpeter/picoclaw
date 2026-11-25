@@ -67,7 +67,8 @@ const (
 	ApprovalAskPrefix = "⚠️ 需要批准：即将执行工具 "
 	// ApprovalReplyHintPrefix opens the reply-hint line of the ask.
 	ApprovalReplyHintPrefix = "回复 /approve"
-	// Receipts (publishApprovalReceipt / publishTimeoutReceipt).
+	// ApprovalReceiptAlwaysPrefix opens the always-allow receipt line
+	// (publishApprovalReceipt / publishTimeoutReceipt).
 	ApprovalReceiptAlwaysPrefix    = "✅ 已批准；本会话内命中规则"
 	ApprovalReceiptAllowAllPrefix  = "✅ 已批准；本会话内所有审批将自动放行"
 	ApprovalReceiptApprovedExact   = "✅ 已批准，继续执行。"
@@ -314,7 +315,11 @@ func (h *approvalHook) inheritExecDenyPatterns(cfg *config.Config) int {
 		})
 	}
 	if cfg.Tools.Exec.EnableCustomDenyPatterns && added > 0 {
-		logger.WarnCF("agent", "Exec deny enforcement is ALSO active for the inherited patterns; approved commands will still be hard-rejected inside exec — set tools.exec.enable_custom_deny_patterns=false for the single-list approval recipe", map[string]any{})
+		logger.WarnCF(
+			"agent",
+			"Exec deny enforcement is ALSO active for the inherited patterns; approved commands will still be hard-rejected inside exec — set tools.exec.enable_custom_deny_patterns=false for the single-list approval recipe",
+			map[string]any{},
+		)
 	}
 	return added
 }
@@ -471,8 +476,11 @@ func (h *approvalHook) ApproveTool(ctx context.Context, req *ToolApprovalRequest
 	if hard := h.matchedHardDeny(req.Tool, req.Arguments); hard != "" {
 		return ApprovalDecision{
 			Approved: false,
-			Reason: fmt.Sprintf("tool %q matches hard-deny rule %q; this call is not approvable and must not be retried as-is.",
-				req.Tool, hard),
+			Reason: fmt.Sprintf(
+				"tool %q matches hard-deny rule %q; this call is not approvable and must not be retried as-is.",
+				req.Tool,
+				hard,
+			),
 		}, nil
 	}
 	pattern := h.matchedAskPattern(req.Tool, req.Arguments)
@@ -491,8 +499,10 @@ func (h *approvalHook) ApproveTool(ctx context.Context, req *ToolApprovalRequest
 	if channel == "" || constants.IsInternalChannel(channel) {
 		return ApprovalDecision{
 			Approved: false,
-			Reason: fmt.Sprintf("tool %q matched an approval rule, but this session has no interactive channel (background/cron turn); denied fail-closed. Use a different approach, or let the user run it in an interactive session.",
-				req.Tool),
+			Reason: fmt.Sprintf(
+				"tool %q matched an approval rule, but this session has no interactive channel (background/cron turn); denied fail-closed. Use a different approach, or let the user run it in an interactive session.",
+				req.Tool,
+			),
 		}, nil
 	}
 
@@ -516,7 +526,13 @@ func (h *approvalHook) ApproveTool(ctx context.Context, req *ToolApprovalRequest
 	}
 
 	resolve := make(chan approvalReply, 1)
-	waiter := &pendingApproval{resolve: resolve, channel: channel, chatID: chatID, senderID: askedSender, pattern: pattern}
+	waiter := &pendingApproval{
+		resolve:  resolve,
+		channel:  channel,
+		chatID:   chatID,
+		senderID: askedSender,
+		pattern:  pattern,
+	}
 	if prev, loaded := h.pending.Swap(sessionKey, waiter); loaded {
 		// The tool loop is serial per session, so this only happens with a
 		// misbehaving parallel path: deny the stale waiter instead of
@@ -605,7 +621,7 @@ func (h *approvalHook) ApproveTool(ctx context.Context, req *ToolApprovalRequest
 		}
 		return ApprovalDecision{
 			Approved: false,
-			Reason:   fmt.Sprintf("approval wait for %q was cancelled (turn aborted); denied fail-closed", req.Tool),
+			Reason:   fmt.Sprintf("approval wait for %q was canceled (turn aborted); denied fail-closed", req.Tool),
 		}, nil
 	case <-timer.C:
 		// Same retire-then-drain order: an on-time answer that raced into
@@ -627,7 +643,11 @@ func (h *approvalHook) ApproveTool(ctx context.Context, req *ToolApprovalRequest
 		h.publishTimeoutReceipt(ctx, req, channel, chatID)
 		return ApprovalDecision{
 			Approved: false,
-			Reason:   fmt.Sprintf("approval for %q timed out after %s without a user reply; denied fail-closed", req.Tool, h.timeout),
+			Reason: fmt.Sprintf(
+				"approval for %q timed out after %s without a user reply; denied fail-closed",
+				req.Tool,
+				h.timeout,
+			),
 		}, nil
 	}
 }
@@ -669,7 +689,7 @@ func approvalCallPreview(req *ToolApprovalRequest) string {
 // card with buttons; the clicks synthesize /approve /deny through the normal
 // inbound path. Anything else — other channels, or a card-render failure —
 // falls back to the plain text prompt. Publish runs on a detached 5s-bounded
-// context so a cancelled turn cannot also cancel the question the user still
+// context so a canceled turn cannot also cancel the question the user still
 // needs to see.
 func (h *approvalHook) publishAsk(ctx context.Context, req *ToolApprovalRequest, channel, chatID string) {
 	al := AgentLoopFromContext(ctx)
@@ -710,7 +730,11 @@ func (h *approvalHook) publishAsk(ctx context.Context, req *ToolApprovalRequest,
 	if prompt.Preview != "" {
 		content += "\n" + prompt.Preview
 	}
-	content += fmt.Sprintf("\n\n%s 允许、/approve always 本会话内不再询问此规则、/approve all 本会话全部允许、/deny 拒绝（超过 %s 未回复将按拒绝处理）", ApprovalReplyHintPrefix, h.timeout)
+	content += fmt.Sprintf(
+		"\n\n%s 允许、/approve always 本会话内不再询问此规则、/approve all 本会话全部允许、/deny 拒绝（超过 %s 未回复将按拒绝处理）",
+		ApprovalReplyHintPrefix,
+		h.timeout,
+	)
 
 	askMsg := bus.OutboundMessage{
 		Channel:    channel,

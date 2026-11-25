@@ -58,7 +58,7 @@ type feishuCardStreamer struct {
 	// sessionKey scopes card reuse to one session (B2-2); empty = unscoped
 	// legacy behavior (any caller may pick the card up).
 	sessionKey string
-	// msgID is the message that delivered the card into the chat. Cancelling
+	// msgID is the message that delivered the card into the chat. Canceling
 	// a card that never showed content deletes this message instead of
 	// sealing an "interrupted" marker.
 	msgID string
@@ -260,7 +260,10 @@ func (c *FeishuChannel) BeginStream(ctx context.Context, chatID string) (channel
 //	                                        (sweep), fresh ones left alone
 //	                                        (their owner is live and will seal them)
 //	sealed  → new card
-func (c *FeishuChannel) BeginStreamForSession(ctx context.Context, chatID, sessionKey string) (channels.Streamer, error) {
+func (c *FeishuChannel) BeginStreamForSession(
+	ctx context.Context,
+	chatID, sessionKey string,
+) (channels.Streamer, error) {
 	key := streamMapKey(chatID, sessionKey)
 	if v, ok := c.streams.Load(key); ok {
 		if s, ok := v.(*feishuCardStreamer); ok {
@@ -486,11 +489,15 @@ func (s *feishuCardStreamer) pumpSends(shouldPump bool, own *feishuSendOp) error
 				// head; this branch is unreachable today, kept for safety).
 				ownErr = op.err
 			default:
-				logger.WarnCF("feishu", "streaming card write failed (answer stream continues; next write carries full content)", map[string]any{
-					"chat_id": s.chatID,
-					"card_id": s.cardID,
-					"error":   op.err.Error(),
-				})
+				logger.WarnCF(
+					"feishu",
+					"streaming card write failed (answer stream continues; next write carries full content)",
+					map[string]any{
+						"chat_id": s.chatID,
+						"card_id": s.cardID,
+						"error":   op.err.Error(),
+					},
+				)
 			}
 		}
 		first = false
@@ -528,7 +535,10 @@ func (s *feishuCardStreamer) streamerActiveLocked() bool {
 // embedded its chat_id in the callback value at render time.
 // Button rendering was removed (2026-09-09, visual clutter); the handler
 // stays so buttons on cards already sitting in chats still work.
-func (c *FeishuChannel) handleCardAction(_ context.Context, event *callback.CardActionTriggerEvent) (*callback.CardActionTriggerResponse, error) {
+func (c *FeishuChannel) handleCardAction(
+	_ context.Context,
+	event *callback.CardActionTriggerEvent,
+) (*callback.CardActionTriggerResponse, error) {
 	toast := func(typ, text string) *callback.CardActionTriggerResponse {
 		return &callback.CardActionTriggerResponse{Toast: &callback.Toast{Type: typ, Content: text}}
 	}
@@ -571,7 +581,11 @@ func (c *FeishuChannel) handleCardAction(_ context.Context, event *callback.Card
 		sender.CanonicalID = identity.BuildCanonicalID("feishu", operatorOpenID)
 	}
 	if !c.IsAllowedSender(sender) {
-		logger.WarnCF("feishu", "card action refused: sender not in allowlist", map[string]any{"operator": operatorOpenID})
+		logger.WarnCF(
+			"feishu",
+			"card action refused: sender not in allowlist",
+			map[string]any{"operator": operatorOpenID},
+		)
 		return toast("error", "无权执行此操作"), nil
 	}
 
@@ -584,7 +598,11 @@ func (c *FeishuChannel) handleCardAction(_ context.Context, event *callback.Card
 		// The button only exists while a card streams, but a delayed click can
 		// land after the turn sealed; refuse instead of stopping nothing.
 		if !c.chatHasActiveStreamer(chatID) {
-			logger.InfoCF("feishu", "card action refused: no active streamer for chat", map[string]any{"chat_id": chatID})
+			logger.InfoCF(
+				"feishu",
+				"card action refused: no active streamer for chat",
+				map[string]any{"chat_id": chatID},
+			)
 			return toast("info", "当前没有进行中的任务"), nil
 		}
 		inboundCtx := bus.InboundContext{
@@ -599,6 +617,7 @@ func (c *FeishuChannel) handleCardAction(_ context.Context, event *callback.Card
 				"chat_id": chatID,
 				"error":   err.Error(),
 			})
+			//nolint:nilerr // intentional: enqueue failure answers with a toast, not a transport error
 			return toast("error", "停止指令发送失败"), nil
 		}
 		logger.InfoCF("feishu", "stop button clicked; /stop enqueued", map[string]any{
@@ -648,6 +667,7 @@ func (c *FeishuChannel) handleCardAction(_ context.Context, event *callback.Card
 				"cmd":     cmd,
 				"error":   err.Error(),
 			})
+			//nolint:nilerr // intentional: enqueue failure answers with a toast, not a transport error
 			return toast("error", "审批回复发送失败"), nil
 		}
 		// Seal the clicked card so the question cannot be answered twice.
@@ -1145,7 +1165,7 @@ func (s *feishuCardStreamer) Cancel(ctx context.Context) {
 // the sealed card's status line so users know why the reply stopped.
 //
 // A card that never showed any content (no answer text, no reasoning/tool
-// panel, no narration) only ever rendered a spinner. Cancelling such a card
+// panel, no narration) only ever rendered a spinner. Canceling such a card
 // deletes its message instead of sealing an "⚠ 已中断" marker: transient
 // pre-output failures (e.g. upstream 429 followed by a fallback) would
 // otherwise litter the chat with interrupt cards the user never watched
@@ -1271,7 +1291,11 @@ func (s *feishuCardStreamer) SetTurnUsage(usage providers.UsageInfo) {
 // cardkitStreamContent pushes accumulated text into one card element with a
 // monotonic sequence (Feishu requires increasing sequence numbers while the
 // card is in streaming mode).
-func (c *FeishuChannel) cardkitStreamContent(ctx context.Context, cardID, elementID, content string, sequence int) error {
+func (c *FeishuChannel) cardkitStreamContent(
+	ctx context.Context,
+	cardID, elementID, content string,
+	sequence int,
+) error {
 	ctx, cancel := context.WithTimeout(ctx, feishuCallTimeout)
 	defer cancel()
 
@@ -1301,7 +1325,12 @@ func (c *FeishuChannel) cardkitStreamContent(ctx context.Context, cardID, elemen
 			// LLM call over a lost typewriter kills the whole turn.
 			return errFeishuStreamingEnded
 		}
-		return fmt.Errorf("feishu stream content api error (code=%d msg=%s): %w", resp.Code, resp.Msg, channels.ErrTemporary)
+		return fmt.Errorf(
+			"feishu stream content api error (code=%d msg=%s): %w",
+			resp.Code,
+			resp.Msg,
+			channels.ErrTemporary,
+		)
 	}
 	return nil
 }
@@ -1345,7 +1374,12 @@ func (c *FeishuChannel) cardkitUpdateCardJSON(ctx context.Context, cardID, cardJ
 	}
 	if !resp.Success() {
 		c.invalidateTokenOnAuthError(resp.Code)
-		return fmt.Errorf("feishu cardkit update api error (code=%d msg=%s): %w", resp.Code, resp.Msg, channels.ErrTemporary)
+		return fmt.Errorf(
+			"feishu cardkit update api error (code=%d msg=%s): %w",
+			resp.Code,
+			resp.Msg,
+			channels.ErrTemporary,
+		)
 	}
 	return nil
 }
@@ -1366,7 +1400,12 @@ func (c *FeishuChannel) deliverCardOrText(ctx context.Context, chatID, content s
 }
 
 // cardkitCloseStreaming turns streaming mode off and sets the card summary.
-func (c *FeishuChannel) cardkitCloseStreaming(ctx context.Context, cardID string, summary map[string]any, sequence int) error {
+func (c *FeishuChannel) cardkitCloseStreaming(
+	ctx context.Context,
+	cardID string,
+	summary map[string]any,
+	sequence int,
+) error {
 	ctx, cancel := context.WithTimeout(ctx, feishuCallTimeout)
 	defer cancel()
 
@@ -1398,7 +1437,12 @@ func (c *FeishuChannel) cardkitCloseStreaming(ctx context.Context, cardID string
 			// what this call wanted; treat as success.
 			return nil
 		}
-		return fmt.Errorf("feishu cardkit settings api error (code=%d msg=%s): %w", resp.Code, resp.Msg, channels.ErrTemporary)
+		return fmt.Errorf(
+			"feishu cardkit settings api error (code=%d msg=%s): %w",
+			resp.Code,
+			resp.Msg,
+			channels.ErrTemporary,
+		)
 	}
 	return nil
 }
@@ -1430,7 +1474,12 @@ func (c *FeishuChannel) cardkitReopenStreaming(ctx context.Context, cardID strin
 	}
 	if !resp.Success() {
 		c.invalidateTokenOnAuthError(resp.Code)
-		return fmt.Errorf("feishu cardkit reopen streaming api error (code=%d msg=%s): %w", resp.Code, resp.Msg, channels.ErrTemporary)
+		return fmt.Errorf(
+			"feishu cardkit reopen streaming api error (code=%d msg=%s): %w",
+			resp.Code,
+			resp.Msg,
+			channels.ErrTemporary,
+		)
 	}
 	return nil
 }

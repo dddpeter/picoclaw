@@ -192,7 +192,12 @@ func (s *idleCompactScanner) markerStoreFor(agent *AgentInstance) session.IdleCo
 	return ms
 }
 
-func (s *idleCompactScanner) maybeCompactSession(agent *AgentInstance, key string, idleAfter time.Duration, minMessages int) {
+func (s *idleCompactScanner) maybeCompactSession(
+	agent *AgentInstance,
+	key string,
+	idleAfter time.Duration,
+	minMessages int,
+) {
 	updated, ok := agent.Sessions.LastModified(key)
 	if !ok {
 		s.skip(key, "no_mtime", nil)
@@ -214,7 +219,6 @@ func (s *idleCompactScanner) maybeCompactSession(agent *AgentInstance, key strin
 		// earned a fresh compaction eligibility (and cleared its backoff).
 		if updated.After(rec.seenUpdated) {
 			delete(s.records, key)
-			rec = nil
 		} else if !rec.successAt.IsZero() {
 			s.skip(key, "already_compacted", nil)
 			return

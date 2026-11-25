@@ -38,7 +38,7 @@ import (
 // the seal marks them "result unknown, re-check" precisely because re-running
 // them after "继续" may duplicate side effects. There is no mid-turn
 // checkpoint/resume in picoclaw by design: the in-flight LLM generation is
-// never persisted, IM channels favour "notify + user says 继续", and the
+// never persisted, IM channels favor "notify + user says 继续", and the
 // marker schema stays minimal (session/agent/model/started_at). If the
 // marker schema ever grows, follow the one-way version gate: reject markers
 // from a newer schema, keep loading older ones.
@@ -138,7 +138,10 @@ func (al *AgentLoop) RunRestartRecovery(ctx context.Context) {
 // keeping only leftovers from a previous process. Markers written after
 // recovery started, or whose session currently has an active turn, belong
 // to a live turn of THIS process and are left untouched.
-func (al *AgentLoop) loadInterruptedTurns(agent *AgentInstance, recoveryStart time.Time) map[string]session.InflightTurn {
+func (al *AgentLoop) loadInterruptedTurns(
+	agent *AgentInstance,
+	recoveryStart time.Time,
+) map[string]session.InflightTurn {
 	markerStore, ok := agent.Sessions.(session.InflightTurnStore)
 	if !ok {
 		return nil
@@ -423,7 +426,7 @@ func (al *AgentLoop) runRecoveryReminderLoop(ctx context.Context, tick time.Dura
 				return true
 			})
 			// Reminders are only registered before the loop starts; once every
-			// entry is exhausted (or cancelled out of the map) there is nothing
+			// entry is exhausted (or canceled out of the map) there is nothing
 			// left to wait for — exit instead of ticking forever.
 			if pending == 0 {
 				return
@@ -481,7 +484,11 @@ func outboundTargetForSession(agent *AgentInstance, key string) (string, string)
 // --- test hooks (production code must not call these) ---
 
 // registerRecoveryReminderForTest injects a reminder with overridden timing.
-func (al *AgentLoop) registerRecoveryReminderForTest(sessionKey, channel, chatID string, interval time.Duration, max int) *recoveryReminder {
+func (al *AgentLoop) registerRecoveryReminderForTest(
+	sessionKey, channel, chatID string,
+	interval time.Duration,
+	limit int,
+) *recoveryReminder {
 	r := &recoveryReminder{
 		sessionKey: sessionKey,
 		channel:    channel,
@@ -489,7 +496,7 @@ func (al *AgentLoop) registerRecoveryReminderForTest(sessionKey, channel, chatID
 		content:    restartRecoveryNoticeSealed,
 		nextAt:     time.Now().Add(interval),
 		interval:   interval,
-		max:        max,
+		max:        limit,
 	}
 	al.recoveryReminders.Store(sessionKey, r)
 	return r

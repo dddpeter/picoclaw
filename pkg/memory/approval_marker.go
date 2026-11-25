@@ -81,7 +81,7 @@ func readApprovalMarkerAt(path string) (*ApprovalMarker, error) {
 	if err := json.Unmarshal(data, &marker); err != nil || marker.SessionKey == "" {
 		// Corrupt marker: self-heal (same policy as turn markers).
 		_ = os.Remove(path)
-		return nil, nil
+		return nil, nil //nolint:nilerr // intentional: corrupt marker self-heals to "no marker"
 	}
 	return &marker, nil
 }
