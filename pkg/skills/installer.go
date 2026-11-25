@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -15,7 +16,6 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/fileutil"
 	"github.com/sipeed/picoclaw/pkg/utils"
-	"log"
 )
 
 // GitHubContent represents a file or directory in GitHub API response
@@ -48,12 +48,6 @@ type SkillInstaller struct {
 	githubRawBaseURL string
 	githubToken      string
 	proxy            string
-}
-
-// NewSkillInstaller creates a new skill installer.
-// proxy is an optional HTTP/HTTPS/SOCKS5 proxy URL for downloading skills.
-func NewSkillInstaller(workspace, githubToken, proxy string) (*SkillInstaller, error) {
-	return NewSkillInstallerWithBaseURL(workspace, "", githubToken, proxy)
 }
 
 // NewSkillInstallerWithBaseURL creates a new skill installer with a custom GitHub base URL.
@@ -233,12 +227,6 @@ func knownSkillSubPathAnchor(parts []string) int {
 func isSkillMarkdownPath(subPath string) bool {
 	subPath = strings.Trim(strings.TrimSpace(subPath), "/")
 	return subPath == "SKILL.md" || strings.HasSuffix(subPath, "/SKILL.md")
-}
-
-// parseGitHubRef parses a GitHub reference.
-// Supports: "owner/repo", "owner/repo/path", or full URL like "https://github.com/owner/repo/tree/ref/path"
-func parseGitHubRef(repo string) (GitHubRef, error) {
-	return parseGitHubRefWithBaseURL(repo, "", "main")
 }
 
 func parseGitHubRefWithBaseURL(repo, githubBaseURL, defaultRef string) (GitHubRef, error) {
@@ -598,11 +586,20 @@ func sanitizeRemoteFileName(name string) (string, error) {
 		return "", fmt.Errorf("empty name")
 	}
 	cleaned := filepath.Clean(name)
+	// filepath.VolumeName is a no-op on POSIX hosts, so a Windows drive
+	// prefix must be rejected explicitly — "C:x" is a path on the C: drive
+	// there, not a plain component.
+	drivePrefix := len(cleaned) >= 2 && cleaned[1] == ':' && isASCIILetter(cleaned[0])
 	if cleaned == ".." || strings.ContainsAny(cleaned, "/\\") ||
-		filepath.VolumeName(cleaned) != "" || strings.HasPrefix(cleaned, "\\") {
+		filepath.VolumeName(cleaned) != "" || drivePrefix || strings.HasPrefix(cleaned, "\\") {
 		return "", fmt.Errorf("name is not a safe single path component")
 	}
 	return cleaned, nil
+}
+
+// isASCIILetter reports whether b is an ASCII drive-letter candidate.
+func isASCIILetter(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
 func shouldDownload(name string, root bool) bool {
