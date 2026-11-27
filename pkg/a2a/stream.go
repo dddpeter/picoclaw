@@ -282,6 +282,9 @@ func (s *Server) serveMessageStream(w http.ResponseWriter, r *http.Request, req 
 	}
 	defer reg.Unregister(contextID)
 
+	// Task 6: index the task so tasks/get can serve detached watchers.
+	s.tracker.Register(taskID, params.Message.MessageID, contextID)
+
 	flusher, canFlush := w.(http.Flusher)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -311,6 +314,7 @@ func (s *Server) serveMessageStream(w http.ResponseWriter, r *http.Request, req 
 		select {
 		case err := <-askDone:
 			if err != nil {
+				s.tracker.Fail(taskID, err.Error())
 				_ = stream.push(Task{
 					ID: taskID, ContextID: contextID, Kind: "task",
 					Status: TaskStatus{State: TaskStateFailed,
@@ -318,11 +322,14 @@ func (s *Server) serveMessageStream(w http.ResponseWriter, r *http.Request, req 
 				})
 			} else if stream.snapshot() != TaskStateCompleted {
 				// Non-streaming provider: no Finalize arrived — close with the answer.
+				s.tracker.Complete(taskID, answer)
 				_ = stream.push(Task{
 					ID: taskID, ContextID: contextID, Kind: "task",
 					Status:    TaskStatus{State: TaskStateCompleted},
 					Artifacts: []A2AArtifact{{Parts: []A2APart{{Kind: "text", Text: answer}}}},
 				})
+			} else {
+				s.tracker.Complete(taskID, answer)
 			}
 			// The final frames were pushed onto the channel; without this
 			// drain they die with the handler (return would race the select

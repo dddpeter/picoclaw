@@ -225,12 +225,45 @@ func TestMessageSendError(t *testing.T) {
 func TestMessageSendMethodNotFound(t *testing.T) {
 	stub := &recordingAsk{answer: "x"}
 	srv := NewServer(stub.ask, Options{})
-	rec := postSend(t, srv.Handler(), `{"jsonrpc":"2.0","id":1,"method":"tasks/get","params":{}}`)
+	rec := postSend(t, srv.Handler(), `{"jsonrpc":"2.0","id":1,"method":"bogus/method","params":{}}`)
 	if !strings.Contains(rec.Body.String(), "-32601") {
 		t.Errorf("unknown method must yield -32601, body: %s", rec.Body.String())
 	}
 	if stub.count() != 0 {
 		t.Errorf("AskFunc must not run for unknown methods (ran %d times)", stub.count())
+	}
+}
+
+// TestTasksGetLifecycle pins the detached-delivery contract (task 6):
+// working after registration, completed with artifacts after Complete,
+// failed with the error text, and -32002 for unknown ids.
+func TestTasksGetLifecycle(t *testing.T) {
+	stub := &recordingAsk{answer: "x"}
+	srv := NewServer(stub.ask, Options{})
+	h := srv.Handler()
+	get := func(id string) string {
+		rec := postSend(t, h, fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"tasks/get","params":{"id":%q}}`, id))
+		return rec.Body.String()
+	}
+
+	if body := get("task-unknown"); !strings.Contains(body, "-32002") {
+		t.Errorf("unknown task must be -32002, body: %s", body)
+	}
+
+	srv.tracker.Register("task-t1", "m1", "ctx-1")
+	if body := get("task-t1"); !strings.Contains(body, `"working"`) {
+		t.Errorf("registered task must be working, body: %s", body)
+	}
+
+	srv.tracker.Complete("task-t1", "最终答案")
+	if body := get("task-t1"); !strings.Contains(body, "最终答案") || !strings.Contains(body, `"completed"`) {
+		t.Errorf("completed task must carry artifacts, body: %s", body)
+	}
+
+	srv.tracker.Register("task-t2", "m2", "ctx-2")
+	srv.tracker.Fail("task-t2", "boom")
+	if body := get("task-t2"); !strings.Contains(body, `"failed"`) || !strings.Contains(body, "boom") {
+		t.Errorf("failed task must carry the error, body: %s", body)
 	}
 }
 

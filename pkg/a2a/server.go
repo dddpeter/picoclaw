@@ -32,6 +32,7 @@ type Server struct {
 	token    string
 	registry *StreamRegistry
 	idem     *IdempotencyStore
+	tracker  *TaskTracker
 
 	mu       sync.Mutex
 	contexts map[string]*sync.Mutex // per-context serialization
@@ -44,6 +45,7 @@ func NewServer(ask AskFunc, opts Options) *Server {
 		token:    opts.Token,
 		registry: NewStreamRegistry(),
 		idem:     NewIdempotencyStore(24 * time.Hour),
+		tracker:  NewTaskTracker(),
 		contexts: make(map[string]*sync.Mutex),
 	}
 }
@@ -107,6 +109,10 @@ func (s *Server) serveJSONRPC(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Method == "message/stream" {
 		s.serveMessageStream(w, r, req, s.registry)
+		return
+	}
+	if req.Method == "tasks/get" {
+		s.serveTasksGet(w, r, req)
 		return
 	}
 	if req.Method != "message/send" {
