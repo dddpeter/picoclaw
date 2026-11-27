@@ -138,6 +138,24 @@ func (r *StreamRegistry) Unregister(contextID string) {
 	r.mu.Unlock()
 }
 
+// CancelStream pushes a canceled Task frame onto the contextId's live
+// stream and closes it (tasks/cancel side effect: attached SSE clients see
+// the terminal frame; the serveMessageStream loop returns on canceled).
+func (r *StreamRegistry) CancelStream(contextID, taskID string) bool {
+	r.mu.Lock()
+	s, ok := r.streams[contextID]
+	r.mu.Unlock()
+	if !ok {
+		return false
+	}
+	_ = s.push(Task{
+		ID: taskID, ContextID: contextID, Kind: "task",
+		Status: TaskStatus{State: TaskStateCanceled},
+	})
+	s.finish()
+	return true
+}
+
 // GetStreamer implements bus.StreamDelegate: only the "a2a" channel routes
 // here, keyed by chatID (== contextId).
 func (r *StreamRegistry) GetStreamer(_ context.Context, channel, chatID, _ string) (bus.Streamer, bool) {
@@ -325,6 +343,7 @@ func (s *Server) serveMessageStream(w http.ResponseWriter, r *http.Request, req 
 	// TASK-scoped (30min guard), NOT request-scoped: handler returns on
 	// client disconnect must NOT cancel it. askDone reclaims it.
 	askCtx, askCancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	s.trackRun(taskID, askCancel) // tasks/cancel stops the turn via this ctx
 	askDone := make(chan error, 1)
 	var answer string
 	go func() {
@@ -343,6 +362,7 @@ func (s *Server) serveMessageStream(w http.ResponseWriter, r *http.Request, req 
 	for {
 		select {
 		case err := <-askDone:
+			s.untrackRun(taskID)
 			askCancel() // reclaim the task-scoped ctx; timeout is the backstop
 			if err != nil {
 				s.tracker.Fail(taskID, err.Error())

@@ -36,17 +36,23 @@ type Server struct {
 
 	mu       sync.Mutex
 	contexts map[string]*sync.Mutex // per-context serialization
+
+	// runMu/runCancels index the task-scoped ask contexts so tasks/cancel
+	// can stop a detached agent turn, not just mark the record.
+	runMu      sync.Mutex
+	runCancels map[string]context.CancelFunc
 }
 
 // NewServer builds the A2A JSON-RPC server.
 func NewServer(ask AskFunc, opts Options) *Server {
 	return &Server{
-		ask:      ask,
-		token:    opts.Token,
-		registry: NewStreamRegistry(),
-		idem:     NewIdempotencyStore(24 * time.Hour),
-		tracker:  NewTaskTracker(),
-		contexts: make(map[string]*sync.Mutex),
+		ask:        ask,
+		token:      opts.Token,
+		registry:   NewStreamRegistry(),
+		idem:       NewIdempotencyStore(24 * time.Hour),
+		tracker:    NewTaskTracker(),
+		contexts:   make(map[string]*sync.Mutex),
+		runCancels: make(map[string]context.CancelFunc),
 	}
 }
 
@@ -113,6 +119,10 @@ func (s *Server) serveJSONRPC(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Method == "tasks/get" {
 		s.serveTasksGet(w, r, req)
+		return
+	}
+	if req.Method == "tasks/cancel" {
+		s.serveTasksCancel(w, r, req)
 		return
 	}
 	if req.Method != "message/send" {

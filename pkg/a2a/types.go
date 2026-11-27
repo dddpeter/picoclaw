@@ -46,6 +46,13 @@ const (
 	CodeInvalidParams  = -32602
 	CodeInternalError  = -32603
 	CodeServerError    = -32000 // server-defined range start: agent loop failures
+
+	// A2A spec codes for tasks/cancel. Note: serveTasksGet answers unknown
+	// ids with -32002 (pre-existing bridge-visible behavior; the A2A spec
+	// puts not-found at -32001) — do not "fix" it without migrating the
+	// groupbridge watcher, which matches on the -32002 text.
+	CodeTaskNotFound      = -32001 // TaskNotFoundError
+	CodeTaskNotCancelable = -32002 // TaskNotCancelableError
 )
 
 // A2AMessage is an A2A message (user or agent side).
