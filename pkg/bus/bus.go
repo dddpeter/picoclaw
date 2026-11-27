@@ -166,8 +166,9 @@ type MessageBus struct {
 	closed         atomic.Bool
 	wg             sync.WaitGroup
 	publishMu      sync.Mutex
-	streamDelegate atomic.Value // stores StreamDelegate
-	eventPublisher atomic.Value // stores EventPublisher
+	streamMu       sync.RWMutex
+	streamDelegate StreamDelegate // guarded by streamMu; may be replaced at runtime (a2a chaining)
+	eventPublisher atomic.Value   // stores EventPublisher
 	inboundStats   streamStats
 	outboundStats  streamStats
 	mediaStats     streamStats
@@ -376,9 +377,15 @@ func (mb *MessageBus) VoiceControlsChan() <-chan VoiceControl {
 	return mb.voiceControls
 }
 
-// SetStreamDelegate registers a StreamDelegate (typically the channel Manager).
+// SetStreamDelegate registers a StreamDelegate (typically the channel
+// Manager). May be called again to replace the delegate (e.g. the gateway
+// chaining the a2a registry in front of the manager) — hence the mutex
+// instead of atomic.Value, whose Store panics when the concrete type
+// changes across calls.
 func (mb *MessageBus) SetStreamDelegate(d StreamDelegate) {
-	mb.streamDelegate.Store(d)
+	mb.streamMu.Lock()
+	mb.streamDelegate = d
+	mb.streamMu.Unlock()
 }
 
 // SetEventPublisher registers a runtime event publisher for bus errors and lifecycle events.
@@ -388,7 +395,10 @@ func (mb *MessageBus) SetEventPublisher(p EventPublisher) {
 
 // GetStreamer returns a Streamer for the given channel+chatID+session via the delegate.
 func (mb *MessageBus) GetStreamer(ctx context.Context, channel, chatID, sessionKey string) (Streamer, bool) {
-	if d, ok := mb.streamDelegate.Load().(StreamDelegate); ok && d != nil {
+	mb.streamMu.RLock()
+	d := mb.streamDelegate
+	mb.streamMu.RUnlock()
+	if d != nil {
 		return d.GetStreamer(ctx, channel, chatID, sessionKey)
 	}
 	return nil, false
@@ -398,8 +408,11 @@ func (mb *MessageBus) GetStreamer(ctx context.Context, channel, chatID, sessionK
 // (if it supports it) so an active streaming surface can show the user that
 // their mid-turn message was heard.
 func (mb *MessageBus) NotifySteering(ctx context.Context, channel, chatID, sessionKey, preview string) bool {
-	if d, ok := mb.streamDelegate.Load().(SteeringNotifyDelegate); ok && d != nil {
-		return d.NotifySteering(ctx, channel, chatID, sessionKey, preview)
+	mb.streamMu.RLock()
+	d := mb.streamDelegate
+	mb.streamMu.RUnlock()
+	if sd, ok := d.(SteeringNotifyDelegate); ok && sd != nil {
+		return sd.NotifySteering(ctx, channel, chatID, sessionKey, preview)
 	}
 	return false
 }

@@ -112,7 +112,7 @@ func NewAgentCard(name, description, baseURL string, withAuth bool) AgentCard {
 		ProtocolVersion: "1.0",
 		URL:             baseURL,
 		Capabilities: AgentCardCapabilities{
-			Streaming:         true,  // message/stream (SSE)
+			Streaming:         false, // message/stream endpoint exists but the pipeline→registry frame path is not wired end-to-end yet (see stream.go known issue)
 			PushNotifications: false, // no tasks/push yet
 		},
 		DefaultInputModes:  []string{"text"},
