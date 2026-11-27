@@ -20,6 +20,16 @@ type GatewayConfig struct {
 	// probe on an interval, restart it when down, go silent after repeated
 	// failures. Default true (out-of-the-box); set false to disable.
 	AutoStart *bool `json:"auto_start,omitempty" env:"PICOCLAW_GATEWAY_AUTO_START"`
+	// A2A serves the A2A v1.0 JSON-RPC endpoint (agent card + message/send)
+	// on the shared gateway HTTP mux. Disabled by default (iron rule: the
+	// Pico WS channel and health endpoints are untouched when disabled).
+	A2A GatewayA2AConfig `json:"a2a,omitempty"`
+}
+
+// GatewayA2AConfig enables and tunes the A2A endpoint.
+type GatewayA2AConfig struct {
+	Enabled bool   `json:"enabled"`         // default false: fully off
+	Token   string `json:"token,omitempty"` // empty = loopback-only access
 }
 
 // GatewayAutoStartEnabled reports whether the launcher gateway watchdog is
