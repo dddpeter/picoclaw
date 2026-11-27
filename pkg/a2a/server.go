@@ -31,6 +31,7 @@ type Server struct {
 	ask      AskFunc
 	token    string
 	registry *StreamRegistry
+	idem     *IdempotencyStore
 
 	mu       sync.Mutex
 	contexts map[string]*sync.Mutex // per-context serialization
@@ -42,6 +43,7 @@ func NewServer(ask AskFunc, opts Options) *Server {
 		ask:      ask,
 		token:    opts.Token,
 		registry: NewStreamRegistry(),
+		idem:     NewIdempotencyStore(24 * time.Hour),
 		contexts: make(map[string]*sync.Mutex),
 	}
 }
@@ -130,24 +132,32 @@ func (s *Server) serveJSONRPC(w http.ResponseWriter, r *http.Request) {
 
 	// Review focus 5: serialize per context so concurrent same-context
 	// requests keep turn order instead of interleaving into one session.
+	// Fix plan task 1: retrying clients re-sending the same messageId are
+	// answered from the idempotency cache / shared in-flight run instead of
+	// starting a second turn.
 	lock := s.contextLock(contextID)
 	lock.Lock()
-	answer, err := s.ask(r.Context(), params.Message.Text(), "a2a", contextID)
+	result, askErr := s.dedupResult(params.Message.MessageID, func() (any, string, error) {
+		answer, err := s.ask(r.Context(), params.Message.Text(), "a2a", contextID)
+		if err != nil {
+			return nil, "", err
+		}
+		return A2AMessage{
+			Role:      "agent",
+			Parts:     []A2APart{{Kind: "text", Text: answer}},
+			MessageID: uuid.NewString(),
+			ContextID: contextID,
+		}, contextID, nil
+	})
 	lock.Unlock()
-	if err != nil {
+	if askErr != nil {
 		writeJSONRPC(w, 0, req.ID, nil, &JSONRPCError{
 			Code:    CodeServerError,
-			Message: "message/send failed: " + err.Error(),
+			Message: "message/send failed: " + askErr.Error(),
 		})
 		return
 	}
 
-	result := A2AMessage{
-		Role:      "agent",
-		Parts:     []A2APart{{Kind: "text", Text: answer}},
-		MessageID: uuid.NewString(),
-		ContextID: contextID,
-	}
 	writeJSONRPC(w, 0, req.ID, result, nil)
 }
 

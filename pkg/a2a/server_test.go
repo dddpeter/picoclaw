@@ -168,18 +168,24 @@ func TestMessageSendSerialization(t *testing.T) {
 	stub := &recordingAsk{answer: "done", block: 200 * time.Millisecond}
 	srv := NewServer(stub.ask, Options{})
 	h := srv.Handler()
-	body := `{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"role":"user","parts":[{"kind":"text","text":"并发"}],"messageId":"m1","contextId":"ctx-c"}}}`
+	// Distinct messageIds, same contextId: retry storms reuse a messageId
+	// and are deduped by the idempotency store (see TestServerDedup*) —
+	// serialization here is about *different* turns on one context.
+	bodies := []string{
+		`{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"role":"user","parts":[{"kind":"text","text":"并发1"}],"messageId":"m1","contextId":"ctx-c"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"message/send","params":{"message":{"role":"user","parts":[{"kind":"text","text":"并发2"}],"messageId":"m2","contextId":"ctx-c"}}}`,
+	}
 
 	start := time.Now()
 	done := make(chan *httptest.ResponseRecorder, 2)
 	for i := 0; i < 2; i++ {
-		go func() {
-			req := httptest.NewRequest("POST", "/", strings.NewReader(body))
+		go func(idx int) {
+			req := httptest.NewRequest("POST", "/", strings.NewReader(bodies[idx]))
 			req.RemoteAddr = "127.0.0.1:54321"
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, req)
 			done <- rec
-		}()
+		}(i)
 	}
 	<-done
 	<-done
