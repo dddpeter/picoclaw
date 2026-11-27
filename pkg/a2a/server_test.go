@@ -22,6 +22,7 @@ type recordingAsk struct {
 	err     error
 	block   time.Duration
 	blockMu sync.Mutex // held while blocked: lets tests observe serialization
+	onRun   func(prompt, chatID string)
 }
 
 type askCall struct {
@@ -33,7 +34,11 @@ type askCall struct {
 func (r *recordingAsk) ask(ctx context.Context, prompt, channel, chatID string) (string, error) {
 	r.mu.Lock()
 	r.calls = append(r.calls, askCall{prompt, channel, chatID})
+	onRun := r.onRun
 	r.mu.Unlock()
+	if onRun != nil {
+		onRun(prompt, chatID)
+	}
 	if r.block > 0 {
 		r.blockMu.Lock()
 		time.Sleep(r.block)

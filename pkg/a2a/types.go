@@ -112,7 +112,7 @@ func NewAgentCard(name, description, baseURL string, withAuth bool) AgentCard {
 		ProtocolVersion: "1.0",
 		URL:             baseURL,
 		Capabilities: AgentCardCapabilities{
-			Streaming:         false, // sync MVP
+			Streaming:         true,  // message/stream (SSE)
 			PushNotifications: false, // no tasks/push yet
 		},
 		DefaultInputModes:  []string{"text"},

@@ -99,7 +99,7 @@ func (s *Server) serveJSONRPC(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Method != "message/send" {
 		writeJSONRPC(w, 0, req.ID, nil, &JSONRPCError{
-			Code: CodeMethodNotFound,
+			Code:    CodeMethodNotFound,
 			Message: fmt.Sprintf("method %q not supported; this MVP serves message/send only", req.Method),
 		})
 		return

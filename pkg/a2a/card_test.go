@@ -23,8 +23,8 @@ func TestAgentCard(t *testing.T) {
 	if card.URL != "http://127.0.0.1:18790" {
 		t.Errorf("url = %q, want http://127.0.0.1:18790", card.URL)
 	}
-	if card.Capabilities.Streaming {
-		t.Error("capabilities.streaming = true, want false (sync MVP)")
+	if !card.Capabilities.Streaming {
+		t.Error("capabilities.streaming = false, want true (message/stream SSE)")
 	}
 	if card.Capabilities.PushNotifications {
 		t.Error("capabilities.pushNotifications = true, want false")
