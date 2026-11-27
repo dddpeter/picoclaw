@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/sipeed/picoclaw/pkg/a2a"
 	"github.com/sipeed/picoclaw/pkg/agent"
 	"github.com/sipeed/picoclaw/pkg/audio/asr"
 	"github.com/sipeed/picoclaw/pkg/audio/tts"
@@ -531,6 +532,29 @@ func setupAndStartServices(
 		listenAddr,
 		runningServices.HealthServer,
 	)
+
+	// A2A v1.0 endpoint (docs/design/a2a/2026-11-27-a2a-server-plan.md task 4):
+	// disabled by default — nothing is registered unless gateway.a2a.enabled,
+	// so the Pico WS channel and the health surface are byte-identical to the
+	// pre-A2A gateway when the flag is off. AskFunc maps (prompt, contextId)
+	// onto ProcessDirectWithChannel with a per-context session key, reusing
+	// the existing session persistence (no new session mechanism).
+	if cfg.Gateway.A2A.Enabled {
+		a2aSrv := a2a.NewServer(
+			func(ctx context.Context, prompt, channel, chatID string) (string, error) {
+				return agentLoop.ProcessDirectWithChannel(ctx, prompt, channel+"-"+chatID, channel, chatID)
+			},
+			a2a.Options{Token: cfg.Gateway.A2A.Token},
+		)
+		runningServices.ChannelManager.RegisterHandler(
+			"/.well-known/agent-card.json",
+			a2a.CardHandler(a2a.NewAgentCard("PicoClaw", "PicoClaw personal AI agent", "http://"+listenAddr, cfg.Gateway.A2A.Token != "")),
+		)
+		runningServices.ChannelManager.RegisterHandler("/", a2aSrv.Handler())
+		logger.InfoCF("a2a", "A2A v1.0 endpoint enabled (auth: %s)", map[string]any{
+			"mode": map[bool]string{true: "bearer token", false: "loopback-only"}[cfg.Gateway.A2A.Token != ""],
+		})
+	}
 
 	if err = runningServices.ChannelManager.StartAll(context.Background()); err != nil {
 		return nil, fmt.Errorf("error starting channels: %w", err)

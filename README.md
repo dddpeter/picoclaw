@@ -516,6 +516,30 @@ Talk to your PicoClaw through 19+ messaging platforms:
 
 For detailed channel setup instructions, see [Chat Apps Configuration](docs/guides/chat-apps.md).
 
+## 🤝 A2A (Agent-to-Agent) Server
+
+PicoClaw gateway can expose a standard [A2A v1.0](https://a2a-protocol.org) JSON-RPC endpoint so any external agent (GroupBridge, other AI agents) can discover and dispatch work without bespoke adapters. **Disabled by default** — enable it in `~/.picoclaw/config.json`:
+
+```json
+{
+  "gateway": {
+    "a2a": { "enabled": true, "token": "your-bearer-token" }
+  }
+}
+```
+
+- `token` empty → only loopback callers (`127.0.0.1` / `::1`) may invoke; otherwise a `Authorization: Bearer <token>` header is required from non-loopback callers.
+- **Discovery**: `GET /.well-known/agent-card.json`
+- **Invoke**: `POST <gateway-url>` with JSON-RPC `message/send` (synchronous — the call blocks until the agent finishes; there is no server-side write timeout cutting long turns):
+
+```bash
+curl -s localhost:18790/.well-known/agent-card.json | jq .protocolVersion   # "1.0"
+curl -s -X POST localhost:18790 -H 'Authorization: Bearer your-bearer-token' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"role":"user","parts":[{"kind":"text","text":"冒烟：报出你的名字"}],"messageId":"smoke-1"}}}' | jq .result.parts[0].text
+```
+
+Repeat calls with the same `contextId` continue the same conversation (session continuity); omit it on the first call and the server mints one in the response. Implementation: `pkg/a2a/` — design notes in `docs/design/a2a/`.
+
 ## 🔧 Tools
 
 ### 🔍 Web Search

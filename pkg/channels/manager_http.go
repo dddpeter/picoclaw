@@ -45,6 +45,20 @@ func (m *Manager) SetupHTTPServerListeners(listeners []net.Listener, addr string
 	m.httpListeners = append([]net.Listener(nil), listeners...)
 }
 
+// RegisterHandler mounts an extra handler on the shared gateway mux (the
+// same dynamic mux that serves /health, /ready, /reload and channel
+// webhooks). Used by the gateway to wire optional services — e.g. the A2A
+// endpoint when gateway.a2a.enabled is true. No-op when the HTTP surface
+// has not been set up.
+func (m *Manager) RegisterHandler(pattern string, handler http.Handler) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.mux == nil || handler == nil {
+		return
+	}
+	m.mux.Handle(pattern, handler)
+}
+
 // registerHTTPHandlersLocked registers webhook and health-check handlers for
 // all channels currently in m.channels. Caller must hold m.mu (or ensure
 // exclusive access).
