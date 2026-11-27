@@ -295,10 +295,15 @@ func (s *Server) serveMessageStream(w http.ResponseWriter, r *http.Request, req 
 	}
 
 	// Agent loop in the background; snapshots flow via the registry.
+	// Task 6: the turn MUST outlive the HTTP connection — detached clients
+	// walk away right after the acceptance frame. askCtx is therefore
+	// TASK-scoped (30min guard), NOT request-scoped: handler returns on
+	// client disconnect must NOT cancel it. askDone reclaims it.
+	askCtx, askCancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	askDone := make(chan error, 1)
 	var answer string
 	go func() {
-		ans, err := s.ask(r.Context(), params.Message.Text(), "a2a", contextID)
+		ans, err := s.ask(askCtx, params.Message.Text(), "a2a", contextID)
 		answer = ans
 		askDone <- err
 	}()
@@ -313,6 +318,7 @@ func (s *Server) serveMessageStream(w http.ResponseWriter, r *http.Request, req 
 	for {
 		select {
 		case err := <-askDone:
+			askCancel() // reclaim the task-scoped ctx; timeout is the backstop
 			if err != nil {
 				s.tracker.Fail(taskID, err.Error())
 				_ = stream.push(Task{
