@@ -96,32 +96,3 @@ func TestMessageStreamE2E(t *testing.T) {
 		t.Errorf("channel = %q, want a2a", stub.call(0).channel)
 	}
 }
-
-// TestMessageStreamRejectsSecondStreamOnSameContext: two concurrent streams
-// for one contextId — the second registration overwrites the first map
-// entry, which is wrong; the handler must instead refuse with -32000.
-func TestMessageStreamRejectsSecondStreamOnSameContext(t *testing.T) {
-	stub := &recordingAsk{answer: "x", block: 500 * time.Millisecond}
-	reg := NewStreamRegistry()
-	srv := NewServer(stub.ask, Options{})
-	h := srv.HandleMessageStream(reg)
-
-	body := `{"jsonrpc":"2.0","id":1,"method":"message/stream","params":{"message":{"role":"user","parts":[{"kind":"text","text":"q"}],"messageId":"m1","contextId":"ctx-dup"}}}`
-
-	go func() {
-		req := httptest.NewRequest("POST", "/", strings.NewReader(body))
-		req.RemoteAddr = "127.0.0.1:1"
-		rec := httptest.NewRecorder()
-		h(rec, req)
-	}()
-	time.Sleep(100 * time.Millisecond) // let the first stream register
-
-	req2 := httptest.NewRequest("POST", "/", strings.NewReader(body))
-	req2.RemoteAddr = "127.0.0.1:2"
-	rec2 := httptest.NewRecorder()
-	h(rec2, req2)
-
-	if !strings.Contains(rec2.Body.String(), "-32000") {
-		t.Errorf("second stream on live context must be refused with -32000, body: %s", rec2.Body.String())
-	}
-}

@@ -68,11 +68,41 @@ func (s *sseStream) Done() <-chan struct{} { return s.done }
 type StreamRegistry struct {
 	mu      sync.Mutex
 	streams map[string]*sseStream
+
+	// gates serializes streams per contextId: concurrent message/stream
+	// requests QUEUE on a caller-ctx-bounded semaphore instead of being
+	// refused with -32000 (refusal + retrying clients = dropped questions,
+	// the 19:41 incident).
+	gates   map[string]chan struct{}
+	gatesMu sync.Mutex
 }
 
 // NewStreamRegistry builds the registry.
 func NewStreamRegistry() *StreamRegistry {
-	return &StreamRegistry{streams: make(map[string]*sseStream)}
+	return &StreamRegistry{
+		streams: make(map[string]*sseStream),
+		gates:   make(map[string]chan struct{}),
+	}
+}
+
+// Acquire waits for exclusive stream rights on a contextId. The wait is
+// bounded by ctx: a caller that gives up leaves the queue. The returned
+// release func must be called when the stream finishes.
+func (r *StreamRegistry) Acquire(ctx context.Context, contextID string) (release func(), ok bool) {
+	r.gatesMu.Lock()
+	gate, exists := r.gates[contextID]
+	if !exists {
+		gate = make(chan struct{}, 1)
+		r.gates[contextID] = gate
+	}
+	r.gatesMu.Unlock()
+
+	select {
+	case gate <- struct{}{}:
+		return func() { <-gate }, true
+	case <-ctx.Done():
+		return nil, false
+	}
 }
 
 // Register mounts a stream for a contextId. Returns nil when that context
@@ -231,8 +261,19 @@ func (s *Server) serveMessageStream(w http.ResponseWriter, r *http.Request, req 
 		_ = rc.SetWriteDeadline(time.Time{})
 	}
 
+	// Queue on the per-context gate BEFORE Register: concurrent streams on
+	// one contextId serialize here (caller-ctx-bounded), so retrying
+	// clients get a normal stream after the current turn instead of -32000.
+	release, acquired := reg.Acquire(r.Context(), contextID)
+	if !acquired {
+		// Caller gave up while queued — connection is gone anyway.
+		return
+	}
+	defer release()
+
 	stream := reg.Register(contextID, taskID)
 	if stream == nil {
+		// Defensive: only reachable if registry state drifts from the gate.
 		writeJSONRPC(w, 0, req.ID, nil, &JSONRPCError{
 			Code:    CodeServerError,
 			Message: "a message/stream is already running for this contextId",
