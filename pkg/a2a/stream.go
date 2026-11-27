@@ -25,10 +25,10 @@ const (
 
 // Task is the A2A task object streamed as the message/stream result.
 type Task struct {
-	ID        string       `json:"id"`
-	ContextID string       `json:"contextId"`
-	Kind      string       `json:"kind"`
-	Status    TaskStatus   `json:"status"`
+	ID        string        `json:"id"`
+	ContextID string        `json:"contextId"`
+	Kind      string        `json:"kind"`
+	Status    TaskStatus    `json:"status"`
 	Artifacts []A2AArtifact `json:"artifacts,omitempty"`
 	// Reasoning carries the in-progress model thinking snapshot on working
 	// frames (ReasoningStreamer). Empty on terminal frames.
