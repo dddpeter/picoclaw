@@ -25,11 +25,14 @@ const (
 
 // Task is the A2A task object streamed as the message/stream result.
 type Task struct {
-	ID        string        `json:"id"`
-	ContextID string        `json:"contextId"`
-	Status    TaskStatus    `json:"status"`
+	ID        string       `json:"id"`
+	ContextID string       `json:"contextId"`
+	Kind      string       `json:"kind"`
+	Status    TaskStatus   `json:"status"`
 	Artifacts []A2AArtifact `json:"artifacts,omitempty"`
-	Kind      string        `json:"kind"` // always "task"
+	// Reasoning carries the in-progress model thinking snapshot on working
+	// frames (ReasoningStreamer). Empty on terminal frames.
+	Reasoning string `json:"reasoning,omitempty"`
 }
 
 // TaskStatus is the status block of a Task.
@@ -179,6 +182,17 @@ func (rs *registryStreamer) Finalize(_ context.Context, content string) error {
 	})
 	rs.s.finish()
 	return err
+}
+
+// UpdateReasoning implements bus.ReasoningStreamer: the thinking snapshot
+// rides working frames in a dedicated field, so streaming clients (bridge)
+// can render a live process panel like the feishu card's.
+func (rs *registryStreamer) UpdateReasoning(_ context.Context, content string) error {
+	return rs.s.push(Task{
+		ID: rs.s.taskID, ContextID: rs.s.ctxID, Kind: "task",
+		Status:    TaskStatus{State: TaskStateWorking},
+		Reasoning: content,
+	})
 }
 
 func (rs *registryStreamer) Cancel(_ context.Context) {
