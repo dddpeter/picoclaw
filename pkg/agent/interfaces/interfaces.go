@@ -43,6 +43,11 @@ type ChannelManager interface {
 	// InvokeTypingStop signals that typing has stopped.
 	InvokeTypingStop(channel, chatID string)
 
+	// InvokeTurnEnd signals that a dispatched message finished processing
+	// (all LLM/tool iterations included). Channels implementing
+	// channels.TurnEndCapable broadcast a turn-final frame; others no-op.
+	InvokeTurnEnd(channel, chatID string)
+
 	// SendMessage sends a text message to the specified channel and chat.
 	SendMessage(ctx context.Context, msg bus.OutboundMessage) error
 

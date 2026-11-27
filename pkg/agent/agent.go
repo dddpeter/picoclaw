@@ -369,6 +369,11 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 
 				if al.channelManager != nil {
 					defer al.channelManager.InvokeTypingStop(m.Channel, m.ChatID)
+					// Turn-final signal for capable channels (pico
+					// broadcasts turn.status{active:false}): fires after
+					// every LLM/tool iteration of this dispatched message
+					// is done — success, error, or panic.
+					defer al.channelManager.InvokeTurnEnd(m.Channel, m.ChatID)
 				}
 
 				if al.takePendingStop(sessionKey) {

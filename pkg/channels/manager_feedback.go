@@ -161,6 +161,25 @@ func (m *Manager) InvokeTypingStop(channel, chatID string) {
 	}
 }
 
+// InvokeTurnEnd signals that a dispatched message finished processing (all
+// LLM/tool iterations included). Channels implementing TurnEndCapable get
+// NotifyTurnEnd invoked exactly once — pico uses it to broadcast a
+// turn.status{active:false} frame so protocol clients can tell a finished
+// turn apart from the mid-iteration typing.stop beats. No-op for channels
+// that do not implement the capability.
+func (m *Manager) InvokeTurnEnd(channel, chatID string) {
+	if m == nil {
+		return
+	}
+	ch, ok := m.GetChannel(channel)
+	if !ok {
+		return
+	}
+	if te, ok := ch.(TurnEndCapable); ok {
+		te.NotifyTurnEnd(chatID)
+	}
+}
+
 // RecordReactionUndo registers a reaction undo function for later invocation.
 // Implements PlaceholderRecorder.
 func (m *Manager) RecordReactionUndo(channel, chatID string, undo func()) {

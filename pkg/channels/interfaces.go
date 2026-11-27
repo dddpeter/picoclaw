@@ -93,6 +93,15 @@ type PlaceholderRecorder interface {
 	RecordReactionUndo(channel, chatID string, undo func())
 }
 
+// TurnEndCapable is implemented by channels that want an explicit
+// turn-final signal broadcast to their clients. The agent loop calls
+// Manager.InvokeTurnEnd when a dispatched message finishes processing (all
+// LLM/tool iterations included); channels that implement this interface get
+// their NotifyTurnEnd invoked exactly once per dispatched message.
+type TurnEndCapable interface {
+	NotifyTurnEnd(chatID string)
+}
+
 // CommandRegistrarCapable is implemented by channels that can register
 // command menus with their upstream platform (e.g. Telegram BotCommand).
 // Channels that do not support platform-level command menus can ignore it.

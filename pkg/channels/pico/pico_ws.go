@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"mime"
 	"net/http"
 	"os"
@@ -218,6 +219,20 @@ func (c *PicoChannel) broadcast(chatID string, msg PicoMessage) error {
 		return c.broadcastFn(chatID, msg)
 	}
 	return c.broadcastToSession(chatID, msg)
+}
+
+// NotifyTurnEnd implements channels.TurnEndCapable: the agent loop calls
+// Manager.InvokeTurnEnd exactly once per dispatched message (all LLM/tool
+// iterations included), and this broadcasts the turn-final
+// turn.status{active:false} frame. Protocol clients (groupbridge, TUI, web)
+// can use it to tell a genuinely finished turn apart from the mid-iteration
+// typing.stop beats. Errors are logged and swallowed: the frame is retained
+// in the session seq ring for reconnect replay either way.
+func (c *PicoChannel) NotifyTurnEnd(chatID string) {
+	msg := newMessage(TypeTurnStatus, map[string]any{"active": false})
+	if err := c.broadcast(chatID, msg); err != nil && !errors.Is(err, errFrameRetainedNoDelivery) {
+		log.Printf("[pico] NotifyTurnEnd broadcast %s: %v", chatID, err)
+	}
 }
 
 // errFrameRetainedNoDelivery reports that an outbound frame was retained in
