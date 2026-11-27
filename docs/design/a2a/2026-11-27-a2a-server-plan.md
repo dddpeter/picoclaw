@@ -51,7 +51,7 @@ docs/design/a2a/        # 本计划所在目录
 
 **文件：** 创建 `pkg/a2a/types.go`、`pkg/a2a/card.go`、`pkg/a2a/card_test.go`
 
-- [ ] **步骤 1：编写失败的测试**（`card_test.go`）
+- [x] **步骤 1：编写失败的测试**（`card_test.go`）
 
 ```go
 func TestAgentCard(t *testing.T) {
@@ -64,8 +64,8 @@ func TestCardHandler(t *testing.T) {
 }
 ```
 
-- [ ] **步骤 2：运行 `go test ./pkg/a2a/ -run TestAgent`，预期 FAIL（未定义）**
-- [ ] **步骤 3：实现**
+- [x] **步骤 2：运行 `go test ./pkg/a2a/ -run TestAgent`，预期 FAIL（未定义）**
+- [x] **步骤 3：实现**
 
 ```go
 // types.go
@@ -95,8 +95,8 @@ type A2APart struct {
 // capabilities{streaming:false, pushNotifications:false}, securitySchemes, defaultInputModes/OutputModes
 ```
 
-- [ ] **步骤 4：`go test ./pkg/a2a/` 预期 PASS**
-- [ ] **步骤 5：Commit** `feat(a2a): types + agent card endpoint`
+- [x] **步骤 4：`go test ./pkg/a2a/` 预期 PASS**
+- [x] **步骤 5：Commit** `feat(a2a): types + agent card endpoint`
 
 ### 任务 2：message/send → agent loop 映射
 
@@ -110,7 +110,7 @@ type AskFunc func(ctx context.Context, prompt, channel, chatID string) (string, 
 // channel 恒传 "a2a"；chatID == contextId
 ```
 
-- [ ] **步骤 1：编写失败的测试**（`server_test.go`，AskFunc 用 stub）
+- [x] **步骤 1：编写失败的测试**（`server_test.go`，AskFunc 用 stub）
 
 ```go
 func TestMessageSend(t *testing.T) {
@@ -131,16 +131,16 @@ func TestMessageSendError(t *testing.T) {
 }
 ```
 
-- [ ] **步骤 2：运行 `go test ./pkg/a2a/ -run TestMessage`，预期 FAIL**
-- [ ] **步骤 3：实现 `server.go`**——handler 逻辑：解析 JSONRPCRequest → method 不符返回 -32601 → 提取 message → 无 contextId 生成 uuid → 调 AskFunc → 包装 A2AMessage 回 result。per-context 串行化用 `map[string]*sync.Mutex` + 全局锁保护 map。**服务端 http.Server 不设 WriteTimeout**（审查重点 1）。
-- [ ] **步骤 4：`go test ./pkg/a2a/` 全 PASS**
-- [ ] **步骤 5：Commit** `feat(a2a): message/send mapped to agent loop via AskFunc`
+- [x] **步骤 2：运行 `go test ./pkg/a2a/ -run TestMessage`，预期 FAIL**
+- [x] **步骤 3：实现 `server.go`**——handler 逻辑：解析 JSONRPCRequest → method 不符返回 -32601 → 提取 message → 无 contextId 生成 uuid → 调 AskFunc → 包装 A2AMessage 回 result。per-context 串行化用 `map[string]*sync.Mutex` + 全局锁保护 map。**服务端 http.Server 不设 WriteTimeout**（审查重点 1）。
+- [x] **步骤 4：`go test ./pkg/a2a/` 全 PASS**
+- [x] **步骤 5：Commit** `feat(a2a): message/send mapped to agent loop via AskFunc`
 
 ### 任务 3：鉴权 + 配置
 
 **文件：** 修改 `pkg/config/config.go`、`pkg/a2a/server.go` + 测试
 
-- [ ] **步骤 1：编写失败的测试**
+- [x] **步骤 1：编写失败的测试**
 
 ```go
 func TestAuthRequired(t *testing.T) {
@@ -153,8 +153,8 @@ func TestLocalBypass(t *testing.T) {
 }
 ```
 
-- [ ] **步骤 2：预期 FAIL**
-- [ ] **步骤 3：实现**——config 新增（跟随 picoclaw config 拒未知字段的惯例，确认 tag 名）：
+- [x] **步骤 2：预期 FAIL**
+- [x] **步骤 3：实现**——config 新增（跟随 picoclaw config 拒未知字段的惯例，确认 tag 名）：
 
 ```go
 type A2AConfig struct {
@@ -164,15 +164,15 @@ type A2AConfig struct {
 // 挂在 GatewayConfig 下：Gateway.A2A
 ```
 
-- [ ] **步骤 4：全 PASS**
-- [ ] **步骤 5：Commit** `feat(a2a): bearer auth + gateway.a2a config`
+- [x] **步骤 4：全 PASS**
+- [x] **步骤 5：Commit** `feat(a2a): bearer auth + gateway.a2a config`
 
 ### 任务 4：gateway 接线
 
 **文件：** 修改 `pkg/gateway/gateway.go`（health 注册点 :224 附近）、`config/` 示例、`README.md`
 
-- [ ] **步骤 1：接线**——`cfg.Gateway.A2A.Enabled` 为 true 时，在共享 mux 注册 `card.go` + `server.go` 的两个 handler，AskFunc 传既有 agent loop 入口（与 heartbeat handler :976 同型，channel="a2a"）；disabled 时零注册。
-- [ ] **步骤 2：验证不破坏原功能**
+- [x] **步骤 1：接线**——`cfg.Gateway.A2A.Enabled` 为 true 时，在共享 mux 注册 `card.go` + `server.go` 的两个 handler，AskFunc 传既有 agent loop 入口（与 heartbeat handler :976 同型，channel="a2a"）；disabled 时零注册。
+- [x] **步骤 2：验证不破坏原功能**
 
 ```bash
 go build ./... && go test ./...   # 全仓回归，全绿
@@ -180,7 +180,7 @@ go build ./... && go test ./...   # 全仓回归，全绿
 curl -s localhost:18790/health && curl -s localhost:18790/ready
 ```
 
-- [ ] **步骤 3：手测开闸**——`a2a.enabled: true` + token 后：
+- [x] **步骤 3：手测开闸**——`a2a.enabled: true` + token 后：
 
 ```bash
 curl -s localhost:18790/.well-known/agent-card.json | jq .protocolVersion   # "1.0"
@@ -188,18 +188,18 @@ curl -s -X POST localhost:18790 -H 'Authorization: Bearer <token>' \
   -d '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"role":"user","parts":[{"kind":"text","text":"冒烟：报出你的名字"}],"messageId":"smoke-1"}}}' | jq .result.parts[0].text
 ```
 
-- [ ] **步骤 4：README 增补 A2A 一节**（端点、配置项、curl 示例）
-- [ ] **步骤 5：Commit** `feat(a2a): gateway wiring + docs`
+- [x] **步骤 4：README 增补 A2A 一节**（端点、配置项、curl 示例）
+- [x] **步骤 5：Commit** `feat(a2a): gateway wiring + docs`
 
 ### 任务 5：端到端验收（用 GroupBridge 当 oracle）
 
 **文件：** 无代码；产出验收记录贴回协作群
 
-- [ ] **步骤 1：桥切通道**——`/works/workspace/tools/groupbridge/configs/groupbridge.yaml` 把 xiajiang/ailoshi 的类型从 picoclaw 改 a2a（endpoint 不变，token 填 gateway.a2a.token），重建 `bin/groupbridge`
-- [ ] **步骤 2：四路冒烟**——`./bin/groupbridge-smoke -agent <key>` × 4（xiajiang/ailoshi 走新 A2A 路径，xiaoaima/xiazai 原 A2A 不动），全部 SMOKE_OK
-- [ ] **步骤 3：上下文验收**——smoke 连发两问：「我叫什么名字」（先报名字）→「我刚才说我叫什么」——第二问答案必须含第一问的名字（contextId 复用生效）
-- [ ] **步骤 4：Pico WS 回归**——切回 picoclaw 类型再跑一次冒烟，确认旧通道未受影响
-- [ ] **步骤 5：验收记录 commit** `docs(a2a): e2e acceptance record`
+- [x] **步骤 1：桥切通道**——`/works/workspace/tools/groupbridge/configs/groupbridge.yaml` 把 xiajiang/ailoshi 的类型从 picoclaw 改 a2a（endpoint 不变，token 填 gateway.a2a.token），重建 `bin/groupbridge`
+- [x] **步骤 2：四路冒烟**——`./bin/groupbridge-smoke -agent <key>` × 4（xiajiang/ailoshi 走新 A2A 路径，xiaoaima/xiazai 原 A2A 不动），全部 SMOKE_OK
+- [x] **步骤 3：上下文验收**——smoke 连发两问：「我叫什么名字」（先报名字）→「我刚才说我叫什么」——第二问答案必须含第一问的名字（contextId 复用生效）
+- [x] **步骤 4：Pico WS 回归**——切回 picoclaw 类型再跑一次冒烟，确认旧通道未受影响
+- [x] **步骤 5：验收记录 commit** `docs(a2a): e2e acceptance record`
 
 ## 升级路径（P2，本期不做）
 
@@ -209,3 +209,23 @@ curl -s -X POST localhost:18790 -H 'Authorization: Bearer <token>' \
 
 ---
 *计划人：小爱马 🐴 · 2026-11-27 · 侦察基线：picoclaw HEAD `3a6966d9`，验收 oracle `groupbridge/internal/agents/a2a.go`*
+
+---
+
+## 验收记录（2026-11-27 18:05，任务 5 实测）
+
+**Oracle：GroupBridge `internal/agents/a2a.go`（未改动一行客户端代码）**
+
+| 验收项 | 结果 |
+|---|---|
+| Agent Card 发现 | ✅ `GET /.well-known/agent-card.json` → protocolVersion "1.0"、bearer、streaming false |
+| message/send 同步调用 | ✅ 本机虾酱 + 远端爱老师双端，答案正常、contextId 生成回传 |
+| 四路冒烟（桥切 A2A 通道） | ✅ xiazai/xiaoaima（原 A2A 不动）+ xiajiang/ailoshi（新 A2A 路径）全部 SMOKE_OK 并报出名字 |
+| contextId 会话延续 | ✅ 两连发「我叫 Peter」→「我刚才说我叫什么」→ 精确答出 Peter（session key `a2a-<contextId>` 复用现有 session 持久化） |
+| Pico WS 回归 | ✅ 切回 picoclaw 通道 xiajiang 1m34s / ailoshi 1m36s SMOKE_OK，turn.status 终结帧照常工作 |
+| 默认关闭铁律 | ✅ `gateway.a2a` 缺省时零 handler 注册（TestGatewayA2ADefaultsOff 钉死）；本机网关开闸前 /health /ready 不受影响 |
+| 测试 | ✅ pkg/a2a 11 测试全绿；pkg/channels、gateway、health 回归全绿；config 包 2 个失败为既有（git stash 基线同败，TestSaveConfig_FilePermissions / TestSaveAndLoadSecurityConfig，与 A2A 无关） |
+
+**过程中修的一个验收工具坑**：groupbridge-smoke 独立进程未调用 Pico agent 的 Start(ctx)（常驻 WS keeper），导致 Ask 等连接超时——桥本体不受影响，smoke 已补 Start 循环。
+
+**遗留到 P2**：`message/stream`（SSE）替代同步阻塞；`tasks/get` + push notification；GroupBridge 桥侧 contextId 复用（当前桥每问独立 context，server 端语义已就绪）。
