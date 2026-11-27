@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
+	"github.com/sipeed/picoclaw/pkg/logger"
 )
 
 // Task states per A2A v1.0.
@@ -113,6 +114,9 @@ func (r *StreamRegistry) GetStreamer(_ context.Context, channel, chatID, _ strin
 	r.mu.Lock()
 	s, ok := r.streams[chatID]
 	r.mu.Unlock()
+	logger.InfoCF("a2a", "stream registry lookup", map[string]any{
+		"chat_id": chatID, "hit": ok, "tracked": len(r.streams),
+	})
 	if !ok {
 		return nil, false
 	}
@@ -279,6 +283,10 @@ func (s *Server) serveMessageStream(w http.ResponseWriter, r *http.Request, req 
 					Artifacts: []A2AArtifact{{Parts: []A2APart{{Kind: "text", Text: answer}}}},
 				})
 			}
+			// The final frames were pushed onto the channel; without this
+			// drain they die with the handler (return would race the select
+			// and the queued terminating frame would never reach the client).
+			drainStreamFrames(w, flusher, canFlush, stream)
 			stream.finish()
 			return
 		case frame := <-stream.events:
@@ -303,6 +311,24 @@ func (s *Server) serveMessageStream(w http.ResponseWriter, r *http.Request, req 
 			}
 		case <-r.Context().Done():
 			stream.finish()
+			return
+		}
+	}
+}
+
+// drainStreamFrames flushes whatever frames are already queued so the
+// terminating state change reaches the client before the handler returns.
+func drainStreamFrames(w http.ResponseWriter, flusher http.Flusher, canFlush bool, stream *sseStream) {
+	for {
+		select {
+		case frame := <-stream.events:
+			if _, err := fmt.Fprintf(w, "%s\n\n", frame); err != nil {
+				return
+			}
+			if canFlush {
+				flusher.Flush()
+			}
+		default:
 			return
 		}
 	}

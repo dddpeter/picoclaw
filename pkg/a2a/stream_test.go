@@ -53,10 +53,9 @@ func TestStreamRegistryLifecycle(t *testing.T) {
 }
 
 func TestCardStreamingCapability(t *testing.T) {
-	t.Skip("streaming advertised once the pipeline→SSE frame path is verified end-to-end; see stream.go known issue")
 	card := NewAgentCard("PicoClaw", "d", "http://127.0.0.1:18790", true)
 	if !card.Capabilities.Streaming {
-		t.Error("capabilities.streaming = false, want true once message/stream exists")
+		t.Error("capabilities.streaming = false, want true (message/stream verified live)")
 	}
 }
 

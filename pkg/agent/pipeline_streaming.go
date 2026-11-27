@@ -389,6 +389,15 @@ func (p *Pipeline) channelStreamingConfig(channelName string) (config.StreamingC
 	if p == nil || p.Cfg == nil || p.Cfg.Channels == nil {
 		return config.StreamingConfig{}, false
 	}
+	// The a2a channel is not a config.Channels entry (it is served by
+	// pkg/a2a on the gateway mux), but its message/stream consumers receive
+	// snapshots through the a2a StreamRegistry — so it is inherently
+	// streaming-capable. Without this entry configuredStreamingEligible
+	// would reject every a2a turn and SSE clients would only ever see the
+	// final completed frame.
+	if channelName == "a2a" {
+		return config.StreamingConfig{Enabled: true, ThrottleSeconds: 1, MinGrowthChars: 1}, true
+	}
 	ch := p.Cfg.Channels[channelName]
 	if ch == nil {
 		return config.StreamingConfig{}, false
