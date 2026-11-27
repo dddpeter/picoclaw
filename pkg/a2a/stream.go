@@ -195,6 +195,17 @@ func (rs *registryStreamer) UpdateReasoning(_ context.Context, content string) e
 	})
 }
 
+// FinalizeReasoning implements bus.ReasoningStreamer: the reasoning phase
+// is over (answer streaming starts) — push the final thinking snapshot on
+// a working frame so clients can close their process panel.
+func (rs *registryStreamer) FinalizeReasoning(_ context.Context, content string) error {
+	return rs.s.push(Task{
+		ID: rs.s.taskID, ContextID: rs.s.ctxID, Kind: "task",
+		Status:    TaskStatus{State: TaskStateWorking},
+		Reasoning: content,
+	})
+}
+
 func (rs *registryStreamer) Cancel(_ context.Context) {
 	_ = rs.s.push(Task{
 		ID: rs.s.taskID, ContextID: rs.s.ctxID, Kind: "task",
