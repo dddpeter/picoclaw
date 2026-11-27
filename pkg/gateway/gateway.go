@@ -551,6 +551,13 @@ func setupAndStartServices(
 			a2a.CardHandler(a2a.NewAgentCard("PicoClaw", "PicoClaw personal AI agent", "http://"+listenAddr, cfg.Gateway.A2A.Token != "")),
 		)
 		runningServices.ChannelManager.RegisterHandler("/", a2aSrv.Handler())
+		// message/stream: route the agent pipeline's streamer lookups for the
+		// "a2a" channel into the SSE registry; every other channel keeps the
+		// previous delegate (pico WS streaming et al.).
+		msgBus.SetStreamDelegate(&a2a.ChainedStreamDelegate{
+			Primary:  a2aSrv.Registry(),
+			Fallback: runningServices.ChannelManager,
+		})
 		logger.InfoCF("a2a", "A2A v1.0 endpoint enabled (auth: %s)", map[string]any{
 			"mode": map[bool]string{true: "bearer token", false: "loopback-only"}[cfg.Gateway.A2A.Token != ""],
 		})

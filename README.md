@@ -530,7 +530,8 @@ PicoClaw gateway can expose a standard [A2A v1.0](https://a2a-protocol.org) JSON
 
 - `token` empty → only loopback callers (`127.0.0.1` / `::1`) may invoke; otherwise a `Authorization: Bearer <token>` header is required from non-loopback callers.
 - **Discovery**: `GET /.well-known/agent-card.json`
-- **Invoke**: `POST <gateway-url>` with JSON-RPC `message/send` (synchronous — the call blocks until the agent finishes; there is no server-side write timeout cutting long turns):
+- **Invoke (sync)**: `POST <gateway-url>` with JSON-RPC `message/send` — blocks until the agent finishes; no server-side write timeout cuts long turns.
+- **Invoke (stream)**: `POST <gateway-url>` with JSON-RPC `message/stream` — responds `text/event-stream`; each `data:` frame is a JSON-RPC envelope whose result is a Task (`status.state` = `working` → … → `completed`, artifacts carry the full answer snapshot). Same `contextId` semantics as sync; a second stream on a live context is refused with `-32000`.
 
 ```bash
 curl -s localhost:18790/.well-known/agent-card.json | jq .protocolVersion   # "1.0"

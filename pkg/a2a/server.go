@@ -28,8 +28,9 @@ type Options struct {
 
 // Server serves A2A message/send on the shared gateway mux.
 type Server struct {
-	ask   AskFunc
-	token string
+	ask      AskFunc
+	token    string
+	registry *StreamRegistry
 
 	mu       sync.Mutex
 	contexts map[string]*sync.Mutex // per-context serialization
@@ -40,9 +41,14 @@ func NewServer(ask AskFunc, opts Options) *Server {
 	return &Server{
 		ask:      ask,
 		token:    opts.Token,
+		registry: NewStreamRegistry(),
 		contexts: make(map[string]*sync.Mutex),
 	}
 }
+
+// Registry exposes the SSE stream registry (gateway wires it into the bus
+// as the a2a-channel StreamDelegate).
+func (s *Server) Registry() *StreamRegistry { return s.registry }
 
 // Handler returns the http.Handler for POST <base-url> JSON-RPC traffic.
 func (s *Server) Handler() http.Handler {
@@ -95,6 +101,10 @@ func (s *Server) serveJSONRPC(w http.ResponseWriter, r *http.Request) {
 		writeJSONRPC(w, 0, req.ID, nil, &JSONRPCError{
 			Code: CodeInvalidRequest, Message: "jsonrpc must be 2.0 with a method",
 		})
+		return
+	}
+	if req.Method == "message/stream" {
+		s.serveMessageStream(w, r, req, s.registry)
 		return
 	}
 	if req.Method != "message/send" {
