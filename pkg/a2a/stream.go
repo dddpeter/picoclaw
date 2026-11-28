@@ -138,6 +138,19 @@ func (r *StreamRegistry) Unregister(contextID string) {
 	r.mu.Unlock()
 }
 
+// UnregisterIf removes the stream mapping only when it still points at the
+// given stream (its registrant). The gate is held for the TURN's lifetime,
+// so a late handler return can race a successor's registration after the
+// gate was already released by the harvester — an unconditional delete
+// would tear down the successor's stream mid-flight.
+func (r *StreamRegistry) UnregisterIf(contextID string, s *sseStream) {
+	r.mu.Lock()
+	if r.streams[contextID] == s {
+		delete(r.streams, contextID)
+	}
+	r.mu.Unlock()
+}
+
 // CancelStream pushes a canceled Task frame onto the contextId's live
 // stream and closes it (tasks/cancel side effect: attached SSE clients see
 // the terminal frame; the serveMessageStream loop returns on canceled).
@@ -276,6 +289,13 @@ func (s *Server) HandleMessageStream(reg *StreamRegistry) http.HandlerFunc {
 // (bus.StreamDelegate), and the final answer closes the stream even when
 // the provider ran non-streaming (no Finalize call). Auth and method
 // dispatch are handled by the caller (serveJSONRPC).
+//
+// Lifecycle ownership (2026-11-28 review P1): the HARVESTER goroutine owns
+// the ask outcome end to end — tracker completion, idempotency settle,
+// gate release — regardless of whether the SSE handler is still alive.
+// A client that walks away mid-turn (the whole point of detached
+// delivery) must still leave tasks/get with the answer and no leaked
+// runCancels entry; the SSE loop below only forwards frames.
 func (s *Server) serveMessageStream(w http.ResponseWriter, r *http.Request, req JSONRPCRequest, reg *StreamRegistry) {
 	if !s.authorized(r) {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="picoclaw-a2a"`)
@@ -304,18 +324,45 @@ func (s *Server) serveMessageStream(w http.ResponseWriter, r *http.Request, req 
 		_ = rc.SetWriteDeadline(time.Time{})
 	}
 
+	// Stream idempotency (same contract as message/send): a retry with the
+	// same messageId must not start a second turn while the original —
+	// possibly detached after a client disconnect — still runs. Leaders run
+	// the turn; followers wait (ctx-bounded) and replay the leader's
+	// terminal outcome; completed answers are cached for late retries.
+	messageID := params.Message.MessageID
+	flightID := ""
+	if s.idem != nil && messageID != "" {
+		if cached, ok := s.idem.Get(messageID); ok {
+			s.serveStreamReplay(w, contextID, taskID, cached, nil)
+			return
+		}
+		leader, res, ferr := s.idem.beginSingleFlightCtx(r.Context(), messageID)
+		if !leader {
+			if r.Context().Err() != nil {
+				return // caller gave up while queued; connection gone anyway
+			}
+			s.serveStreamReplay(w, contextID, taskID, res, ferr)
+			return
+		}
+		flightID = messageID
+	}
+
 	// Queue on the per-context gate BEFORE Register: concurrent streams on
 	// one contextId serialize here (caller-ctx-bounded), so retrying
 	// clients get a normal stream after the current turn instead of -32000.
+	// The gate is held for the TURN's lifetime (released by the harvester),
+	// not the handler's — a new stream while a detached turn still runs
+	// would otherwise start a second concurrent turn on the same session.
 	release, acquired := reg.Acquire(r.Context(), contextID)
 	if !acquired {
-		// Caller gave up while queued — connection is gone anyway.
+		s.settleStreamFlight(flightID, contextID, nil, fmt.Errorf("caller gave up before stream start"))
 		return
 	}
-	defer release()
 
 	stream := reg.Register(contextID, taskID)
 	if stream == nil {
+		release()
+		s.settleStreamFlight(flightID, contextID, nil, fmt.Errorf("stream aborted: context already streaming"))
 		// Defensive: only reachable if registry state drifts from the gate.
 		writeJSONRPC(w, 0, req.ID, nil, &JSONRPCError{
 			Code:    CodeServerError,
@@ -323,10 +370,10 @@ func (s *Server) serveMessageStream(w http.ResponseWriter, r *http.Request, req 
 		})
 		return
 	}
-	defer reg.Unregister(contextID)
+	defer reg.UnregisterIf(contextID, stream)
 
 	// Task 6: index the task so tasks/get can serve detached watchers.
-	s.tracker.Register(taskID, params.Message.MessageID, contextID)
+	s.tracker.Register(taskID, messageID, contextID)
 
 	flusher, canFlush := w.(http.Flusher)
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -340,8 +387,8 @@ func (s *Server) serveMessageStream(w http.ResponseWriter, r *http.Request, req 
 	// Agent loop in the background; snapshots flow via the registry.
 	// Task 6: the turn MUST outlive the HTTP connection — detached clients
 	// walk away right after the acceptance frame. askCtx is therefore
-	// TASK-scoped (30min guard), NOT request-scoped: handler returns on
-	// client disconnect must NOT cancel it. askDone reclaims it.
+	// TASK-scoped (30min guard), NOT request-scoped: handler return on
+	// client disconnect must NOT cancel it. The harvester reclaims it.
 	askCtx, askCancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	s.trackRun(taskID, askCancel) // tasks/cancel stops the turn via this ctx
 	askDone := make(chan error, 1)
@@ -352,42 +399,48 @@ func (s *Server) serveMessageStream(w http.ResponseWriter, r *http.Request, req 
 		askDone <- err
 	}()
 
-	id := req.ID
-	if id == nil {
-		id = json.RawMessage("null")
-	}
-	heartbeat := time.NewTicker(15 * time.Second)
-	defer heartbeat.Stop()
-
-	for {
-		select {
-		case err := <-askDone:
-			s.untrackRun(taskID)
-			askCancel() // reclaim the task-scoped ctx; timeout is the backstop
+	// Harvester: single owner of the ask outcome. Runs whether or not the
+	// SSE handler is still alive — this is what makes detached delivery
+	// actually deliver (tasks/get serves the answer after the client is
+	// gone) and what reclaims runCancels and the gate.
+	go func() {
+		err := <-askDone
+		s.untrackRun(taskID)
+		askCancel() // reclaim the task-scoped ctx; timeout is the backstop
+		if err != nil {
+			s.tracker.Fail(taskID, err.Error())
+			s.settleStreamFlight(flightID, contextID, nil, err) // failures are not cached
+		} else {
+			s.tracker.Complete(taskID, answer)
+			s.settleStreamFlight(flightID, contextID, answer, nil) // cached for late retries
+		}
+		// Non-streaming provider: no Finalize arrived — close with the
+		// outcome. Skip when the stream already reached a terminal state
+		// (canceled via tasks/cancel, completed via pipeline Finalize).
+		if state := stream.snapshot(); state != TaskStateCompleted && state != TaskStateCanceled && state != TaskStateFailed {
 			if err != nil {
-				s.tracker.Fail(taskID, err.Error())
 				_ = stream.push(Task{
 					ID: taskID, ContextID: contextID, Kind: "task",
 					Status: TaskStatus{State: TaskStateFailed,
 						Message: &A2AMessage{Role: "agent", Parts: []A2APart{{Kind: "text", Text: err.Error()}}}},
 				})
-			} else if stream.snapshot() != TaskStateCompleted {
-				// Non-streaming provider: no Finalize arrived — close with the answer.
-				s.tracker.Complete(taskID, answer)
+			} else {
 				_ = stream.push(Task{
 					ID: taskID, ContextID: contextID, Kind: "task",
 					Status:    TaskStatus{State: TaskStateCompleted},
 					Artifacts: []A2AArtifact{{Parts: []A2APart{{Kind: "text", Text: answer}}}},
 				})
-			} else {
-				s.tracker.Complete(taskID, answer)
 			}
-			// The final frames were pushed onto the channel; without this
-			// drain they die with the handler (return would race the select
-			// and the queued terminating frame would never reach the client).
-			drainStreamFrames(w, flusher, canFlush, stream)
-			stream.finish()
-			return
+		}
+		stream.finish()
+		release() // turn over: the next stream on this context may start
+	}()
+
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+
+	for {
+		select {
 		case frame := <-stream.events:
 			if _, err := fmt.Fprintf(w, "%s\n\n", frame); err != nil {
 				stream.finish()
@@ -396,10 +449,18 @@ func (s *Server) serveMessageStream(w http.ResponseWriter, r *http.Request, req 
 			if canFlush {
 				flusher.Flush()
 			}
-			if strings.Contains(frame, `"state":"completed"`) || strings.Contains(frame, `"state":"canceled"`) {
-				stream.finish()
+			if strings.Contains(frame, `"state":"completed"`) || strings.Contains(frame, `"state":"canceled"`) || strings.Contains(frame, `"state":"failed"`) {
+				// Terminal frame written; the harvester owns the rest
+				// (tracker settle, gate release). No further draining
+				// needed — the terminal frame is the last one.
 				return
 			}
+		case <-stream.done:
+			// Harvester (or CancelStream / pipeline Finalize) closed the
+			// stream: drain whatever terminal frames are queued so the
+			// client sees the state change, then end.
+			drainStreamFrames(w, flusher, canFlush, stream)
+			return
 		case <-heartbeat.C:
 			if _, err := fmt.Fprint(w, ": keepalive\n\n"); err != nil {
 				stream.finish()
@@ -410,9 +471,77 @@ func (s *Server) serveMessageStream(w http.ResponseWriter, r *http.Request, req 
 			}
 		case <-r.Context().Done():
 			stream.finish()
-			return
+			return // the turn and its tracker record live on in the harvester
 		}
 	}
+}
+
+// settleStreamFlight publishes the leader's terminal outcome to the
+// idempotency store. flightID is empty when the stream ran without dedup
+// (empty messageId or store disabled) — settle is then a no-op.
+func (s *Server) settleStreamFlight(flightID, contextID string, result any, err error) {
+	if s.idem == nil || flightID == "" {
+		return
+	}
+	if err != nil {
+		s.idem.finishSingleFlight(flightID, nil, err)
+		return
+	}
+	s.idem.Put(flightID, result, contextID)
+	s.idem.finishSingleFlight(flightID, result, nil)
+}
+
+// serveStreamReplay writes a synthetic SSE stream carrying a leader's
+// terminal outcome (idempotency follower or late cache hit). The replay's
+// task id is fresh and deliberately NOT tracked: the original task record
+// — the one a detached watcher polls — already holds the outcome.
+func (s *Server) serveStreamReplay(w http.ResponseWriter, contextID, taskID string, result any, askErr error) {
+	if rc := http.NewResponseController(w); rc != nil {
+		_ = rc.SetWriteDeadline(time.Time{})
+	}
+	flusher, canFlush := w.(http.Flusher)
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+	if canFlush {
+		flusher.Flush()
+	}
+	task := Task{ID: taskID, ContextID: contextID, Kind: "task"}
+	if askErr != nil {
+		task.Status = TaskStatus{State: TaskStateFailed,
+			Message: &A2AMessage{Role: "agent", Parts: []A2APart{{Kind: "text", Text: askErr.Error()}}}}
+	} else {
+		task.Status = TaskStatus{State: TaskStateCompleted}
+		if ans := replayAnswer(result); ans != "" {
+			task.Artifacts = []A2AArtifact{{Parts: []A2APart{{Kind: "text", Text: ans}}}}
+		}
+	}
+	frame, err := json.Marshal(JSONRPCResponse{JSONRPC: "2.0", Result: task})
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(w, "data: %s\n\n", frame)
+	if canFlush {
+		flusher.Flush()
+	}
+}
+
+// replayAnswer extracts text from a cached idempotency result. The stream
+// path caches the answer string; a message/send run sharing the same
+// messageId caches an A2AMessage — honor both.
+func replayAnswer(result any) string {
+	switch v := result.(type) {
+	case string:
+		return v
+	case A2AMessage:
+		return v.Text()
+	case *A2AMessage:
+		if v != nil {
+			return v.Text()
+		}
+	}
+	return ""
 }
 
 // drainStreamFrames flushes whatever frames are already queued so the
@@ -460,4 +589,18 @@ func (c *ChainedStreamDelegate) GetStreamer(ctx context.Context, channel, chatID
 		return nil, false
 	}
 	return c.Fallback.GetStreamer(ctx, channel, chatID, sessionKey)
+}
+
+// NotifySteering forwards the mid-turn steering acknowledgement down the
+// chain. The chain itself must implement bus.SteeringNotifyDelegate:
+// bus.NotifySteering type-asserts the TOP-LEVEL delegate, so without this
+// method, enabling the A2A endpoint (which swaps the channel manager out
+// for the chain) silently disabled steering acks for every channel.
+func (c *ChainedStreamDelegate) NotifySteering(ctx context.Context, channel, chatID, sessionKey, preview string) bool {
+	for _, d := range []bus.StreamDelegate{c.Primary, c.Fallback} {
+		if sd, ok := d.(bus.SteeringNotifyDelegate); ok && sd != nil {
+			return sd.NotifySteering(ctx, channel, chatID, sessionKey, preview)
+		}
+	}
+	return false
 }

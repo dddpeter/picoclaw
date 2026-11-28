@@ -1,6 +1,7 @@
 package a2a
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"time"
@@ -127,6 +128,32 @@ func (s *IdempotencyStore) beginSingleFlight(messageID string) (bool, any, error
 		s.mu.Unlock()
 		<-f.done
 		return false, f.result, f.err
+	}
+	f := &idempotencyFlight{done: make(chan struct{})}
+	s.flights[messageID] = f
+	s.mu.Unlock()
+	return true, nil, nil
+}
+
+// beginSingleFlightCtx is beginSingleFlight with a ctx-bounded follower
+// wait: a caller whose request dies while queued returns (false, nil,
+// ctx.Err()) without disturbing the leader — unlike the unbounded
+// message/send variant, the stream path serves real HTTP connections
+// that can go away mid-wait. The flight entry itself stays until the
+// leader settles it.
+func (s *IdempotencyStore) beginSingleFlightCtx(ctx context.Context, messageID string) (bool, any, error) {
+	if messageID == "" {
+		return true, nil, nil
+	}
+	s.mu.Lock()
+	if f, running := s.flights[messageID]; running {
+		s.mu.Unlock()
+		select {
+		case <-f.done:
+			return false, f.result, f.err
+		case <-ctx.Done():
+			return false, nil, ctx.Err()
+		}
 	}
 	f := &idempotencyFlight{done: make(chan struct{})}
 	s.flights[messageID] = f

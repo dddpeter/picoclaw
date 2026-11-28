@@ -2,6 +2,7 @@ package a2a
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -22,9 +23,14 @@ func TestMessageStreamQueueSerial(t *testing.T) {
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 
-	body := `{"jsonrpc":"2.0","id":1,"method":"message/stream","params":{"message":{"role":"user","parts":[{"kind":"text","text":"并发问"}],"messageId":"q1","contextId":"ctx-queue"}}}`
+	// Two DIFFERENT messageIds on the same context: gate serialization,
+	// not idempotency dedup (same-messageId retries replay instead —
+	// TestMessageStreamIdempotentRetry).
+	body := func(id string) string {
+		return `{"jsonrpc":"2.0","id":1,"method":"message/stream","params":{"message":{"role":"user","parts":[{"kind":"text","text":"并发问"}],"messageId":"` + id + `","contextId":"ctx-queue"}}}`
+	}
 	post := func() *httptest.ResponseRecorder {
-		req := httptest.NewRequest("POST", "/", strings.NewReader(body)).WithContext(context.Background())
+		req := httptest.NewRequest("POST", "/", strings.NewReader(body("q0"))).WithContext(context.Background())
 		rec := httptest.NewRecorder()
 		done := make(chan *httptest.ResponseRecorder, 1)
 		go func() { h.ServeHTTP(rec, req); done <- rec }()
@@ -38,7 +44,7 @@ func TestMessageStreamQueueSerial(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		go func(idx int) {
 			defer wg.Done()
-			req := httptest.NewRequest("POST", "/", strings.NewReader(body))
+			req := httptest.NewRequest("POST", "/", strings.NewReader(body(fmt.Sprintf("q%d", idx))))
 			req.RemoteAddr = "127.0.0.1:54321"
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, req)
