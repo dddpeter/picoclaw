@@ -384,6 +384,20 @@ func (s *Server) serveMessageStream(w http.ResponseWriter, r *http.Request, req 
 		flusher.Flush()
 	}
 
+	// Acceptance frame immediately after headers. Tool-first turns (exec
+	// before any text) used to leave the SSE silent past the client's
+	// acceptance window — GroupBridge's 30s acceptTimeout surfaced every
+	// 虾酱 dispatch as a 1m2s error card while the turn ran fine detached
+	// (2026-11-28 M4 V1 live finding). Naming the task up front lets the
+	// client stop its acceptance timer; real snapshots follow from the
+	// pipeline as before.
+	_ = stream.push(Task{
+		ID:        taskID,
+		ContextID: contextID,
+		Kind:      "task",
+		Status:    TaskStatus{State: TaskStateWorking},
+	})
+
 	// Agent loop in the background; snapshots flow via the registry.
 	// Task 6: the turn MUST outlive the HTTP connection — detached clients
 	// walk away right after the acceptance frame. askCtx is therefore
