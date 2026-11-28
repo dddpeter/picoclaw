@@ -53,7 +53,7 @@ func TestStreamRegistryLifecycle(t *testing.T) {
 }
 
 func TestCardStreamingCapability(t *testing.T) {
-	card := NewAgentCard("PicoClaw", "d", "http://127.0.0.1:18790", true)
+	card := NewAgentCard(CardSpec{Name: "PicoClaw", Description: "d"}, "http://127.0.0.1:18790", true)
 	if !card.Capabilities.Streaming {
 		t.Error("capabilities.streaming = false, want true (message/stream verified live)")
 	}

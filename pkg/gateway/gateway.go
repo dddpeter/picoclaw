@@ -218,7 +218,7 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 
 	logger.InfoCF("agent", "Agent initialized", startupStatus.logFields)
 
-	runningServices, err := setupAndStartServices(cfg, agentLoop, msgBus, pidData.Token, listenResult)
+	runningServices, err := setupAndStartServices(cfg, agentLoop, msgBus, pidData.Token, configPath, listenResult)
 	if err != nil {
 		return err
 	}
@@ -434,6 +434,7 @@ func setupAndStartServices(
 	agentLoop *agent.AgentLoop,
 	msgBus *bus.MessageBus,
 	authToken string,
+	configPath string,
 	listenResult netbind.OpenResult,
 ) (*services, error) {
 	runningServices := &services{}
@@ -546,9 +547,21 @@ func setupAndStartServices(
 			},
 			a2a.Options{Token: cfg.Gateway.A2A.Token},
 		)
+		// Agent card identity lives in agent-card.json next to config.json
+		// (not hardcoded): generated once from the workspace persona on the
+		// first enabled start, then user-editable and hot-reloaded by mtime.
+		// Generation failure is non-fatal — the card serves the generic
+		// default rather than taking discovery down.
+		cardPath := filepath.Join(filepath.Dir(configPath), a2a.CardFileName)
+		if err := a2a.EnsureCardFile(cardPath, cfg.WorkspacePath()); err != nil {
+			logger.WarnCF("a2a", "agent-card.json not generated; serving generic default", map[string]any{
+				"path":  cardPath,
+				"error": err.Error(),
+			})
+		}
 		runningServices.ChannelManager.RegisterHandler(
 			"/.well-known/agent-card.json",
-			a2a.CardHandler(a2a.NewAgentCard("PicoClaw", "PicoClaw personal AI agent", "http://"+listenAddr, cfg.Gateway.A2A.Token != "")),
+			a2a.NewReloadableCard(cardPath, "http://"+listenAddr, cfg.Gateway.A2A.Token != "").Handler(),
 		)
 		runningServices.ChannelManager.RegisterHandler("/", a2aSrv.Handler())
 		// message/stream: route the agent pipeline's streamer lookups for the

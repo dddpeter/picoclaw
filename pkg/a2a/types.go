@@ -111,13 +111,19 @@ type AgentCard struct {
 	DefaultOutputModes []string              `json:"defaultOutputModes"`
 }
 
-// NewAgentCard builds the standard card for this gateway.
-func NewAgentCard(name, description, baseURL string, withAuth bool) AgentCard {
+// NewAgentCard builds the standard card for this gateway from a CardSpec
+// (user-editable identity, see card_file.go) plus the process-level facts
+// (URL fallback, auth mode).
+func NewAgentCard(spec CardSpec, baseURL string, withAuth bool) AgentCard {
+	url := spec.URL
+	if url == "" {
+		url = baseURL
+	}
 	card := AgentCard{
-		Name:            name,
-		Description:     description,
+		Name:            spec.Name,
+		Description:     spec.Description,
 		ProtocolVersion: "1.0",
-		URL:             baseURL,
+		URL:             url,
 		Capabilities: AgentCardCapabilities{
 			Streaming:         true,  // message/stream (SSE) verified end-to-end
 			PushNotifications: false, // no tasks/push yet
@@ -129,4 +135,16 @@ func NewAgentCard(name, description, baseURL string, withAuth bool) AgentCard {
 		card.SecuritySchemes = []string{"bearer"}
 	}
 	return card
+}
+
+// newCardFromSpec applies the generic defaults for identity fields the
+// spec file left empty, then builds the card.
+func newCardFromSpec(spec CardSpec, baseURL string, withAuth bool) AgentCard {
+	if spec.Name == "" {
+		spec.Name = "PicoClaw"
+	}
+	if spec.Description == "" {
+		spec.Description = "PicoClaw personal AI agent"
+	}
+	return NewAgentCard(spec, baseURL, withAuth)
 }

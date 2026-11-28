@@ -9,7 +9,7 @@ import (
 // TestAgentCard pins the Agent Card shape demanded by A2A v1.0 and the
 // GroupBridge client (docs/design/a2a/2026-11-27-a2a-server-plan.md 任务 1).
 func TestAgentCard(t *testing.T) {
-	card := NewAgentCard("虾酱", "PicoClaw 虾酱", "http://127.0.0.1:18790", true)
+	card := NewAgentCard(CardSpec{Name: "虾酱", Description: "PicoClaw 虾酱"}, "http://127.0.0.1:18790", true)
 
 	if card.ProtocolVersion != "1.0" {
 		t.Errorf("protocolVersion = %q, want 1.0", card.ProtocolVersion)
@@ -58,7 +58,8 @@ func TestAgentCard(t *testing.T) {
 
 // TestCardHandler pins the discovery endpoint: GET /.well-known/agent-card.json.
 func TestCardHandler(t *testing.T) {
-	h := CardHandler(NewAgentCard("虾酱", "PicoClaw 虾酱", "http://127.0.0.1:18790", true))
+	h := NewReloadableCard("", "http://127.0.0.1:18790", true).Handler()
+	// No spec file: the source must fall back to the generic default card.
 
 	req := httptest.NewRequest("GET", "/.well-known/agent-card.json", nil)
 	rec := httptest.NewRecorder()
@@ -75,7 +76,7 @@ func TestCardHandler(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &card); err != nil {
 		t.Fatalf("body does not decode to AgentCard: %v", err)
 	}
-	if card.ProtocolVersion != "1.0" || card.Name != "虾酱" {
+	if card.ProtocolVersion != "1.0" || card.Name == "" {
 		t.Errorf("decoded card mismatch: %+v", card)
 	}
 

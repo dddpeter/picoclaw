@@ -531,7 +531,7 @@ PicoClaw gateway can expose a standard [A2A v1.0](https://a2a-protocol.org) JSON
 - `token` empty → only loopback callers (`127.0.0.1` / `::1`) may invoke; otherwise a `Authorization: Bearer <token>` header is required from non-loopback callers.
 - **Discovery**: `GET /.well-known/agent-card.json`
 - **Invoke (sync)**: `POST <gateway-url>` with JSON-RPC `message/send` — blocks until the agent finishes; no server-side write timeout cuts long turns.
-- **Invoke (stream)**: `POST <gateway-url>` with JSON-RPC `message/stream` — responds `text/event-stream`; each `data:` frame is a JSON-RPC envelope whose result is a Task (`status.state` = `working` → … → `completed`, artifacts carry the full answer snapshot). Same `contextId` semantics as sync; a second stream on a live context is refused with `-32000`.
+- **Invoke (stream)**: `POST <gateway-url>` with JSON-RPC `message/stream` — responds `text/event-stream`; each `data:` frame is a JSON-RPC envelope whose result is a Task (`status.state` = `working` → … → `completed`, artifacts carry the full answer snapshot). Same `contextId` semantics as sync; concurrent streams on the same context queue on a caller-bounded gate instead of being refused.
 
 ```bash
 curl -s localhost:18790/.well-known/agent-card.json | jq .protocolVersion   # "1.0"
@@ -540,6 +540,23 @@ curl -s -X POST localhost:18790 -H 'Authorization: Bearer your-bearer-token' \
 ```
 
 Repeat calls with the same `contextId` continue the same conversation (session continuity); omit it on the first call and the server mints one in the response. Implementation: `pkg/a2a/` — design notes in `docs/design/a2a/`.
+
+### Agent card identity file
+
+The card's identity is **not hardcoded** — it lives in `agent-card.json` next to `config.json` (e.g. `~/.picoclaw/agent-card.json`):
+
+```json
+{
+  "name": "虾酱",
+  "description": "部署增强版鲎，专注 picoclaw 开发",
+  "url": "https://a2a.example.com"
+}
+```
+
+- **First enabled start**: if the file doesn't exist, the gateway generates it once from the workspace persona — `name`/`description` from `AGENT.md` frontmatter, falling back to the first meaningful line of `SOUL.md`, then to generic defaults. Long-term memory (`memory/MEMORY.md`) is deliberately **not** consulted: the card is an unauthenticated discovery document and memory is not public-by-design.
+- **Afterwards the file is the source of truth** — it is never auto-regenerated; edit it freely. Changes are hot-reloaded by mtime (next request serves the new content, no restart).
+- `url` (optional) overrides the advertised base URL. The default (`http://<listen-addr>`) is only dialable from the host itself — set a reachable URL when the gateway is behind NAT/proxy.
+- `protocolVersion`, `capabilities`, `securitySchemes` and default modes stay code-derived so a typo in the file can't break the wire contract.
 
 ## 🔧 Tools
 
