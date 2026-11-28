@@ -24,11 +24,16 @@ type Options struct {
 	// Token requires callers to present "Authorization: Bearer <token>".
 	// Empty = loopback-only access (127.0.0.1 / ::1 may call without auth).
 	Token string
+	// Steer injects a user message into the currently running turn
+	// (message/steer). Nil = the method answers -32601 (P4.2: GroupBridge
+	// treats that as "family does not support steering" and queues instead).
+	Steer func(prompt string) error
 }
 
 // Server serves A2A message/send on the shared gateway mux.
 type Server struct {
 	ask      AskFunc
+	steer    func(prompt string) error
 	token    string
 	registry *StreamRegistry
 	idem     *IdempotencyStore
@@ -47,6 +52,7 @@ type Server struct {
 func NewServer(ask AskFunc, opts Options) *Server {
 	return &Server{
 		ask:        ask,
+		steer:      opts.Steer,
 		token:      opts.Token,
 		registry:   NewStreamRegistry(),
 		idem:       NewIdempotencyStore(24 * time.Hour),
@@ -123,6 +129,10 @@ func (s *Server) serveJSONRPC(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Method == "tasks/cancel" {
 		s.serveTasksCancel(w, r, req)
+		return
+	}
+	if req.Method == "message/steer" {
+		s.serveMessageSteer(w, req)
 		return
 	}
 	if req.Method != "message/send" {
@@ -222,4 +232,48 @@ func writeJSONRPC(w http.ResponseWriter, status int, id json.RawMessage, result 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// serveMessageSteer injects a user message into the CURRENTLY RUNNING turn
+// (P4.2). Deliberately different from message/send:
+//   - no contextLock: the whole point is to reach a turn that is in flight,
+//     and waiting on the gate here would reproduce the GroupBridge 30s
+//     accept-window failure this method exists to fix;
+//   - no idempotency dedup: steering is fire-and-forget; clients retry by
+//     re-steering, not by resending the same id;
+//   - no active turn → server error carrying "no active turn to steer" so
+//     callers can fall back to a normal dispatch (the race where the turn
+//     ended between the caller's in-flight check and this call).
+func (s *Server) serveMessageSteer(w http.ResponseWriter, req JSONRPCRequest) {
+	if s.steer == nil {
+		writeJSONRPC(w, 0, req.ID, nil, &JSONRPCError{
+			Code:    CodeMethodNotFound,
+			Message: "method \"message/steer\" not supported; this gateway has no steering wiring",
+		})
+		return
+	}
+	var params MessageSendParams
+	if err := json.Unmarshal(req.Params, &params); err != nil || params.Message == nil {
+		writeJSONRPC(w, 0, req.ID, nil, &JSONRPCError{
+			Code:    CodeInvalidParams,
+			Message: "params.message (A2AMessage) required",
+		})
+		return
+	}
+	text := params.Message.Text()
+	if text == "" {
+		writeJSONRPC(w, 0, req.ID, nil, &JSONRPCError{
+			Code:    CodeInvalidParams,
+			Message: "params.message must carry a non-empty text part",
+		})
+		return
+	}
+	if err := s.steer(text); err != nil {
+		writeJSONRPC(w, 0, req.ID, nil, &JSONRPCError{
+			Code:    CodeServerError,
+			Message: "steer rejected: " + err.Error(),
+		})
+		return
+	}
+	writeJSONRPC(w, 0, req.ID, map[string]any{"accepted": true}, nil)
 }

@@ -545,7 +545,16 @@ func setupAndStartServices(
 			func(ctx context.Context, prompt, channel, chatID string) (string, error) {
 				return agentLoop.ProcessDirectWithChannel(ctx, prompt, channel+"-"+chatID, channel, chatID)
 			},
-			a2a.Options{Token: cfg.Gateway.A2A.Token},
+			a2a.Options{
+				Token: cfg.Gateway.A2A.Token,
+				// P4.2: mid-turn interjections from the group bridge reach the
+				// running turn's steering queue instead of queueing a new turn
+				// behind the gate. No active turn → error → bridge falls back
+				// to a normal dispatch.
+				Steer: func(prompt string) error {
+					return agentLoop.Steer(providers.Message{Role: "user", Content: prompt})
+				},
+			},
 		)
 		// Agent card identity lives in agent-card.json next to config.json
 		// (not hardcoded): generated once from the workspace persona on the

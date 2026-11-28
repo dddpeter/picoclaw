@@ -172,13 +172,14 @@ func (sq *steeringQueue) clearScope(scope string) int {
 // agent loop. The message will be picked up after the current tool finishes
 // executing, causing any remaining tool calls in the batch to be skipped.
 func (al *AgentLoop) Steer(msg providers.Message) error {
-	scope := ""
-	agentID := ""
-	if ts := al.getAnyActiveTurnState(); ts != nil {
-		scope = ts.sessionKey
-		agentID = ts.agentID
+	ts := al.getAnyActiveTurnState()
+	if ts == nil {
+		// External callers (a2a message/steer) rely on this to fall back to
+		// a normal dispatch — a scope-less enqueue would land in a queue no
+		// running turn ever drains.
+		return fmt.Errorf("no active turn to steer")
 	}
-	return al.enqueueSteeringMessage(scope, agentID, msg)
+	return al.enqueueSteeringMessage(ts.sessionKey, ts.agentID, msg)
 }
 
 func (al *AgentLoop) enqueueSteeringMessage(scope, agentID string, msg providers.Message) error {
